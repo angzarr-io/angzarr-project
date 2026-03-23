@@ -1,0 +1,56 @@
+syntax = "proto3";
+package examples;
+
+import "google/protobuf/timestamp.proto";
+
+option csharp_namespace = "Angzarr.Examples";
+option go_package = "github.com/angzarr/angzarr/proto/examples";
+option java_multiple_files = true;
+option java_package = "dev.angzarr.examples";
+option ruby_package = "Angzarr::Examples";
+
+// =============================================================================
+// Orchestration Types - Shared types for PM-coordinated flows
+// =============================================================================
+
+// Phase tracking for buy-in orchestration
+enum BuyInPhase {
+  BUY_IN_PHASE_UNSPECIFIED = 0;
+  BUY_IN_REQUESTED = 1; // Initial request received
+  BUY_IN_RESERVING = 2; // Funds being reserved
+  BUY_IN_SEATING = 3; // Awaiting seat confirmation
+  BUY_IN_CONFIRMING = 4; // Confirming with player
+  BUY_IN_COMPLETED = 5; // Successfully completed
+  BUY_IN_FAILED = 6; // Failed - funds released
+}
+
+// Phase tracking for tournament registration
+enum RegistrationPhase {
+  REGISTRATION_PHASE_UNSPECIFIED = 0;
+  REGISTRATION_REQUESTED = 1; // Initial request received
+  REGISTRATION_RESERVING = 2; // Fee being reserved
+  REGISTRATION_ENROLLING = 3; // Awaiting tournament confirmation
+  REGISTRATION_CONFIRMING = 4; // Confirming with player
+  REGISTRATION_COMPLETED = 5; // Successfully registered
+  REGISTRATION_FAILED = 6; // Failed - fee released
+}
+
+// Phase tracking for rebuy orchestration
+enum RebuyPhase {
+  REBUY_PHASE_UNSPECIFIED = 0;
+  REBUY_REQUESTED = 1; // Initial request received
+  REBUY_RESERVING = 2; // Fee being reserved
+  REBUY_APPROVING = 3; // Awaiting tournament approval
+  REBUY_ADDING_CHIPS = 4; // Adding chips to table
+  REBUY_CONFIRMING = 5; // Confirming with player
+  REBUY_COMPLETED = 6; // Successfully completed
+  REBUY_FAILED = 7; // Failed - fee released
+}
+
+// Reason for orchestration failure
+message OrchestrationFailure {
+  string code = 1; // Machine-readable code
+  string message = 2; // Human-readable message
+  string failed_at_phase = 3; // Which phase failed
+  google.protobuf.Timestamp failed_at = 4;
+}

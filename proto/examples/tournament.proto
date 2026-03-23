@@ -1,0 +1,284 @@
+syntax = "proto3";
+package examples;
+
+import "examples/poker_types.proto";
+import "google/protobuf/timestamp.proto";
+
+option csharp_namespace = "Angzarr.Examples";
+option go_package = "github.com/angzarr/angzarr/proto/examples";
+option java_multiple_files = true;
+option java_package = "dev.angzarr.examples";
+option ruby_package = "Angzarr::Examples";
+
+// =============================================================================
+// Tournament Domain - Tournament lifecycle and player management
+// Root: tournament_id (derived from name + start time)
+// =============================================================================
+
+// Tournament status
+enum TournamentStatus {
+  TOURNAMENT_STATUS_UNSPECIFIED = 0;
+  TOURNAMENT_CREATED = 1; // Created but not open
+  TOURNAMENT_REGISTRATION_OPEN = 2; // Accepting registrations
+  TOURNAMENT_RUNNING = 3; // In progress
+  TOURNAMENT_PAUSED = 4; // On break
+  TOURNAMENT_COMPLETED = 5; // Finished
+  TOURNAMENT_CANCELLED = 6; // Cancelled
+}
+
+// Rebuy configuration
+message RebuyConfig {
+  bool enabled = 1;
+  int32 max_rebuys = 2; // 0 = unlimited
+  int32 rebuy_level_cutoff = 3; // Last level allowing rebuys
+  int64 stack_threshold = 4; // Max stack to be eligible
+  int64 rebuy_cost = 5;
+  int64 rebuy_chips = 6;
+}
+
+// Addon configuration
+message AddonConfig {
+  bool enabled = 1;
+  int32 addon_level = 2; // Level when addon is available
+  int64 addon_cost = 3;
+  int64 addon_chips = 4;
+}
+
+// Player registration record
+message PlayerRegistration {
+  bytes player_root = 1;
+  int64 fee_paid = 2;
+  int64 starting_stack = 3;
+  int32 rebuys_used = 4;
+  bool addon_taken = 5;
+  int32 table_assignment = 6; // Table number
+  int32 seat_assignment = 7;
+  google.protobuf.Timestamp registered_at = 8;
+}
+
+// -----------------------------------------------------------------------------
+// Commands
+// -----------------------------------------------------------------------------
+
+message CreateTournament {
+  string name = 1;
+  GameVariant game_variant = 2;
+  int64 buy_in = 3;
+  int64 starting_stack = 4;
+  int32 max_players = 5;
+  int32 min_players = 6;
+  google.protobuf.Timestamp scheduled_start = 7;
+  RebuyConfig rebuy_config = 8;
+  AddonConfig addon_config = 9;
+  repeated BlindLevel blind_structure = 10;
+}
+
+message OpenRegistration {
+  // No parameters - uses tournament config
+}
+
+message CloseRegistration {
+  // No parameters
+}
+
+// PM sends this command to register a player in tournament
+message EnrollPlayer {
+  bytes player_root = 1;
+  bytes reservation_id = 2; // Links to registration flow
+}
+
+// Player requests to unregister (refund if allowed)
+message UnregisterPlayer {
+  bytes player_root = 1;
+}
+
+// Start the tournament (requires min players)
+message StartTournament {
+  // No parameters
+}
+
+// PM sends this command to process a rebuy
+message ProcessRebuy {
+  bytes player_root = 1;
+  bytes reservation_id = 2; // Links to rebuy flow
+}
+
+// PM sends this command to process an addon
+message ProcessAddon {
+  bytes player_root = 1;
+  bytes reservation_id = 2;
+}
+
+// Advance to next blind level
+message AdvanceBlindLevel {
+  // No parameters - advances to next level in structure
+}
+
+// Eliminate a player (from table event via saga)
+message EliminatePlayer {
+  bytes player_root = 1;
+  bytes hand_root = 2; // Hand where elimination occurred
+}
+
+// Pause the tournament (break)
+message PauseTournament {
+  string reason = 1;
+}
+
+// Resume the tournament
+message ResumeTournament {
+  // No parameters
+}
+
+// -----------------------------------------------------------------------------
+// Events
+// -----------------------------------------------------------------------------
+
+message TournamentCreated {
+  string name = 1;
+  GameVariant game_variant = 2;
+  int64 buy_in = 3;
+  int64 starting_stack = 4;
+  int32 max_players = 5;
+  int32 min_players = 6;
+  google.protobuf.Timestamp scheduled_start = 7;
+  RebuyConfig rebuy_config = 8;
+  AddonConfig addon_config = 9;
+  repeated BlindLevel blind_structure = 10;
+  google.protobuf.Timestamp created_at = 11;
+}
+
+message RegistrationOpened {
+  google.protobuf.Timestamp opened_at = 1;
+}
+
+message RegistrationClosed {
+  int32 total_registrations = 1;
+  google.protobuf.Timestamp closed_at = 2;
+}
+
+message TournamentPlayerEnrolled {
+  bytes player_root = 1;
+  bytes reservation_id = 2;
+  int64 fee_paid = 3;
+  int64 starting_stack = 4;
+  int32 registration_number = 5; // Order of registration
+  google.protobuf.Timestamp enrolled_at = 6;
+}
+
+message TournamentEnrollmentRejected {
+  bytes player_root = 1;
+  bytes reservation_id = 2;
+  string reason = 3; // "full", "closed", "already_registered"
+  google.protobuf.Timestamp rejected_at = 4;
+}
+
+message PlayerUnregistered {
+  bytes player_root = 1;
+  int64 refund_amount = 2;
+  google.protobuf.Timestamp unregistered_at = 3;
+}
+
+message TournamentStarted {
+  int32 total_players = 1;
+  int32 tables_created = 2;
+  int64 total_prize_pool = 3;
+  google.protobuf.Timestamp started_at = 4;
+}
+
+message RebuyProcessed {
+  bytes player_root = 1;
+  bytes reservation_id = 2;
+  int64 rebuy_cost = 3;
+  int64 chips_added = 4;
+  int32 rebuy_count = 5; // Player's total rebuys
+  google.protobuf.Timestamp processed_at = 6;
+}
+
+message RebuyDenied {
+  bytes player_root = 1;
+  bytes reservation_id = 2;
+  string reason = 3; // "window_closed", "stack_too_high", "max_reached"
+  google.protobuf.Timestamp denied_at = 4;
+}
+
+message AddonProcessed {
+  bytes player_root = 1;
+  bytes reservation_id = 2;
+  int64 addon_cost = 3;
+  int64 chips_added = 4;
+  google.protobuf.Timestamp processed_at = 5;
+}
+
+message BlindLevelAdvanced {
+  int32 level = 1;
+  int64 small_blind = 2;
+  int64 big_blind = 3;
+  int64 ante = 4;
+  google.protobuf.Timestamp advanced_at = 5;
+}
+
+message PlayerEliminated {
+  bytes player_root = 1;
+  int32 finish_position = 2;
+  bytes hand_root = 3;
+  int64 payout = 4; // 0 if out of the money
+  google.protobuf.Timestamp eliminated_at = 5;
+}
+
+message TournamentPaused {
+  string reason = 1;
+  google.protobuf.Timestamp paused_at = 2;
+}
+
+message TournamentResumed {
+  google.protobuf.Timestamp resumed_at = 1;
+}
+
+message TournamentCompleted {
+  bytes winner_root = 1;
+  int64 total_prize_pool = 2;
+  repeated TournamentResult results = 3;
+  google.protobuf.Timestamp completed_at = 4;
+}
+
+message TournamentResult {
+  int32 position = 1;
+  bytes player_root = 2;
+  int64 payout = 3;
+}
+
+// -----------------------------------------------------------------------------
+// Supporting Types
+// -----------------------------------------------------------------------------
+
+message BlindLevel {
+  int32 level = 1;
+  int64 small_blind = 2;
+  int64 big_blind = 3;
+  int64 ante = 4;
+  int32 duration_minutes = 5;
+}
+
+// -----------------------------------------------------------------------------
+// State (for snapshots)
+// -----------------------------------------------------------------------------
+
+message TournamentState {
+  string tournament_id = 1;
+  string name = 2;
+  GameVariant game_variant = 3;
+  TournamentStatus status = 4;
+  int64 buy_in = 5;
+  int64 starting_stack = 6;
+  int32 max_players = 7;
+  int32 min_players = 8;
+  google.protobuf.Timestamp scheduled_start = 9;
+  RebuyConfig rebuy_config = 10;
+  AddonConfig addon_config = 11;
+  repeated BlindLevel blind_structure = 12;
+  int32 current_level = 13;
+  map<string, PlayerRegistration> registered_players = 14; // player_root_hex -> registration
+  int32 players_remaining = 15;
+  int64 total_prize_pool = 16;
+}

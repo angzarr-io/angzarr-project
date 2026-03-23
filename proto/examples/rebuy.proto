@@ -1,0 +1,154 @@
+syntax = "proto3";
+package examples;
+
+import "examples/orchestration.proto";
+import "examples/poker_types.proto";
+import "google/protobuf/timestamp.proto";
+
+option csharp_namespace = "Angzarr.Examples";
+option go_package = "github.com/angzarr/angzarr/proto/examples";
+option java_multiple_files = true;
+option java_package = "dev.angzarr.examples";
+option ruby_package = "Angzarr::Examples";
+
+// =============================================================================
+// Rebuy Orchestration - PM-coordinated flow for Player ↔ Tournament ↔ Table
+// =============================================================================
+
+// -----------------------------------------------------------------------------
+// Commands (Player Domain)
+// -----------------------------------------------------------------------------
+
+// Client initiates rebuy - triggers PM orchestration
+message InitiateRebuy {
+  bytes tournament_root = 1;
+  bytes table_root = 2;
+  int32 seat = 3; // Player's seat at table
+}
+
+// PM confirms successful rebuy
+message ConfirmRebuyFee {
+  bytes reservation_id = 1;
+}
+
+// PM releases fee after failed rebuy
+message ReleaseRebuyFee {
+  bytes reservation_id = 1;
+  string reason = 2;
+}
+
+// -----------------------------------------------------------------------------
+// Commands (Table Domain)
+// -----------------------------------------------------------------------------
+
+// PM adds chips to player's stack (fact-like - no validation)
+message AddRebuyChips {
+  bytes player_root = 1;
+  bytes reservation_id = 2;
+  int32 seat = 3;
+  int64 amount = 4;
+}
+
+// -----------------------------------------------------------------------------
+// Events (Player Domain)
+// -----------------------------------------------------------------------------
+
+// Emitted when rebuy is requested - triggers PM
+message RebuyRequested {
+  bytes reservation_id = 1; // UUID for this rebuy flow
+  bytes tournament_root = 2;
+  bytes table_root = 3;
+  int32 seat = 4;
+  Currency fee = 5; // Looked up from tournament rebuy config
+  google.protobuf.Timestamp requested_at = 6;
+}
+
+// Emitted when rebuy fee is confirmed
+message RebuyFeeConfirmed {
+  bytes reservation_id = 1;
+  bytes tournament_root = 2;
+  Currency fee = 3;
+  int64 chips_added = 4;
+  google.protobuf.Timestamp confirmed_at = 5;
+}
+
+// Emitted when rebuy fee is released
+message RebuyFeeReleased {
+  bytes reservation_id = 1;
+  string reason = 2;
+  google.protobuf.Timestamp released_at = 3;
+}
+
+// -----------------------------------------------------------------------------
+// Events (Table Domain)
+// -----------------------------------------------------------------------------
+
+// Emitted when rebuy chips are added to player's stack
+message RebuyChipsAdded {
+  bytes player_root = 1;
+  bytes reservation_id = 2;
+  int32 seat = 3;
+  int64 amount = 4;
+  int64 new_stack = 5;
+  google.protobuf.Timestamp added_at = 6;
+}
+
+// -----------------------------------------------------------------------------
+// PM Events (RebuyOrchestrator Domain)
+// -----------------------------------------------------------------------------
+
+// PM state: rebuy flow initiated
+message RebuyInitiated {
+  bytes player_root = 1;
+  bytes tournament_root = 2;
+  bytes table_root = 3;
+  bytes reservation_id = 4;
+  int32 seat = 5;
+  Currency fee = 6;
+  int64 chips_to_add = 7;
+  RebuyPhase phase = 8;
+  google.protobuf.Timestamp initiated_at = 9;
+}
+
+// PM state: rebuy flow completed successfully
+message RebuyCompleted {
+  bytes player_root = 1;
+  bytes tournament_root = 2;
+  bytes table_root = 3;
+  bytes reservation_id = 4;
+  Currency fee = 5;
+  int64 chips_added = 6;
+  google.protobuf.Timestamp completed_at = 7;
+}
+
+// PM state: rebuy flow failed
+message RebuyFailed {
+  bytes player_root = 1;
+  bytes tournament_root = 2;
+  bytes reservation_id = 3;
+  OrchestrationFailure failure = 4;
+}
+
+// PM state: phase transition
+message RebuyPhaseChanged {
+  bytes reservation_id = 1;
+  RebuyPhase from_phase = 2;
+  RebuyPhase to_phase = 3;
+  google.protobuf.Timestamp changed_at = 4;
+}
+
+// -----------------------------------------------------------------------------
+// PM State (for snapshots)
+// -----------------------------------------------------------------------------
+
+message RebuyOrchestratorState {
+  bytes reservation_id = 1; // Correlation ID for this flow
+  bytes player_root = 2;
+  bytes tournament_root = 3;
+  bytes table_root = 4;
+  int32 seat = 5;
+  int64 fee = 6;
+  int64 chips_to_add = 7;
+  RebuyPhase phase = 8;
+  google.protobuf.Timestamp started_at = 9;
+}

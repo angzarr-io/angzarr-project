@@ -1,0 +1,101 @@
+name: Deploy to GitHub Pages
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+# Sets permissions of the GITHUB_TOKEN to allow deployment to GitHub Pages
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Allow only one concurrent deployment
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # Create target structure for code snippets
+      # Proto files are in this repo, examples are external
+      - name: Create angzarr directory structure
+        run: |
+          mkdir -p angzarr/examples
+          cp -r proto angzarr/
+
+      - name: Checkout Python examples
+        uses: actions/checkout@v4
+        with:
+          repository: angzarr-io/angzarr-examples-python
+          path: angzarr/examples/python
+
+      - name: Checkout Rust examples
+        uses: actions/checkout@v4
+        with:
+          repository: angzarr-io/angzarr-examples-rust
+          path: angzarr/examples/rust
+
+      - name: Checkout Go examples
+        uses: actions/checkout@v4
+        with:
+          repository: angzarr-io/angzarr-examples-go
+          path: angzarr/examples/go
+
+      - name: Checkout Java examples
+        uses: actions/checkout@v4
+        with:
+          repository: angzarr-io/angzarr-examples-java
+          path: angzarr/examples/java
+
+      - name: Checkout C# examples
+        uses: actions/checkout@v4
+        with:
+          repository: angzarr-io/angzarr-examples-csharp
+          path: angzarr/examples/csharp
+
+      - name: Checkout C++ examples
+        uses: actions/checkout@v4
+        with:
+          repository: angzarr-io/angzarr-examples-cpp
+          path: angzarr/examples/cpp
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build website
+        run: npm run build
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: build
+
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

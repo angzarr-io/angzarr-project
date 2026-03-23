@@ -1,0 +1,319 @@
+syntax = "proto3";
+package examples;
+
+import "examples/poker_types.proto";
+
+option csharp_namespace = "Angzarr.Examples";
+option go_package = "github.com/angzarr/angzarr/proto/examples";
+option java_multiple_files = true;
+option java_package = "dev.angzarr.examples";
+option ruby_package = "Angzarr::Examples";
+
+// =============================================================================
+// AI Player Service - Stateful gRPC service for poker AI decisions
+// Maintains session state, opponent models, and experience replay
+// =============================================================================
+
+service AiPlayer {
+  // Get action with full context (snapshot + event history)
+  rpc GetAction(ActionContext) returns (ActionResponse);
+
+  // Store experience for training (called at hand end)
+  rpc RecordExperience(Experience) returns (RecordResponse);
+
+  // Query opponent statistics from persistent storage
+  rpc GetOpponentStats(OpponentQuery) returns (OpponentStatsResponse);
+
+  // Start a new session (optional - sessions auto-create on first GetAction)
+  rpc StartSession(StartSessionRequest) returns (StartSessionResponse);
+
+  // End session and persist state
+  rpc EndSession(EndSessionRequest) returns (EndSessionResponse);
+
+  // Health check
+  rpc Health(HealthRequest) returns (HealthResponse);
+
+  // Batch inference for training/simulation
+  rpc GetActionsBatch(BatchActionContextRequest) returns (BatchActionResponse);
+}
+
+// =============================================================================
+// Action Request with Full Context
+// =============================================================================
+
+message ActionContext {
+  // Current game state snapshot
+  ActionSnapshot snapshot = 1;
+
+  // Historical events for this hand (enables sequence reasoning)
+  repeated HandEvent events = 2;
+
+  // Session identifier (for state persistence across calls)
+  string session_id = 3;
+
+  // AI player's root (which player we're deciding for)
+  bytes player_root = 4;
+
+  // Hand identifier
+  bytes hand_id = 5;
+}
+
+message ActionSnapshot {
+  // Model selection
+  string model_id = 1;
+
+  // Game configuration
+  GameVariant game_variant = 2;
+  BettingPhase phase = 3;
+
+  // Cards
+  repeated Card hole_cards = 4;
+  repeated Card community_cards = 5;
+
+  // Betting context
+  int64 pot_size = 6;
+  int64 stack_size = 7;
+  int64 amount_to_call = 8;
+  int64 min_raise = 9;
+  int64 max_raise = 10;
+
+  // Position info
+  int32 position = 11;        // 0 = button, increasing = earlier
+  int32 players_remaining = 12;
+  int32 players_to_act = 13;
+
+  // Opponent info at table
+  repeated OpponentInfo opponents = 14;
+}
+
+message OpponentInfo {
+  bytes player_root = 1;
+  int32 position = 2;
+  int64 stack = 3;
+  int64 bet_this_round = 4;
+  bool folded = 5;
+  bool all_in = 6;
+}
+
+// =============================================================================
+// Hand Events (for historical context)
+// =============================================================================
+
+message HandEvent {
+  HandEventType event_type = 1;
+  int64 timestamp_ms = 2;
+
+  // Event-specific data (oneof for type safety)
+  oneof event_data {
+    CardsDealtEvent cards_dealt = 10;
+    BlindPostedEvent blind_posted = 11;
+    ActionTakenEvent action_taken = 12;
+    CommunityDealtEvent community_dealt = 13;
+    ShowdownEvent showdown = 14;
+    PotAwardedEvent pot_awarded = 15;
+  }
+}
+
+enum HandEventType {
+  HAND_EVENT_UNSPECIFIED = 0;
+  CARDS_DEALT = 1;
+  BLIND_POSTED = 2;
+  ACTION_TAKEN = 3;
+  COMMUNITY_DEALT = 4;
+  SHOWDOWN = 5;
+  POT_AWARDED = 6;
+}
+
+message CardsDealtEvent {
+  repeated Card cards = 1;  // Only AI player's cards visible
+}
+
+message BlindPostedEvent {
+  bytes player_root = 1;
+  string blind_type = 2;  // "small" or "big"
+  int64 amount = 3;
+}
+
+message ActionTakenEvent {
+  bytes player_root = 1;
+  ActionType action = 2;
+  int64 amount = 3;
+  BettingPhase phase = 4;
+}
+
+message CommunityDealtEvent {
+  repeated Card cards = 1;
+  BettingPhase phase = 2;
+}
+
+message ShowdownEvent {
+  repeated PlayerShowdown players = 1;
+}
+
+message PlayerShowdown {
+  bytes player_root = 1;
+  repeated Card hole_cards = 2;
+  HandRanking ranking = 3;
+}
+
+message PotAwardedEvent {
+  bytes winner_root = 1;
+  int64 amount = 2;
+  string pot_type = 3;
+}
+
+// =============================================================================
+// Action Response
+// =============================================================================
+
+message ActionResponse {
+  ActionType recommended_action = 1;
+  int64 amount = 2;  // For bet/raise
+
+  // Confidence scores for each action
+  float fold_probability = 3;
+  float check_call_probability = 4;
+  float bet_raise_probability = 5;
+
+  // Model metadata
+  string model_version = 6;
+  int64 inference_time_ms = 7;
+
+  // Value estimate (for actor-critic models)
+  float value_estimate = 8;
+}
+
+// =============================================================================
+// Experience Recording (for training)
+// =============================================================================
+
+message Experience {
+  // Context at decision time
+  ActionContext context = 1;
+
+  // Action taken
+  ActionType action_taken = 2;
+  int64 amount = 3;
+
+  // Log probability of action under policy (for PPO)
+  float log_prob = 4;
+
+  // Value estimate at decision time
+  float value_estimate = 5;
+
+  // Reward (chips won/lost - set after hand completes)
+  float reward = 6;
+
+  // Terminal flag (hand complete)
+  bool terminal = 7;
+
+  // Next state (if not terminal)
+  ActionContext next_context = 8;
+}
+
+message RecordResponse {
+  bool success = 1;
+  string message = 2;
+  int64 experience_id = 3;
+}
+
+// =============================================================================
+// Opponent Statistics
+// =============================================================================
+
+message OpponentQuery {
+  repeated bytes player_roots = 1;
+}
+
+message OpponentStatsResponse {
+  repeated OpponentProfile profiles = 1;
+}
+
+message OpponentProfile {
+  bytes player_root = 1;
+  int32 total_hands = 2;
+
+  // Core statistics
+  float vpip = 3;       // Voluntarily put in pot %
+  float pfr = 4;        // Pre-flop raise %
+  float af = 5;         // Aggression factor (bet+raise / call)
+  float wtsd = 6;       // Went to showdown %
+  float w_sd = 7;       // Won at showdown %
+
+  // Positional stats
+  map<int32, PositionStats> stats_by_position = 8;
+
+  // Timing (if tracked)
+  float avg_decision_time_ms = 9;
+
+  // Confidence in stats
+  int32 hands_since_update = 10;
+}
+
+message PositionStats {
+  float vpip = 1;
+  float pfr = 2;
+  float af = 3;
+  int32 sample_size = 4;
+}
+
+// =============================================================================
+// Session Management
+// =============================================================================
+
+message StartSessionRequest {
+  string session_id = 1;
+  string model_id = 2;
+  bytes ai_player_root = 3;
+}
+
+message StartSessionResponse {
+  bool success = 1;
+  string session_id = 2;
+  string model_version = 3;
+}
+
+message EndSessionRequest {
+  string session_id = 1;
+  bool persist_stats = 2;  // Save opponent stats to DB
+}
+
+message EndSessionResponse {
+  bool success = 1;
+  int32 hands_played = 2;
+  int64 total_result = 3;  // Net chips won/lost
+}
+
+// =============================================================================
+// Health Check
+// =============================================================================
+
+message HealthRequest {}
+
+message HealthResponse {
+  bool healthy = 1;
+  string model_id = 2;
+  string model_version = 3;
+  int64 uptime_seconds = 4;
+  int64 requests_served = 5;
+  int32 active_sessions = 6;
+  DatabaseStatus db_status = 7;
+}
+
+message DatabaseStatus {
+  bool connected = 1;
+  int64 experience_count = 2;
+  int64 profile_count = 3;
+}
+
+// =============================================================================
+// Batch Operations
+// =============================================================================
+
+message BatchActionContextRequest {
+  repeated ActionContext contexts = 1;
+}
+
+message BatchActionResponse {
+  repeated ActionResponse responses = 1;
+}
