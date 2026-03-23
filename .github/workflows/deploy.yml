@@ -27,11 +27,20 @@ jobs:
           fetch-depth: 0
 
       # Create target structure for code snippets
-      # Proto files are in this repo, examples are external
-      - name: Create angzarr directory structure
+      # Example proto files are in this repo, framework proto/src in main angzarr repo
+      - name: Checkout main angzarr repo
+        uses: actions/checkout@v4
+        with:
+          repository: angzarr-io/angzarr
+          path: angzarr
+          sparse-checkout: |
+            proto
+            src
+
+      - name: Create examples directory and copy example proto
         run: |
           mkdir -p angzarr/examples
-          cp -r proto angzarr/
+          cp -r proto/* angzarr/proto/
 
       - name: Checkout Python examples
         uses: actions/checkout@v4
