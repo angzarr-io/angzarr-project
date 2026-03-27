@@ -1,0 +1,115 @@
+---
+slug: angzarr-core-0.3.0
+title: "Angzarr Core 0.3.0: Facts Over State, Edition Branching, and 18K Lines Deleted"
+authors: [angzarr]
+tags: [release, event-sourcing, saga, cqrs, architecture]
+keywords: [angzarr, event sourcing, cqrs, saga, process manager, edition branching, divergence, two-phase commit, rust]
+---
+
+import BlogHeader from '@site/src/components/BlogHeader';
+
+<BlogHeader />
+
+Angzarr Core 0.3.0 ships today with a fundamental shift in how sagas and process managers handle cross-aggregate coordination: they now receive sequence numbers instead of full event books. This "facts over state rebuilding" change aligns coordinators with the framework's core philosophy. The release also adds explicit divergence support for edition branching, enabling counterfactual "what-if" scenarios at any point in an aggregate's timeline.
+
+<!-- truncate -->
+
+## What Changed
+
+**Saga and Process Manager Protocol Update.** Handlers now receive `destination_sequences`—a map of domain to next sequence number—instead of full `EventBook` state. This is a breaking proto change. Coordinators stamp commands with sequences and let aggregates decide; they no longer rebuild destination state themselves.
+
+**Edition Branching with Explicit Divergence.** New branches can now specify an exact divergence point from the main timeline. The storage layer reads events from main up to sequence N, returning them as base state for the new branch. Use case: "What if I had folded at sequence 3 instead of calling?"
+
+**Cascade Two-Phase Commit.** Merged from the `core-cascade-improvements` branch, adding `cascade_id` and `committed` fields to `EventPage`, stale cascade cleanup via `CascadeReaper`, and conflict detection for distributed transactions.
+
+**OpenTelemetry 0.31 and Tonic 0.14.** Updated to latest observability and gRPC stacks with breaking API changes handled throughout.
+
+**Security Fixes.** Critical gRPC-Go vulnerabilities patched in the gateway (v1.70.0 → v1.79.3), plus high-severity fixes in AWS-LC and quinn-proto.
+
+**18,000 Lines Removed.** Standalone mode deleted entirely. The framework now exclusively uses the distributed coordinator architecture.
+
+## Breaking Changes
+
+The proto changes require regenerating client code:
+
+```protobuf
+// Before (0.2.x)
+message SagaHandleRequest {
+  repeated EventBook destinations = 4;
+}
+
+// After (0.3.0)
+message SagaHandleRequest {
+  map<string, uint64> destination_sequences = 4;
+}
+```
+
+Same pattern for `ProcessManagerHandleRequest.destination_sequences`.
+
+Handlers that previously iterated over destination event books to determine state must now use sequences directly. The philosophy: coordinators deal in facts (sequences), not state reconstruction.
+
+## Why Facts Over State
+
+The previous design had sagas receiving full event books for destination aggregates. This created several problems:
+
+1. **Unnecessary coupling.** Sagas knew how to interpret destination domain events.
+2. **Performance overhead.** Loading event history for every coordination step.
+3. **Philosophy violation.** Sagas are coordinators, not domain experts.
+
+The new design treats sequences as facts. A saga knows "Player aggregate is at sequence 7" without knowing what happened in sequences 1-6. It stamps the outbound command with sequence 7, and the aggregate validates whether that sequence is still current.
+
+If the sequence has advanced (concurrent modification), the aggregate rejects the command. The saga retries with fresh sequences. No domain logic leaked into the coordinator.
+
+## Edition Branching Deep Dive
+
+Editions enable counterfactual reasoning within event-sourced systems. The new explicit divergence support makes this practical:
+
+```rust
+// Create branch diverging at sequence 3
+let edition = Edition {
+    domain_divergence: Some(DomainDivergence {
+        sequence: 3,
+        // Branch sees events 1-3 from main, then diverges
+    }),
+    ..
+};
+```
+
+Key implementation details:
+
+- `EventStore::get_with_divergence()` reads main timeline up to the divergence point
+- Snapshots are skipped for divergent reads (branches need fresh state from events)
+- The aggregate applies events 1-3, then processes new commands on the branch
+
+Use cases include game replay analysis, regulatory "what-if" scenarios, and training data generation from production event streams.
+
+## Cascade 2PC
+
+Two-phase commit for cross-aggregate operations is now first-class:
+
+- **CascadeReaper** cleans up stale cascades that failed mid-transaction
+- **Conflict detection** identifies when concurrent cascades touch the same aggregates
+- **Query methods** (`query_stale_cascades`, `query_cascade_participants`) added to all storage backends
+
+This work also drove mutation testing improvements, pushing mock EventStore coverage from 62.9% to 100% kill rate.
+
+## Migration Path
+
+1. **Regenerate protos** using Buf or your preferred tooling
+2. **Update saga/PM handlers** to use `destination_sequences` map
+3. **Replace EventBook iteration** with sequence stamping
+4. **Test with explicit divergence** if using editions
+
+The cascade changes are additive—no migration required unless you're adopting 2PC.
+
+## What's Next
+
+With standalone mode removed, the framework is fully committed to the distributed architecture. Upcoming work includes:
+
+- Multi-language client SDK stabilization (Go, Python, Rust, Java)
+- Snapshot retention policies (migration added in 0.3.0)
+- Enhanced cascade conflict resolution strategies
+
+---
+
+*Full changelog: [e1335ddc](https://github.com/angzarr/angzarr/commit/e1335ddc)...908f9aad*
