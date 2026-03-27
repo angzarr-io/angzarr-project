@@ -78,7 +78,7 @@ let edition = Edition {
 Key implementation details:
 
 - `EventStore::get_with_divergence()` reads main timeline up to the divergence point
-- Snapshots are skipped for divergent reads (branches need fresh state from events)
+- Snapshots accelerate loading state up to the divergence point
 - The aggregate applies events 1-3, then processes new commands on the branch
 
 Use cases include game replay analysis, regulatory "what-if" scenarios, and training data generation from production event streams.
