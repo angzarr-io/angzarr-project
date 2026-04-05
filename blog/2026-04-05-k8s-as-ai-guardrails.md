@@ -1,0 +1,86 @@
+---
+slug: k8s-as-ai-guardrails
+title: "K8s Pods as AI Architecture Guardrails"
+authors: [angzarr]
+tags: [llm, architecture, kubernetes, development, ai]
+keywords: [kubernetes, k8s, kind, ai, llm, claude, aggregate, projector, event-sourcing, angzarr, development-workflow]
+---
+
+import BlogHeader from '@site/src/components/BlogHeader';
+
+<BlogHeader />
+
+**Deployment boundaries enforce architectural boundaries—especially when your coworker is an AI that will take any shortcut it can see.**
+
+I caught Claude reading directly from another aggregate's database because the file was visible in the project. Deploying to K8s (via Kind) broke that access and forced it to implement projector services properly. The infrastructure did what code review should have caught.
+
+<!-- truncate -->
+
+## What Happened
+
+I started building a board game in `angzarr-standalone`, the now-deprecated in-process variant of the Angzarr system. The backing stores are SQLite—perfectly fine for prototyping a physical board game on a CQRS framework, though not suitable for real production use of Angzarr. Everything runs in one process, which means every aggregate's storage is visible to every other component.
+
+Claude, tasked with getting a feature working, found the shortest path: query another aggregate's database directly. No projector, no gRPC service, no event subscription. Just reach across the aisle and read the data. It works. It's fast. It violates every principle of aggregate isolation that event sourcing depends on.
+
+I didn't catch it immediately. We're in prototype mode—moving fast, revisions planned for later. But the shortcut was building in coupling that would be painful to unwind.
+
+## The Fix Was Infrastructure
+
+Moving to Kind—a local Kubernetes cluster—broke the access by default. Each aggregate runs in its own pod. There is no shared filesystem. There is no "just read the other database." If you need data from another aggregate, you go through a projector service.
+
+Claude had no choice but to implement the projector. The architecture became self-enforcing.
+
+This wasn't the *reason* I moved to Kind. But it was an immediate, tangible benefit. The deployment topology eliminated an entire class of architectural violations—not through code review, not through linting, not through discipline, but through access control.
+
+## AI Development Needs Hard Boundaries
+
+LLMs optimize for task completion. Given a goal and visible resources, they will use whatever path gets them there. This is useful—it's why they're productive. But it means they will cheerfully violate architectural boundaries that exist only as conventions.
+
+In-process deployment makes everything a convention. Aggregate isolation? Convention. Service boundaries? Convention. Data ownership? Convention. An AI (or a junior developer, or a senior developer under deadline pressure) can bypass any of them because the runtime doesn't enforce them.
+
+Pod-level isolation converts conventions into constraints:
+
+| Boundary | In-Process | K8s Pod |
+|----------|-----------|---------|
+| Aggregate data access | Convention (filesystem visible) | Enforced (separate storage) |
+| Service interfaces | Convention (can call anything) | Enforced (network only) |
+| Domain isolation | Convention (shared memory) | Enforced (process boundary) |
+
+This doesn't mean every development environment needs Kubernetes. But it does mean that **the gap between your development topology and your production topology is a source of architectural drift**—and AI-assisted development widens that gap faster than human-only development does.
+
+## Lessons
+
+**Watch the AIs closer than you think you need to.** We're in prototype and proof-of-concept mode—I'm the only user, the risk is low, and revisions and cleanup will come later. That's fine. But the shortcut Claude took was building in coupling that would make those revisions harder. Prototype mindset means accepting rough edges in implementation, not in architecture. The architecture *is* the thing that makes cleanup possible later.
+
+**Deploy like production earlier than you think.** Kind is cheap. Running a local K8s cluster adds minutes to your feedback loop, not hours. The architectural enforcement you get back is worth it—especially when AI is writing code.
+
+**Architecture-as-infrastructure beats architecture-as-policy.** You can tell an AI "don't read from other aggregates' storage." You can put it in a CLAUDE.md file. You can review every diff. Or you can make it impossible. One of these scales.
+
+**Standalone mode was the right call to deprecate.** This experience reinforced why Angzarr dropped `angzarr-standalone` in [0.3.0](/blog/angzarr-core-0.3.0). In-process variants are convenient for getting started, but they teach habits—and now train AIs—that break in distributed deployment. Better to start with the real topology.
+
+## Constraints Make AI Developers Productive
+
+This is the broader lesson, and it extends well beyond this one incident: **the key to making AI developers productive is constraining them.**
+
+Without constraints, an AI coding assistant is a useful idiot. It can output code that vaguely satisfies requirements. It has no concept of future maintainability. It has no lessons learned beyond what it copies and mimics from its training corpus. It will cheerfully build a system that works today and is unmaintainable tomorrow, because "tomorrow" isn't in the prompt.
+
+Constraints change the equation. Container isolation, defined interfaces, enforced service boundaries, typed contracts—these don't just prevent bad architecture. They channel the AI's output into shapes that are maintainable by default. The AI doesn't need to *understand* why aggregate isolation matters. It just needs to be unable to violate it.
+
+This is the same principle that makes strongly-typed languages productive: the compiler rejects invalid programs before they run. K8s pod boundaries, gRPC interface definitions, and aggregate isolation do the same thing at the architecture level. They reject invalid architectures before they deploy.
+
+The difference between an AI that produces throwaway prototypes and an AI that produces maintainable systems isn't the AI—it's the constraints it operates within:
+
+| Without Constraints | With Constraints |
+|---|---|
+| Reads any data it can see | Must use defined query interfaces |
+| Couples components by convenience | Couples components by contract |
+| Satisfies the immediate requirement | Satisfies the requirement within architectural boundaries |
+| Produces code that works | Produces code that works *and* can be changed later |
+
+None of this requires the AI to be smarter. It requires the environment to be *constrained*—not just opinionated, but enforced. We must make the right choice the easy choice—this works for human developers too, but it's non-negotiable for AI ones. The AI fills whatever shape you give it. Give it a flat, open codebase and it will sprawl. Give it containers, interfaces, and enforced boundaries and it will build systems that happen to be well-structured—not because it intended to, but because it had no other option.
+
+This has implications for framework design. Angzarr's pod-per-aggregate model, its gRPC service interfaces, its saga protocols—these were designed for distributed systems correctness. It turns out they're also exactly what you want when AI is writing the implementation. The framework's opinions become the AI's guardrails.
+
+---
+
+*The irony: the AI that took a shortcut around the architecture is the same one helping me write about why shortcuts around the architecture are dangerous. Supervision remains non-optional.*
