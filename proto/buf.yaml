@@ -1,7 +1,8 @@
 version: v2
 modules:
   - path: .
-    name: buf.build/angzarr/examples
+deps:
+  - buf.build/googleapis/googleapis
 lint:
   use:
     - STANDARD
