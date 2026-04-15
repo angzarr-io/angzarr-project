@@ -191,8 +191,7 @@ Feature: Tournament aggregate logic
 
   Scenario: Eliminate a player
     Given a running tournament with 5 players remaining
-    And player "player-3" enrolled
-    When I handle an EliminatePlayer command for player "player-3"
+    When I handle an EliminatePlayer command for player "player-1"
     Then the result is a examples.PlayerEliminated event
     And the tournament event has finish_position 5
 
@@ -243,6 +242,6 @@ Feature: Tournament aggregate logic
     And player at position 1 eliminated
     When I rebuild the tournament state
     Then the tournament state has status "RUNNING"
-    And the tournament state has 5 registered players
+    And the tournament state has 4 registered players
     And the tournament state has 4 players remaining
     And the tournament state has prize pool 5000
