@@ -1,55 +1,143 @@
-# Allocated: C-0080 .. C-0084
-Feature: Rejection compensation details
-  As a framework user
-  I want @rejected compensation handlers to receive accurate state and routing
-  So that compensating actions can make informed decisions, not just fire blindly
+# docs:start:compensation_contract
+Feature: Compensation - Saga Rejection Handling
+  When saga commands are rejected by target aggregates, compensation
+  flows notify the source aggregate. The CompensationContext captures
+  all information needed to build rejection notifications.
 
-  Builds on the basic rejection routing in rejection.feature. These scenarios
-  cover state rebuild, routing across multiple @rejected methods on one class,
-  sequence stamping, and the empty-handler case.
+  Compensation enables:
+  - Source aggregates to handle downstream failures
+  - Maintaining consistency across domain boundaries
+  - Tracking rejection chains for debugging
+# docs:end:compensation_contract
 
-  @C-0080
-  Scenario: State is rebuilt before the @rejected handler runs
-    Given a command handler "Payment" for domain "payment" with stateful rejection
-    And Payment @applies FundsDeposited by setting state.bankroll
-    And Payment has a @rejected("inventory", "ReserveStock") handler that emits FundsReleased carrying state.bankroll
-    And the router is built with the Payment handler
-    And a prior EventBook with a FundsDeposited event of bankroll 100
-    When a Notification wrapping a rejected ReserveStock in domain "inventory" is dispatched
-    Then the response contains one FundsReleased event
-    And the FundsReleased event carries amount 100
+  Background:
+    Given a compensation handling context
 
-  @C-0081
-  Scenario: @rejected methods route by (source_domain, command) pair
-    Given a command handler "Payment" for domain "payment" with two @rejected handlers
-    And Payment has a @rejected("inventory", "ReserveStock") handler emitting FundsReleased
-    And Payment has a @rejected("payment", "ProcessPayment") handler emitting WorkflowFailed
-    And the router is built with the Payment handler
-    When a Notification wrapping a rejected ProcessPayment in domain "payment" is dispatched
-    Then the response contains one WorkflowFailed event
-    And no FundsReleased event is emitted
+  # ==========================================================================
+  # CompensationContext Construction
+  # ==========================================================================
 
-  @C-0082
-  Scenario: Multiple @rejected methods on one class do not cross-fire
-    Given a command handler "Payment" for domain "payment" with two @rejected handlers
-    And Payment has a @rejected("inventory", "ReserveStock") handler emitting FundsReleased
-    And Payment has a @rejected("payment", "ProcessPayment") handler emitting WorkflowFailed
-    And the router is built with the Payment handler
-    When a Notification wrapping a rejected CreateShipment in domain "fulfillment" is dispatched
-    Then the response contains no events
+  Scenario: Build context from rejected command
+    Given a saga command that was rejected
+    When I build a CompensationContext
+    Then the context should include the rejected command
+    And the context should include the rejection reason
+    And the context should include the saga origin
 
-  @C-0083
-  Scenario: Compensation events receive framework-stamped sequences
-    Given a command handler "Payment" for domain "payment" with stateful rejection
-    And Payment has a @rejected("inventory", "ReserveStock") handler emitting two FundsReleased events
-    And the router is built with the Payment handler
-    And a prior EventBook whose next_sequence is 7
-    When a Notification wrapping a rejected ReserveStock in domain "inventory" is dispatched
-    Then the emitted pages carry sequences [7, 8]
+  Scenario: Context preserves saga origin details
+    Given a saga "order-fulfillment" triggered by "orders" aggregate at sequence 5
+    And the saga command was rejected
+    When I build a CompensationContext
+    Then the saga_origin saga_name should be "order-fulfillment"
+    And the triggering_aggregate should be "orders"
+    And the triggering_event_sequence should be 5
 
-  @C-0084
-  Scenario: No matching @rejected handler yields empty compensation
-    Given a command handler "Payment" for domain "payment" with no rejection handlers
-    And the router is built with the Payment handler
-    When a Notification wrapping a rejected ReserveStock in domain "inventory" is dispatched
-    Then the response contains no events
+  Scenario: Context preserves correlation ID
+    Given a saga command with correlation ID "workflow-123"
+    And the command was rejected
+    When I build a CompensationContext
+    Then the context correlation_id should be "workflow-123"
+
+  # ==========================================================================
+  # RejectionNotification Building
+  # ==========================================================================
+
+  Scenario: Build rejection notification from context
+    Given a CompensationContext for rejected command
+    When I build a RejectionNotification
+    Then the notification should include the rejected command
+    And the notification should include the rejection reason
+    And the notification should have issuer_type "saga"
+
+  Scenario: Rejection notification includes source aggregate
+    Given a CompensationContext from "orders" aggregate at sequence 5
+    When I build a RejectionNotification
+    Then the source_aggregate should have domain "orders"
+    And the source_event_sequence should be 5
+
+  Scenario: Rejection notification has correct issuer name
+    Given a CompensationContext from saga "order-fulfillment"
+    When I build a RejectionNotification
+    Then the issuer_name should be "order-fulfillment"
+    And the issuer_type should be "saga"
+
+  # ==========================================================================
+  # Notification Building
+  # ==========================================================================
+
+  Scenario: Build notification wrapper for rejection
+    Given a CompensationContext for rejected command
+    When I build a Notification from the context
+    Then the notification should have a cover
+    And the notification payload should contain RejectionNotification
+    And the payload type_url should be "type.googleapis.com/angzarr.RejectionNotification"
+
+  Scenario: Notification has sent_at timestamp
+    When I build a Notification from a CompensationContext
+    Then the notification should have a sent_at timestamp
+    And the timestamp should be recent
+
+  # ==========================================================================
+  # Command Book Building
+  # ==========================================================================
+
+  Scenario: Build notification command book for routing
+    Given a CompensationContext for rejected command
+    When I build a notification CommandBook
+    Then the command book should target the source aggregate
+    And the command book should have MERGE_COMMUTATIVE strategy
+    And the command book should preserve correlation ID
+
+  Scenario: Command book targets triggering aggregate
+    Given a CompensationContext from "orders" aggregate root "order-123"
+    When I build a notification CommandBook
+    Then the command book cover should have domain "orders"
+    And the command book cover should have root "order-123"
+
+  # ==========================================================================
+  # Rejection Reason Handling
+  # ==========================================================================
+
+  Scenario: Rejection reason is preserved exactly
+    Given a command rejected with reason "insufficient_funds"
+    When I build a RejectionNotification
+    Then the rejection_reason should be "insufficient_funds"
+
+  Scenario: Complex rejection reason
+    Given a command rejected with structured reason
+    When I build a RejectionNotification
+    Then the rejection_reason should contain the full error details
+
+  # ==========================================================================
+  # Chain of Command Tracking
+  # ==========================================================================
+
+  Scenario: Rejected command is preserved for debugging
+    Given a saga command with specific payload
+    And the command was rejected
+    When I build a RejectionNotification
+    Then the rejected_command should be the original command
+    And all command fields should be preserved
+
+  Scenario: Saga origin chain is maintained
+    Given a nested saga scenario
+    And an inner saga command was rejected
+    When I build a RejectionNotification
+    Then the full saga origin chain should be preserved
+    And root cause can be traced through the chain
+
+  # ==========================================================================
+  # Integration with Routers
+  # ==========================================================================
+
+  Scenario: Compensation context works with saga router
+    Given a saga router handling rejections
+    When a command execution fails with precondition error
+    Then the router should build a CompensationContext
+    And the router should emit a rejection notification
+
+  Scenario: Compensation context works with PM router
+    Given a process manager router
+    When a PM command is rejected
+    Then the router should build a CompensationContext
+    And the context should have issuer_type "process_manager"
