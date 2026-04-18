@@ -49,11 +49,22 @@ message DomainDivergence {
 // docs:end:edition
 
 // docs:start:sync_mode
-// Controls synchronous processing behavior
+// Controls synchronous processing behavior.
+//
+// Impact ordering (lowest to highest):
+//   ASYNC  < DECISION < SIMPLE < CASCADE
+//
+// Primary caller of DECISION is process managers coordinating cross-aggregate
+// flows: the PM issues a command to the target aggregate and needs to know
+// *only* whether the aggregate accepted or rejected, without paying the cost
+// of projector propagation or saga fan-out. The aggregate's accept path
+// (events persisted + returned) and reject path (CommandRejectedError) are
+// both observable; everything downstream runs asynchronously.
 enum SyncMode {
   SYNC_MODE_ASYNC = 0; // Async: fire and forget (default)
   SYNC_MODE_SIMPLE = 1; // Sync projectors only, no saga cascade
   SYNC_MODE_CASCADE = 2; // Full sync: projectors + saga cascade (expensive)
+  SYNC_MODE_DECISION = 3; // Sync aggregate accept/reject only; projectors + sagas run async
 }
 // docs:end:sync_mode
 
