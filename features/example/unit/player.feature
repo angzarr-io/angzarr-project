@@ -1,4 +1,4 @@
-# Allocated: EU-0200 .. EU-0216
+# Allocated: EU-0200 .. EU-0251
 # DOC: This file is referenced in docs/docs/examples/aggregates.mdx
 #      Update documentation when making changes to player feature scenarios.
 
@@ -228,3 +228,353 @@ Feature: Player aggregate logic
     Then the result is a examples.FundsReleased event
     And the player event has amount 200
     And the player event has new_available_balance 500
+
+  # ==========================================================================
+  # Input Validation
+  # ==========================================================================
+  # Empty-string and non-positive-amount rejections. These fire on malformed
+  # commands before any state-level check — verifying the validate() phase.
+
+  @EU-0217
+  Scenario: Cannot register with empty display_name
+    Given no prior events for the player aggregate
+    When I handle a RegisterPlayer command with name "" and email "alice@example.com"
+    Then the command fails with status "FAILED_PRECONDITION"
+    And the error message contains "display_name"
+
+  @EU-0218
+  Scenario: Cannot register with empty email
+    Given no prior events for the player aggregate
+    When I handle a RegisterPlayer command with name "Alice" and email ""
+    Then the command fails with status "FAILED_PRECONDITION"
+    And the error message contains "email"
+
+  @EU-0219
+  Scenario: Cannot deposit negative amount
+    Given a PlayerRegistered event for "Alice"
+    When I handle a DepositFunds command with amount -100
+    Then the command fails with status "INVALID_ARGUMENT"
+    And the error message contains "positive"
+
+  @EU-0220
+  Scenario: Cannot withdraw from non-existent player
+    Given no prior events for the player aggregate
+    When I handle a WithdrawFunds command with amount 100
+    Then the command fails with status "FAILED_PRECONDITION"
+    And the error message contains "does not exist"
+
+  @EU-0221
+  Scenario: Cannot withdraw zero amount
+    Given a PlayerRegistered event for "Alice"
+    And a FundsDeposited event with amount 1000
+    When I handle a WithdrawFunds command with amount 0
+    Then the command fails with status "INVALID_ARGUMENT"
+    And the error message contains "positive"
+
+  @EU-0222
+  Scenario: Can withdraw the exact available balance
+    Given a PlayerRegistered event for "Alice"
+    And a FundsDeposited event with amount 1000
+    And a FundsReserved event with amount 600 for table "table-1"
+    When I handle a WithdrawFunds command with amount 400
+    Then the result is a examples.FundsWithdrawn event
+    And the player event has new_balance 600
+
+  @EU-0223
+  Scenario: Cannot reserve for non-existent player
+    Given no prior events for the player aggregate
+    When I handle a ReserveFunds command with amount 500 for table "table-1"
+    Then the command fails with status "FAILED_PRECONDITION"
+    And the error message contains "does not exist"
+
+  @EU-0224
+  Scenario: Cannot reserve zero amount
+    Given a PlayerRegistered event for "Alice"
+    And a FundsDeposited event with amount 1000
+    When I handle a ReserveFunds command with amount 0 for table "table-1"
+    Then the command fails with status "INVALID_ARGUMENT"
+    And the error message contains "positive"
+
+  @EU-0225
+  Scenario: Insufficient funds error beats duplicate-reservation error
+    # When a player has BOTH insufficient funds AND a prior reservation for the
+    # same table, the insufficient-funds check fires first. Matches Go/Rust order.
+    Given a PlayerRegistered event for "Alice"
+    And a FundsDeposited event with amount 100
+    And a FundsReserved event with amount 50 for table "table-1"
+    When I handle a ReserveFunds command with amount 500 for table "table-1"
+    Then the command fails with status "FAILED_PRECONDITION"
+    And the error message contains "Insufficient"
+
+  @EU-0226
+  Scenario: Reserve funds across multiple tables accumulates reserved balance
+    Given a PlayerRegistered event for "Alice"
+    And a FundsDeposited event with amount 1000
+    And a FundsReserved event with amount 300 for table "table-1"
+    When I handle a ReserveFunds command with amount 400 for table "table-2"
+    Then the result is a examples.FundsReserved event
+    And the player event has new_reserved_balance 700
+    And the player event has new_available_balance 300
+
+  @EU-0227
+  Scenario: Cannot release for non-existent player
+    Given no prior events for the player aggregate
+    When I handle a ReleaseFunds command for table "table-1"
+    Then the command fails with status "FAILED_PRECONDITION"
+    And the error message contains "does not exist"
+
+  @EU-0228
+  Scenario: Cannot release with empty table_root
+    Given a PlayerRegistered event for "Alice"
+    And a FundsDeposited event with amount 1000
+    When I handle a ReleaseFunds command for table ""
+    Then the command fails with status "FAILED_PRECONDITION"
+    And the error message contains "table_root is required"
+
+  @EU-0229
+  Scenario: Release only affects the specified table
+    Given a PlayerRegistered event for "Alice"
+    And a FundsDeposited event with amount 1000
+    And a FundsReserved event with amount 300 for table "table-1"
+    And a FundsReserved event with amount 400 for table "table-2"
+    When I handle a ReleaseFunds command for table "table-1"
+    Then the result is a examples.FundsReleased event
+    And the player event has amount 300
+    And the player event has new_reserved_balance 400
+
+  # ==========================================================================
+  # Fund Transfer - Pot Payouts and Settlement
+  # ==========================================================================
+  # Transfers credit funds from another player (e.g. winning a pot). The event
+  # carries hand_root and reason for audit trail.
+
+  @EU-0230
+  Scenario: Transfer funds increases bankroll and records audit metadata
+    Given a PlayerRegistered event for "Alice"
+    And a FundsDeposited event with amount 1000
+    When I handle a TransferFunds command from "other" with amount 500 for hand "hand-1" reason "pot_win"
+    Then the result is a examples.FundsTransferred event
+    And the player event has amount 500
+    And the player event has new_balance 1500
+    And the player event has reason "pot_win"
+
+  @EU-0231
+  Scenario: Cannot transfer to non-existent player
+    Given no prior events for the player aggregate
+    When I handle a TransferFunds command from "other" with amount 100 for hand "hand-1" reason "pot_win"
+    Then the command fails with status "FAILED_PRECONDITION"
+    And the error message contains "does not exist"
+
+  @EU-0232
+  Scenario: Cannot transfer zero amount
+    Given a PlayerRegistered event for "Alice"
+    And a FundsDeposited event with amount 1000
+    When I handle a TransferFunds command from "other" with amount 0 for hand "hand-1" reason "pot_win"
+    Then the command fails with status "INVALID_ARGUMENT"
+    And the error message contains "non-zero"
+
+  # ==========================================================================
+  # Full Lifecycle Replays
+  # ==========================================================================
+  # Exercise the state rebuild over realistic event sequences — covers
+  # apply_withdrawn/reserved/released/etc. in combination.
+
+  @EU-0233
+  Scenario: Reserve and release round-trip restores available balance
+    Given a PlayerRegistered event for "Alice"
+    And a FundsDeposited event with amount 1000
+    And a FundsReserved event with amount 500 for table "table-1"
+    And a FundsReleased event for table "table-1" with amount 500
+    When I rebuild the player state
+    Then the player state has bankroll 1000
+    And the player state has reserved_funds 0
+    And the player state has available_balance 1000
+
+  @EU-0234
+  Scenario: Rebuild state after deposit, withdraw, reserve, release sequence
+    Given a PlayerRegistered event for "Alice"
+    And a FundsDeposited event with amount 1000
+    And a FundsWithdrawn event with amount 200
+    And a FundsReserved event with amount 300 for table "table-1"
+    And a FundsReleased event for table "table-1" with amount 300
+    When I rebuild the player state
+    Then the player state has bankroll 800
+    And the player state has reserved_funds 0
+    And the player state has available_balance 800
+
+  # ==========================================================================
+  # Buy-in Orchestration Commands (handled on the Player aggregate)
+  # ==========================================================================
+  # The Player-side buy-in flow: InitiateBuyIn reserves funds and emits
+  # BuyInRequested; the PM + Table sequence lands, then ConfirmBuyIn or
+  # ReleaseBuyIn finalises. The PM-level orchestrator scenarios live in
+  # orchestration.feature.
+
+  @EU-0235
+  Scenario: InitiateBuyIn emits BuyInRequested with generated reservation_id
+    Given a PlayerRegistered event for "Alice"
+    And a FundsDeposited event with amount 5000
+    When I handle an InitiateBuyIn command for table "table-1" seat 0 amount 500
+    Then the result is a examples.BuyInRequested event
+    And the orchestration event has table_root "table-1"
+    And the orchestration event has seat 0
+    And the player event has amount 500
+    And the orchestration event has a reservation_id
+
+  @EU-0236
+  Scenario: InitiateBuyIn rejects for non-existent player
+    Given no prior events for the player aggregate
+    When I handle an InitiateBuyIn command for table "table-1" seat 0 amount 500
+    Then the command fails with status "FAILED_PRECONDITION"
+    And the error message contains "does not exist"
+
+  @EU-0237
+  Scenario: InitiateBuyIn rejects when bankroll is insufficient
+    Given a PlayerRegistered event for "Alice"
+    And a FundsDeposited event with amount 100
+    When I handle an InitiateBuyIn command for table "table-1" seat 0 amount 500
+    Then the command fails with status "FAILED_PRECONDITION"
+    And the error message contains "Insufficient"
+
+  @EU-0238
+  Scenario: ConfirmBuyIn rejects when no reservation is pending
+    Given a PlayerRegistered event for "Alice"
+    And a FundsDeposited event with amount 1000
+    When I handle a ConfirmBuyIn command for reservation "res-001"
+    Then the command fails with status "FAILED_PRECONDITION"
+    And the error message contains "No pending buy-in"
+
+  @EU-0239
+  Scenario: ConfirmBuyIn emits BuyInConfirmed with pending table, seat, and amount
+    Given a PlayerRegistered event for "Alice"
+    And a FundsDeposited event with amount 2000
+    And a pending buy-in "res-001" for table "table-1" seat 2 amount 500
+    When I handle a ConfirmBuyIn command for reservation "res-001"
+    Then the result is a examples.BuyInConfirmed event
+    And the orchestration event has table_root "table-1"
+    And the orchestration event has seat 2
+    And the player event has amount 500
+
+  @EU-0240
+  Scenario: ReleaseBuyIn emits BuyInReservationReleased with reason
+    Given a PlayerRegistered event for "Alice"
+    And a FundsDeposited event with amount 2000
+    And a pending buy-in "res-001" for table "table-1" seat 0 amount 500
+    When I handle a ReleaseBuyIn command for reservation "res-001" reason "timeout"
+    Then the result is a examples.BuyInReservationReleased event
+    And the orchestration event has reason "timeout"
+
+  @EU-0241
+  Scenario: Rebuild state after full buy-in lifecycle deducts bankroll and clears pending
+    Given a PlayerRegistered event for "Alice"
+    And a FundsDeposited event with amount 1000
+    And a pending buy-in "res-001" for table "table-1" seat 0 amount 500
+    And a BuyInConfirmed event for reservation "res-001" table "table-1"
+    When I rebuild the player state
+    Then the player state has bankroll 500
+    And the player state has reserved_funds 0
+    And the player state has no pending buy-in "res-001"
+
+  # ==========================================================================
+  # Tournament Registration Orchestration Commands (Player side)
+  # ==========================================================================
+
+  @EU-0242
+  Scenario: InitiateTournamentRegistration emits RegistrationRequested
+    Given a PlayerRegistered event for "Alice"
+    And a FundsDeposited event with amount 1000
+    When I handle an InitiateTournamentRegistration command for tournament "trn-1"
+    Then the result is a examples.RegistrationRequested event
+    And the orchestration event has tournament_root "trn-1"
+    And the orchestration event has a reservation_id
+
+  @EU-0243
+  Scenario: ConfirmRegistrationFee rejects when no registration is pending
+    Given a PlayerRegistered event for "Alice"
+    And a FundsDeposited event with amount 1000
+    When I handle a ConfirmRegistrationFee command for reservation "res-001"
+    Then the command fails with status "FAILED_PRECONDITION"
+    And the error message contains "No pending registration"
+
+  @EU-0244
+  Scenario: ConfirmRegistrationFee emits RegistrationFeeConfirmed with tournament and fee
+    Given a PlayerRegistered event for "Alice"
+    And a FundsDeposited event with amount 1000
+    And a pending registration "res-001" for tournament "trn-1" fee 100
+    When I handle a ConfirmRegistrationFee command for reservation "res-001"
+    Then the result is a examples.RegistrationFeeConfirmed event
+    And the orchestration event has tournament_root "trn-1"
+    And the orchestration event has fee 100
+
+  @EU-0245
+  Scenario: ReleaseRegistrationFee emits RegistrationFeeReleased with reason
+    Given a PlayerRegistered event for "Alice"
+    And a FundsDeposited event with amount 1000
+    And a pending registration "res-001" for tournament "trn-1" fee 100
+    When I handle a ReleaseRegistrationFee command for reservation "res-001" reason "tournament full"
+    Then the result is a examples.RegistrationFeeReleased event
+    And the orchestration event has reason "tournament full"
+
+  @EU-0246
+  Scenario: Rebuild state after full registration lifecycle deducts the fee
+    Given a PlayerRegistered event for "Alice"
+    And a FundsDeposited event with amount 500
+    And a pending registration "res-001" for tournament "trn-1" fee 100
+    And a RegistrationFeeConfirmed event for reservation "res-001" tournament "trn-1"
+    When I rebuild the player state
+    Then the player state has bankroll 400
+    And the player state has reserved_funds 0
+    And the player state has no pending registration "res-001"
+
+  # ==========================================================================
+  # Rebuy Orchestration Commands (Player side)
+  # ==========================================================================
+
+  @EU-0247
+  Scenario: InitiateRebuy emits RebuyRequested with tournament, table, and seat
+    Given a PlayerRegistered event for "Alice"
+    And a FundsDeposited event with amount 1000
+    When I handle an InitiateRebuy command for tournament "trn-1" table "table-1" seat 2
+    Then the result is a examples.RebuyRequested event
+    And the orchestration event has tournament_root "trn-1"
+    And the orchestration event has table_root "table-1"
+    And the orchestration event has seat 2
+
+  @EU-0248
+  Scenario: ConfirmRebuyFee rejects when no rebuy is pending
+    Given a PlayerRegistered event for "Alice"
+    And a FundsDeposited event with amount 1000
+    When I handle a ConfirmRebuyFee command for reservation "res-001"
+    Then the command fails with status "FAILED_PRECONDITION"
+    And the error message contains "No pending rebuy"
+
+  @EU-0249
+  Scenario: ConfirmRebuyFee emits RebuyFeeConfirmed with fee and chips_added
+    Given a PlayerRegistered event for "Alice"
+    And a FundsDeposited event with amount 1000
+    And a pending rebuy "res-001" for tournament "trn-1" table "table-1" seat 2 fee 200 chips 500
+    When I handle a ConfirmRebuyFee command for reservation "res-001"
+    Then the result is a examples.RebuyFeeConfirmed event
+    And the orchestration event has tournament_root "trn-1"
+    And the orchestration event has fee 200
+    And the orchestration event has chips_added 500
+
+  @EU-0250
+  Scenario: ReleaseRebuyFee emits RebuyFeeReleased with reason
+    Given a PlayerRegistered event for "Alice"
+    And a FundsDeposited event with amount 1000
+    And a pending rebuy "res-001" for tournament "trn-1" table "table-1" seat 2 fee 200 chips 500
+    When I handle a ReleaseRebuyFee command for reservation "res-001" reason "denied"
+    Then the result is a examples.RebuyFeeReleased event
+    And the orchestration event has reason "denied"
+
+  @EU-0251
+  Scenario: Rebuild state after full rebuy lifecycle deducts the fee
+    Given a PlayerRegistered event for "Alice"
+    And a FundsDeposited event with amount 1000
+    And a pending rebuy "res-001" for tournament "trn-1" table "table-1" seat 2 fee 200 chips 500
+    And a RebuyFeeConfirmed event for reservation "res-001"
+    When I rebuild the player state
+    Then the player state has bankroll 800
+    And the player state has reserved_funds 0
+    And the player state has no pending rebuy "res-001"

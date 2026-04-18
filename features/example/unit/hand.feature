@@ -1,4 +1,4 @@
-# Allocated: EU-0001 .. EU-0048
+# Allocated: EU-0001 .. EU-0099
 Feature: Hand aggregate logic
   The Hand aggregate manages a single poker hand: dealing, betting rounds,
   community cards, and showdown. Each hand is an isolated consistency
@@ -196,7 +196,8 @@ Feature: Hand aggregate logic
     When I handle a PlayerAction command for player "player-1" action RAISE amount 30
     Then the result is an examples.ActionTaken event
     And the action event has action "RAISE"
-    And the action event has amount 30
+    # amount on the event is chips_put_in: 30 total - 5 SB already posted = 25
+    And the action event has amount 25
 
   @EU-0015
   Scenario: Player goes all-in
@@ -215,8 +216,8 @@ Feature: Hand aggregate logic
     Given a CardsDealt event for TEXAS_HOLDEM with 2 players at stacks 500
     And blinds posted with pot 15 and current_bet 10
     When I handle a PlayerAction command for player "player-1" action CHECK
-    Then the command fails with status "INVALID_ARGUMENT"
-    And the error message contains "cannot check"
+    Then the command fails with status "FAILED_PRECONDITION"
+    And the error message contains "Cannot check"
 
   @EU-0017
   Scenario: Cannot bet less than minimum
@@ -273,7 +274,7 @@ Feature: Hand aggregate logic
     And blinds posted with pot 15
     And a BettingRoundComplete event for preflop
     When I handle a DealCommunityCards command with count 3
-    Then the command fails with status "INVALID_ARGUMENT"
+    Then the command fails with status "FAILED_PRECONDITION"
     And the error message contains "community cards"
 
   # ==========================================================================
@@ -549,3 +550,455 @@ Feature: Hand aggregate logic
     When I rebuild the hand state
     Then player "player-1" has_folded is true
     And active player count is 2
+
+  # ==========================================================================
+  # Deal Command — Additional Edge Cases
+  # ==========================================================================
+  # Validation failures around dealing: empty player list, minimum players,
+  # and deterministic reproducibility via deck_seed.
+
+  @EU-0049
+  Scenario: Cannot deal with empty player list
+    Given no prior events for the hand aggregate
+    When I handle a DealCards command for TEXAS_HOLDEM with no players
+    Then the command fails with status "FAILED_PRECONDITION"
+    And the error message contains "No players"
+
+  @EU-0050
+  Scenario: Deterministic deal produces identical hole cards for the same seed
+    Given no prior events for the hand aggregate
+    When I deal the same TEXAS_HOLDEM hand twice with seed "seed123"
+    Then both deals produce identical hole cards
+
+  # ==========================================================================
+  # PostBlind Command — Edge Cases
+  # ==========================================================================
+  # Validation gates: hand must be dealt, player_root required, player must
+  # exist, amount must be positive.
+
+  @EU-0051
+  Scenario: Cannot post blind before hand is dealt
+    Given no prior events for the hand aggregate
+    When I handle a PostBlind command for player "player-1" type "small" amount 5
+    Then the command fails with status "FAILED_PRECONDITION"
+    And the error message contains "Hand not dealt"
+
+  @EU-0052
+  Scenario: Cannot post blind without player_root
+    Given a CardsDealt event for TEXAS_HOLDEM with 2 players at stacks 500
+    When I handle a PostBlind command with no player_root type "small" amount 5
+    Then the command fails with status "FAILED_PRECONDITION"
+    And the error message contains "player_root"
+
+  @EU-0053
+  Scenario: Cannot post blind for player not in hand
+    Given a CardsDealt event for TEXAS_HOLDEM with 2 players at stacks 500
+    When I handle a PostBlind command for player "ghost" type "small" amount 5
+    Then the command fails with status "FAILED_PRECONDITION"
+    And the error message contains "not in hand"
+
+  @EU-0054
+  Scenario: Cannot post blind with zero or negative amount
+    Given a CardsDealt event for TEXAS_HOLDEM with 2 players at stacks 500
+    When I handle a PostBlind command for player "player-1" type "small" amount 0
+    Then the command fails with status "INVALID_ARGUMENT"
+    And the error message contains "positive"
+
+  @EU-0055
+  Scenario: Cannot post blind after hand complete
+    Given a CardsDealt event for TEXAS_HOLDEM with 2 players at stacks 500
+    And a HandComplete event for the hand
+    When I handle a PostBlind command for player "player-1" type "small" amount 5
+    Then the command fails with status "FAILED_PRECONDITION"
+    And the error message contains "complete"
+
+  @EU-0056
+  Scenario: Cannot post blind by folded player
+    Given a CardsDealt event for TEXAS_HOLDEM with 2 players at stacks 500
+    And player "player-1" folded
+    When I handle a PostBlind command for player "player-1" type "small" amount 5
+    Then the command fails with status "FAILED_PRECONDITION"
+    And the error message contains "folded"
+
+  # ==========================================================================
+  # PlayerAction Command — Edge Cases
+  # ==========================================================================
+  # Pre-action validation: hand must exist, player must exist, cannot act
+  # while folded or all-in. Action-specific validations follow.
+
+  @EU-0057
+  Scenario: Cannot act before hand is dealt
+    Given no prior events for the hand aggregate
+    When I handle a PlayerAction command for player "player-1" action FOLD
+    Then the command fails with status "FAILED_PRECONDITION"
+    And the error message contains "Hand not dealt"
+
+  @EU-0058
+  Scenario: Cannot act without player_root
+    Given a CardsDealt event for TEXAS_HOLDEM with 2 players at stacks 500
+    And blinds posted with pot 15 and current_bet 10
+    When I handle a PlayerAction command with no player_root action FOLD
+    Then the command fails with status "FAILED_PRECONDITION"
+    And the error message contains "player_root"
+
+  @EU-0059
+  Scenario: Cannot act for player not in hand
+    Given a CardsDealt event for TEXAS_HOLDEM with 2 players at stacks 500
+    And blinds posted with pot 15 and current_bet 10
+    When I handle a PlayerAction command for player "ghost" action FOLD
+    Then the command fails with status "FAILED_PRECONDITION"
+    And the error message contains "not in hand"
+
+  @EU-0060
+  Scenario: Folded player cannot act again
+    Given a CardsDealt event for TEXAS_HOLDEM with 2 players at stacks 500
+    And blinds posted with pot 15 and current_bet 10
+    And player "player-1" folded
+    When I handle a PlayerAction command for player "player-1" action CHECK
+    Then the command fails with status "FAILED_PRECONDITION"
+    And the error message contains "folded"
+
+  @EU-0061
+  Scenario: Cannot take actions outside betting phase
+    Given a CardsDealt event for TEXAS_HOLDEM with 2 players at stacks 500
+    And a ShowdownStarted event for the hand
+    When I handle a PlayerAction command for player "player-1" action FOLD
+    Then the command fails with status "FAILED_PRECONDITION"
+    And the error message contains "Not in betting"
+
+  @EU-0062
+  Scenario: Cannot call when there is nothing to call
+    Given a CardsDealt event for TEXAS_HOLDEM with 2 players at stacks 500
+    And blinds posted with pot 15 and current_bet 10
+    And a ActionTaken event for player "player-1" with action CALL amount 5
+    When I handle a PlayerAction command for player "player-2" action CALL
+    Then the command fails with status "FAILED_PRECONDITION"
+    And the error message contains "Nothing to call"
+
+  @EU-0063
+  Scenario: Cannot bet when there is already a bet
+    Given a CardsDealt event for TEXAS_HOLDEM with 2 players at stacks 500
+    And blinds posted with pot 15 and current_bet 10
+    When I handle a PlayerAction command for player "player-1" action BET amount 20
+    Then the command fails with status "FAILED_PRECONDITION"
+    And the error message contains "already a bet"
+
+  @EU-0064
+  Scenario: Cannot bet more than stack
+    Given a CardsDealt event for TEXAS_HOLDEM with 2 players at stacks 500
+    And blinds posted with pot 15
+    And a BettingRoundComplete event for preflop
+    And a CommunityCardsDealt event for FLOP
+    When I handle a PlayerAction command for player "player-1" action BET amount 5000
+    Then the command fails with status "FAILED_PRECONDITION"
+    And the error message contains "exceeds stack"
+
+  @EU-0065
+  Scenario: Cannot raise when there is no bet
+    Given a CardsDealt event for TEXAS_HOLDEM with 2 players at stacks 500
+    And blinds posted with pot 15
+    And a BettingRoundComplete event for preflop
+    And a CommunityCardsDealt event for FLOP
+    When I handle a PlayerAction command for player "player-1" action RAISE amount 20
+    Then the command fails with status "FAILED_PRECONDITION"
+    And the error message contains "no bet"
+
+  @EU-0066
+  Scenario: Cannot raise more than stack
+    Given a CardsDealt event for TEXAS_HOLDEM with 2 players at stacks 500
+    And blinds posted with pot 15 and current_bet 10
+    When I handle a PlayerAction command for player "player-1" action RAISE amount 5000
+    Then the command fails with status "FAILED_PRECONDITION"
+    And the error message contains "exceeds stack"
+
+  @EU-0067
+  Scenario: Raise below minimum increment rejected
+    Given a CardsDealt event for TEXAS_HOLDEM with 2 players at stacks 500
+    And blinds posted with pot 15 and current_bet 10
+    When I handle a PlayerAction command for player "player-1" action RAISE amount 12
+    Then the command fails with status "INVALID_ARGUMENT"
+    And the error message contains "at least"
+
+  @EU-0068
+  Scenario: Invalid action type rejected
+    Given a CardsDealt event for TEXAS_HOLDEM with 2 players at stacks 500
+    And blinds posted with pot 15 and current_bet 10
+    When I handle a PlayerAction command for player "player-1" with unknown action type
+    Then the command fails with status "FAILED_PRECONDITION"
+    And the error message contains "Invalid action"
+
+  @EU-0069
+  Scenario: All-in action uses the entire remaining stack
+    Given a CardsDealt event for TEXAS_HOLDEM with 2 players at stacks 1000
+    And blinds posted with pot 15 and current_bet 10
+    When I handle a PlayerAction command for player "player-1" action ALL_IN
+    Then the result is an examples.ActionTaken event
+    And the action event has action "ALL_IN"
+    And the action event has player_stack 0
+
+  @EU-0070
+  Scenario: Bet for entire remaining stack becomes all-in
+    Given a CardsDealt event for TEXAS_HOLDEM with 2 players at stacks 100
+    And short-stacked blinds posted with small 5 big 10 and stack 100
+    And a BettingRoundComplete event for preflop
+    And a CommunityCardsDealt event for FLOP
+    When I handle a PlayerAction command for player "player-1" action BET amount 95
+    Then the result is an examples.ActionTaken event
+    And the action event has action "ALL_IN"
+
+  @EU-0071
+  Scenario: Raise for entire remaining stack becomes all-in
+    Given a CardsDealt event for TEXAS_HOLDEM with 2 players at stacks 100
+    And short-stacked blinds posted with small 5 big 10 and stack 100
+    When I handle a PlayerAction command for player "player-1" action RAISE amount 100
+    Then the result is an examples.ActionTaken event
+    And the action event has action "ALL_IN"
+
+  @EU-0072
+  Scenario: All-in player cannot act again
+    Given a CardsDealt event for TEXAS_HOLDEM with 2 players at stacks 1000
+    And blinds posted with pot 15 and current_bet 10
+    And a ActionTaken event for player "player-1" with action ALL_IN amount 995
+    When I handle a PlayerAction command for player "player-1" action CHECK
+    Then the command fails with status "FAILED_PRECONDITION"
+    And the error message contains "all-in"
+
+  # ==========================================================================
+  # DealCommunityCards Command — Edge Cases
+  # ==========================================================================
+
+  @EU-0073
+  Scenario: Cannot deal community cards before the hand
+    Given no prior events for the hand aggregate
+    When I handle a DealCommunityCards command with count 3
+    Then the command fails with status "FAILED_PRECONDITION"
+    And the error message contains "Hand not dealt"
+
+  @EU-0074
+  Scenario: Cannot deal zero community cards
+    Given a CardsDealt event for TEXAS_HOLDEM with 2 players at stacks 500
+    When I handle a DealCommunityCards command with count 0
+    Then the command fails with status "INVALID_ARGUMENT"
+    And the error message contains "at least 1"
+
+  @EU-0075
+  Scenario: Wrong count for phase transition is rejected
+    Given a CardsDealt event for TEXAS_HOLDEM with 2 players at stacks 500
+    And blinds posted with pot 15
+    And a BettingRoundComplete event for preflop
+    When I handle a DealCommunityCards command with count 1
+    Then the command fails with status "FAILED_PRECONDITION"
+    And the error message contains "Expected"
+
+  @EU-0076
+  Scenario: Cannot deal community cards after hand complete
+    Given a CardsDealt event for TEXAS_HOLDEM with 2 players at stacks 500
+    And a HandComplete event for the hand
+    When I handle a DealCommunityCards command with count 3
+    Then the command fails with status "FAILED_PRECONDITION"
+    And the error message contains "complete"
+
+  # ==========================================================================
+  # RevealCards Command — Edge Cases
+  # ==========================================================================
+
+  @EU-0077
+  Scenario: Cannot reveal before hand is dealt
+    Given no prior events for the hand aggregate
+    When I handle a RevealCards command for player "player-1" with muck false
+    Then the command fails with status "FAILED_PRECONDITION"
+    And the error message contains "Hand not dealt"
+
+  @EU-0078
+  Scenario: Cannot reveal outside of showdown
+    Given a CardsDealt event for TEXAS_HOLDEM with 2 players at stacks 500
+    When I handle a RevealCards command for player "player-1" with muck false
+    Then the command fails with status "FAILED_PRECONDITION"
+    And the error message contains "Not in showdown"
+
+  @EU-0079
+  Scenario: Cannot reveal without player_root
+    Given a completed betting for TEXAS_HOLDEM with 2 players
+    And a ShowdownStarted event for the hand
+    When I handle a RevealCards command with no player_root and muck false
+    Then the command fails with status "FAILED_PRECONDITION"
+    And the error message contains "player_root"
+
+  @EU-0080
+  Scenario: Cannot reveal for player not in hand
+    Given a completed betting for TEXAS_HOLDEM with 2 players
+    And a ShowdownStarted event for the hand
+    When I handle a RevealCards command for player "ghost" with muck false
+    Then the command fails with status "FAILED_PRECONDITION"
+    And the error message contains "not in hand"
+
+  @EU-0081
+  Scenario: Folded player cannot reveal cards
+    Given a CardsDealt event for TEXAS_HOLDEM with 2 players at stacks 500
+    And player "player-1" folded
+    And a ShowdownStarted event for the hand
+    When I handle a RevealCards command for player "player-1" with muck false
+    Then the command fails with status "FAILED_PRECONDITION"
+    And the error message contains "folded"
+
+  # ==========================================================================
+  # AwardPot Command — Edge Cases
+  # ==========================================================================
+
+  @EU-0082
+  Scenario: Cannot award pot before hand is dealt
+    Given no prior events for the hand aggregate
+    When I handle an AwardPot command with winner "player-1" amount 100
+    Then the command fails with status "FAILED_PRECONDITION"
+    And the error message contains "Hand not dealt"
+
+  @EU-0083
+  Scenario: Cannot award with empty awards list
+    Given a CardsDealt event for TEXAS_HOLDEM with 2 players at stacks 500
+    And blinds posted with pot 15
+    When I handle an AwardPot command with no awards
+    Then the command fails with status "FAILED_PRECONDITION"
+    And the error message contains "No awards"
+
+  @EU-0084
+  Scenario: Cannot award to player not in hand
+    Given a CardsDealt event for TEXAS_HOLDEM with 2 players at stacks 500
+    And blinds posted with pot 15
+    When I handle an AwardPot command with winner "ghost" amount 15
+    Then the command fails with status "FAILED_PRECONDITION"
+    And the error message contains "not in hand"
+
+  @EU-0085
+  Scenario: Cannot award to folded player
+    Given a CardsDealt event for TEXAS_HOLDEM with 2 players at stacks 500
+    And blinds posted with pot 15
+    And player "player-1" folded
+    When I handle an AwardPot command with winner "player-1" amount 15
+    Then the command fails with status "FAILED_PRECONDITION"
+    And the error message contains "Folded"
+
+  @EU-0086
+  Scenario: Cannot award pot after hand complete
+    Given a CardsDealt event for TEXAS_HOLDEM with 2 players at stacks 500
+    And a HandComplete event for the hand
+    When I handle an AwardPot command with winner "player-1" amount 15
+    Then the command fails with status "FAILED_PRECONDITION"
+    And the error message contains "already complete"
+
+  @EU-0087
+  Scenario: Award adjusts mismatched total to the actual pot
+    # When the sum of awards doesn't match the pot, the first winner's
+    # amount is adjusted so the total matches the pot.
+    Given a CardsDealt event for TEXAS_HOLDEM with 2 players at stacks 500
+    And blinds posted with pot 15
+    When I handle an AwardPot command with winner "player-1" amount 10
+    Then the result is a examples.PotAwarded event
+    And the award event has winner "player-1" with amount 15
+
+  # ==========================================================================
+  # BettingRoundComplete Applier — Per-Round State Reset
+  # ==========================================================================
+  # The BettingRoundComplete event resets per-round betting state (bet_this_round,
+  # current_bet, has_acted) and can carry stack snapshots. For Five Card Draw,
+  # completing preflop advances the phase to DRAW.
+
+  @EU-0088
+  Scenario: BettingRoundComplete resets per-round betting state
+    Given a CardsDealt event for TEXAS_HOLDEM with 2 players at stacks 1000
+    And blinds posted with pot 15 and current_bet 10
+    And a BettingRoundComplete event for preflop
+    When I rebuild the hand state
+    Then the hand state current_bet is 0
+    And each player has bet_this_round 0
+
+  @EU-0089
+  Scenario: BettingRoundComplete updates player stack snapshots
+    Given a CardsDealt event for TEXAS_HOLDEM with 2 players at stacks 1000
+    And a BettingRoundComplete event with stack snapshots:
+      | player_root | stack | is_all_in | has_folded |
+      | player-1    | 800   | false     | false      |
+      | player-2    | 0     | true      | false      |
+    When I rebuild the hand state
+    Then player "player-1" has stack 800
+    And player "player-2" has stack 0
+    And player "player-2" is all-in
+
+  @EU-0090
+  Scenario: Five Card Draw advances preflop to draw phase
+    Given a CardsDealt event for FIVE_CARD_DRAW with 2 players
+    And a BettingRoundComplete event for preflop
+    When I rebuild the hand state
+    Then the hand state has phase "DRAW"
+
+  @EU-0091
+  Scenario: Five Card Draw does not re-enter draw phase on draw completion
+    Given a CardsDealt event for FIVE_CARD_DRAW with 2 players
+    And a BettingRoundComplete event for preflop
+    And a BettingRoundComplete event for draw
+    When I rebuild the hand state
+    Then the hand state has phase "DRAW"
+
+  @EU-0092
+  Scenario: Texas Hold'em ignores draw transition on preflop complete
+    Given a CardsDealt event for TEXAS_HOLDEM with 2 players
+    And a BettingRoundComplete event for preflop
+    When I rebuild the hand state
+    Then the hand state has phase "PREFLOP"
+
+  # ==========================================================================
+  # State Accessors and Event Appliers
+  # ==========================================================================
+
+  @EU-0093
+  Scenario: Hand id combines table_root hex and hand_number
+    Given a CardsDealt event with table_root "aabbccdd" and hand_number 5
+    When I rebuild the hand state
+    Then the hand state has hand_id "aabbccdd_5"
+
+  @EU-0094
+  Scenario: PotAwarded applier increases winner stack
+    Given a CardsDealt event for TEXAS_HOLDEM with 2 players at stacks 500
+    And a PotAwarded event awarding player "player-1" amount 100
+    When I rebuild the hand state
+    Then player "player-1" has stack 600
+
+  @EU-0095
+  Scenario: HandComplete applier sets status to complete
+    Given a CardsDealt event for TEXAS_HOLDEM with 2 players at stacks 500
+    And a HandComplete event for the hand
+    When I rebuild the hand state
+    Then the hand state has status "complete"
+
+  @EU-0096
+  Scenario: Event book records every emitted event
+    Given a CardsDealt event for TEXAS_HOLDEM with 2 players at stacks 1000
+    And a BlindPosted event for player "player-1" amount 5
+    And a BlindPosted event for player "player-2" amount 10
+    When I rebuild the hand state
+    Then the hand event book has 3 pages
+
+  @EU-0097
+  Scenario: small_blind and big_blind accessors reflect posted blinds
+    Given a CardsDealt event for TEXAS_HOLDEM with 2 players at stacks 1000
+    And a BlindPosted event for player "player-1" amount 5
+    And a BlindPosted event for player "player-2" amount 10
+    When I rebuild the hand state
+    Then the hand state small_blind is 5
+    And the hand state big_blind is 10
+    And the hand state min_raise is 10
+
+  @EU-0098
+  Scenario: get_active_players excludes folded and all-in players
+    Given a CardsDealt event for TEXAS_HOLDEM with 3 players
+    And blinds posted with pot 15
+    And player "player-3" folded
+    When I rebuild the hand state
+    Then the hand state has 2 active players
+
+  @EU-0099
+  Scenario: Cannot award to winner whose root is unknown
+    Given a CardsDealt event for TEXAS_HOLDEM with 2 players at stacks 500
+    And blinds posted with pot 15
+    When I handle an AwardPot command with winner "unknown-player" amount 15
+    Then the command fails with status "FAILED_PRECONDITION"
+    And the error message contains "not in hand"

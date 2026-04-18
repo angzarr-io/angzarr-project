@@ -1,4 +1,4 @@
-# Allocated: EU-0300 .. EU-0308
+# Allocated: EU-0300 .. EU-0399
 Feature: Saga logic
   Sagas translate events from one domain into commands for another. They're
   stateless domain bridges that enable loose coupling between aggregates.
@@ -159,3 +159,105 @@ Feature: Saga logic
       | player-2    | 0      |
     When the saga handles the event
     Then the saga emits 2 ReleaseFunds commands to player domain
+
+  # ==========================================================================
+  # Unified Router API - SagaHandleRequest Dispatch (EU-0309..)
+  # ==========================================================================
+  # These scenarios exercise the production sagas via the unified Router
+  # using SagaHandleRequest with explicit destination_sequences. This is
+  # the same shape the orchestrator uses in production.
+
+  @EU-0309
+  Scenario: TableSyncStartSaga dispatched via Router emits DealCards
+    Given a TableSyncStartSaga registered in a Router
+    And a HandStarted event from table domain with:
+      | hand_root | hand_number | game_variant | dealer_position |
+      | hand-1    | 1           | TEXAS_HOLDEM | 0               |
+    And active players:
+      | player_root | position | stack |
+      | player-1    | 0        | 500   |
+      | player-2    | 1        | 500   |
+    When I dispatch the event via SagaHandleRequest with destination_sequences "hand=0"
+    Then the result is a examples.DealCards command to hand domain
+    And the command DealCards has hand_number 1 and 2 players
+    And the command DealCards has game_variant TEXAS_HOLDEM
+
+  @EU-0310
+  Scenario: TableSyncCompleteSaga dispatched via Router emits EndHand
+    Given a TableSyncCompleteSaga registered in a Router
+    And a HandComplete event from hand domain with:
+      | table_root |
+      | table-1    |
+    And winners:
+      | player_root | amount |
+      | player-1    | 100    |
+    When I dispatch the event via SagaHandleRequest with destination_sequences "table=0"
+    Then the result is a examples.EndHand command to table domain
+    And the EndHand command has 1 result with winner "player-1" amount 100
+
+  @EU-0311
+  Scenario: HandResultsSaga dispatched via Router emits ReleaseFunds per player
+    Given a HandResultsSaga registered in a Router
+    And a HandEnded event from table domain with:
+      | hand_root |
+      | hand-1    |
+    And stack_changes:
+      | player_root | change |
+      | player-1    | 50     |
+      | player-2    | -50    |
+    When I dispatch the event via SagaHandleRequest with destination_sequences "player=0"
+    Then 2 commands are emitted to player domain
+    And each command is a examples.ReleaseFunds
+
+  @EU-0312
+  Scenario: HandPayoutSaga dispatched via Router emits DepositFunds per winner
+    Given a HandPayoutSaga registered in a Router
+    And a PotAwarded event from hand domain with:
+      | pot_total |
+      | 100       |
+    And winners:
+      | player_root | amount |
+      | player-1    | 60     |
+      | player-2    | 40     |
+    When I dispatch the event via SagaHandleRequest with destination_sequences "player=0"
+    Then 2 commands are emitted to player domain
+    And each command is a examples.DepositFunds
+    And DepositFunds 0 has amount 60 for "player-1"
+    And DepositFunds 1 has amount 40 for "player-2"
+
+  @EU-0313
+  Scenario: Router routes table event only to sagas matching table source
+    Given a Router with TableSyncStartSaga, HandResultsSaga, and HandPayoutSaga
+    And a HandStarted event from table domain with:
+      | hand_root | hand_number | game_variant | dealer_position |
+      | hand-1    | 1           | TEXAS_HOLDEM | 0               |
+    And active players:
+      | player_root | position | stack |
+      | player-1    | 0        | 500   |
+    When I dispatch the event via SagaHandleRequest with destination_sequences "hand=0,table=0,player=0"
+    Then only TableSyncStartSaga emits a DealCards command
+
+  @EU-0314
+  Scenario: HandResultsSaga emits no commands for empty stack_changes
+    Given a HandResultsSaga registered in a Router
+    And a HandEnded event from table domain with:
+      | hand_root |
+      | hand-1    |
+    And stack_changes:
+      | player_root | change |
+    When I dispatch the event via SagaHandleRequest with destination_sequences "player=0"
+    Then no commands are emitted
+
+  @EU-0315
+  Scenario: HandResultsSaga emits ReleaseFunds for all players including zero change
+    Given a HandResultsSaga registered in a Router
+    And a HandEnded event from table domain with:
+      | hand_root |
+      | hand-1    |
+    And stack_changes:
+      | player_root | change |
+      | player-1    | 100    |
+      | player-2    | 0      |
+    When I dispatch the event via SagaHandleRequest with destination_sequences "player=0"
+    Then 2 commands are emitted to player domain
+    And each command is a examples.ReleaseFunds

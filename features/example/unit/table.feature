@@ -1,4 +1,4 @@
-# Allocated: EU-0100 .. EU-0120
+# Allocated: EU-0100 .. EU-0120, EU-0531 .. EU-0567
 Feature: Table aggregate logic
   The Table aggregate manages a poker table session: configuration, player
   seating, and hand lifecycle. It's the orchestration layer between players
@@ -264,3 +264,330 @@ Feature: Table aggregate logic
     When I rebuild the table state
     Then the table state has status "in_hand"
     And the table state has hand_count 1
+
+  # ==========================================================================
+  # Create Validation (Phase 2 — test_table.py)
+  # ==========================================================================
+  # Configuration must be sane before accepting players. Blinds, buy-in
+  # bounds, and max_players are validated synchronously. These checks match
+  # the Go implementation for cross-language consistency.
+
+  @EU-0531
+  Scenario Outline: CreateTable rejects invalid configuration
+    Given no prior events for the table aggregate
+    When I handle a CreateTable command with name "<name>" and variant "TEXAS_HOLDEM":
+      | small_blind   | big_blind   | min_buy_in   | max_buy_in   | max_players   |
+      | <small_blind> | <big_blind> | <min_buy_in> | <max_buy_in> | <max_players> |
+    Then the command fails with status "<status>"
+    And the error message contains "<message>"
+
+    Examples:
+      | name | small_blind | big_blind | min_buy_in | max_buy_in | max_players | status              | message                      |
+      | Test | 5           | 10        | 0          | 1000       | 6           | INVALID_ARGUMENT    | min_buy_in must be positive  |
+      | Test | 5           | 10        | 500        | 100        | 6           | FAILED_PRECONDITION | max_buy_in must be >= min_buy_in |
+      | Test | 0           | 10        | 100        | 1000       | 6           | INVALID_ARGUMENT    | small_blind                  |
+      | Test | 20          | 10        | 100        | 1000       | 6           | FAILED_PRECONDITION | big_blind must be >=         |
+      | Test | 5           | 0         | 100        | 1000       | 6           | FAILED_PRECONDITION | big_blind must be >= small_blind |
+      | Test | 5           | 10        | 100        | 1000       | 1           | FAILED_PRECONDITION | max_players must be 2-10     |
+      | Test | 5           | 10        | 100        | 1000       | 11          | FAILED_PRECONDITION | max_players must be 2-10     |
+
+  @EU-0532
+  Scenario: CreateTable requires a table_name
+    Given no prior events for the table aggregate
+    When I handle a CreateTable command with name "" and variant "TEXAS_HOLDEM":
+      | small_blind | big_blind | min_buy_in | max_buy_in | max_players |
+      | 5           | 10        | 100        | 1000       | 6           |
+    Then the command fails with status "FAILED_PRECONDITION"
+    And the error message contains "table_name"
+
+  # ==========================================================================
+  # Join Validation (Phase 2)
+  # ==========================================================================
+  # Joining requires an existing table, a player_root, and a buy-in that
+  # fits within the configured bounds. Preferred-seat occupancy is checked
+  # before the any-seat fallback.
+
+  @EU-0533
+  Scenario: JoinTable rejects when buy-in exceeds max
+    Given a TableCreated event for "Main Table"
+    When I handle a JoinTable command for player "player-1" at seat 0 with buy-in 5000
+    Then the command fails with status "INVALID_ARGUMENT"
+    And the error message contains "cannot exceed"
+
+  @EU-0534
+  Scenario: JoinTable rejects when table does not exist
+    Given no prior events for the table aggregate
+    When I handle a JoinTable command for player "player-1" at seat 0 with buy-in 500
+    Then the command fails with status "FAILED_PRECONDITION"
+    And the error message contains "does not exist"
+
+  @EU-0535
+  Scenario: JoinTable requires a player_root
+    Given a TableCreated event for "Main Table"
+    When I handle a JoinTable command for player "" at seat 0 with buy-in 500
+    Then the command fails with status "FAILED_PRECONDITION"
+    And the error message contains "player_root"
+
+  @EU-0536
+  Scenario: JoinTable rejects occupied preferred seat
+    Given a TableCreated event for "Main Table"
+    And a PlayerJoined event for player "player-1" at seat 3
+    When I handle a JoinTable command for player "player-2" at seat 3 with buy-in 500
+    Then the command fails with status "FAILED_PRECONDITION"
+    And the error message contains "Seat is occupied"
+
+  # ==========================================================================
+  # Leave Validation (Phase 2)
+  # ==========================================================================
+
+  @EU-0537
+  Scenario: LeaveTable rejects when table does not exist
+    Given no prior events for the table aggregate
+    When I handle a LeaveTable command for player "player-1"
+    Then the command fails with status "FAILED_PRECONDITION"
+    And the error message contains "does not exist"
+
+  @EU-0538
+  Scenario: LeaveTable requires a player_root
+    Given a TableCreated event for "Main Table"
+    When I handle a LeaveTable command for player ""
+    Then the command fails with status "FAILED_PRECONDITION"
+    And the error message contains "player_root"
+
+  # ==========================================================================
+  # Hand Lifecycle Validation (Phase 2)
+  # ==========================================================================
+
+  @EU-0539
+  Scenario: StartHand rejects when table does not exist
+    Given no prior events for the table aggregate
+    When I handle a StartHand command
+    Then the command fails with status "FAILED_PRECONDITION"
+    And the error message contains "does not exist"
+
+  @EU-0540
+  Scenario: EndHand rejects when table does not exist
+    Given no prior events for the table aggregate
+    When I handle an EndHand command with winner "player-1" winning 50
+    Then the command fails with status "FAILED_PRECONDITION"
+    And the error message contains "does not exist"
+
+  @EU-0541
+  Scenario: EndHand rejects mismatched hand_root
+    Given a TableCreated event for "Main Table"
+    And a PlayerJoined event for player "player-1" at seat 0
+    And a PlayerJoined event for player "player-2" at seat 1
+    And a HandStarted event for hand 1
+    When I handle an EndHand command with mismatched hand_root
+    Then the command fails with status "FAILED_PRECONDITION"
+    And the error message contains "Hand root mismatch"
+
+  @EU-0542
+  Scenario: EndHand transitions status back to waiting
+    Given a TableCreated event for "Main Table"
+    And a PlayerJoined event for player "player-1" at seat 0
+    And a PlayerJoined event for player "player-2" at seat 1
+    When I start a hand and end it with winner "player-1" winning 100
+    Then the table state has status "waiting"
+    And the table state has current_hand_root empty
+
+  @EU-0543
+  Scenario: StartHand in heads-up: dealer posts small blind
+    Given a TableCreated event for "Main Table"
+    And a PlayerJoined event for player "player-1" at seat 0
+    And a PlayerJoined event for player "player-2" at seat 1
+    When I handle a StartHand command
+    Then the result is a examples.HandStarted event
+    And the small_blind_position equals the dealer_position
+
+  @EU-0544
+  Scenario: StartHand with 3 players: SB is left of dealer
+    Given a TableCreated event for "Main Table"
+    And a PlayerJoined event for player "player-1" at seat 0
+    And a PlayerJoined event for player "player-2" at seat 1
+    And a PlayerJoined event for player "player-3" at seat 2
+    When I handle a StartHand command
+    Then the result is a examples.HandStarted event
+    And the small_blind_position differs from the dealer_position
+
+  # ==========================================================================
+  # State Accessors (Phase 2)
+  # ==========================================================================
+
+  @EU-0545
+  Scenario: Table id is derived from the table name
+    Given a TableCreated event for "High Stakes"
+    When I rebuild the table state
+    Then the table state has table_id "table_High Stakes"
+
+  @EU-0546
+  Scenario: is_full becomes true when max_players reached
+    Given a TableCreated event for "Main Table" with max_players 2
+    And a PlayerJoined event for player "player-1" at seat 0
+    And a PlayerJoined event for player "player-2" at seat 1
+    When I rebuild the table state
+    Then the table state is full
+
+  @EU-0547
+  Scenario: active_player_count excludes sitting-out players
+    Given a TableCreated event for "Main Table"
+    And a PlayerJoined event for player "player-1" at seat 0
+    And a PlayerJoined event for player "player-2" at seat 1
+    And a PlayerSatOut event for player "player-1"
+    When I rebuild the table state
+    Then the table state has 2 players
+    And the table state has 1 active_players
+
+  # ==========================================================================
+  # Event Replay (Phase 2)
+  # ==========================================================================
+
+  @EU-0548
+  Scenario: PlayerSatIn restores a sat-out player to active
+    Given a TableCreated event for "Main Table"
+    And a PlayerJoined event for player "player-1" at seat 0
+    And a PlayerSatOut event for player "player-1"
+    And a PlayerSatIn event for player "player-1"
+    When I rebuild the table state
+    Then the table state has 1 active_players
+
+  @EU-0549
+  Scenario: ChipsAdded updates the player stack via re-buy
+    Given a TableCreated event for "Main Table"
+    And a PlayerJoined event for player "player-1" at seat 0 with stack 500
+    And a ChipsAdded event for player "player-1" with new_stack 800
+    When I rebuild the table state
+    Then the table state seat 0 has stack 800
+
+  # ==========================================================================
+  # Cross-language Consistency (Phase 2)
+  # ==========================================================================
+
+  @EU-0550
+  Scenario: Seat 0 is an explicit valid preferred seat
+    Given a TableCreated event for "Main Table"
+    When I handle a JoinTable command for player "player-1" at seat 0 with buy-in 500
+    Then the result is a examples.PlayerJoined event
+    And the table event has seat_position 0
+
+  @EU-0551
+  Scenario: Negative preferred_seat picks the next available seat
+    Given a TableCreated event for "Main Table"
+    And a PlayerJoined event for player "player-1" at seat 0
+    When I handle a JoinTable command for player "player-2" at seat -1 with buy-in 500
+    Then the result is a examples.PlayerJoined event
+    And the table event has seat_position 1
+
+  # ==========================================================================
+  # Full Lifecycle (Phase 2)
+  # ==========================================================================
+
+  @EU-0552
+  Scenario: Full create/join/start/end/leave lifecycle
+    Given a TableCreated event for "Main Table"
+    And a PlayerJoined event for player "player-1" at seat 0 with stack 500
+    And a PlayerJoined event for player "player-2" at seat 1 with stack 500
+    When I start a hand and end it with winner "player-1" winning 100
+    Then the table state has status "waiting"
+
+  # ==========================================================================
+  # SeatPlayer Orchestration Command (Phase 2 — test_orchestration.py)
+  # ==========================================================================
+  # SeatPlayer is the PM-orchestrated seating flow. Unlike JoinTable, a
+  # rejection becomes a SeatingRejected event (not an exception) so the PM
+  # can compensate by releasing the buy-in reservation.
+
+  @EU-0553
+  Scenario: SeatPlayer emits PlayerSeated on success
+    Given a TableCreated event for "Main Table"
+    When I handle a SeatPlayer command for player "player-a" reservation "res-001" seat 0 amount 500
+    Then the result is a examples.PlayerSeated event
+    And the seating event has seat_position 0
+    And the seating event has stack 500
+
+  @EU-0554
+  Scenario: SeatPlayer emits SeatingRejected when amount is below minimum
+    Given a TableCreated event for "Main Table"
+    When I handle a SeatPlayer command for player "player-a" reservation "res-001" seat 0 amount 100
+    Then the result is a examples.SeatingRejected event
+    And the seating rejection reason contains "at least"
+
+  @EU-0555
+  Scenario: SeatPlayer emits SeatingRejected when amount exceeds maximum
+    Given a TableCreated event for "Main Table"
+    When I handle a SeatPlayer command for player "player-a" reservation "res-001" seat 0 amount 5000
+    Then the result is a examples.SeatingRejected event
+    And the seating rejection reason contains "above maximum"
+
+  @EU-0556
+  Scenario: SeatPlayer emits SeatingRejected when requested seat is occupied
+    Given a TableCreated event for "Main Table"
+    And a PlayerJoined event for player "player-b" at seat 0
+    When I handle a SeatPlayer command for player "player-a" reservation "res-001" seat 0 amount 500
+    Then the result is a examples.SeatingRejected event
+    And the seating rejection reason contains "occupied"
+
+  @EU-0557
+  Scenario: SeatPlayer emits SeatingRejected when player is already seated
+    Given a TableCreated event for "Main Table"
+    And a PlayerJoined event for player "player-a" at seat 1
+    When I handle a SeatPlayer command for player "player-a" reservation "res-001" seat 2 amount 500
+    Then the result is a examples.SeatingRejected event
+    And the seating rejection reason contains "already seated"
+
+  @EU-0558
+  Scenario: SeatPlayer with seat -1 picks the next available seat
+    Given a TableCreated event for "Main Table"
+    And a PlayerJoined event for player "player-b" at seat 0
+    When I handle a SeatPlayer command for player "player-a" reservation "res-001" seat -1 amount 500
+    Then the result is a examples.PlayerSeated event
+    And the seating event has seat_position 1
+
+  @EU-0559
+  Scenario: SeatPlayer with seat -1 rejects when table is full
+    Given a TableCreated event for "Main Table" with max_players 2
+    And a PlayerJoined event for player "player-b" at seat 0
+    And a PlayerJoined event for player "player-c" at seat 1
+    When I handle a SeatPlayer command for player "player-a" reservation "res-001" seat -1 amount 500
+    Then the result is a examples.SeatingRejected event
+    And the seating rejection reason contains "full"
+
+  # ==========================================================================
+  # AddRebuyChips Orchestration Command (Phase 2)
+  # ==========================================================================
+  # AddRebuyChips tops up a seated player's stack. Unlike SeatPlayer this
+  # handler raises — the rebuy PM has already reserved the funds, so the
+  # command should never reach the table if preconditions fail.
+
+  @EU-0560
+  Scenario: AddRebuyChips emits RebuyChipsAdded with new stack
+    Given a TableCreated event for "Main Table"
+    And a PlayerJoined event for player "player-a" at seat 2 with stack 500
+    When I handle an AddRebuyChips command for player "player-a" reservation "res-001" seat 2 amount 1000
+    Then the result is a examples.RebuyChipsAdded event
+    And the rebuy event has amount 1000
+    And the rebuy event has new_stack 1500
+    And the rebuy event has seat 2
+
+  @EU-0561
+  Scenario: AddRebuyChips rejects when the player is not seated
+    Given a TableCreated event for "Main Table"
+    When I handle an AddRebuyChips command for player "player-a" reservation "res-001" seat 2 amount 1000
+    Then the command fails with status "FAILED_PRECONDITION"
+    And the error message contains "not seated"
+
+  @EU-0562
+  Scenario: AddRebuyChips rejects when seat does not match
+    Given a TableCreated event for "Main Table"
+    And a PlayerJoined event for player "player-a" at seat 2 with stack 500
+    When I handle an AddRebuyChips command for player "player-a" reservation "res-001" seat 3 amount 1000
+    Then the command fails with status "FAILED_PRECONDITION"
+    And the error message contains "mismatch"
+
+  @EU-0563
+  Scenario: AddRebuyChips rejects a non-positive amount
+    Given a TableCreated event for "Main Table"
+    And a PlayerJoined event for player "player-a" at seat 2 with stack 500
+    When I handle an AddRebuyChips command for player "player-a" reservation "res-001" seat 2 amount 0
+    Then the command fails with status "INVALID_ARGUMENT"
+    And the error message contains "positive"

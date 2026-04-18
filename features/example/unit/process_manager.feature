@@ -1,4 +1,4 @@
-# Allocated: EU-0400 .. EU-0420
+# Allocated: EU-0400 .. EU-0499
 Feature: Process manager logic
   The HandFlowPM orchestrates a poker hand's state machine: dealing, blind
   posting, betting rounds, community cards, and showdown. Unlike sagas,
@@ -259,3 +259,249 @@ Feature: Process manager logic
     When the process manager handles the event
     Then the process transitions to phase COMPLETE
     And any pending timeout is cancelled
+
+  # ==========================================================================
+  # Buy-In Process Manager
+  # ==========================================================================
+  # The BuyInPM coordinates buy-in flows across Player <-> Table aggregates:
+  # 1. Player emits BuyInRequested
+  # 2. PM (optionally) queries Table state via QueryClient for pre-validation
+  # 3. On pass, PM emits SeatPlayer command + BuyInInitiated process event
+  # 4. Table replies with PlayerSeated (success) or SeatingRejected (failure)
+  # 5. Success path: PM emits ConfirmBuyIn + BuyInCompleted process event
+  #    Failure path: PM emits ReleaseBuyIn + BuyInFailed process event
+  #
+  # These scenarios exercise the happy/error paths without a query client
+  # wired (validation is skipped when table_state is empty).
+
+  @EU-0421
+  Scenario: BuyInPM emits SeatPlayer command for BuyInRequested
+    Given a BuyInPM with player_root "player_123"
+    And a BuyInRequested event with table_root "table_456", reservation_id "res_789", seat 2, amount 500
+    And destinations with sequences table=5
+    When the BuyInPM handles buy_in_requested
+    Then a SeatPlayer command is sent to the "table" domain
+    And the SeatPlayer command has player_root "player_123"
+    And the SeatPlayer command has seat 2
+    And the SeatPlayer command has amount 500
+    And the SeatPlayer command has reservation_id "res_789"
+
+  @EU-0422
+  Scenario: BuyInPM records BuyInInitiated process event
+    Given a BuyInPM with player_root "player_123"
+    And a BuyInRequested event with table_root "table_456", reservation_id "res_789", seat 2, amount 500
+    And destinations with sequences table=5
+    When the BuyInPM handles buy_in_requested
+    Then the process event is a examples.BuyInInitiated event
+    And the BuyInInitiated event has player_root "player_123"
+    And the BuyInInitiated event has table_root "table_456"
+    And the BuyInInitiated event phase is BUY_IN_SEATING
+
+  @EU-0423
+  Scenario: BuyInPM emits ConfirmBuyIn on PlayerSeated
+    Given a BuyInPM
+    And a PlayerSeated event with player_root "player_123", reservation_id "res_789", seat_position 2, stack 500
+    And destinations with sequences player=3
+    When the BuyInPM handles player_seated
+    Then a ConfirmBuyIn command is sent to the "player" domain
+    And the ConfirmBuyIn command has reservation_id "res_789"
+
+  @EU-0424
+  Scenario: BuyInPM records BuyInCompleted on PlayerSeated
+    Given a BuyInPM
+    And a PlayerSeated event with player_root "player_123", reservation_id "res_789", seat_position 2, stack 500
+    And destinations with sequences player=3
+    When the BuyInPM handles player_seated
+    Then the process event is a examples.BuyInCompleted event
+    And the BuyInCompleted event has player_root "player_123"
+    And the BuyInCompleted event has seat 2
+
+  @EU-0425
+  Scenario: BuyInPM emits ReleaseBuyIn on SeatingRejected
+    Given a BuyInPM
+    And a SeatingRejected event with player_root "player_123", reservation_id "res_789", reason "Seat already taken"
+    And destinations with sequences player=3
+    When the BuyInPM handles seating_rejected
+    Then a ReleaseBuyIn command is sent to the "player" domain
+    And the ReleaseBuyIn command has reservation_id "res_789"
+    And the ReleaseBuyIn command has reason "Seat already taken"
+
+  @EU-0426
+  Scenario: BuyInPM records BuyInFailed on SeatingRejected
+    Given a BuyInPM
+    And a SeatingRejected event with player_root "player_123", reservation_id "res_789", reason "Seat already taken"
+    And destinations with sequences player=3
+    When the BuyInPM handles seating_rejected
+    Then the process event is a examples.BuyInFailed event
+    And the BuyInFailed event has player_root "player_123"
+    And the BuyInFailed event failure code is "SEATING_REJECTED"
+
+  # ==========================================================================
+  # Rebuy Process Manager
+  # ==========================================================================
+  # The RebuyPM coordinates rebuy flows across Player <-> Tournament <-> Table:
+  # 1. Player emits RebuyRequested
+  # 2. PM (optionally) queries Tournament + Table state for pre-validation
+  # 3. On pass, PM emits ProcessRebuy command to Tournament +
+  #    RebuyInitiated process event
+  # 4. Tournament replies RebuyProcessed (approve) or RebuyDenied (reject)
+  # 5. On approve, PM emits AddRebuyChips to Table which echoes
+  #    RebuyChipsAdded — PM then emits ConfirmRebuyFee + RebuyCompleted
+  #    On deny, PM emits ReleaseRebuyFee + RebuyFailed
+
+  @EU-0427
+  Scenario: RebuyPM emits ProcessRebuy for RebuyRequested
+    Given a RebuyPM with player_root "player_123"
+    And a RebuyRequested event with tournament_root "tournament_456", table_root "table_789", reservation_id "res_001", seat 2, fee 50
+    And destinations with sequences tournament=5, table=3
+    When the RebuyPM handles rebuy_requested
+    Then a ProcessRebuy command is sent to the "tournament" domain
+    And the ProcessRebuy command has player_root "player_123"
+    And the ProcessRebuy command has reservation_id "res_001"
+
+  @EU-0428
+  Scenario: RebuyPM records RebuyInitiated process event
+    Given a RebuyPM with player_root "player_123"
+    And a RebuyRequested event with tournament_root "tournament_456", table_root "table_789", reservation_id "res_001", seat 2, fee 50
+    And destinations with sequences tournament=5
+    When the RebuyPM handles rebuy_requested
+    Then the process event is a examples.RebuyInitiated event
+    And the RebuyInitiated event has player_root "player_123"
+    And the RebuyInitiated event has tournament_root "tournament_456"
+    And the RebuyInitiated event phase is REBUY_APPROVING
+
+  @EU-0429
+  Scenario: RebuyPM emits AddRebuyChips on RebuyProcessed
+    Given a RebuyPM with table_root "table_789" and seat 2
+    And a RebuyProcessed event with player_root "player_123", reservation_id "res_001", chips_added 1500, rebuy_count 1
+    And destinations with sequences table=3
+    When the RebuyPM handles rebuy_processed
+    Then an AddRebuyChips command is sent to the "table" domain
+    And the AddRebuyChips command has player_root "player_123"
+    And the AddRebuyChips command has reservation_id "res_001"
+    And the AddRebuyChips command has seat 2
+    And the AddRebuyChips command has amount 1500
+
+  @EU-0430
+  Scenario: RebuyPM emits ReleaseRebuyFee on RebuyDenied
+    Given a RebuyPM with tournament_root "tournament_456"
+    And a RebuyDenied event with player_root "player_123", reservation_id "res_001", reason "Rebuy limit reached"
+    And destinations with sequences player=5
+    When the RebuyPM handles rebuy_denied
+    Then a ReleaseRebuyFee command is sent to the "player" domain
+    And the ReleaseRebuyFee command has reservation_id "res_001"
+    And the ReleaseRebuyFee command has reason "Rebuy limit reached"
+
+  @EU-0431
+  Scenario: RebuyPM records RebuyFailed on RebuyDenied
+    Given a RebuyPM with tournament_root "tournament_456"
+    And a RebuyDenied event with player_root "player_123", reservation_id "res_001", reason "Rebuy limit reached"
+    And destinations with sequences player=5
+    When the RebuyPM handles rebuy_denied
+    Then the process event is a examples.RebuyFailed event
+    And the RebuyFailed event has player_root "player_123"
+    And the RebuyFailed event failure code is "REBUY_DENIED"
+
+  @EU-0432
+  Scenario: RebuyPM emits ConfirmRebuyFee on RebuyChipsAdded
+    Given a RebuyPM with tournament_root "tournament_456", table_root "table_789", fee 50
+    And a RebuyChipsAdded event with player_root "player_123", reservation_id "res_001", seat 2, amount 1500, new_stack 2000
+    And destinations with sequences player=5
+    When the RebuyPM handles chips_added
+    Then a ConfirmRebuyFee command is sent to the "player" domain
+    And the ConfirmRebuyFee command has reservation_id "res_001"
+
+  @EU-0433
+  Scenario: RebuyPM records RebuyCompleted on RebuyChipsAdded
+    Given a RebuyPM with tournament_root "tournament_456", table_root "table_789", fee 50
+    And a RebuyChipsAdded event with player_root "player_123", reservation_id "res_001", seat 2, amount 1500, new_stack 2000
+    And destinations with sequences player=5
+    When the RebuyPM handles chips_added
+    Then the process event is a examples.RebuyCompleted event
+    And the RebuyCompleted event has player_root "player_123"
+    And the RebuyCompleted event has chips_added 1500
+
+  # ==========================================================================
+  # Registration Process Manager
+  # ==========================================================================
+  # The RegistrationPM coordinates registration flows across
+  # Player <-> Tournament aggregates:
+  # 1. Player emits RegistrationRequested
+  # 2. PM (optionally) queries Tournament state for pre-validation
+  #    (registration_open, capacity, already-registered)
+  # 3. On pass, PM emits EnrollPlayer command + RegistrationInitiated
+  #    process event
+  # 4. Tournament replies TournamentPlayerEnrolled (success) or
+  #    TournamentEnrollmentRejected (failure)
+  # 5. Success: PM emits ConfirmRegistrationFee + RegistrationCompleted
+  #    Failure: PM emits ReleaseRegistrationFee + RegistrationFailed
+  #
+  # The tournament-state rebuild scenarios verify the TournamentStateHelper
+  # used during pre-validation correctly folds tournament domain events.
+
+  @EU-0434
+  Scenario: Tournament state rebuild from TournamentCreated event
+    Given a tournament event book with a TournamentCreated event name "Test Tournament", max_players 100, buy_in 50, starting_stack 1500
+    When I rebuild the tournament state from the event book
+    Then the tournament state has registration_open true
+    And the tournament state has max_players 100
+    And the tournament state has buy_in 50
+    And the tournament state has starting_stack 1500
+    And the tournament state has registered_count 0
+
+  @EU-0435
+  Scenario: Tournament state rebuild tracks player enrollments
+    Given a tournament event book with:
+      | event_type                | name      | max_players | player_root |
+      | TournamentCreated         | Test      | 50          |             |
+      | TournamentPlayerEnrolled  |           |             | player_123  |
+    When I rebuild the tournament state from the event book
+    Then the tournament state has registered player "player_123"
+    And the tournament state has registered_count 1
+
+  @EU-0436
+  Scenario: Tournament state rebuild closes registration after start
+    Given a tournament event book with:
+      | event_type         | name |
+      | TournamentCreated  | Test |
+      | TournamentStarted  |      |
+    When I rebuild the tournament state from the event book
+    Then the tournament state has registration_open false
+    And the tournament state status is TOURNAMENT_RUNNING
+
+  @EU-0437
+  Scenario: Direct tournament_state_rebuild folds events into a state helper
+    Given an empty tournament state helper
+    When I apply a TournamentCreated event with name "T" and max_players 4
+    And I apply a TournamentPlayerEnrolled event for player_root "p1"
+    Then the tournament state has registered_count 1
+    And the tournament state has max_players 4
+
+  @EU-0438
+  Scenario: RegistrationPM emits EnrollPlayer for RegistrationRequested
+    Given a RegistrationPM with player_root "player_123"
+    And a RegistrationRequested event with tournament_root "tournament_456", reservation_id "res_001", fee 50
+    And destinations with sequences tournament=5
+    When the RegistrationPM handles registration_requested
+    Then an EnrollPlayer command is sent to the "tournament" domain
+    And the EnrollPlayer command has player_root "player_123"
+    And the EnrollPlayer command has reservation_id "res_001"
+
+  @EU-0439
+  Scenario: RegistrationPM emits ConfirmRegistrationFee on TournamentPlayerEnrolled
+    Given a RegistrationPM with tournament_root "tournament_456" and fee 50
+    And a TournamentPlayerEnrolled event with player_root "player_123", reservation_id "res_001", fee_paid 50, starting_stack 1500
+    And destinations with sequences player=3
+    When the RegistrationPM handles player_enrolled
+    Then a ConfirmRegistrationFee command is sent to the "player" domain
+    And the ConfirmRegistrationFee command has reservation_id "res_001"
+
+  @EU-0440
+  Scenario: RegistrationPM emits ReleaseRegistrationFee on TournamentEnrollmentRejected
+    Given a RegistrationPM with tournament_root "tournament_456"
+    And a TournamentEnrollmentRejected event with player_root "player_123", reservation_id "res_001", reason "Tournament full"
+    And destinations with sequences player=3
+    When the RegistrationPM handles enrollment_rejected
+    Then a ReleaseRegistrationFee command is sent to the "player" domain
+    And the ReleaseRegistrationFee command has reservation_id "res_001"
+    And the ReleaseRegistrationFee command has reason "Tournament full"
