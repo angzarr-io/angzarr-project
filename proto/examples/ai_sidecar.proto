@@ -2,6 +2,7 @@ syntax = "proto3";
 package examples;
 
 import "examples/poker_types.proto";
+import "examples/hand.proto";
 
 option csharp_namespace = "Angzarr.Examples";
 option go_package = "github.com/angzarr/angzarr/proto/examples";
@@ -10,24 +11,60 @@ option java_package = "dev.angzarr.examples";
 option ruby_package = "Angzarr::Examples";
 
 // =============================================================================
-// AI Sidecar Service - gRPC interface for PyTorch model inference
-// Called by AI player implementation within player aggregate
+// AI Sidecar Service - gRPC interface for PyTorch model inference and training
+//
+// This is the authoritative contract for the AI training/decisioning container.
+// Any language with protoc support can generate a client against this file; the
+// server registers gRPC reflection + grpc.health.v1.Health so language-native
+// tooling (grpcurl, Postman, etc.) works out of the box.
+//
+// Service responsibilities:
+//   - Inference (GetAction, GetActionsBatch): stateless action recommendations.
+//   - Session lifecycle (StartSession, EndSession): explicit session boundaries
+//     for opponent stat aggregation and training episode tracking.
+//   - Experience recording (RecordExperience): offline-RL replay buffer writes.
+//   - Opponent stats (GetOpponentStats): query persistent per-player profiles.
+//   - Model management (ReloadModel): hot-swap weights from a checkpoint path
+//     without restarting the container (used by distributed training).
+//   - Health (Health): liveness + model metadata.
 // =============================================================================
 
 service AiSidecar {
-  // Get recommended action from the AI model
+  // Get recommended action from the AI model for a single decision point.
   rpc GetAction(ActionRequest) returns (ActionResponse);
 
-  // Health check
+  // Health check: reports model id, version, uptime, and request count.
   rpc Health(HealthRequest) returns (HealthResponse);
 
-  // Batch inference for training/simulation
+  // Batch inference for training/simulation (N requests -> N responses).
   rpc GetActionsBatch(BatchActionRequest) returns (BatchActionResponse);
+
+  // Start a training/play session. Sessions aggregate opponent statistics
+  // and bind a logical player_root to a session_id for experience recording.
+  rpc StartSession(StartSessionRequest) returns (StartSessionResponse);
+
+  // End a session; optionally persist accumulated opponent stats to storage.
+  rpc EndSession(EndSessionRequest) returns (EndSessionResponse);
+
+  // Record one experience tuple (state, action, reward) for replay / RL training.
+  rpc RecordExperience(Experience) returns (RecordResponse);
+
+  // Query persistent opponent profiles by player_root.
+  rpc GetOpponentStats(OpponentQuery) returns (OpponentStatsResponse);
+
+  // Reload model weights from a checkpoint path. Returns the new model version.
+  // Enables the offline trainer to publish updated weights without a restart.
+  rpc ReloadModel(ReloadModelRequest) returns (ReloadModelResponse);
 }
 
+// -----------------------------------------------------------------------------
+// Inference
+// -----------------------------------------------------------------------------
+
 message ActionRequest {
-  // Game state
-  string model_id = 1; // Which model to use
+  // Which model variant to use. Also used as session_id when GetAction is
+  // invoked outside an explicit session (backwards-compatible behavior).
+  string model_id = 1;
   GameVariant game_variant = 2;
   BettingPhase phase = 3;
 
@@ -35,7 +72,7 @@ message ActionRequest {
   repeated Card hole_cards = 4;
   repeated Card community_cards = 5;
 
-  // Betting context
+  // Betting context (chip amounts are int64; never uint64 for JS compat).
   int64 pot_size = 6;
   int64 stack_size = 7;
   int64 amount_to_call = 8;
@@ -47,10 +84,10 @@ message ActionRequest {
   int32 players_remaining = 12;
   int32 players_to_act = 13;
 
-  // Historical context (for recurrent models)
+  // Historical context (for recurrent models).
   repeated ActionHistory action_history = 14;
 
-  // Opponent modeling (optional)
+  // Opponent modeling snapshot (optional).
   repeated OpponentStats opponents = 15;
 }
 
@@ -65,8 +102,8 @@ message OpponentStats {
   bytes player_root = 1;
   int32 position = 2;
   int64 stack = 3;
-  float vpip = 4; // Voluntarily put in pot %
-  float pfr = 5; // Pre-flop raise %
+  float vpip = 4;       // Voluntarily put in pot %
+  float pfr = 5;        // Pre-flop raise %
   float aggression = 6; // Bet/raise frequency
   int32 hands_played = 7;
 }
@@ -75,7 +112,7 @@ message ActionResponse {
   ActionType recommended_action = 1;
   int64 amount = 2; // For bet/raise
 
-  // Confidence scores for each action (for analysis)
+  // Confidence scores for each action (for analysis).
   float fold_probability = 3;
   float check_call_probability = 4;
   float bet_raise_probability = 5;
@@ -84,6 +121,18 @@ message ActionResponse {
   string model_version = 6;
   int64 inference_time_ms = 7;
 }
+
+message BatchActionRequest {
+  repeated ActionRequest requests = 1;
+}
+
+message BatchActionResponse {
+  repeated ActionResponse responses = 1;
+}
+
+// -----------------------------------------------------------------------------
+// Health
+// -----------------------------------------------------------------------------
 
 message HealthRequest {}
 
@@ -95,10 +144,115 @@ message HealthResponse {
   int64 requests_served = 5;
 }
 
-message BatchActionRequest {
-  repeated ActionRequest requests = 1;
+// -----------------------------------------------------------------------------
+// Sessions
+// -----------------------------------------------------------------------------
+
+message StartSessionRequest {
+  string session_id = 1;
+  bytes ai_player_root = 2;
+  string model_id = 3;
 }
 
-message BatchActionResponse {
-  repeated ActionResponse responses = 1;
+message StartSessionResponse {
+  bool success = 1;
+  string session_id = 2;
+  string model_version = 3;
+}
+
+message EndSessionRequest {
+  string session_id = 1;
+  // If true, merge accumulated opponent stats into persistent profiles.
+  bool persist_stats = 2;
+}
+
+message EndSessionResponse {
+  bool success = 1;
+  int32 hands_played = 2;
+  int64 total_result = 3;
+}
+
+// -----------------------------------------------------------------------------
+// Experience recording / hand events
+// -----------------------------------------------------------------------------
+
+message Experience {
+  ActionContext context = 1;
+  ActionType action_taken = 2;
+  int64 amount = 3;
+  float log_prob = 4;
+  float value_estimate = 5;
+  float reward = 6;
+  bool terminal = 7;
+}
+
+message ActionContext {
+  string session_id = 1;
+  bytes player_root = 2;
+  bytes hand_id = 3;
+  ActionRequest snapshot = 4;
+  repeated HandEvent events = 5;
+}
+
+// HandEvent uses a oneof over the canonical hand-domain event types defined
+// in hand.proto. Reusing those shapes keeps one vocabulary across aggregates,
+// sidecars, and language clients — the AI does not redefine what a "deal"
+// or "showdown" means; it subscribes to the same events the hand aggregate
+// emits. Readers switch on WhichOneof('event') in Python, EventCase in C#,
+// etc.
+message HandEvent {
+  oneof event {
+    CardsDealt cards_dealt = 1;
+    CommunityCardsDealt community_dealt = 2;
+    ActionTaken action_taken = 3;
+    ShowdownStarted showdown = 4;
+    PotAwarded pot_awarded = 5;
+  }
+}
+
+message RecordResponse {
+  bool success = 1;
+  string message = 2;
+  int64 experience_id = 3;
+}
+
+// -----------------------------------------------------------------------------
+// Opponent profile queries
+// -----------------------------------------------------------------------------
+
+message OpponentQuery {
+  repeated bytes player_roots = 1;
+}
+
+message OpponentStatsResponse {
+  repeated OpponentProfile profiles = 1;
+}
+
+message OpponentProfile {
+  bytes player_root = 1;
+  int32 total_hands = 2;
+  float vpip = 3;
+  float pfr = 4;
+  float af = 5;
+  float wtsd = 6;
+  float w_sd = 7;
+  float avg_decision_time_ms = 8;
+  int32 hands_since_update = 9;
+}
+
+// -----------------------------------------------------------------------------
+// Model management
+// -----------------------------------------------------------------------------
+
+message ReloadModelRequest {
+  // Target model slot; empty means "default" slot.
+  string model_id = 1;
+  // Filesystem path to the checkpoint the sidecar should load.
+  string model_path = 2;
+}
+
+message ReloadModelResponse {
+  bool success = 1;
+  string message = 2;
+  string model_version = 3;
 }
