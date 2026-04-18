@@ -1,3 +1,4 @@
+# Allocated: EU-0500 .. EU-0530
 Feature: Projector logic
   The OutputProjector transforms domain events into human-readable text.
   It's a read-model builder that enables observability without coupling
@@ -37,12 +38,14 @@ Feature: Projector logic
   # Player events establish context (names, balances) used throughout
   # the game display. Projectors often need to track cross-event state.
 
+  @EU-0500
   Scenario: Render PlayerRegistered event
     Given an OutputProjector
     And a PlayerRegistered event with display_name "Alice"
     When the projector handles the event
     Then the output contains "Alice registered"
 
+  @EU-0501
   Scenario: Render FundsDeposited event
     Given an OutputProjector
     And a FundsDeposited event with amount 1000 and new_balance 1000
@@ -50,12 +53,14 @@ Feature: Projector logic
     Then the output contains "$1,000"
     And the output contains "balance: $1,000"
 
+  @EU-0502
   Scenario: Render FundsWithdrawn event
     Given an OutputProjector
     And a FundsWithdrawn event with amount 500 and new_balance 500
     When the projector handles the event
     Then the output contains "Withdrew $500"
 
+  @EU-0503
   Scenario: Render FundsReserved event
     Given an OutputProjector
     And a FundsReserved event with amount 200
@@ -68,6 +73,7 @@ Feature: Projector logic
   # Table events describe the game structure: table creation, player seating,
   # and hand lifecycle. These set up the context for hand-level events.
 
+  @EU-0504
   Scenario: Render TableCreated event
     Given an OutputProjector
     And a TableCreated event with:
@@ -79,6 +85,7 @@ Feature: Projector logic
     And the output contains "$5/$10"
     And the output contains "$200 - $1,000"
 
+  @EU-0505
   Scenario: Render PlayerJoined event
     Given an OutputProjector with player name "Bob"
     And a PlayerJoined event at seat 3 with buy_in 500
@@ -86,6 +93,7 @@ Feature: Projector logic
     Then the output contains "Bob joined at seat 3"
     And the output contains "$500"
 
+  @EU-0506
   Scenario: Render PlayerLeft event
     Given an OutputProjector with player name "Bob"
     And a PlayerLeft event with chips_cashed_out 750
@@ -93,6 +101,7 @@ Feature: Projector logic
     Then the output contains "Bob left"
     And the output contains "$750"
 
+  @EU-0507
   Scenario: Render HandStarted event
     Given an OutputProjector
     And a HandStarted event with:
@@ -106,6 +115,7 @@ Feature: Projector logic
     And the output contains "Bob"
     And the output contains "Charlie"
 
+  @EU-0508
   Scenario: Render HandEnded event with results
     Given an OutputProjector with player names "Alice" and "Bob"
     And a HandEnded event with winner "Alice" amount 100
@@ -118,24 +128,28 @@ Feature: Projector logic
   # Hand events are the most frequent and detailed. Each betting action,
   # community card, and showdown reveal needs clear, consistent formatting.
 
+  @EU-0509
   Scenario: Render CardsDealt event
     Given an OutputProjector with player name "Alice"
     And a CardsDealt event with player "Alice" holding As Kh
     When the projector handles the event
     Then the output contains "Alice: [As Kh]"
 
+  @EU-0510
   Scenario: Render BlindPosted event
     Given an OutputProjector with player name "Alice"
     And a BlindPosted event for "Alice" type "small" amount 5
     When the projector handles the event
     Then the output contains "Alice posts SMALL $5"
 
+  @EU-0511
   Scenario: Render ActionTaken with fold
     Given an OutputProjector with player name "Alice"
     And an ActionTaken event for "Alice" action FOLD
     When the projector handles the event
     Then the output contains "Alice folds"
 
+  @EU-0512
   Scenario: Render ActionTaken with call
     Given an OutputProjector with player name "Alice"
     And an ActionTaken event for "Alice" action CALL amount 10 pot_total 25
@@ -143,18 +157,21 @@ Feature: Projector logic
     Then the output contains "Alice calls $10"
     And the output contains "pot: $25"
 
+  @EU-0513
   Scenario: Render ActionTaken with raise
     Given an OutputProjector with player name "Alice"
     And an ActionTaken event for "Alice" action RAISE amount 30 pot_total 55
     When the projector handles the event
     Then the output contains "Alice raises to $30"
 
+  @EU-0514
   Scenario: Render ActionTaken with all-in
     Given an OutputProjector with player name "Alice"
     And an ActionTaken event for "Alice" action ALL_IN amount 500 pot_total 600
     When the projector handles the event
     Then the output contains "Alice all-in $500"
 
+  @EU-0515
   Scenario: Render CommunityCardsDealt for flop
     Given an OutputProjector
     And a CommunityCardsDealt event for FLOP with cards Ah Kd 7s
@@ -162,18 +179,21 @@ Feature: Projector logic
     Then the output contains "Flop: [Ah Kd 7s]"
     And the output contains "Board:"
 
+  @EU-0516
   Scenario: Render CommunityCardsDealt for turn
     Given an OutputProjector
     And a CommunityCardsDealt event for TURN with card 2c
     When the projector handles the event
     Then the output contains "Turn: [2c]"
 
+  @EU-0517
   Scenario: Render ShowdownStarted event
     Given an OutputProjector
     And a ShowdownStarted event
     When the projector handles the event
     Then the output contains "SHOWDOWN"
 
+  @EU-0518
   Scenario: Render CardsRevealed event
     Given an OutputProjector with player name "Alice"
     And a CardsRevealed event for "Alice" with cards As Ad and ranking PAIR
@@ -181,18 +201,21 @@ Feature: Projector logic
     Then the output contains "Alice shows [As Ad]"
     And the output contains "Pair"
 
+  @EU-0519
   Scenario: Render CardsMucked event
     Given an OutputProjector with player name "Alice"
     And a CardsMucked event for "Alice"
     When the projector handles the event
     Then the output contains "Alice mucks"
 
+  @EU-0520
   Scenario: Render PotAwarded event
     Given an OutputProjector with player name "Alice"
     And a PotAwarded event with winner "Alice" amount 150
     When the projector handles the event
     Then the output contains "Alice wins $150"
 
+  @EU-0521
   Scenario: Render HandComplete event
     Given an OutputProjector with player names "Alice" and "Bob"
     And a HandComplete event with final stacks:
@@ -204,6 +227,7 @@ Feature: Projector logic
     And the output contains "Alice: $600"
     And the output contains "Bob: $400 (folded)"
 
+  @EU-0522
   Scenario: Render PlayerTimedOut event
     Given an OutputProjector with player name "Alice"
     And a PlayerTimedOut event for "Alice" with default_action FOLD
@@ -217,6 +241,7 @@ Feature: Projector logic
   # Cards are represented as protobuf messages (suit + rank integers).
   # The projector converts these to standard notation: "As" = Ace of Spades.
 
+  @EU-0523
   Scenario: Format card with all suits
     Given an OutputProjector
     When formatting cards:
@@ -227,6 +252,7 @@ Feature: Projector logic
       | SPADES   | 11   |
     Then the output contains "Ac Kd Qh Js"
 
+  @EU-0524
   Scenario: Format card with all ranks
     Given an OutputProjector
     When formatting cards with rank 2 through 14
@@ -244,12 +270,14 @@ Feature: Projector logic
   # maintains a name cache built from PlayerRegistered events. This separation
   # keeps event payloads small while enabling friendly display names.
 
+  @EU-0525
   Scenario: Use registered player names
     Given an OutputProjector
     And player "player-abc123" is registered as "Alice"
     When an event references "player-abc123"
     Then the output uses "Alice"
 
+  @EU-0526
   Scenario: Fallback to truncated player ID
     Given an OutputProjector
     When an event references unknown "player-xyz789"
@@ -261,12 +289,14 @@ Feature: Projector logic
   # Timestamps are useful for debugging but can clutter normal output.
   # The projector supports toggling timestamp display via configuration.
 
+  @EU-0527
   Scenario: Include timestamps when enabled
     Given an OutputProjector with show_timestamps enabled
     And an event with created_at 14:30:00
     When the projector handles the event
     Then the output starts with "[14:30:00]"
 
+  @EU-0528
   Scenario: Exclude timestamps when disabled
     Given an OutputProjector with show_timestamps disabled
     And an event with created_at
@@ -279,12 +309,14 @@ Feature: Projector logic
   # Commands often produce multiple events. The projector must handle batches
   # correctly and gracefully degrade when encountering unknown event types.
 
+  @EU-0529
   Scenario: Handle multiple events in event book
     Given an OutputProjector
     And an event book with PlayerJoined and BlindPosted events
     When the projector handles the event book
     Then both events are rendered in order
 
+  @EU-0530
   Scenario: Handle unknown event type gracefully
     Given an OutputProjector
     And an event with unknown type_url "type.poker/examples.UnknownEvent"

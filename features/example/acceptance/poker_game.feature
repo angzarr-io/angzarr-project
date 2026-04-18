@@ -1,3 +1,4 @@
+# Allocated: EA-0001 .. EA-0031
 Feature: Poker Game Flow
   End-to-end acceptance tests for the poker example application. These tests
   exercise the full angzarr stack: aggregates, sagas, process managers, and
@@ -37,6 +38,7 @@ Feature: Poker Game Flow
   # fund management correctly. Players must have funds to join tables.
 
   @e2e @player
+  @EA-0001
   Scenario: Register player and deposit funds
     When I register player "Alice" with email "alice@example.com"
     And I deposit 1000 chips to player "Alice"
@@ -51,6 +53,7 @@ Feature: Poker Game Flow
   # the cross-domain fund reservation flow works correctly.
 
   @e2e @table
+  @EA-0002
   Scenario: Create table and seat players
     Given registered players with bankroll:
       | name  | bankroll |
@@ -64,6 +67,7 @@ Feature: Poker Game Flow
     And player "Alice" has available balance 500
 
   @e2e @table
+  @EA-0003
   Scenario: Player leaves table and recovers funds
     Given a table "Main" with seated players:
       | name  | seat | stack |
@@ -82,6 +86,7 @@ Feature: Poker Game Flow
   # These tests verify the saga coordination completes within expected time.
 
   @e2e @hand
+  @EA-0004
   Scenario: Complete heads-up hand with fold
     Given a table "Main" with seated players:
       | name  | seat | stack |
@@ -104,6 +109,7 @@ Feature: Poker Game Flow
     And "Bob" stack is 505
 
   @e2e @hand
+  @EA-0005
   Scenario: Complete hand through showdown
     Given a table "Main" with seated players:
       | name  | seat | stack |
@@ -134,6 +140,7 @@ Feature: Poker Game Flow
   # player actions. The process manager tracks action order and pot totals.
 
   @e2e @betting
+  @EA-0006
   Scenario: Raise and re-raise sequence
     Given a table "Main" with seated players:
       | name  | seat | stack |
@@ -147,6 +154,7 @@ Feature: Poker Game Flow
     And the flop is dealt
 
   @e2e @betting
+  @EA-0007
   Scenario: All-in and call
     Given a table "Main" with seated players:
       | name  | seat | stack |
@@ -165,6 +173,7 @@ Feature: Poker Game Flow
   # side pots when players go all-in for different amounts.
 
   @e2e @multiplayer
+  @EA-0008
   Scenario: Three player hand with one fold
     Given a table "Main" with seated players:
       | name   | seat | stack |
@@ -181,6 +190,7 @@ Feature: Poker Game Flow
     And the pot is 25
 
   @e2e @multiplayer
+  @EA-0009
   Scenario: Side pot creation with all-in
     Given a table "Main" with seated players:
       | name   | seat | stack |
@@ -202,6 +212,7 @@ Feature: Poker Game Flow
   # draw phases). These tests verify variant-specific logic is correct.
 
   @e2e @variant
+  @EA-0010
   Scenario: Five Card Draw with discard
     Given a Five Card Draw table "Draw" with blinds 5/10
     And seated players:
@@ -219,6 +230,7 @@ Feature: Poker Game Flow
     And the second betting round begins
 
   @e2e @variant
+  @EA-0011
   Scenario: Omaha deals 4 hole cards
     Given an Omaha table "Omaha" with blinds 10/20
     And seated players:
@@ -236,6 +248,7 @@ Feature: Poker Game Flow
   # elimination occurs when stacks reach zero. These test session continuity.
 
   @e2e @tournament
+  @EA-0012
   Scenario: Player elimination
     Given a table "Main" with seated players:
       | name  | seat | stack |
@@ -251,6 +264,7 @@ Feature: Poker Game Flow
     And table "Main" has 1 seated player
 
   @e2e @tournament
+  @EA-0013
   Scenario: Multiple hands with stack changes
     Given a table "Main" with seated players:
       | name  | seat | stack |
@@ -271,6 +285,7 @@ Feature: Poker Game Flow
   # The "within N seconds" assertions allow for async saga processing.
 
   @e2e @saga
+  @EA-0014
   Scenario: HandStarted triggers DealCards via saga
     Given a table "Main" with 2 seated players
     When I send a StartHand command to table "Main"
@@ -281,6 +296,7 @@ Feature: Poker Game Flow
     And the hand has the same hand_number as the table event
 
   @e2e @saga
+  @EA-0015
   Scenario: HandComplete triggers EndHand via saga
     Given a table "Main" with an active hand
     When the hand completes with winner "Alice"
@@ -297,6 +313,7 @@ Feature: Poker Game Flow
   # verify business rule validation works end-to-end.
 
   @e2e @error
+  @EA-0016
   Scenario: Reject action from wrong player
     Given a table "Main" with seated players:
       | name  | seat | stack |
@@ -307,6 +324,7 @@ Feature: Poker Game Flow
     Then the command fails with "not your turn"
 
   @e2e @error
+  @EA-0017
   Scenario: Reject invalid bet amount
     Given a table "Main" with an active hand
     And current bet is 10 and min raise is 10
@@ -320,6 +338,7 @@ Feature: Poker Game Flow
   # equally among them. This is common with paired boards or shared straights.
 
   @e2e @showdown
+  @EA-0018
   Scenario: Split pot when both players have identical hands
     Given a table "Main" with seated players:
       | name  | seat | stack |
@@ -333,6 +352,7 @@ Feature: Poker Game Flow
     And "Bob" wins 10
 
   @e2e @showdown
+  @EA-0019
   Scenario: Chopped board - community cards make the best hand
     Given a table "Main" with seated players:
       | name  | seat | stack |
@@ -350,6 +370,7 @@ Feature: Poker Game Flow
   # cards determine the winner. This is fundamental to poker hand comparison.
 
   @e2e @showdown
+  @EA-0020
   Scenario: Higher kicker wins with same pair
     Given a table "Main" with seated players:
       | name  | seat | stack |
@@ -370,6 +391,7 @@ Feature: Poker Game Flow
   # This tests that checking doesn't forfeit the right to raise later.
 
   @e2e @betting
+  @EA-0021
   Scenario: Check-raise on the flop
     Given a table "Main" with seated players:
       | name  | seat | stack |
@@ -392,6 +414,7 @@ Feature: Poker Game Flow
   # is to the left of the button.
 
   @e2e @headsup
+  @EA-0022
   Scenario: Heads-up blind posting - button is small blind
     Given a table "Main" with seated players:
       | name  | seat | stack |
@@ -403,6 +426,7 @@ Feature: Poker Game Flow
     And "Alice" acts first preflop
 
   @e2e @headsup
+  @EA-0023
   Scenario: Heads-up - big blind wins when button folds preflop
     Given a table "Main" with seated players:
       | name  | seat | stack |
@@ -420,6 +444,7 @@ Feature: Poker Game Flow
   # and wins the pot (including the small blind) without playing a hand.
 
   @e2e @multiplayer
+  @EA-0024
   Scenario: Big blind walks - everyone folds preflop
     Given a table "Main" with seated players:
       | name   | seat | stack |
@@ -440,6 +465,7 @@ Feature: Poker Game Flow
   # Each player can only win from pots they contributed to.
 
   @e2e @sidepots
+  @EA-0025
   Scenario: Three side pots with four players
     Given a table "Main" with seated players:
       | name   | seat | stack |
@@ -457,6 +483,7 @@ Feature: Poker Game Flow
     And there is a side pot of 300 with 2 players eligible
 
   @e2e @sidepots
+  @EA-0026
   Scenario: Side pot awarded to second-best hand when main pot winner is all-in
     Given a table "Main" with seated players:
       | name   | seat | stack |
@@ -480,6 +507,7 @@ Feature: Poker Game Flow
   # players who already acted cannot re-raise.
 
   @e2e @betting
+  @EA-0027
   Scenario: All-in below min-raise does not reopen action
     Given a table "Main" with seated players:
       | name   | seat | stack |
@@ -493,6 +521,7 @@ Feature: Poker Game Flow
     But "Alice" may only call 0 if "Carol" just calls
 
   @e2e @betting
+  @EA-0028
   Scenario: All-in above half min-raise reopens action
     Given a table "Main" with seated players:
       | name   | seat | stack |
@@ -513,6 +542,7 @@ Feature: Poker Game Flow
   # table stack (where chips go).
 
   @e2e @rebuy
+  @EA-0029
   Scenario: Player adds chips between hands
     Given a table "Main" with seated players:
       | name  | seat | stack |
@@ -526,6 +556,7 @@ Feature: Poker Game Flow
     And player "Alice" has available balance 500
 
   @e2e @rebuy
+  @EA-0030
   Scenario: Cannot add chips during active hand
     Given a table "Main" with seated players:
       | name  | seat | stack |
@@ -536,6 +567,7 @@ Feature: Poker Game Flow
     Then the request fails with "cannot add chips during hand"
 
   @e2e @rebuy
+  @EA-0031
   Scenario: Cannot add chips beyond available bankroll
     Given a table "Main" with seated players:
       | name  | seat | stack |

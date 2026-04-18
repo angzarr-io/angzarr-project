@@ -1,3 +1,4 @@
+# Allocated: EU-0400 .. EU-0420
 Feature: Process manager logic
   The HandFlowPM orchestrates a poker hand's state machine: dealing, blind
   posting, betting rounds, community cards, and showdown. Unlike sagas,
@@ -39,6 +40,7 @@ Feature: Process manager logic
   # When a table starts a hand, the PM creates a HandProcess to track the
   # workflow. This process state persists across all phases of the hand.
 
+  @EU-0400
   Scenario: Process manager initializes hand from HandStarted
     Given a HandFlowPM
     And a HandStarted event with:
@@ -59,6 +61,7 @@ Feature: Process manager logic
   # After cards are dealt, the PM drives blind posting: small blind first,
   # then big blind. Once both are posted, betting can begin.
 
+  @EU-0401
   Scenario: Process manager transitions to blind posting after cards dealt
     Given an active hand process in phase DEALING
     And a CardsDealt event
@@ -66,6 +69,7 @@ Feature: Process manager logic
     Then the process transitions to phase POSTING_BLINDS
     And a PostBlind command is sent for small blind
 
+  @EU-0402
   Scenario: Process manager posts big blind after small blind
     Given an active hand process in phase POSTING_BLINDS
     And small_blind_posted is true
@@ -73,6 +77,7 @@ Feature: Process manager logic
     When the process manager handles the event
     Then a PostBlind command is sent for big blind
 
+  @EU-0403
   Scenario: Process manager starts betting after big blind posted
     Given an active hand process in phase POSTING_BLINDS
     And small_blind_posted is true
@@ -88,6 +93,7 @@ Feature: Process manager logic
   # A round ends when all active players have acted and matched the current bet.
   # Raises reset the "has acted" state for other players.
 
+  @EU-0404
   Scenario: Process manager advances action after player acts
     Given an active hand process in phase BETTING
     And action_on is position 2
@@ -95,6 +101,7 @@ Feature: Process manager logic
     When the process manager handles the event
     Then action_on advances to next active player
 
+  @EU-0405
   Scenario: Process manager resets has_acted after raise
     Given an active hand process in phase BETTING
     And players at positions 0, 1, 2 have all acted
@@ -102,6 +109,7 @@ Feature: Process manager logic
     When the process manager handles the event
     Then players at positions 1 and 2 have has_acted reset to false
 
+  @EU-0406
   Scenario: Process manager detects betting complete
     Given an active hand process in phase BETTING
     And all active players have acted and matched the current bet
@@ -110,6 +118,7 @@ Feature: Process manager logic
     Then the betting round ends
     And the process advances to next phase
 
+  @EU-0407
   Scenario: Process manager deals flop after preflop betting
     Given an active hand process with betting_phase PREFLOP
     And betting round is complete
@@ -117,18 +126,21 @@ Feature: Process manager logic
     Then a DealCommunityCards command is sent with count 3
     And the process transitions to phase DEALING_COMMUNITY
 
+  @EU-0408
   Scenario: Process manager deals turn after flop betting
     Given an active hand process with betting_phase FLOP
     And betting round is complete
     When the process manager ends the betting round
     Then a DealCommunityCards command is sent with count 1
 
+  @EU-0409
   Scenario: Process manager deals river after turn betting
     Given an active hand process with betting_phase TURN
     And betting round is complete
     When the process manager ends the betting round
     Then a DealCommunityCards command is sent with count 1
 
+  @EU-0410
   Scenario: Process manager starts showdown after river betting
     Given an active hand process with betting_phase RIVER
     And betting round is complete
@@ -143,6 +155,7 @@ Feature: Process manager logic
   # tracked separately since they can't take further actions but remain
   # eligible for pot awards.
 
+  @EU-0411
   Scenario: Process manager awards pot to last player standing
     Given an active hand process with 2 players
     And an ActionTaken event with action FOLD
@@ -150,6 +163,7 @@ Feature: Process manager logic
     Then the process transitions to phase COMPLETE
     And an AwardPot command is sent to the remaining player
 
+  @EU-0412
   Scenario: Process manager handles all-in correctly
     Given an active hand process in phase BETTING
     And an ActionTaken event with action ALL_IN
@@ -164,6 +178,7 @@ Feature: Process manager logic
   # facing a bet, check if no bet. This prevents hands from stalling
   # indefinitely.
 
+  @EU-0413
   Scenario: Process manager auto-folds on timeout when facing bet
     Given an active hand process in phase BETTING
     And current_bet is 20
@@ -171,6 +186,7 @@ Feature: Process manager logic
     When the action times out
     Then the process manager sends PlayerAction with FOLD
 
+  @EU-0414
   Scenario: Process manager auto-checks on timeout when no bet
     Given an active hand process in phase BETTING
     And current_bet is 0
@@ -183,6 +199,7 @@ Feature: Process manager logic
   # Draw games have an additional phase between betting rounds where players
   # discard and draw new cards. The PM tracks draw completion.
 
+  @EU-0415
   Scenario: Process manager handles Five Card Draw phase transition
     Given an active hand process with game_variant FIVE_CARD_DRAW
     And betting_phase PREFLOP
@@ -190,6 +207,7 @@ Feature: Process manager logic
     When the process manager ends the betting round
     Then the process transitions to phase DRAW
 
+  @EU-0416
   Scenario: Process manager starts final betting after draw
     Given an active hand process with game_variant FIVE_CARD_DRAW
     And betting_phase DRAW
@@ -204,6 +222,7 @@ Feature: Process manager logic
   # When community cards are dealt, the PM resets betting state for the new
   # round: bet amounts reset to zero, action moves to first player after dealer.
 
+  @EU-0417
   Scenario: Process manager resets betting state for new round
     Given an active hand process in phase BETTING
     And a CommunityCardsDealt event for FLOP
@@ -219,18 +238,21 @@ Feature: Process manager logic
   # The PM maintains accurate pot totals and player stacks throughout the
   # hand. These scenarios verify state updates are correct.
 
+  @EU-0418
   Scenario: Process manager tracks pot total correctly
     Given an active hand process
     And a series of BlindPosted and ActionTaken events totaling 150
     When all events are processed
     Then pot_total is 150
 
+  @EU-0419
   Scenario: Process manager tracks player stacks correctly
     Given an active hand process with player "player-1" at stack 500
     And an ActionTaken event for "player-1" with amount 50
     When the process manager handles the event
     Then "player-1" stack is 450
 
+  @EU-0420
   Scenario: Process manager completes hand on PotAwarded
     Given an active hand process in phase SHOWDOWN
     And a PotAwarded event

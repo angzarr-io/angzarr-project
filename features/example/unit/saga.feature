@@ -1,3 +1,4 @@
+# Allocated: EU-0300 .. EU-0308
 Feature: Saga logic
   Sagas translate events from one domain into commands for another. They're
   stateless domain bridges that enable loose coupling between aggregates.
@@ -34,6 +35,7 @@ Feature: Saga logic
   # When a table starts a hand, the saga translates this into commands for
   # the hand aggregate. When a hand completes, it signals the table to end.
 
+  @EU-0300
   Scenario: Table sync saga routes HandStarted to DealCards
     Given a TableSyncSaga
     And a HandStarted event from table domain with:
@@ -49,6 +51,7 @@ Feature: Saga logic
     And the command has 2 players
     And the command has hand_number 1
 
+  @EU-0301
   Scenario: Table sync saga routes HandComplete to EndHand
     Given a TableSyncSaga
     And a HandComplete event from hand domain with:
@@ -68,6 +71,7 @@ Feature: Saga logic
   # When a hand ends or pots are awarded, players' bankrolls need updating.
   # This saga emits DepositFunds/ReleaseFunds commands to the player domain.
 
+  @EU-0302
   Scenario: Hand results saga routes HandEnded to ReleaseFunds
     Given a HandResultsSaga
     And a HandEnded event from table domain with:
@@ -80,6 +84,7 @@ Feature: Saga logic
     When the saga handles the event
     Then the saga emits 2 ReleaseFunds commands to player domain
 
+  @EU-0303
   Scenario: Hand results saga routes PotAwarded to DepositFunds
     Given a HandResultsSaga
     And a PotAwarded event from hand domain with:
@@ -100,12 +105,14 @@ Feature: Saga logic
   # The SagaRouter dispatches events to matching saga handlers. Multiple
   # sagas can be registered; only those matching the event type are invoked.
 
+  @EU-0304
   Scenario: Saga router dispatches to matching sagas only
     Given a SagaRouter with TableSyncSaga and HandResultsSaga
     And a HandStarted event
     When the router routes the event
     Then only TableSyncSaga handles the event
 
+  @EU-0305
   Scenario: Saga router handles multiple events in event book
     Given a SagaRouter with TableSyncSaga
     And an event book with:
@@ -115,6 +122,7 @@ Feature: Saga logic
     When the router routes the events
     Then the saga emits 2 DealCards commands
 
+  @EU-0306
   Scenario: Saga router continues after saga failure
     Given a SagaRouter with a failing saga and TableSyncSaga
     And a HandStarted event
@@ -128,6 +136,7 @@ Feature: Saga logic
   # Sagas must handle edge cases gracefully. Empty or invalid input should
   # not cause crashes; instead, sagas emit no commands or log errors.
 
+  @EU-0307
   Scenario: Saga handles empty player list gracefully
     Given a HandResultsSaga
     And a HandEnded event from table domain with:
@@ -138,6 +147,7 @@ Feature: Saga logic
     When the saga handles the event
     Then the saga emits 0 ReleaseFunds commands to player domain
 
+  @EU-0308
   Scenario: Hand results saga skips players with zero change
     Given a HandResultsSaga
     And a HandEnded event from table domain with:

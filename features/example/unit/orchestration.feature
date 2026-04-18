@@ -1,3 +1,4 @@
+# Allocated: EU-0600 .. EU-0617
 Feature: Process Manager orchestration logic
   Process Managers coordinate cross-aggregate flows that require decision coupling.
   Unlike sagas which react to events after the fact, PMs validate state across
@@ -10,6 +11,7 @@ Feature: Process Manager orchestration logic
   # seat is available BEFORE committing the Player's funds. The PM sees both
   # aggregate states and coordinates the atomic operation.
 
+  @EU-0600
   Scenario: BuyInOrchestrator emits SeatPlayer when validation passes
     Given a table with seat 0 available and buy-in range 200-2000
     And a player with a BuyInRequested event for seat 0 with amount 500
@@ -17,6 +19,7 @@ Feature: Process Manager orchestration logic
     Then the PM emits a SeatPlayer command to the table
     And the PM emits a BuyInInitiated process event
 
+  @EU-0601
   Scenario: BuyInOrchestrator rejects when buy-in too low
     Given a table with seat 0 available and buy-in range 200-2000
     And a player with a BuyInRequested event for seat 0 with amount 100
@@ -24,6 +27,7 @@ Feature: Process Manager orchestration logic
     Then the PM emits no commands
     And the PM emits a BuyInFailed process event with code "INVALID_AMOUNT"
 
+  @EU-0602
   Scenario: BuyInOrchestrator rejects when buy-in too high
     Given a table with seat 0 available and buy-in range 200-2000
     And a player with a BuyInRequested event for seat 0 with amount 5000
@@ -31,6 +35,7 @@ Feature: Process Manager orchestration logic
     Then the PM emits no commands
     And the PM emits a BuyInFailed process event with code "INVALID_AMOUNT"
 
+  @EU-0603
   Scenario: BuyInOrchestrator rejects when seat is occupied
     Given a table with seat 0 occupied by another player
     And a player with a BuyInRequested event for seat 0 with amount 500
@@ -38,6 +43,7 @@ Feature: Process Manager orchestration logic
     Then the PM emits no commands
     And the PM emits a BuyInFailed process event with code "SEAT_OCCUPIED"
 
+  @EU-0604
   Scenario: BuyInOrchestrator rejects when table is full
     Given a table that is full with 9 players
     And a player with a BuyInRequested event for any seat with amount 500
@@ -45,12 +51,14 @@ Feature: Process Manager orchestration logic
     Then the PM emits no commands
     And the PM emits a BuyInFailed process event with code "TABLE_FULL"
 
+  @EU-0605
   Scenario: BuyInOrchestrator confirms buy-in on PlayerSeated
     Given a player and table in a pending buy-in state
     When the BuyInOrchestrator handles a PlayerSeated event
     Then the PM emits a ConfirmBuyIn command to the player
     And the PM emits a BuyInCompleted process event
 
+  @EU-0606
   Scenario: BuyInOrchestrator releases funds on SeatingRejected
     Given a player and table in a pending buy-in state
     When the BuyInOrchestrator handles a SeatingRejected event
@@ -63,6 +71,7 @@ Feature: Process Manager orchestration logic
   # Tournament registration requires knowing capacity and status BEFORE
   # committing the Player's fee. Similar pattern to buy-in.
 
+  @EU-0607
   Scenario: RegistrationOrchestrator emits EnrollPlayer when validation passes
     Given a tournament with registration open and capacity available
     And a player with a RegistrationRequested event with fee 1000
@@ -70,6 +79,7 @@ Feature: Process Manager orchestration logic
     Then the PM emits an EnrollPlayer command to the tournament
     And the PM emits a RegistrationInitiated process event
 
+  @EU-0608
   Scenario: RegistrationOrchestrator rejects when tournament is full
     Given a tournament that is full
     And a player with a RegistrationRequested event with fee 1000
@@ -77,6 +87,7 @@ Feature: Process Manager orchestration logic
     Then the PM emits no commands
     And the PM emits a RegistrationFailed process event with code "REGISTRATION_CLOSED"
 
+  @EU-0609
   Scenario: RegistrationOrchestrator rejects when registration is closed
     Given a tournament with registration closed
     And a player with a RegistrationRequested event with fee 1000
@@ -84,12 +95,14 @@ Feature: Process Manager orchestration logic
     Then the PM emits no commands
     And the PM emits a RegistrationFailed process event with code "REGISTRATION_CLOSED"
 
+  @EU-0610
   Scenario: RegistrationOrchestrator confirms on TournamentPlayerEnrolled
     Given a player and tournament in a pending registration state
     When the RegistrationOrchestrator handles a TournamentPlayerEnrolled event
     Then the PM emits a ConfirmRegistrationFee command to the player
     And the PM emits a RegistrationCompleted process event
 
+  @EU-0611
   Scenario: RegistrationOrchestrator releases fee on TournamentEnrollmentRejected
     Given a player and tournament in a pending registration state
     When the RegistrationOrchestrator handles a TournamentEnrollmentRejected event
@@ -102,6 +115,7 @@ Feature: Process Manager orchestration logic
   # Rebuy is the most complex: requires validating Tournament rebuy window,
   # Player eligibility, AND Table seat existence. Three-domain coordination.
 
+  @EU-0612
   Scenario: RebuyOrchestrator emits ProcessRebuy when all validations pass
     Given a tournament in rebuy window with player eligible
     And a table with the player seated at position 2
@@ -110,6 +124,7 @@ Feature: Process Manager orchestration logic
     Then the PM emits a ProcessRebuy command to the tournament
     And the PM emits a RebuyInitiated process event
 
+  @EU-0613
   Scenario: RebuyOrchestrator rejects when rebuy window is closed
     Given a tournament with rebuy window closed
     And a table with the player seated at position 2
@@ -118,6 +133,7 @@ Feature: Process Manager orchestration logic
     Then the PM emits no commands
     And the PM emits a RebuyFailed process event with code "TOURNAMENT_NOT_RUNNING"
 
+  @EU-0614
   Scenario: RebuyOrchestrator rejects when player not seated
     Given a tournament in rebuy window with player eligible
     And a table without the player seated
@@ -126,17 +142,20 @@ Feature: Process Manager orchestration logic
     Then the PM emits no commands
     And the PM emits a RebuyFailed process event with code "NOT_SEATED"
 
+  @EU-0615
   Scenario: RebuyOrchestrator adds chips on RebuyProcessed
     Given a player, tournament, and table in a pending rebuy state
     When the RebuyOrchestrator handles a RebuyProcessed event
     Then the PM emits an AddRebuyChips command to the table
 
+  @EU-0616
   Scenario: RebuyOrchestrator confirms fee after RebuyChipsAdded
     Given a player, tournament, and table with chips added
     When the RebuyOrchestrator handles a RebuyChipsAdded event
     Then the PM emits a ConfirmRebuyFee command to the player
     And the PM emits a RebuyCompleted process event
 
+  @EU-0617
   Scenario: RebuyOrchestrator releases fee on RebuyDenied
     Given a player, tournament, and table in a pending rebuy state
     When the RebuyOrchestrator handles a RebuyDenied event

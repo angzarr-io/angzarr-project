@@ -1,3 +1,4 @@
+# Allocated: EU-0001 .. EU-0048
 Feature: Hand aggregate logic
   The Hand aggregate manages a single poker hand: dealing, betting rounds,
   community cards, and showdown. Each hand is an isolated consistency
@@ -39,6 +40,7 @@ Feature: Hand aggregate logic
   # of hole cards depends on game variant (2 for Hold'em, 4 for Omaha, 5 for Draw).
   # Deterministic seeding enables reproducible tests.
 
+  @EU-0001
   Scenario: Deal Texas Hold'em hand to 2 players
     Given no prior events for the hand aggregate
     When I handle a DealCards command for TEXAS_HOLDEM with players:
@@ -49,6 +51,7 @@ Feature: Hand aggregate logic
     And each player has 2 hole cards
     And the remaining deck has 48 cards
 
+  @EU-0002
   Scenario: Deal Omaha hand to 3 players
     Given no prior events for the hand aggregate
     When I handle a DealCards command for OMAHA with players:
@@ -60,6 +63,7 @@ Feature: Hand aggregate logic
     And each player has 4 hole cards
     And the remaining deck has 40 cards
 
+  @EU-0003
   Scenario: Deal Five Card Draw hand to 4 players
     Given no prior events for the hand aggregate
     When I handle a DealCards command for FIVE_CARD_DRAW with players:
@@ -72,6 +76,7 @@ Feature: Hand aggregate logic
     And each player has 5 hole cards
     And the remaining deck has 32 cards
 
+  @EU-0004
   Scenario: Deterministic shuffle with seed
     Given no prior events for the hand aggregate
     When I handle a DealCards command with seed "test-seed-123" and players:
@@ -81,6 +86,7 @@ Feature: Hand aggregate logic
     Then the result is a examples.CardsDealt event
     And player "player-1" has specific hole cards for seed "test-seed-123"
 
+  @EU-0005
   Scenario: Cannot deal cards twice
     Given a CardsDealt event for hand 1
     When I handle a DealCards command for TEXAS_HOLDEM with players:
@@ -90,6 +96,7 @@ Feature: Hand aggregate logic
     Then the command fails with status "FAILED_PRECONDITION"
     And the error message contains "already dealt"
 
+  @EU-0006
   Scenario: Cannot deal with fewer than 2 players
     Given no prior events for the hand aggregate
     When I handle a DealCards command for TEXAS_HOLDEM with players:
@@ -104,6 +111,7 @@ Feature: Hand aggregate logic
   # Blinds are forced bets that seed the pot and drive action. Small blind
   # is posted first, then big blind. Short-stacked players post all-in blinds.
 
+  @EU-0007
   Scenario: Post small blind
     Given a CardsDealt event for TEXAS_HOLDEM with 2 players at stacks 500
     When I handle a PostBlind command for player "player-1" type "small" amount 5
@@ -113,6 +121,7 @@ Feature: Hand aggregate logic
     And the blind event has player_stack 495
     And the blind event has pot_total 5
 
+  @EU-0008
   Scenario: Post big blind
     Given a CardsDealt event for TEXAS_HOLDEM with 2 players at stacks 500
     And a BlindPosted event for player "player-1" amount 5
@@ -122,6 +131,7 @@ Feature: Hand aggregate logic
     And the blind event has amount 10
     And the blind event has pot_total 15
 
+  @EU-0009
   Scenario: Post all-in blind when short-stacked
     Given a CardsDealt event for TEXAS_HOLDEM with players:
       | player_root | position | stack |
@@ -139,6 +149,7 @@ Feature: Hand aggregate logic
   # Each action has validation rules (can't check when facing a bet, minimum
   # raise amounts). Invalid actions are rejected, not auto-corrected.
 
+  @EU-0010
   Scenario: Player folds
     Given a CardsDealt event for TEXAS_HOLDEM with 2 players at stacks 500
     And blinds posted with pot 15
@@ -146,6 +157,7 @@ Feature: Hand aggregate logic
     Then the result is an examples.ActionTaken event
     And the action event has action "FOLD"
 
+  @EU-0011
   Scenario: Player checks when no bet
     Given a CardsDealt event for TEXAS_HOLDEM with 2 players at stacks 500
     And blinds posted with pot 15
@@ -155,6 +167,7 @@ Feature: Hand aggregate logic
     Then the result is an examples.ActionTaken event
     And the action event has action "CHECK"
 
+  @EU-0012
   Scenario: Player calls the big blind
     Given a CardsDealt event for TEXAS_HOLDEM with 2 players at stacks 500
     And blinds posted with pot 15 and current_bet 10
@@ -164,6 +177,7 @@ Feature: Hand aggregate logic
     And the action event has amount 5
     And the action event has pot_total 20
 
+  @EU-0013
   Scenario: Player bets
     Given a CardsDealt event for TEXAS_HOLDEM with 2 players at stacks 500
     And blinds posted with pot 15
@@ -175,6 +189,7 @@ Feature: Hand aggregate logic
     And the action event has amount 20
     And the action event has amount_to_call 20
 
+  @EU-0014
   Scenario: Player raises
     Given a CardsDealt event for TEXAS_HOLDEM with 2 players at stacks 500
     And blinds posted with pot 15 and current_bet 10
@@ -183,6 +198,7 @@ Feature: Hand aggregate logic
     And the action event has action "RAISE"
     And the action event has amount 30
 
+  @EU-0015
   Scenario: Player goes all-in
     Given a CardsDealt event for TEXAS_HOLDEM with players:
       | player_root | position | stack |
@@ -194,6 +210,7 @@ Feature: Hand aggregate logic
     And the action event has action "ALL_IN"
     And the action event has player_stack 0
 
+  @EU-0016
   Scenario: Cannot check when facing a bet
     Given a CardsDealt event for TEXAS_HOLDEM with 2 players at stacks 500
     And blinds posted with pot 15 and current_bet 10
@@ -201,6 +218,7 @@ Feature: Hand aggregate logic
     Then the command fails with status "INVALID_ARGUMENT"
     And the error message contains "cannot check"
 
+  @EU-0017
   Scenario: Cannot bet less than minimum
     Given a CardsDealt event for TEXAS_HOLDEM with 2 players at stacks 500
     And blinds posted with pot 15
@@ -217,6 +235,7 @@ Feature: Hand aggregate logic
   # turn (1), river (1). Draw games have no community cards. Dealing community
   # cards transitions between betting rounds.
 
+  @EU-0018
   Scenario: Deal the flop
     Given a CardsDealt event for TEXAS_HOLDEM with 2 players at stacks 500
     And blinds posted with pot 15
@@ -227,6 +246,7 @@ Feature: Hand aggregate logic
     And the event has phase "FLOP"
     And the remaining deck decreases by 3
 
+  @EU-0019
   Scenario: Deal the turn
     Given a CardsDealt event for TEXAS_HOLDEM with 2 players
     And the flop has been dealt
@@ -237,6 +257,7 @@ Feature: Hand aggregate logic
     And the event has phase "TURN"
     And all_community_cards has 4 cards
 
+  @EU-0020
   Scenario: Deal the river
     Given a CardsDealt event for TEXAS_HOLDEM with 2 players
     And the flop and turn have been dealt
@@ -246,6 +267,7 @@ Feature: Hand aggregate logic
     And the event has phase "RIVER"
     And all_community_cards has 5 cards
 
+  @EU-0021
   Scenario: Cannot deal community cards in Five Card Draw
     Given a CardsDealt event for FIVE_CARD_DRAW with 2 players
     And blinds posted with pot 15
@@ -260,6 +282,7 @@ Feature: Hand aggregate logic
   # In draw games, players discard and receive new cards. Standing pat means
   # keeping all cards. Draw is only valid in draw game variants.
 
+  @EU-0022
   Scenario: Player discards and draws cards
     Given a CardsDealt event for FIVE_CARD_DRAW with 2 players
     And blinds posted with pot 15
@@ -270,6 +293,7 @@ Feature: Hand aggregate logic
     And the draw event has cards_drawn 3
     And player "player-1" has 5 hole cards
 
+  @EU-0023
   Scenario: Player stands pat (no discard)
     Given a CardsDealt event for FIVE_CARD_DRAW with 2 players
     And blinds posted with pot 15
@@ -279,6 +303,7 @@ Feature: Hand aggregate logic
     And the draw event has cards_discarded 0
     And the draw event has cards_drawn 0
 
+  @EU-0024
   Scenario: Cannot draw in Texas Hold'em
     Given a CardsDealt event for TEXAS_HOLDEM with 2 players
     And blinds posted with pot 15
@@ -292,6 +317,7 @@ Feature: Hand aggregate logic
   # At showdown, remaining players reveal or muck their cards. Revealing
   # triggers hand evaluation; mucking concedes without showing.
 
+  @EU-0025
   Scenario: Player reveals cards at showdown
     Given a completed betting for TEXAS_HOLDEM with 2 players
     And a ShowdownStarted event for the hand
@@ -300,6 +326,7 @@ Feature: Hand aggregate logic
     And the reveal event has cards for player "player-1"
     And the reveal event has a hand ranking
 
+  @EU-0026
   Scenario: Player mucks cards
     Given a completed betting for TEXAS_HOLDEM with 2 players
     And a ShowdownStarted event for the hand
@@ -312,6 +339,7 @@ Feature: Hand aggregate logic
   # Pots are awarded after showdown (best hand) or when all but one player
   # folds. Awarding the pot triggers HandComplete and returns control to table.
 
+  @EU-0027
   Scenario: Award pot to single winner
     Given a completed betting for TEXAS_HOLDEM with 2 players
     And a CardsRevealed event for player "player-1" with ranking FLUSH
@@ -320,6 +348,7 @@ Feature: Hand aggregate logic
     Then the result is a examples.PotAwarded event
     And the award event has winner "player-1" with amount 15
 
+  @EU-0028
   Scenario: Award pot generates HandComplete
     Given a completed betting for TEXAS_HOLDEM with 2 players
     When I handle an AwardPot command with winner "player-1" amount 15
@@ -332,6 +361,7 @@ Feature: Hand aggregate logic
   # Hand ranking (high card through royal flush) determines winners. These
   # scenarios verify the evaluator correctly ranks hands and compares kickers.
 
+  @EU-0029
   Scenario: Royal flush beats straight flush
     Given a showdown with player hands:
       | player   | hole_cards | community_cards    |
@@ -342,6 +372,7 @@ Feature: Hand aggregate logic
     And player "player-2" has ranking "STRAIGHT_FLUSH"
     And player "player-1" wins
 
+  @EU-0030
   Scenario: Full house beats flush
     Given a showdown with player hands:
       | player   | hole_cards | community_cards    |
@@ -352,6 +383,7 @@ Feature: Hand aggregate logic
     And player "player-2" has ranking "FLUSH"
     And player "player-1" wins
 
+  @EU-0031
   Scenario: High card comparison with kickers
     Given a showdown with player hands:
       | player   | hole_cards | community_cards    |
@@ -368,66 +400,77 @@ Feature: Hand aggregate logic
   # These scenarios verify that RevealCards handlers correctly invoke the
   # evaluator and populate the CardsRevealed event with rankings.
 
+  @EU-0032
   Scenario: Handler detects straight
     Given a hand at showdown with player "player-1" holding "Th 9c" and community "8d 7s 6h 2c 3d"
     When I handle a RevealCards command for player "player-1" with muck false
     Then the result is a examples.CardsRevealed event
     And the revealed ranking is "STRAIGHT"
 
+  @EU-0033
   Scenario: Handler detects wheel straight (A-2-3-4-5)
     Given a hand at showdown with player "player-1" holding "Ah 2c" and community "3d 4s 5h Kc Qd"
     When I handle a RevealCards command for player "player-1" with muck false
     Then the result is a examples.CardsRevealed event
     And the revealed ranking is "STRAIGHT"
 
+  @EU-0034
   Scenario: Handler detects straight flush
     Given a hand at showdown with player "player-1" holding "9h 8h" and community "7h 6h 5h 2c 3d"
     When I handle a RevealCards command for player "player-1" with muck false
     Then the result is a examples.CardsRevealed event
     And the revealed ranking is "STRAIGHT_FLUSH"
 
+  @EU-0035
   Scenario: Handler detects royal flush
     Given a hand at showdown with player "player-1" holding "As Ks" and community "Qs Js Ts 2c 3d"
     When I handle a RevealCards command for player "player-1" with muck false
     Then the result is a examples.CardsRevealed event
     And the revealed ranking is "ROYAL_FLUSH"
 
+  @EU-0036
   Scenario: Handler detects four of a kind
     Given a hand at showdown with player "player-1" holding "Kh Kd" and community "Ks Kc 2h 3d 4s"
     When I handle a RevealCards command for player "player-1" with muck false
     Then the result is a examples.CardsRevealed event
     And the revealed ranking is "FOUR_OF_A_KIND"
 
+  @EU-0037
   Scenario: Handler detects full house
     Given a hand at showdown with player "player-1" holding "Ah Ad" and community "Ac 2d 2h 4s 6c"
     When I handle a RevealCards command for player "player-1" with muck false
     Then the result is a examples.CardsRevealed event
     And the revealed ranking is "FULL_HOUSE"
 
+  @EU-0038
   Scenario: Handler detects flush
     Given a hand at showdown with player "player-1" holding "Ah 7h" and community "2h 4h 6h Kc Qd"
     When I handle a RevealCards command for player "player-1" with muck false
     Then the result is a examples.CardsRevealed event
     And the revealed ranking is "FLUSH"
 
+  @EU-0039
   Scenario: Handler detects three of a kind
     Given a hand at showdown with player "player-1" holding "Jh Jd" and community "Js 2c 4d 6h 8s"
     When I handle a RevealCards command for player "player-1" with muck false
     Then the result is a examples.CardsRevealed event
     And the revealed ranking is "THREE_OF_A_KIND"
 
+  @EU-0040
   Scenario: Handler detects two pair
     Given a hand at showdown with player "player-1" holding "Th Td" and community "5s 5c 2h 3d Ks"
     When I handle a RevealCards command for player "player-1" with muck false
     Then the result is a examples.CardsRevealed event
     And the revealed ranking is "TWO_PAIR"
 
+  @EU-0041
   Scenario: Handler detects pair
     Given a hand at showdown with player "player-1" holding "Ah Ac" and community "Kd Js 9h 4c 2d"
     When I handle a RevealCards command for player "player-1" with muck false
     Then the result is a examples.CardsRevealed event
     And the revealed ranking is "PAIR"
 
+  @EU-0042
   Scenario: Handler detects high card
     Given a hand at showdown with player "player-1" holding "Ah Qc" and community "Kd Js 9h 4c 2d"
     When I handle a RevealCards command for player "player-1" with muck false
@@ -440,6 +483,7 @@ Feature: Hand aggregate logic
   # The hand aggregate enforces strict betting rules. Invalid actions are
   # rejected with clear error messages rather than auto-corrected.
 
+  @EU-0043
   Scenario: Cannot raise less than minimum raise amount
     Given a CardsDealt event for TEXAS_HOLDEM with 2 players at stacks 500
     And blinds posted with pot 15 and current_bet 10
@@ -454,6 +498,7 @@ Feature: Hand aggregate logic
   # Multiple players can share a pot when hands are identical, or a kicker
   # can determine the winner when hand rankings match.
 
+  @EU-0044
   Scenario: Split pot when hands are identical
     Given a showdown with player hands:
       | player   | hole_cards | community_cards    |
@@ -463,6 +508,7 @@ Feature: Hand aggregate logic
     Then player "player-1" has ranking "TWO_PAIR"
     And player "player-2" has ranking "TWO_PAIR"
 
+  @EU-0045
   Scenario: Kicker determines winner with matching pairs
     Given a showdown with player hands:
       | player   | hole_cards | community_cards    |
@@ -479,6 +525,7 @@ Feature: Hand aggregate logic
   # Hand state includes phase, community cards, player stacks, and who has
   # folded. These scenarios verify correct state rebuilding from events.
 
+  @EU-0046
   Scenario: Rebuild state after dealing
     Given a CardsDealt event for TEXAS_HOLDEM with 2 players at stacks 500
     When I rebuild the hand state
@@ -486,6 +533,7 @@ Feature: Hand aggregate logic
     And the hand state has status "betting"
     And the hand state has 2 players
 
+  @EU-0047
   Scenario: Rebuild state with community cards
     Given a CardsDealt event for TEXAS_HOLDEM with 2 players
     And the flop has been dealt
@@ -493,6 +541,7 @@ Feature: Hand aggregate logic
     Then the hand state has 3 community cards
     And the hand state has phase "FLOP"
 
+  @EU-0048
   Scenario: Rebuild state tracks folded players
     Given a CardsDealt event for TEXAS_HOLDEM with 3 players
     And blinds posted with pot 15

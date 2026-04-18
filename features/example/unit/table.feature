@@ -1,3 +1,4 @@
+# Allocated: EU-0100 .. EU-0120
 Feature: Table aggregate logic
   The Table aggregate manages a poker table session: configuration, player
   seating, and hand lifecycle. It's the orchestration layer between players
@@ -34,6 +35,7 @@ Feature: Table aggregate logic
   # Tables are created with game configuration. Once created, the table
   # exists until closed (future feature). Duplicate creation is rejected.
 
+  @EU-0100
   Scenario: Create a Texas Hold'em table
     Given no prior events for the table aggregate
     When I handle a CreateTable command with name "Main Table" and variant "TEXAS_HOLDEM":
@@ -45,6 +47,7 @@ Feature: Table aggregate logic
     And the table event has small_blind 5
     And the table event has big_blind 10
 
+  @EU-0101
   Scenario: Create a Five Card Draw table
     Given no prior events for the table aggregate
     When I handle a CreateTable command with name "Draw Table" and variant "FIVE_CARD_DRAW":
@@ -53,6 +56,7 @@ Feature: Table aggregate logic
     Then the result is a examples.TableCreated event
     And the table event has game_variant "FIVE_CARD_DRAW"
 
+  @EU-0102
   Scenario: Cannot create table twice
     Given a TableCreated event for "Main Table"
     When I handle a CreateTable command with name "Another Table" and variant "TEXAS_HOLDEM":
@@ -68,6 +72,7 @@ Feature: Table aggregate logic
   # seats. Players can request a specific seat or take any available one.
   # Join failures don't affect the player's bankroll - no funds reserved yet.
 
+  @EU-0103
   Scenario: Player joins table at preferred seat
     Given a TableCreated event for "Main Table"
     When I handle a JoinTable command for player "player-1" at seat 3 with buy-in 500
@@ -75,12 +80,14 @@ Feature: Table aggregate logic
     And the table event has seat_position 3
     And the table event has buy_in_amount 500
 
+  @EU-0104
   Scenario: Player joins table at any seat
     Given a TableCreated event for "Main Table"
     When I handle a JoinTable command for player "player-1" at seat -1 with buy-in 500
     Then the result is a examples.PlayerJoined event
     And the table event has seat_position 0
 
+  @EU-0105
   Scenario: Cannot join occupied seat
     Given a TableCreated event for "Main Table"
     And a PlayerJoined event for player "player-1" at seat 3
@@ -88,6 +95,7 @@ Feature: Table aggregate logic
     Then the command fails with status "FAILED_PRECONDITION"
     And the error message contains "Seat is occupied"
 
+  @EU-0106
   Scenario: Cannot join table twice
     Given a TableCreated event for "Main Table"
     And a PlayerJoined event for player "player-1" at seat 3
@@ -95,12 +103,14 @@ Feature: Table aggregate logic
     Then the command fails with status "FAILED_PRECONDITION"
     And the error message contains "already seated"
 
+  @EU-0107
   Scenario: Cannot join with insufficient buy-in
     Given a TableCreated event for "Main Table" with min_buy_in 200
     When I handle a JoinTable command for player "player-1" at seat 0 with buy-in 100
     Then the command fails with status "INVALID_ARGUMENT"
     And the error message contains "Buy-in must be at least"
 
+  @EU-0108
   Scenario: Cannot join full table
     Given a TableCreated event for "Main Table" with max_players 2
     And a PlayerJoined event for player "player-1" at seat 0
@@ -116,6 +126,7 @@ Feature: Table aggregate logic
   # Departure during an active hand is forbidden - the player must wait
   # for the hand to complete. This prevents mid-hand bailouts.
 
+  @EU-0109
   Scenario: Player leaves table
     Given a TableCreated event for "Main Table"
     And a PlayerJoined event for player "player-1" at seat 3 with stack 500
@@ -123,6 +134,7 @@ Feature: Table aggregate logic
     Then the result is a examples.PlayerLeft event
     And the table event has chips_cashed_out 500
 
+  @EU-0110
   Scenario: Cannot leave during hand
     Given a TableCreated event for "Main Table"
     And a PlayerJoined event for player "player-1" at seat 0
@@ -132,6 +144,7 @@ Feature: Table aggregate logic
     Then the command fails with status "FAILED_PRECONDITION"
     And the error message contains "during a hand"
 
+  @EU-0111
   Scenario: Cannot leave table not joined
     Given a TableCreated event for "Main Table"
     When I handle a LeaveTable command for player "player-1"
@@ -145,6 +158,7 @@ Feature: Table aggregate logic
   # dealer button. The HandStarted event triggers the hand-table-saga to
   # deal cards in the hand domain.
 
+  @EU-0112
   Scenario: Start a new hand
     Given a TableCreated event for "Main Table"
     And a PlayerJoined event for player "player-1" at seat 0 with stack 500
@@ -154,6 +168,7 @@ Feature: Table aggregate logic
     And the table event has hand_number 1
     And the table event has 2 active_players
 
+  @EU-0113
   Scenario: Dealer button advances each hand
     Given a TableCreated event for "Main Table"
     And a PlayerJoined event for player "player-1" at seat 0
@@ -165,6 +180,7 @@ Feature: Table aggregate logic
     And the table event has hand_number 2
     And the table event has dealer_position 1
 
+  @EU-0114
   Scenario: Cannot start hand with fewer than 2 players
     Given a TableCreated event for "Main Table"
     And a PlayerJoined event for player "player-1" at seat 0
@@ -172,6 +188,7 @@ Feature: Table aggregate logic
     Then the command fails with status "FAILED_PRECONDITION"
     And the error message contains "Not enough players"
 
+  @EU-0115
   Scenario: Cannot start hand while one is in progress
     Given a TableCreated event for "Main Table"
     And a PlayerJoined event for player "player-1" at seat 0
@@ -188,6 +205,7 @@ Feature: Table aggregate logic
   # The HandEnded event triggers the hand-player-saga to update player
   # bankrolls in the player domain.
 
+  @EU-0116
   Scenario: End hand and update stacks
     Given a TableCreated event for "Main Table"
     And a PlayerJoined event for player "player-1" at seat 0 with stack 500
@@ -197,6 +215,7 @@ Feature: Table aggregate logic
     Then the result is a examples.HandEnded event
     And player "player-1" stack change is 50
 
+  @EU-0117
   Scenario: Cannot end hand not in progress
     Given a TableCreated event for "Main Table"
     And a PlayerJoined event for player "player-1" at seat 0
@@ -205,6 +224,7 @@ Feature: Table aggregate logic
     Then the command fails with status "FAILED_PRECONDITION"
     And the error message contains "No hand in progress"
 
+  @EU-0118
   Scenario: End hand updates player stacks with wins and losses
     Given a TableCreated event for "Main Table"
     And a PlayerJoined event for player "player-1" at seat 0 with stack 500
@@ -224,6 +244,7 @@ Feature: Table aggregate logic
   # Table state is rebuilt by replaying events. This verifies that joining,
   # leaving, and hand events correctly update seated players and table status.
 
+  @EU-0119
   Scenario: Rebuild state with multiple players
     Given a TableCreated event for "Main Table"
     And a PlayerJoined event for player "player-1" at seat 0 with stack 500
@@ -234,6 +255,7 @@ Feature: Table aggregate logic
     And the table state has seat 3 occupied by "player-2"
     And the table state has status "waiting"
 
+  @EU-0120
   Scenario: Rebuild state during hand
     Given a TableCreated event for "Main Table"
     And a PlayerJoined event for player "player-1" at seat 0

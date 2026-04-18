@@ -1,3 +1,4 @@
+# Allocated: EU-0200 .. EU-0216
 # DOC: This file is referenced in docs/docs/examples/aggregates.mdx
 #      Update documentation when making changes to player feature scenarios.
 
@@ -41,6 +42,7 @@ Feature: Player aggregate logic
   # and distinguishes human players from AI bots (for fair play tracking).
 
   # docs:start:registration_scenarios
+  @EU-0200
   Scenario: Register a new human player
     Given no prior events for the player aggregate
     When I handle a RegisterPlayer command with name "Alice" and email "alice@example.com"
@@ -48,6 +50,7 @@ Feature: Player aggregate logic
     And the player event has display_name "Alice"
     And the player event has player_type "HUMAN"
 
+  @EU-0201
   Scenario: Cannot register player twice
     Given a PlayerRegistered event for "Alice"
     When I handle a RegisterPlayer command with name "Alice2" and email "alice@example.com"
@@ -55,6 +58,7 @@ Feature: Player aggregate logic
     And the error message contains "already exists"
   # docs:end:registration_scenarios
 
+  @EU-0202
   Scenario: Register an AI player
     Given no prior events for the player aggregate
     When I handle a RegisterPlayer command with name "Bot1" and email "bot1@example.com" as AI
@@ -68,6 +72,7 @@ Feature: Player aggregate logic
   # for table buy-ins or withdrawals. Deposits are always allowed for registered
   # players (no upper limit by default).
 
+  @EU-0203
   Scenario: Deposit funds to bankroll
     Given a PlayerRegistered event for "Alice"
     When I handle a DepositFunds command with amount 1000
@@ -75,6 +80,7 @@ Feature: Player aggregate logic
     And the player event has amount 1000
     And the player event has new_balance 1000
 
+  @EU-0204
   Scenario: Multiple deposits accumulate
     Given a PlayerRegistered event for "Alice"
     And a FundsDeposited event with amount 500
@@ -82,12 +88,14 @@ Feature: Player aggregate logic
     Then the result is a examples.FundsDeposited event
     And the player event has new_balance 800
 
+  @EU-0205
   Scenario: Cannot deposit to non-existent player
     Given no prior events for the player aggregate
     When I handle a DepositFunds command with amount 1000
     Then the command fails with status "FAILED_PRECONDITION"
     And the error message contains "does not exist"
 
+  @EU-0206
   Scenario: Cannot deposit zero or negative
     Given a PlayerRegistered event for "Alice"
     When I handle a DepositFunds command with amount 0
@@ -101,6 +109,7 @@ Feature: Player aggregate logic
   # can be withdrawn - reserved funds (chips at tables) are locked until
   # the player leaves the table. This prevents mid-session cashouts.
 
+  @EU-0207
   Scenario: Withdraw funds from bankroll
     Given a PlayerRegistered event for "Alice"
     And a FundsDeposited event with amount 1000
@@ -109,6 +118,7 @@ Feature: Player aggregate logic
     And the player event has amount 400
     And the player event has new_balance 600
 
+  @EU-0208
   Scenario: Cannot withdraw more than available
     Given a PlayerRegistered event for "Alice"
     And a FundsDeposited event with amount 500
@@ -116,6 +126,7 @@ Feature: Player aggregate logic
     Then the command fails with status "FAILED_PRECONDITION"
     And the error message contains "insufficient"
 
+  @EU-0209
   Scenario: Cannot withdraw with funds reserved
     Given a PlayerRegistered event for "Alice"
     And a FundsDeposited event with amount 1000
@@ -133,6 +144,7 @@ Feature: Player aggregate logic
   # if the table join fails, the reservation is released atomically.
 
   # docs:start:reservation_scenario
+  @EU-0210
   Scenario: Reserve funds for table buy-in
     Given a PlayerRegistered event for "Alice"
     And a FundsDeposited event with amount 1000
@@ -142,6 +154,7 @@ Feature: Player aggregate logic
     And the player event has new_available_balance 500
   # docs:end:reservation_scenario
 
+  @EU-0211
   Scenario: Cannot reserve more than available
     Given a PlayerRegistered event for "Alice"
     And a FundsDeposited event with amount 500
@@ -149,6 +162,7 @@ Feature: Player aggregate logic
     Then the command fails with status "FAILED_PRECONDITION"
     And the error message contains "insufficient"
 
+  @EU-0212
   Scenario: Cannot reserve for same table twice
     Given a PlayerRegistered event for "Alice"
     And a FundsDeposited event with amount 1000
@@ -164,6 +178,7 @@ Feature: Player aggregate logic
   # back to available balance. The release amount may differ from reservation
   # if the player won or lost chips during play.
 
+  @EU-0213
   Scenario: Release reserved funds back to bankroll
     Given a PlayerRegistered event for "Alice"
     And a FundsDeposited event with amount 1000
@@ -173,6 +188,7 @@ Feature: Player aggregate logic
     And the player event has amount 500
     And the player event has new_available_balance 1000
 
+  @EU-0214
   Scenario: Cannot release non-existent reservation
     Given a PlayerRegistered event for "Alice"
     And a FundsDeposited event with amount 1000
@@ -186,6 +202,7 @@ Feature: Player aggregate logic
   # Player state is rebuilt by replaying all events in order. This verifies
   # that the event sequence correctly captures the full financial history.
 
+  @EU-0215
   Scenario: Rebuild state with deposits and reservations
     Given a PlayerRegistered event for "Alice"
     And a FundsDeposited event with amount 1000
@@ -202,6 +219,7 @@ Feature: Player aggregate logic
   # released back to their available balance. This exercises the compensation
   # pattern where a failed operation triggers a compensating action.
 
+  @EU-0216
   Scenario: Funds released when table join is rejected
     Given a PlayerRegistered event for "Alice"
     And a FundsDeposited event with amount 500

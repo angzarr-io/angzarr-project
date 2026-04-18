@@ -1,3 +1,4 @@
+# Allocated: EA-0100 .. EA-0119
 Feature: Synchronous Processing Modes
   Angzarr supports three synchronous processing modes that control how events
   propagate through the system after a command executes. Choosing the right
@@ -33,6 +34,7 @@ Feature: Synchronous Processing Modes
   # waiting for projectors or sagas. Fastest mode, but read models may lag.
 
   @sync-mode @async
+  @EA-0100
   Scenario: ASYNC mode returns before projectors complete
     Given registered players with bankroll:
       | name  | bankroll |
@@ -43,6 +45,7 @@ Feature: Synchronous Processing Modes
     But within 2 seconds player "Alice" bankroll projection shows 1500
 
   @sync-mode @async
+  @EA-0101
   Scenario: ASYNC mode does not wait for saga execution
     Given a table "Main" with seated players:
       | name  | seat | stack |
@@ -60,6 +63,7 @@ Feature: Synchronous Processing Modes
   # read models are immediately consistent. Sagas and PMs run asynchronously.
 
   @sync-mode @simple
+  @EA-0102
   Scenario: SIMPLE mode includes projection updates in response
     Given registered players with bankroll:
       | name  | bankroll |
@@ -70,6 +74,7 @@ Feature: Synchronous Processing Modes
     And the projection shows bankroll 1500
 
   @sync-mode @simple
+  @EA-0103
   Scenario: SIMPLE mode projectors see events immediately
     Given a table "Main" with seated players:
       | name  | seat | stack |
@@ -81,6 +86,7 @@ Feature: Synchronous Processing Modes
     But the response does not include cascade results from sagas
 
   @sync-mode @simple
+  @EA-0104
   Scenario: SIMPLE mode saga execution is asynchronous
     Given a table "Main" with seated players:
       | name  | seat | stack |
@@ -97,6 +103,7 @@ Feature: Synchronous Processing Modes
   # following the event chain until completion. Response includes all results.
 
   @sync-mode @cascade
+  @EA-0105
   Scenario: CASCADE mode waits for full saga chain
     Given a table "Main" with seated players:
       | name  | seat | stack |
@@ -108,6 +115,7 @@ Feature: Synchronous Processing Modes
     And the cascade results include CardsDealt event from hand domain
 
   @sync-mode @cascade
+  @EA-0106
   Scenario: CASCADE mode includes all projection updates
     Given a table "Main" with seated players:
       | name  | seat | stack |
@@ -117,6 +125,7 @@ Feature: Synchronous Processing Modes
     Then the response includes projection updates for both table and hand domains
 
   @sync-mode @cascade
+  @EA-0107
   Scenario: CASCADE mode follows multi-hop saga chains
     Given a table "Main" with seated players:
       | name  | seat | stack |
@@ -132,6 +141,7 @@ Feature: Synchronous Processing Modes
       | player | FundsReleased |
 
   @sync-mode @cascade
+  @EA-0108
   Scenario: CASCADE mode does not publish to event bus
     Given a table "Main" with seated players:
       | name  | seat | stack |
@@ -149,6 +159,7 @@ Feature: Synchronous Processing Modes
   # cascade_error_mode determines how to proceed.
 
   @cascade-error @fail-fast
+  @EA-0109
   Scenario: FAIL_FAST stops on first saga error
     Given a table "Main" with seated players:
       | name  | seat | stack |
@@ -161,6 +172,7 @@ Feature: Synchronous Processing Modes
     And the original HandStarted event is still persisted
 
   @cascade-error @continue
+  @EA-0110
   Scenario: CONTINUE collects errors and proceeds
     Given a table "Main" with seated players:
       | name  | seat | stack |
@@ -175,6 +187,7 @@ Feature: Synchronous Processing Modes
     And other sagas continue executing despite the failure
 
   @cascade-error @compensate
+  @EA-0111
   Scenario: COMPENSATE rolls back on saga error
     Given a table "Main" with seated players:
       | name  | seat | stack |
@@ -187,6 +200,7 @@ Feature: Synchronous Processing Modes
     And the command fails after compensation completes
 
   @cascade-error @dead-letter
+  @EA-0112
   Scenario: DEAD_LETTER sends failures to DLQ and continues
     Given a table "Main" with seated players:
       | name  | seat | stack |
@@ -209,6 +223,7 @@ Feature: Synchronous Processing Modes
   # Process managers in CASCADE mode maintain correlation across domains.
 
   @sync-mode @cascade @pm
+  @EA-0113
   Scenario: CASCADE mode includes process manager execution
     Given a table "Main" with seated players:
       | name  | seat | stack |
@@ -220,6 +235,7 @@ Feature: Synchronous Processing Modes
     And the response includes PM state updates
 
   @sync-mode @cascade @pm
+  @EA-0114
   Scenario: Process manager skipped without correlation ID
     Given a table "Main" with seated players:
       | name  | seat | stack |
@@ -236,6 +252,7 @@ Feature: Synchronous Processing Modes
   # Different modes have different latency profiles.
 
   @sync-mode @performance
+  @EA-0115
   Scenario: ASYNC mode has lowest latency
     Given 10 registered players
     When I deposit chips to all players with sync_mode ASYNC
@@ -243,6 +260,7 @@ Feature: Synchronous Processing Modes
     And total execution time is less than with SIMPLE mode
 
   @sync-mode @performance
+  @EA-0116
   Scenario: CASCADE mode has highest latency but full consistency
     Given a table "Main" with seated players:
       | name  | seat | stack |
@@ -257,6 +275,7 @@ Feature: Synchronous Processing Modes
   # ===========================================================================
 
   @sync-mode @edge-case
+  @EA-0117
   Scenario: Empty saga list in CASCADE mode succeeds
     Given a domain with no registered sagas
     When I execute a command with sync_mode CASCADE
@@ -264,6 +283,7 @@ Feature: Synchronous Processing Modes
     And the response has empty cascade_results
 
   @sync-mode @edge-case
+  @EA-0118
   Scenario: Saga producing no commands in CASCADE mode
     Given a table with no seated players
     When I start a hand at table "Empty" with sync_mode CASCADE
@@ -271,6 +291,7 @@ Feature: Synchronous Processing Modes
     And the command succeeds with HandStarted only
 
   @cascade-error @edge-case
+  @EA-0119
   Scenario: All sagas fail in CONTINUE mode
     Given multiple sagas configured to fail
     When I execute a triggering command with cascade_error_mode CONTINUE
