@@ -1,4 +1,4 @@
-# Node / Astro build artifacts (site-next has its own .gitignore; this covers stray clones)
+# Node / Astro build artifacts (site has its own .gitignore; this covers stray clones)
 node_modules/
 dist/
 .astro/

@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 const here = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.resolve(here, '..', '..');
 const srcDir = path.join(projectRoot, 'docs');
-const destDir = path.join(projectRoot, 'site-next', 'src', 'content', 'docs');
+const destDir = path.join(projectRoot, 'site', 'src', 'content', 'docs');
 
 const NON_PYTHON_LANGS = ['csharp', 'rust', 'java', 'go', 'cpp', 'typescript'];
 

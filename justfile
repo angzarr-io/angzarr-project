@@ -1,12 +1,12 @@
 # angzarr-project: docs site (Astro/Starlight) + proto definitions + features
 
-SITE := "site-next"
+SITE := "site"
 
 # Run dev server for the docs site
 dev:
     cd {{SITE}} && npm run dev
 
-# Build the docs site to site-next/dist
+# Build the docs site to site/dist
 build:
     cd {{SITE}} && npm run build
 

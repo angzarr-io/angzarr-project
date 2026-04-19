@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 const here = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.resolve(here, '..', '..');
 const srcDir = path.join(projectRoot, 'blog');
-const destDir = path.join(projectRoot, 'site-next', 'src', 'content', 'docs', 'blog');
+const destDir = path.join(projectRoot, 'site', 'src', 'content', 'docs', 'blog');
 
 const AUTHORS = {
   angzarr: { name: 'Ben Abbitt', link: 'https://github.com/benjaminabbitt', picture: 'https://github.com/benjaminabbitt.png' },

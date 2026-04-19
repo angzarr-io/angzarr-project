@@ -5,7 +5,7 @@ on:
     branches:
       - main
     paths:
-      - 'site-next/**'
+      - 'site/**'
       - 'proto/**'
       - 'vendor/**'
       - '.gitmodules'
@@ -35,14 +35,14 @@ jobs:
         with:
           node-version: 22
           cache: npm
-          cache-dependency-path: site-next/package-lock.json
+          cache-dependency-path: site/package-lock.json
 
       - name: Install dependencies
-        working-directory: site-next
+        working-directory: site
         run: npm ci
 
       - name: Build site
-        working-directory: site-next
+        working-directory: site
         run: npm run build
 
       - name: Setup Pages
@@ -51,7 +51,7 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: site-next/dist
+          path: site/dist
 
   deploy:
     environment:
