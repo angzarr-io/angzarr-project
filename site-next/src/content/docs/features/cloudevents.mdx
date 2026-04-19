@@ -72,17 +72,9 @@ You control the transformation. Not every internal event needs external publicat
 
 ## Building CloudEvents in a Projector
 
-OO-style projector that filters sensitive fields and publishes public versions:
+A CloudEvents projector filters sensitive fields and publishes public versions. Return `None` from a handler to skip publishing; return a CloudEvent to publish it.
 
-```python file=vendor/examples/python/prj-cloudevents/cloudevents_projector.py region=cloudevents_oo
-```
-
-Router-style alternative with explicit handler registration:
-
-```python file=vendor/examples/python/prj-cloudevents/cloudevents_projector.py region=cloudevents_router
-```
-
-Return `None` to skip publishing. Return a CloudEvent for publication.
+A full Python example lives in the framework's `prj-cloudevents` crate (Rust); a Python reference implementation is forthcoming.
 
 ---
 

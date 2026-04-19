@@ -124,7 +124,7 @@ message SpeculateCommandHandlerRequest {
 // Fact Injection - External realities that cannot be rejected
 // ============================================================================
 
-// docs:start:fact_injection
+// region fact_injection
 // Response from fact injection.
 // Indicates whether facts were newly persisted or already existed (idempotent).
 //
@@ -141,4 +141,4 @@ message FactInjectionResponse {
   bool already_processed = 2; // True if external_id was already seen (idempotent response)
   repeated Projection projections = 3; // Synchronous projector results (if any)
 }
-// docs:end:fact_injection
+// endregion

@@ -9,7 +9,7 @@ option java_multiple_files = true;
 option java_package = "dev.angzarr";
 option ruby_package = "Angzarr";
 
-// docs:start:cloud_event
+// region cloud_event
 // CloudEvent represents a single event for external consumption.
 //
 // Client projectors create these by filtering/transforming internal events.
@@ -50,4 +50,4 @@ message CloudEvent {
 message CloudEventsResponse {
   repeated CloudEvent events = 1;
 }
-// docs:end:cloud_event
+// endregion

@@ -132,7 +132,7 @@ Every aggregate — `player`, `table`, `hand`, `tournament`, etc. — is a class
 <Tabs>
 <TabItem label="Python">
 
-```python file=vendor/examples/python/table/agg/handlers/table.py region=oo_handlers
+```python file=vendor/examples/python/table/agg/handlers/table.py region=handlers
 ```
 
 </TabItem>

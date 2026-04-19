@@ -10,7 +10,7 @@ option java_multiple_files = true;
 option java_package = "dev.angzarr";
 option ruby_package = "Angzarr";
 
-// docs:start:event_stream_service
+// region event_stream_service
 // EventStreamService: streams events to registered subscribers
 service EventStreamService {
   // Subscribe to events matching correlation ID (required)
@@ -20,4 +20,4 @@ service EventStreamService {
     option (google.api.http) = {get: "/v1/stream/{correlation_id}"};
   }
 }
-// docs:end:event_stream_service
+// endregion

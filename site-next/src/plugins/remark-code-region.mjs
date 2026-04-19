@@ -65,8 +65,8 @@ export default function remarkCodeRegion(options = {}) {
 }
 
 function extractRegion(lines, region, file) {
-  const start = new RegExp(`#\\s*region\\s+${escapeRegex(region)}\\b`);
-  const end = /#\s*endregion\b/;
+  const start = new RegExp(`(?:#|//)\\s*region\\s+${escapeRegex(region)}\\b`);
+  const end = /(?:#|\/\/)\s*endregion\b/;
   let startIdx = -1;
   let depth = 0;
   for (let i = 0; i < lines.length; i++) {
@@ -80,7 +80,7 @@ function extractRegion(lines, region, file) {
   }
   let endIdx = -1;
   for (let i = startIdx + 1; i < lines.length; i++) {
-    if (/#\s*region\b/.test(lines[i])) depth++;
+    if (/(?:#|\/\/)\s*region\b/.test(lines[i])) depth++;
     else if (end.test(lines[i])) {
       if (depth === 0) { endIdx = i; break; }
       depth--;
