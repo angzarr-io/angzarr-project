@@ -1,43 +1,21 @@
-# Angzarr Project
+# angzarr-project
 
-Core project resources for [Angzarr](https://github.com/angzarr-io/angzarr) - a polyglot Event Sourcing & CQRS framework.
+Core resources for the [Angzarr](https://angzarr.io) polyglot event-sourcing framework:
 
-## Contents
+- **`site-next/`** — Documentation site (Astro + Starlight), deployed to [angzarr.io](https://angzarr.io)
+- **`proto/`** — Canonical Protocol Buffer definitions (single source of truth)
+- **`features/`** — Cucumber/Gherkin specs shared across language implementations
 
-- **Documentation** - Docusaurus site published to https://angzarr.io
-- **Proto definitions** - Shared protobuf definitions for examples
+## Development
 
-## Documentation
-
-**Live site:** https://angzarr.io
-
-Built using [Docusaurus](https://docusaurus.io/).
-
-### Local Development
-
-```bash
-npm install
-npm start
+```sh
+just vendor    # clone sibling repos referenced by code-region embeds
+just install   # install site dependencies
+just dev       # run the docs site locally
 ```
 
-Starts a local development server at `http://localhost:3000`.
-
-### Build
-
-```bash
-npm run build
-```
-
-Generates static content into `build/` for deployment.
-
-### Deployment
-
-Documentation is automatically deployed to GitHub Pages via GitHub Actions when changes are pushed to `main`.
-
-## Proto Definitions
-
-The `proto/` directory contains shared protobuf definitions used by example implementations across all languages.
+The site embeds code from `vendor/` via the custom `remark-code-region` plugin (see `site-next/src/plugins/remark-code-region.mjs`).
 
 ## License
 
-AGPL-3.0
+AGPL-3.0 — see [LICENSE](LICENSE).

@@ -1,29 +1,29 @@
-# Docs justfile
-TOP := `git rev-parse --show-toplevel`
+# angzarr-project: docs site (Astro/Starlight) + proto definitions + features
 
-# Build the documentation site
-build:
-    npm run build
+SITE := "site-next"
 
-# Start development server
+# Run dev server for the docs site
 dev:
-    npm run start
+    cd {{SITE}} && npm run dev
 
-# Serve built site locally
-serve:
-    npm run serve
+# Build the docs site to site-next/dist
+build:
+    cd {{SITE}} && npm run build
 
-# Clear cache and build artifacts
-clean:
-    npm run clear
+# Preview the built site locally
+preview:
+    cd {{SITE}} && npm run preview
 
-# Type check
-typecheck:
-    npm run typecheck
-
-# Install dependencies
+# Install site dependencies
 install:
-    npm install
+    cd {{SITE}} && npm install
 
-# Build and serve (for testing production build)
-test-build: build serve
+# Vendor sibling repos used by remark-code-region (Python only for now)
+vendor:
+    mkdir -p vendor/examples vendor/client
+    [ -d vendor/examples/python ] || git clone --depth=1 git@github.com:angzarr-io/angzarr-examples-python.git vendor/examples/python
+    [ -d vendor/client/python ]   || git clone --depth=1 git@github.com:angzarr-io/angzarr-client-python.git   vendor/client/python
+
+# Clean build artifacts
+clean:
+    rm -rf {{SITE}}/dist {{SITE}}/.astro

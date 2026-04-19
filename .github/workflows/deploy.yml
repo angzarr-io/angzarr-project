@@ -1,18 +1,20 @@
-name: Deploy to GitHub Pages
+name: Deploy site to GitHub Pages
 
 on:
   push:
     branches:
       - main
+    paths:
+      - 'site-next/**'
+      - 'proto/**'
+      - '.github/workflows/deploy.yml'
   workflow_dispatch:
 
-# Sets permissions of the GITHUB_TOKEN to allow deployment to GitHub Pages
 permissions:
   contents: read
   pages: write
   id-token: write
 
-# Allow only one concurrent deployment
 concurrency:
   group: pages
   cancel-in-progress: false
@@ -23,71 +25,32 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
-      # Create target structure for code snippets
-      # Example proto files are in this repo, framework proto/src in main angzarr repo
-      - name: Checkout main angzarr repo
-        uses: actions/checkout@v4
-        with:
-          repository: angzarr-io/angzarr
-          path: angzarr
-          sparse-checkout: |
-            proto
-            src
-
-      - name: Create examples directory and copy example proto
-        run: |
-          mkdir -p angzarr/examples
-          cp -r proto/* angzarr/proto/
-
-      - name: Checkout Python examples
+      - name: Checkout Python examples (for remark-code-region)
         uses: actions/checkout@v4
         with:
           repository: angzarr-io/angzarr-examples-python
-          path: angzarr/examples/python
+          path: vendor/examples/python
 
-      - name: Checkout Rust examples
+      - name: Checkout Python client (for remark-code-region)
         uses: actions/checkout@v4
         with:
-          repository: angzarr-io/angzarr-examples-rust
-          path: angzarr/examples/rust
-
-      - name: Checkout Go examples
-        uses: actions/checkout@v4
-        with:
-          repository: angzarr-io/angzarr-examples-go
-          path: angzarr/examples/go
-
-      - name: Checkout Java examples
-        uses: actions/checkout@v4
-        with:
-          repository: angzarr-io/angzarr-examples-java
-          path: angzarr/examples/java
-
-      - name: Checkout C# examples
-        uses: actions/checkout@v4
-        with:
-          repository: angzarr-io/angzarr-examples-csharp
-          path: angzarr/examples/csharp
-
-      - name: Checkout C++ examples
-        uses: actions/checkout@v4
-        with:
-          repository: angzarr-io/angzarr-examples-cpp
-          path: angzarr/examples/cpp
+          repository: angzarr-io/angzarr-client-python
+          path: vendor/client/python
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 20
           cache: npm
+          cache-dependency-path: site-next/package-lock.json
 
       - name: Install dependencies
+        working-directory: site-next
         run: npm ci
 
-      - name: Build website
+      - name: Build site
+        working-directory: site-next
         run: npm run build
 
       - name: Setup Pages
@@ -96,7 +59,7 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: build
+          path: site-next/dist
 
   deploy:
     environment:
