@@ -6,11 +6,14 @@ managers.
 
 Two sub-tiers, different granularities:
 
-- **[`unit/`](unit/)** — handler-level, synchronous, direct invocation. Tests
-  poker business logic (hand ranking, betting rules, saga translation) in
-  isolation.
-- **[`acceptance/`](acceptance/)** — end-to-end, async, via `CommandClient`.
-  Tests the full stack with live sidecars (in-process or gRPC).
+- **[`unit/`](unit/)** — handler-level and in-process integration tests.
+  Single-process invocation (direct handler or `InProcessClient`), no
+  deployed cluster. Covers hand ranking, betting rules, saga translation,
+  cross-aggregate flow, and sync-mode semantics.
+- **[`acceptance/`](acceptance/)** — cluster-tier, gRPC-only. Scenarios that
+  ONLY make sense against a deployed cluster: wire-latency assertions,
+  coordinator-restart durability, inter-coordinator routing, observable
+  projector lag.
 
 ## Why poker
 
@@ -27,12 +30,12 @@ similar-looking scenario titles. They do not share feature files.
 
 | Dimension | `unit/` | `acceptance/` |
 |-----------|---------|---------------|
-| Granularity | Single handler / saga / PM | Full chain across aggregates |
-| Assertion | `emits DealCards command` | `within 3s, hand domain has CardsDealt event` |
-| Setup | State struct, maybe an `EventBook` | Live sidecar, CommandClient, seeded DB |
-| Step vocabulary | `a TableSyncSaga` / `the saga handles the event` | `a table "Main" with seated players` / `I start a hand at table "Main"` |
-| Failure surface | Handler validation rejections | Wire errors, timeouts, saga propagation failures |
-| Temporal model | Synchronous | Async with latency |
+| Granularity | Single handler OR full in-process chain | Full chain across deployed coordinators |
+| Assertion | `emits DealCards command` / `within 3s, hand domain has CardsDealt event` | `within 5s, hand domain has CardsDealt event` over the wire; pod restart; projector lag |
+| Setup | State struct / `InProcessClient` | Live gRPC sidecars, bootstrap or external URLs |
+| Step vocabulary | `a TableSyncSaga` / `I start a hand at table "Main"` | `the poker cluster is reachable via gRPC` / `the player coordinator is restarted` |
+| Failure surface | Handler validation rejections, logical saga failures | Wire errors, timeouts, pod lifecycle, real-network latency |
+| Temporal model | Synchronous or in-process async | Network-async with realistic margins |
 
 A scenario that happens to have the same English title in both tiers asserts
 different things — that's healthy defense-in-depth, not duplication. See the
@@ -54,10 +57,10 @@ for invocation details.
 
 Pick the right sub-tier first:
 
-- Can you assert the outcome against a single handler's return value in a
-  synchronous call? → `unit/`
-- Does the assertion require the saga chain to actually execute across
-  domains, or is it observing final state after async propagation? →
+- Does the assertion only make sense against a deployed cluster — wire
+  latency, pod restart, coordinator routing, observable projector lag? →
   `acceptance/`
+- Everything else (single handler, full in-process flow, sync-mode
+  semantics, saga translation) → `unit/`
 
 Then follow the sub-tier README's process.

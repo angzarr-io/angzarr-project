@@ -1,48 +1,36 @@
 # Tier: acceptance-example
 
-End-to-end poker. Exercises the full angzarr stack — dispatch, projection,
-sagas, process managers, rejection, cascade error modes — via the
-`CommandClient` abstraction.
+Cluster-tier acceptance. Scenarios here are only meaningful against a deployed
+angzarr cluster (standalone docker-compose or Kubernetes) — they exercise
+network serialization, pod lifecycle, inter-coordinator routing, and
+observable read-model lag.
+
+In-process integration scenarios (single-process sagas, PMs, projectors) live
+in [`../unit/`](../unit/) (see `poker_game.feature` and `sync_modes.feature`).
+They are NOT duplicated here.
 
 ## What lives here
 
 | File | Scope |
 |------|-------|
-| `poker_game.feature` | Player lifecycle → table lifecycle → hand lifecycle → pot awards → variants → tournament flow → error cases |
-| `sync_modes.feature` | ASYNC / SIMPLE / CASCADE propagation semantics + CascadeErrorMode (FAIL_FAST / CONTINUE / COMPENSATE / DEAD_LETTER) + PM correlation + latency profiles |
-
-## Domain vocabulary
-
-Poker. See [`../README.md`](../README.md).
+| `cluster.feature` | Smoke end-to-end, saga latency over the wire, coordinator-restart durability, projector consistency bound, cross-coordinator command routing |
 
 ## Execution style
 
-`CommandClient` with two pluggable backends:
+gRPC only. The `CommandClient` abstraction is still used by consumer runners,
+but this tier pins the `GrpcClient` backend — no `InProcessClient`.
 
-- **`InProcessClient`** (default) — runs the real router in the test process.
-  Fast. Used by local `just` runs and by CI when no sidecar deployment is
-  available.
-- **`GrpcClient`** — activated when `PLAYER_URL` env var is set. Connects to a
-  live aggregate coordinator. Used for CI runs against Kind / Kubernetes and
-  standalone docker-compose deployments.
+Runners fail fast if neither a cluster bootstrap nor explicit coordinator URLs
+(`PLAYER_URL`, `TABLE_URL`, `HAND_URL`) are available.
 
-The same feature files run against either backend — pick via environment,
-not by switching the scenarios.
-
-**Async assertions allowed.** `within N seconds` is the primary pattern for
-observing cross-domain saga propagation — see
+**Async assertions allowed.** `within N seconds` is the primary pattern — see
 [STEP_VOCABULARY.md §4](../../STEP_VOCABULARY.md).
-
-**Full chain visible.** Scenarios can assert on intermediate events emitted
-across domains, not just final state. This is what distinguishes acceptance
-from unit.
 
 ## Environments
 
 | Backend | Trigger | Use case |
 |---------|---------|----------|
-| InProcessClient | default | Dev loop, fast pre-commit check |
-| GrpcClient (standalone) | `PLAYER_URL=localhost:1310` after `docker-compose up` | Local full-stack dev |
+| GrpcClient (standalone) | `PLAYER_URL=localhost:1310` after `docker-compose up` | Local cluster validation |
 | GrpcClient (kind) | `PLAYER_URL=localhost:1310` after port-forward | CI `kind` jobs |
 | GrpcClient (cluster) | `PLAYER_URL=<ingress>:<port>` | Pre-release against real cluster |
 
@@ -58,8 +46,8 @@ Take `max + 1`. Concurrent PRs race; later-merger rebases.
 
 ## Consumer wiring
 
-- **Python**: `examples-python/main/tests/example/acceptance/steps/` — behave,
-  CommandClient abstraction
+- **Python**: `examples-python/main/tests/example/acceptance/steps/` — behave
+- **Rust**: `examples-rust/main/tests/tests/acceptance.rs` — cucumber-rs
 - Other languages: per-repo `tests/example/acceptance/`
 
 Each runner reads feature files from
@@ -67,11 +55,10 @@ Each runner reads feature files from
 
 ## Adding a scenario
 
-1. Does the assertion need the full stack running? → here. Otherwise →
-   `../unit/`.
-2. Decide whether the scenario should work in *both* InProcess and gRPC
-   backends (usually yes) — avoid backend-specific assumptions
-3. Prefer `within N seconds` over fixed sleeps; timeouts should be generous
-   (2–5s is typical)
-4. Pick the next `@EA-NNNN` ID
-5. Land in `angzarr-project` first; step defs follow
+1. Does the scenario ONLY make sense against a deployed cluster? (network
+   latency assertions, pod restart, inter-coordinator routing, real-wire
+   projector lag) → here. Otherwise → `../unit/`.
+2. Each scenario (or logical group) should carry a `# CLUSTER-ONLY:` comment
+   noting which deployment it was validated against.
+3. Pick the next `@EA-NNNN` ID.
+4. Land in `angzarr-project` first; step defs follow.
