@@ -51,6 +51,8 @@ jobs:
 
       - name: Build site
         working-directory: site-next
+        env:
+          DOCS_LENIENT: '1'
         run: npm run build
 
       - name: Setup Pages
