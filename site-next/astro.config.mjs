@@ -79,7 +79,6 @@ document.addEventListener('astro:after-swap', run);
 						{ label: 'ML Training', slug: 'features/ml-training' },
 						{ label: 'Upcasting', slug: 'features/upcasting' },
 						{ label: 'Projections', slug: 'features/projections' },
-						{ label: 'CloudEvents', slug: 'features/cloudevents' },
 						{ label: 'Polyglot', slug: 'features/polyglot' },
 						{ label: 'Performance', slug: 'features/performance' },
 						{ label: 'Observability', slug: 'features/observability' },
