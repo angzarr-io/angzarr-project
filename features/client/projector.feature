@@ -1,4 +1,4 @@
-# Allocated: C-0030 .. C-0032
+# Allocated: C-0030 .. C-0032, C-0086
 Feature: Projector dispatch
   As a projector author
   I want events fanned out to my handlers for side-effect projection
@@ -23,3 +23,11 @@ Feature: Projector dispatch
   Scenario: Events from undeclared domains do not fire handlers
     When an EventBook in domain "inventory" is dispatched
     Then the write log remains empty
+
+  @C-0086
+  Scenario: Projector factory invoked once per dispatch, not once per event
+    Given a projector "Output" whose factory counts invocations
+    And the router is built with the Output projector
+    When an EventBook with five OrderCreated events is dispatched
+    Then the factory was invoked exactly 1 time
+    And the write log contains 5 entries

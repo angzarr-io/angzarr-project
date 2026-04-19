@@ -1,4 +1,4 @@
-# Allocated: C-0001 .. C-0006
+# Allocated: C-0001 .. C-0006, C-0085
 Feature: Command handler dispatch
   As an aggregate author
   I want commands routed to @handles methods with state rebuilt from prior events
@@ -46,5 +46,14 @@ Feature: Command handler dispatch
     Given a command handler "Order" for domain "order" with state OrderState
     And Order has no @state_factory method
     And Order handles CreateOrder by reading state.created
+    When CreateOrder(order_id="o-1") is dispatched
+    Then the handler observed state.created = false
+
+  @C-0085
+  Scenario: With zero prior events, state remains at its constructed default
+    Given a command handler "Order" for domain "order" with state OrderState
+    And Order applies OrderCreated by setting state.created = true
+    And Order handles CreateOrder by reading state.created
+    And no prior events in the incoming ContextualCommand
     When CreateOrder(order_id="o-1") is dispatched
     Then the handler observed state.created = false

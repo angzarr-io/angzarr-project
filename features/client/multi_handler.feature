@@ -1,4 +1,4 @@
-# Allocated: C-0010 .. C-0015
+# Allocated: C-0010 .. C-0015, C-0087
 Feature: Multi-handler merge
   As a unified-Router user
   I want multiple handlers for the same (domain, type_url) to all run
@@ -64,3 +64,12 @@ Feature: Multi-handler merge
     When an EventBook with one OrderCreated event is dispatched
     Then ProjA's log has 1 entry
     And ProjB's log has 1 entry
+
+  @C-0087
+  Scenario: Each matched factory invoked exactly once per dispatch
+    Given two command handlers Alpha and Beta for domain "order" both handling CreateOrder
+    And each factory counts invocations
+    And the router is built with Alpha then Beta
+    When CreateOrder(order_id="o-1") is dispatched
+    Then Alpha's factory was invoked exactly 1 time
+    And Beta's factory was invoked exactly 1 time

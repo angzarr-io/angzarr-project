@@ -1,4 +1,4 @@
-# Allocated: C-0060 .. C-0065
+# Allocated: C-0060 .. C-0065, C-0088
 Feature: Router builder
   As a framework user
   I want the Router builder to catch configuration errors before dispatch
@@ -43,3 +43,9 @@ Feature: Router builder
     And a factory that counts invocations
     When I register the handler and build the router
     Then the factory invocation count is 0
+
+  @C-0088
+  Scenario: Single saga handler builds into the SagaRouter variant
+    Given a saga "OrderFulfillment" translating from "order" to "inventory"
+    When I build the router
+    Then the result is a SagaRouter
