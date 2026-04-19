@@ -1,4 +1,4 @@
-# Allocated: EU-0100 .. EU-0120, EU-0531 .. EU-0567
+# Allocated: EU-0100 .. EU-0120, EU-0531 .. EU-0567, EU-0570 .. EU-0574
 Feature: Table aggregate logic
   The Table aggregate manages a poker table session: configuration, player
   seating, and hand lifecycle. It's the orchestration layer between players
@@ -591,3 +591,48 @@ Feature: Table aggregate logic
     When I handle an AddRebuyChips command for player "player-a" reservation "res-001" seat 2 amount 0
     Then the command fails with status "INVALID_ARGUMENT"
     And the error message contains "positive"
+
+  # ==========================================================================
+  # SeatPlayer / AddRebuyChips — Guard Rejections
+  # ==========================================================================
+  # SeatPlayer raises a CommandRejectedError only when the table does not
+  # exist; all other validation failures become SeatingRejected events so
+  # the PM can compensate. AddRebuyChips rejects at the command level for
+  # the "no table" and "no player_root" cases since the rebuy PM has already
+  # reserved the funds.
+
+  @EU-0570
+  Scenario: SeatPlayer rejects when the table does not exist
+    Given no prior events for the table aggregate
+    When I handle a SeatPlayer command for player "player-a" reservation "res-001" seat 0 amount 500
+    Then the command fails with status "FAILED_PRECONDITION"
+    And the error message contains "Table does not exist"
+
+  @EU-0571
+  Scenario: SeatPlayer emits SeatingRejected when player_root is empty
+    Given a TableCreated event for "Main Table"
+    When I handle a SeatPlayer command for player "" reservation "res-001" seat 0 amount 500
+    Then the result is a examples.SeatingRejected event
+    And the seating rejection reason contains "player_root"
+
+  @EU-0572
+  Scenario: SeatPlayer emits SeatingRejected when seat is out of range
+    Given a TableCreated event for "Main Table"
+    When I handle a SeatPlayer command for player "player-a" reservation "res-001" seat -5 amount 500
+    Then the result is a examples.SeatingRejected event
+    And the seating rejection reason contains "Invalid seat"
+
+  @EU-0573
+  Scenario: AddRebuyChips rejects when the table does not exist
+    Given no prior events for the table aggregate
+    When I handle an AddRebuyChips command for player "player-a" reservation "res-001" seat 0 amount 100
+    Then the command fails with status "FAILED_PRECONDITION"
+    And the error message contains "Table does not exist"
+
+  @EU-0574
+  Scenario: AddRebuyChips rejects when player_root is empty
+    Given a TableCreated event for "Main Table"
+    And a PlayerJoined event for player "player-a" at seat 2 with stack 500
+    When I handle an AddRebuyChips command for player "" reservation "res-001" seat 2 amount 100
+    Then the command fails with status "FAILED_PRECONDITION"
+    And the error message contains "player_root"

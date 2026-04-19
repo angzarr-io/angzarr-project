@@ -1,4 +1,4 @@
-# Allocated: EU-0400 .. EU-0499
+# Allocated: EU-0400 .. EU-0499 (in use: 0400..0440, 0441..0442)
 Feature: Process manager logic
   The HandFlowPM orchestrates a poker hand's state machine: dealing, blind
   posting, betting rounds, community cards, and showdown. Unlike sagas,
@@ -505,3 +505,32 @@ Feature: Process manager logic
     Then a ReleaseRegistrationFee command is sent to the "player" domain
     And the ReleaseRegistrationFee command has reservation_id "res_001"
     And the ReleaseRegistrationFee command has reason "Tournament full"
+
+  # ==========================================================================
+  # RegistrationPM — Missing Fee Default
+  # ==========================================================================
+  # When RegistrationRequested carries no fee, the PM defaults the recorded
+  # amount to zero so downstream replay has a well-formed Currency value.
+
+  @EU-0441
+  Scenario: RegistrationPM defaults missing fee to zero
+    Given a RegistrationPM with player_root "player_123"
+    And a RegistrationRequested event with tournament_root "tournament_456", reservation_id "res_001" and no fee
+    When the RegistrationPM handles registration_requested
+    Then the process event is a examples.RegistrationInitiated event
+    And the RegistrationInitiated event has fee amount 0
+
+  # ==========================================================================
+  # HandFlowPM — HandComplete emits EndHand to table domain
+  # ==========================================================================
+  # When the hand aggregate signals HandComplete, the HandFlowPM must emit an
+  # EndHand command targeted at the table domain, carrying the original
+  # hand_root so the table applier can reconcile stacks.
+
+  @EU-0442
+  Scenario: HandFlowPM on_hand_complete emits EndHand with the original hand_root
+    Given a HandFlowPM with a started hand
+    When the HandFlowPM handles a HandComplete event with 1 winner amount 15
+    Then an EndHand command is sent to the "table" domain
+    And the EndHand command has 1 result
+    And the EndHand command preserves the original hand_root

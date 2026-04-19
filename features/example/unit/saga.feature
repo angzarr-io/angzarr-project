@@ -261,3 +261,73 @@ Feature: Saga logic
     When I dispatch the event via SagaHandleRequest with destination_sequences "player=0"
     Then 2 commands are emitted to player domain
     And each command is a examples.ReleaseFunds
+
+  # ==========================================================================
+  # Saga Edge Cases — Empty Inputs and Field Propagation
+  # ==========================================================================
+  # Empty trigger inputs must still produce sensible outputs: the
+  # TableSync saga emits one command even when its lists are empty, while
+  # payout/result sagas correctly emit zero commands when there is nothing
+  # to do. Field propagation (winning_hand) is also verified.
+
+  @EU-0316
+  Scenario: TableSyncStartSaga emits DealCards with no players when active_players is empty
+    Given a TableSyncStartSaga registered in a Router
+    And a HandStarted event from table domain with:
+      | hand_root | hand_number | game_variant | dealer_position |
+      | hand-1    | 1           | TEXAS_HOLDEM | 0               |
+    And active players:
+      | player_root | position | stack |
+    When I dispatch the event via SagaHandleRequest with destination_sequences "hand=0"
+    Then the result is a examples.DealCards command to hand domain
+    And the command DealCards has hand_number 1 and 0 players
+
+  @EU-0317
+  Scenario: TableSyncCompleteSaga emits EndHand with no results when winners is empty
+    Given a TableSyncCompleteSaga registered in a Router
+    And a HandComplete event from hand domain with:
+      | table_root |
+      | table-1    |
+    And winners:
+      | player_root | amount |
+    When I dispatch the event via SagaHandleRequest with destination_sequences "table=0"
+    Then the result is a examples.EndHand command to table domain
+    And the EndHand command has 0 results
+
+  @EU-0318
+  Scenario: TableSyncCompleteSaga propagates winning_hand onto EndHand results
+    Given a TableSyncCompleteSaga registered in a Router
+    And a HandComplete event from hand domain with:
+      | table_root |
+      | table-1    |
+    And winners with winning_hand:
+      | player_root | amount |
+      | player-1    | 999    |
+    When I dispatch the event via SagaHandleRequest with destination_sequences "table=0"
+    Then the result is a examples.EndHand command to table domain
+    And the EndHand command result 0 has winning_hand populated
+
+  @EU-0319
+  Scenario: HandPayoutSaga emits no commands when winners is empty
+    Given a HandPayoutSaga registered in a Router
+    And a PotAwarded event from hand domain with:
+      | pot_total |
+      | 0         |
+    And winners:
+      | player_root | amount |
+    When I dispatch the event via SagaHandleRequest with destination_sequences "player=0"
+    Then no commands are emitted
+
+  @EU-0320
+  Scenario: HandPayoutSaga targets the winner player_root for a single winner
+    Given a HandPayoutSaga registered in a Router
+    And a PotAwarded event from hand domain with:
+      | pot_total |
+      | 500       |
+    And winners:
+      | player_root | amount |
+      | player-1    | 500    |
+    When I dispatch the event via SagaHandleRequest with destination_sequences "player=0"
+    Then 1 commands are emitted to player domain
+    And each command is a examples.DepositFunds
+    And DepositFunds 0 has amount 500 for "player-1"

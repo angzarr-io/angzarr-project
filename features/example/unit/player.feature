@@ -1,4 +1,4 @@
-# Allocated: EU-0200 .. EU-0251
+# Allocated: EU-0200 .. EU-0253
 # DOC: This file is referenced in docs/docs/examples/aggregates.mdx
 #      Update documentation when making changes to player feature scenarios.
 
@@ -809,3 +809,32 @@ Feature: Player aggregate logic
     When I handle a ReleaseRebuyFee command for reservation "res-001" reason "timeout"
     Then the command fails with status "FAILED_PRECONDITION"
     And the error message equals "Player does not exist"
+
+  # ==========================================================================
+  # Saga Rejection Compensation (#[rejected] handler)
+  # ==========================================================================
+  # When saga-emitted JoinTable is rejected by the Table aggregate, the
+  # framework delivers a RejectionNotification whose rejected_command carries
+  # the table_root on its Cover. The player aggregate's rejection handler
+  # extracts that root and emits FundsReleased for the matching reservation,
+  # compensating the prior FundsReserved. These scenarios pin the observable
+  # outcome of the compensation path.
+
+  @EU-0252
+  Scenario: JoinTable rejection releases the reserved funds for the target table
+    Given a PlayerRegistered event for "Alice"
+    And a FundsDeposited event with amount 1000
+    And a FundsReserved event with amount 400 for table "table-1"
+    When I handle a JoinTable rejection notification for table "table-1"
+    Then the result is a examples.FundsReleased event
+    And the player event has amount 400
+    And the player event has new_reserved_balance 0
+
+  @EU-0253
+  Scenario: JoinTable rejection emits zero amount when no matching reservation exists
+    Given a PlayerRegistered event for "Alice"
+    And a FundsDeposited event with amount 1000
+    And a FundsReserved event with amount 100 for table "table-1"
+    When I handle a JoinTable rejection notification for table "unknown-table"
+    Then the result is a examples.FundsReleased event
+    And the player event has amount 0

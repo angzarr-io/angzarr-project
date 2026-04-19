@@ -1,4 +1,4 @@
-# Allocated: EU-0001 .. EU-0099
+# Allocated: EU-0001 .. EU-0099, EU-0568
 Feature: Hand aggregate logic
   The Hand aggregate manages a single poker hand: dealing, betting rounds,
   community cards, and showdown. Each hand is an isolated consistency
@@ -1002,3 +1002,16 @@ Feature: Hand aggregate logic
     When I handle an AwardPot command with winner "unknown-player" amount 15
     Then the command fails with status "FAILED_PRECONDITION"
     And the error message contains "not in hand"
+
+  # ==========================================================================
+  # RequestDraw Command — Duplicate Indices
+  # ==========================================================================
+
+  @EU-0568
+  Scenario: RequestDraw rejects duplicate card indices
+    Given a CardsDealt event for FIVE_CARD_DRAW with 2 players
+    And blinds posted with pot 15
+    And a BettingRoundComplete event for preflop
+    When I handle a RequestDraw command for player "player-1" discarding indices [0, 0, 1]
+    Then the command fails with status "FAILED_PRECONDITION"
+    And the error message contains "Duplicate"
