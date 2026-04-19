@@ -3,8 +3,11 @@ node_modules/
 dist/
 .astro/
 
-# Local vendor checkouts (populated by deploy workflow or `just vendor`)
-vendor/
+# Cruft inside vendored submodules (submodules themselves are tracked via .gitmodules)
+vendor/*/*/node_modules/
+vendor/*/*/.uv-cache/
+vendor/*/*/target/
+vendor/*/*/dist/
 
 # OS
 .DS_Store

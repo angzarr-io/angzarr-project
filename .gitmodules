@@ -1,0 +1,8 @@
+[submodule "vendor/examples/python"]
+	path = vendor/examples/python
+	url = git@github.com:angzarr-io/angzarr-examples-python.git
+	branch = unify-naming-and-oo-style
+[submodule "vendor/client/python"]
+	path = vendor/client/python
+	url = git@github.com:angzarr-io/angzarr-client-python.git
+	branch = feat/cross-language-unification

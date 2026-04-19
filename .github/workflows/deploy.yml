@@ -23,20 +23,10 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Checkout Python examples (for remark-code-region)
+      - name: Checkout (with submodules)
         uses: actions/checkout@v4
         with:
-          repository: angzarr-io/angzarr-examples-python
-          path: vendor/examples/python
-
-      - name: Checkout Python client (for remark-code-region)
-        uses: actions/checkout@v4
-        with:
-          repository: angzarr-io/angzarr-client-python
-          path: vendor/client/python
+          submodules: recursive
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
