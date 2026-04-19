@@ -47,15 +47,18 @@ Feature: Player aggregate logic
     Given no prior events for the player aggregate
     When I handle a RegisterPlayer command with name "Alice" and email "alice@example.com"
     Then the result is a examples.PlayerRegistered event
+    And the event has a timestamp registered_at
     And the player event has display_name "Alice"
+    And the player event has email "alice@example.com"
     And the player event has player_type "HUMAN"
+    And the player event has ai_model_id ""
 
   @EU-0201
   Scenario: Cannot register player twice
     Given a PlayerRegistered event for "Alice"
     When I handle a RegisterPlayer command with name "Alice2" and email "alice@example.com"
     Then the command fails with status "FAILED_PRECONDITION"
-    And the error message contains "already exists"
+    And the error message equals "Player already exists"
   # docs:end:registration_scenarios
 
   @EU-0202
@@ -63,7 +66,10 @@ Feature: Player aggregate logic
     Given no prior events for the player aggregate
     When I handle a RegisterPlayer command with name "Bot1" and email "bot1@example.com" as AI
     Then the result is a examples.PlayerRegistered event
+    And the event has a timestamp registered_at
+    And the player event has email "bot1@example.com"
     And the player event has player_type "AI"
+    And the player event has ai_model_id "gpt-4"
 
   # ==========================================================================
   # Deposits - Adding Funds to Bankroll
@@ -77,6 +83,7 @@ Feature: Player aggregate logic
     Given a PlayerRegistered event for "Alice"
     When I handle a DepositFunds command with amount 1000
     Then the result is a examples.FundsDeposited event
+    And the event has a timestamp deposited_at
     And the player event has amount 1000
     And the player event has new_balance 1000
 
@@ -86,6 +93,7 @@ Feature: Player aggregate logic
     And a FundsDeposited event with amount 500
     When I handle a DepositFunds command with amount 300
     Then the result is a examples.FundsDeposited event
+    And the event has a timestamp deposited_at
     And the player event has new_balance 800
 
   @EU-0205
@@ -93,14 +101,23 @@ Feature: Player aggregate logic
     Given no prior events for the player aggregate
     When I handle a DepositFunds command with amount 1000
     Then the command fails with status "FAILED_PRECONDITION"
-    And the error message contains "does not exist"
+    And the error message equals "Player does not exist"
 
   @EU-0206
   Scenario: Cannot deposit zero or negative
     Given a PlayerRegistered event for "Alice"
     When I handle a DepositFunds command with amount 0
     Then the command fails with status "INVALID_ARGUMENT"
-    And the error message contains "positive"
+    And the error message equals "amount must be positive"
+
+  # Boundary: amount=1 must succeed. Catches `if amount <= 0` → `<= 1`
+  # which would (wrongly) reject the smallest positive deposit.
+  Scenario: Deposit of one chip succeeds at the lower boundary
+    Given a PlayerRegistered event for "Alice"
+    When I handle a DepositFunds command with amount 1
+    Then the result is a examples.FundsDeposited event
+    And the player event has amount 1
+    And the player event has new_balance 1
 
   # ==========================================================================
   # Withdrawals - Removing Funds from Bankroll
@@ -115,6 +132,7 @@ Feature: Player aggregate logic
     And a FundsDeposited event with amount 1000
     When I handle a WithdrawFunds command with amount 400
     Then the result is a examples.FundsWithdrawn event
+    And the event has a timestamp withdrawn_at
     And the player event has amount 400
     And the player event has new_balance 600
 
@@ -124,7 +142,16 @@ Feature: Player aggregate logic
     And a FundsDeposited event with amount 500
     When I handle a WithdrawFunds command with amount 600
     Then the command fails with status "FAILED_PRECONDITION"
-    And the error message contains "insufficient"
+    And the error message equals "insufficient available balance"
+
+  # Boundary: amount=1 must succeed. Catches `if amount <= 0` → `<= 1`.
+  Scenario: Withdraw of one chip succeeds at the lower boundary
+    Given a PlayerRegistered event for "Alice"
+    And a FundsDeposited event with amount 10
+    When I handle a WithdrawFunds command with amount 1
+    Then the result is a examples.FundsWithdrawn event
+    And the player event has amount 1
+    And the player event has new_balance 9
 
   @EU-0209
   Scenario: Cannot withdraw with funds reserved
@@ -133,7 +160,7 @@ Feature: Player aggregate logic
     And a FundsReserved event with amount 800 for table "table-1"
     When I handle a WithdrawFunds command with amount 300
     Then the command fails with status "FAILED_PRECONDITION"
-    And the error message contains "insufficient"
+    And the error message equals "insufficient available balance"
 
   # ==========================================================================
   # Fund Reservation - Locking Funds for Table Buy-ins
@@ -150,8 +177,19 @@ Feature: Player aggregate logic
     And a FundsDeposited event with amount 1000
     When I handle a ReserveFunds command with amount 500 for table "table-1"
     Then the result is a examples.FundsReserved event
+    And the event has a timestamp reserved_at
     And the player event has amount 500
     And the player event has new_available_balance 500
+    And the player event has new_reserved_balance 500
+    And the player event has table_root "table-1"
+
+  # Boundary: amount=1 must succeed. Catches `if amount <= 0` → `<= 1`.
+  Scenario: Reserve of one chip succeeds at the lower boundary
+    Given a PlayerRegistered event for "Alice"
+    And a FundsDeposited event with amount 10
+    When I handle a ReserveFunds command with amount 1 for table "table-1"
+    Then the result is a examples.FundsReserved event
+    And the player event has amount 1
   # docs:end:reservation_scenario
 
   @EU-0211
@@ -160,7 +198,7 @@ Feature: Player aggregate logic
     And a FundsDeposited event with amount 500
     When I handle a ReserveFunds command with amount 600 for table "table-1"
     Then the command fails with status "FAILED_PRECONDITION"
-    And the error message contains "insufficient"
+    And the error message equals "Insufficient funds"
 
   @EU-0212
   Scenario: Cannot reserve for same table twice
@@ -169,7 +207,7 @@ Feature: Player aggregate logic
     And a FundsReserved event with amount 500 for table "table-1"
     When I handle a ReserveFunds command with amount 200 for table "table-1"
     Then the command fails with status "FAILED_PRECONDITION"
-    And the error message contains "already reserved for this table"
+    And the error message equals "Funds already reserved for this table"
 
   # ==========================================================================
   # Fund Release - Returning Reserved Funds
@@ -185,8 +223,11 @@ Feature: Player aggregate logic
     And a FundsReserved event with amount 500 for table "table-1"
     When I handle a ReleaseFunds command for table "table-1"
     Then the result is a examples.FundsReleased event
+    And the event has a timestamp released_at
     And the player event has amount 500
     And the player event has new_available_balance 1000
+    And the player event has new_reserved_balance 0
+    And the player event has table_root "table-1"
 
   @EU-0214
   Scenario: Cannot release non-existent reservation
@@ -194,7 +235,7 @@ Feature: Player aggregate logic
     And a FundsDeposited event with amount 1000
     When I handle a ReleaseFunds command for table "table-1"
     Then the command fails with status "FAILED_PRECONDITION"
-    And the error message contains "No funds reserved"
+    And the error message equals "No funds reserved for this table"
 
   # ==========================================================================
   # State Reconstruction
@@ -226,6 +267,7 @@ Feature: Player aggregate logic
     And a FundsReserved event with amount 200 for table "high-stakes"
     When I handle a ReleaseFunds command for table "high-stakes"
     Then the result is a examples.FundsReleased event
+    And the event has a timestamp released_at
     And the player event has amount 200
     And the player event has new_available_balance 500
 
@@ -240,28 +282,28 @@ Feature: Player aggregate logic
     Given no prior events for the player aggregate
     When I handle a RegisterPlayer command with name "" and email "alice@example.com"
     Then the command fails with status "FAILED_PRECONDITION"
-    And the error message contains "display_name"
+    And the error message equals "display_name is required"
 
   @EU-0218
   Scenario: Cannot register with empty email
     Given no prior events for the player aggregate
     When I handle a RegisterPlayer command with name "Alice" and email ""
     Then the command fails with status "FAILED_PRECONDITION"
-    And the error message contains "email"
+    And the error message equals "email is required"
 
   @EU-0219
   Scenario: Cannot deposit negative amount
     Given a PlayerRegistered event for "Alice"
     When I handle a DepositFunds command with amount -100
     Then the command fails with status "INVALID_ARGUMENT"
-    And the error message contains "positive"
+    And the error message equals "amount must be positive"
 
   @EU-0220
   Scenario: Cannot withdraw from non-existent player
     Given no prior events for the player aggregate
     When I handle a WithdrawFunds command with amount 100
     Then the command fails with status "FAILED_PRECONDITION"
-    And the error message contains "does not exist"
+    And the error message equals "Player does not exist"
 
   @EU-0221
   Scenario: Cannot withdraw zero amount
@@ -269,7 +311,7 @@ Feature: Player aggregate logic
     And a FundsDeposited event with amount 1000
     When I handle a WithdrawFunds command with amount 0
     Then the command fails with status "INVALID_ARGUMENT"
-    And the error message contains "positive"
+    And the error message equals "amount must be positive"
 
   @EU-0222
   Scenario: Can withdraw the exact available balance
@@ -278,6 +320,7 @@ Feature: Player aggregate logic
     And a FundsReserved event with amount 600 for table "table-1"
     When I handle a WithdrawFunds command with amount 400
     Then the result is a examples.FundsWithdrawn event
+    And the event has a timestamp withdrawn_at
     And the player event has new_balance 600
 
   @EU-0223
@@ -285,7 +328,7 @@ Feature: Player aggregate logic
     Given no prior events for the player aggregate
     When I handle a ReserveFunds command with amount 500 for table "table-1"
     Then the command fails with status "FAILED_PRECONDITION"
-    And the error message contains "does not exist"
+    And the error message equals "Player does not exist"
 
   @EU-0224
   Scenario: Cannot reserve zero amount
@@ -293,7 +336,7 @@ Feature: Player aggregate logic
     And a FundsDeposited event with amount 1000
     When I handle a ReserveFunds command with amount 0 for table "table-1"
     Then the command fails with status "INVALID_ARGUMENT"
-    And the error message contains "positive"
+    And the error message equals "amount must be positive"
 
   @EU-0225
   Scenario: Insufficient funds error beats duplicate-reservation error
@@ -304,7 +347,7 @@ Feature: Player aggregate logic
     And a FundsReserved event with amount 50 for table "table-1"
     When I handle a ReserveFunds command with amount 500 for table "table-1"
     Then the command fails with status "FAILED_PRECONDITION"
-    And the error message contains "Insufficient"
+    And the error message equals "Insufficient funds"
 
   @EU-0226
   Scenario: Reserve funds across multiple tables accumulates reserved balance
@@ -313,6 +356,7 @@ Feature: Player aggregate logic
     And a FundsReserved event with amount 300 for table "table-1"
     When I handle a ReserveFunds command with amount 400 for table "table-2"
     Then the result is a examples.FundsReserved event
+    And the event has a timestamp reserved_at
     And the player event has new_reserved_balance 700
     And the player event has new_available_balance 300
 
@@ -321,7 +365,7 @@ Feature: Player aggregate logic
     Given no prior events for the player aggregate
     When I handle a ReleaseFunds command for table "table-1"
     Then the command fails with status "FAILED_PRECONDITION"
-    And the error message contains "does not exist"
+    And the error message equals "Player does not exist"
 
   @EU-0228
   Scenario: Cannot release with empty table_root
@@ -329,7 +373,7 @@ Feature: Player aggregate logic
     And a FundsDeposited event with amount 1000
     When I handle a ReleaseFunds command for table ""
     Then the command fails with status "FAILED_PRECONDITION"
-    And the error message contains "table_root is required"
+    And the error message equals "table_root is required"
 
   @EU-0229
   Scenario: Release only affects the specified table
@@ -339,8 +383,11 @@ Feature: Player aggregate logic
     And a FundsReserved event with amount 400 for table "table-2"
     When I handle a ReleaseFunds command for table "table-1"
     Then the result is a examples.FundsReleased event
+    And the event has a timestamp released_at
     And the player event has amount 300
     And the player event has new_reserved_balance 400
+    # bankroll(1000) - new_reserved(400) = 600; catches bankroll +/- mutation
+    And the player event has new_available_balance 600
 
   # ==========================================================================
   # Fund Transfer - Pot Payouts and Settlement
@@ -354,16 +401,20 @@ Feature: Player aggregate logic
     And a FundsDeposited event with amount 1000
     When I handle a TransferFunds command from "other" with amount 500 for hand "hand-1" reason "pot_win"
     Then the result is a examples.FundsTransferred event
+    And the event has a timestamp transferred_at
     And the player event has amount 500
     And the player event has new_balance 1500
     And the player event has reason "pot_win"
+    And the player event has from_player_root "other"
+    And the player event has hand_root "hand-1"
+    And the player event has to_player_root for player "alice@example.com"
 
   @EU-0231
   Scenario: Cannot transfer to non-existent player
     Given no prior events for the player aggregate
     When I handle a TransferFunds command from "other" with amount 100 for hand "hand-1" reason "pot_win"
     Then the command fails with status "FAILED_PRECONDITION"
-    And the error message contains "does not exist"
+    And the error message equals "Player does not exist"
 
   @EU-0232
   Scenario: Cannot transfer zero amount
@@ -371,7 +422,7 @@ Feature: Player aggregate logic
     And a FundsDeposited event with amount 1000
     When I handle a TransferFunds command from "other" with amount 0 for hand "hand-1" reason "pot_win"
     Then the command fails with status "INVALID_ARGUMENT"
-    And the error message contains "non-zero"
+    And the error message equals "amount must be non-zero"
 
   # ==========================================================================
   # Full Lifecycle Replays
@@ -414,11 +465,13 @@ Feature: Player aggregate logic
   Scenario: InitiateBuyIn emits BuyInRequested with generated reservation_id
     Given a PlayerRegistered event for "Alice"
     And a FundsDeposited event with amount 5000
-    When I handle an InitiateBuyIn command for table "table-1" seat 0 amount 500
+    When I handle an InitiateBuyIn command for table "table-1" seat 3 amount 500
     Then the result is a examples.BuyInRequested event
+    And the event has a timestamp requested_at
     And the orchestration event has table_root "table-1"
-    And the orchestration event has seat 0
-    And the player event has amount 500
+    # Non-zero seat so the seat=cmd.seat assignment can't be silently dropped
+    And the orchestration event has seat 3
+    And the orchestration event has amount 500
     And the orchestration event has a reservation_id
 
   @EU-0236
@@ -426,7 +479,7 @@ Feature: Player aggregate logic
     Given no prior events for the player aggregate
     When I handle an InitiateBuyIn command for table "table-1" seat 0 amount 500
     Then the command fails with status "FAILED_PRECONDITION"
-    And the error message contains "does not exist"
+    And the error message equals "Player does not exist"
 
   @EU-0237
   Scenario: InitiateBuyIn rejects when bankroll is insufficient
@@ -434,7 +487,7 @@ Feature: Player aggregate logic
     And a FundsDeposited event with amount 100
     When I handle an InitiateBuyIn command for table "table-1" seat 0 amount 500
     Then the command fails with status "FAILED_PRECONDITION"
-    And the error message contains "Insufficient"
+    And the error message equals "Insufficient funds"
 
   @EU-0238
   Scenario: ConfirmBuyIn rejects when no reservation is pending
@@ -442,7 +495,7 @@ Feature: Player aggregate logic
     And a FundsDeposited event with amount 1000
     When I handle a ConfirmBuyIn command for reservation "res-001"
     Then the command fails with status "FAILED_PRECONDITION"
-    And the error message contains "No pending buy-in"
+    And the error message equals "No pending buy-in with this reservation_id"
 
   @EU-0239
   Scenario: ConfirmBuyIn emits BuyInConfirmed with pending table, seat, and amount
@@ -451,9 +504,11 @@ Feature: Player aggregate logic
     And a pending buy-in "res-001" for table "table-1" seat 2 amount 500
     When I handle a ConfirmBuyIn command for reservation "res-001"
     Then the result is a examples.BuyInConfirmed event
+    And the event has a timestamp confirmed_at
+    And the orchestration event has reservation_id "res-001"
     And the orchestration event has table_root "table-1"
     And the orchestration event has seat 2
-    And the player event has amount 500
+    And the orchestration event has amount 500
 
   @EU-0240
   Scenario: ReleaseBuyIn emits BuyInReservationReleased with reason
@@ -462,6 +517,8 @@ Feature: Player aggregate logic
     And a pending buy-in "res-001" for table "table-1" seat 0 amount 500
     When I handle a ReleaseBuyIn command for reservation "res-001" reason "timeout"
     Then the result is a examples.BuyInReservationReleased event
+    And the event has a timestamp released_at
+    And the orchestration event has reservation_id "res-001"
     And the orchestration event has reason "timeout"
 
   @EU-0241
@@ -485,7 +542,9 @@ Feature: Player aggregate logic
     And a FundsDeposited event with amount 1000
     When I handle an InitiateTournamentRegistration command for tournament "trn-1"
     Then the result is a examples.RegistrationRequested event
+    And the event has a timestamp requested_at
     And the orchestration event has tournament_root "trn-1"
+    And the orchestration event has a reservation_id
     And the orchestration event has a reservation_id
 
   @EU-0243
@@ -494,7 +553,7 @@ Feature: Player aggregate logic
     And a FundsDeposited event with amount 1000
     When I handle a ConfirmRegistrationFee command for reservation "res-001"
     Then the command fails with status "FAILED_PRECONDITION"
-    And the error message contains "No pending registration"
+    And the error message equals "No pending registration with this reservation_id"
 
   @EU-0244
   Scenario: ConfirmRegistrationFee emits RegistrationFeeConfirmed with tournament and fee
@@ -503,6 +562,8 @@ Feature: Player aggregate logic
     And a pending registration "res-001" for tournament "trn-1" fee 100
     When I handle a ConfirmRegistrationFee command for reservation "res-001"
     Then the result is a examples.RegistrationFeeConfirmed event
+    And the event has a timestamp confirmed_at
+    And the orchestration event has reservation_id "res-001"
     And the orchestration event has tournament_root "trn-1"
     And the orchestration event has fee 100
 
@@ -513,6 +574,8 @@ Feature: Player aggregate logic
     And a pending registration "res-001" for tournament "trn-1" fee 100
     When I handle a ReleaseRegistrationFee command for reservation "res-001" reason "tournament full"
     Then the result is a examples.RegistrationFeeReleased event
+    And the event has a timestamp released_at
+    And the orchestration event has reservation_id "res-001"
     And the orchestration event has reason "tournament full"
 
   @EU-0246
@@ -536,9 +599,11 @@ Feature: Player aggregate logic
     And a FundsDeposited event with amount 1000
     When I handle an InitiateRebuy command for tournament "trn-1" table "table-1" seat 2
     Then the result is a examples.RebuyRequested event
+    And the event has a timestamp requested_at
     And the orchestration event has tournament_root "trn-1"
     And the orchestration event has table_root "table-1"
     And the orchestration event has seat 2
+    And the orchestration event has a reservation_id
 
   @EU-0248
   Scenario: ConfirmRebuyFee rejects when no rebuy is pending
@@ -546,7 +611,7 @@ Feature: Player aggregate logic
     And a FundsDeposited event with amount 1000
     When I handle a ConfirmRebuyFee command for reservation "res-001"
     Then the command fails with status "FAILED_PRECONDITION"
-    And the error message contains "No pending rebuy"
+    And the error message equals "No pending rebuy with this reservation_id"
 
   @EU-0249
   Scenario: ConfirmRebuyFee emits RebuyFeeConfirmed with fee and chips_added
@@ -555,6 +620,8 @@ Feature: Player aggregate logic
     And a pending rebuy "res-001" for tournament "trn-1" table "table-1" seat 2 fee 200 chips 500
     When I handle a ConfirmRebuyFee command for reservation "res-001"
     Then the result is a examples.RebuyFeeConfirmed event
+    And the event has a timestamp confirmed_at
+    And the orchestration event has reservation_id "res-001"
     And the orchestration event has tournament_root "trn-1"
     And the orchestration event has fee 200
     And the orchestration event has chips_added 500
@@ -566,6 +633,8 @@ Feature: Player aggregate logic
     And a pending rebuy "res-001" for tournament "trn-1" table "table-1" seat 2 fee 200 chips 500
     When I handle a ReleaseRebuyFee command for reservation "res-001" reason "denied"
     Then the result is a examples.RebuyFeeReleased event
+    And the event has a timestamp released_at
+    And the orchestration event has reservation_id "res-001"
     And the orchestration event has reason "denied"
 
   @EU-0251
@@ -578,3 +647,165 @@ Feature: Player aggregate logic
     Then the player state has bankroll 800
     And the player state has reserved_funds 0
     And the player state has no pending rebuy "res-001"
+
+  # ==========================================================================
+  # Empty-input precondition rejections
+  # ==========================================================================
+
+  Scenario: InitiateBuyIn rejects with empty table_root
+    Given a PlayerRegistered event for "Alice"
+    And a FundsDeposited event with amount 1000
+    When I handle an InitiateBuyIn command for table "" seat 0 amount 100
+    Then the command fails with status "FAILED_PRECONDITION"
+    And the error message equals "table_root is required"
+
+  Scenario: InitiateBuyIn rejects with zero amount
+    Given a PlayerRegistered event for "Alice"
+    And a FundsDeposited event with amount 1000
+    When I handle an InitiateBuyIn command for table "tbl-1" seat 0 amount 0
+    Then the command fails with status "INVALID_ARGUMENT"
+    And the error message equals "amount must be positive"
+
+  Scenario: InitiateBuyIn rejects with negative amount
+    Given a PlayerRegistered event for "Alice"
+    And a FundsDeposited event with amount 1000
+    When I handle an InitiateBuyIn command for table "tbl-1" seat 0 amount -50
+    Then the command fails with status "INVALID_ARGUMENT"
+    And the error message equals "amount must be positive"
+
+  # Boundary: amount=1 must succeed. Catches `if amount <= 0` → `<= 1`.
+  Scenario: InitiateBuyIn at amount 1 succeeds at the lower boundary
+    Given a PlayerRegistered event for "Alice"
+    And a FundsDeposited event with amount 10
+    When I handle an InitiateBuyIn command for table "tbl-1" seat 0 amount 1
+    Then the result is a examples.BuyInRequested event
+    And the orchestration event has amount 1
+
+  # Boundary: amount == available_balance must succeed.
+  # Catches `if amount > state.available_balance` → `>=` (would reject equal).
+  Scenario: InitiateBuyIn with amount equal to available balance succeeds
+    Given a PlayerRegistered event for "Alice"
+    And a FundsDeposited event with amount 500
+    When I handle an InitiateBuyIn command for table "tbl-1" seat 0 amount 500
+    Then the result is a examples.BuyInRequested event
+    And the orchestration event has amount 500
+
+  Scenario: ConfirmBuyIn rejects with empty reservation_id
+    Given a PlayerRegistered event for "Alice"
+    When I handle a ConfirmBuyIn command for reservation ""
+    Then the command fails with status "FAILED_PRECONDITION"
+    And the error message equals "reservation_id is required"
+
+  Scenario: ReleaseBuyIn rejects with empty reservation_id
+    Given a PlayerRegistered event for "Alice"
+    When I handle a ReleaseBuyIn command for reservation "" reason "timeout"
+    Then the command fails with status "FAILED_PRECONDITION"
+    And the error message equals "reservation_id is required"
+
+  Scenario: ReleaseBuyIn rejects when no reservation is pending
+    Given a PlayerRegistered event for "Alice"
+    When I handle a ReleaseBuyIn command for reservation "res-001" reason "timeout"
+    Then the command fails with status "FAILED_PRECONDITION"
+    And the error message equals "No pending buy-in with this reservation_id"
+
+  Scenario: ConfirmBuyIn rejects for non-existent player
+    Given no prior events for the player aggregate
+    When I handle a ConfirmBuyIn command for reservation "res-001"
+    Then the command fails with status "FAILED_PRECONDITION"
+    And the error message equals "Player does not exist"
+
+  Scenario: ReleaseBuyIn rejects for non-existent player
+    Given no prior events for the player aggregate
+    When I handle a ReleaseBuyIn command for reservation "res-001" reason "timeout"
+    Then the command fails with status "FAILED_PRECONDITION"
+    And the error message equals "Player does not exist"
+
+  Scenario: InitiateTournamentRegistration rejects with empty tournament_root
+    Given a PlayerRegistered event for "Alice"
+    When I handle an InitiateTournamentRegistration command for tournament ""
+    Then the command fails with status "FAILED_PRECONDITION"
+    And the error message equals "tournament_root is required"
+
+  Scenario: InitiateTournamentRegistration rejects for non-existent player
+    Given no prior events for the player aggregate
+    When I handle an InitiateTournamentRegistration command for tournament "trn-1"
+    Then the command fails with status "FAILED_PRECONDITION"
+    And the error message equals "Player does not exist"
+
+  Scenario: ConfirmRegistrationFee rejects with empty reservation_id
+    Given a PlayerRegistered event for "Alice"
+    When I handle a ConfirmRegistrationFee command for reservation ""
+    Then the command fails with status "FAILED_PRECONDITION"
+    And the error message equals "reservation_id is required"
+
+  Scenario: ConfirmRegistrationFee rejects for non-existent player
+    Given no prior events for the player aggregate
+    When I handle a ConfirmRegistrationFee command for reservation "res-001"
+    Then the command fails with status "FAILED_PRECONDITION"
+    And the error message equals "Player does not exist"
+
+  Scenario: ReleaseRegistrationFee rejects with empty reservation_id
+    Given a PlayerRegistered event for "Alice"
+    When I handle a ReleaseRegistrationFee command for reservation "" reason "timeout"
+    Then the command fails with status "FAILED_PRECONDITION"
+    And the error message equals "reservation_id is required"
+
+  Scenario: ReleaseRegistrationFee rejects when no registration is pending
+    Given a PlayerRegistered event for "Alice"
+    When I handle a ReleaseRegistrationFee command for reservation "res-001" reason "timeout"
+    Then the command fails with status "FAILED_PRECONDITION"
+    And the error message equals "No pending registration with this reservation_id"
+
+  Scenario: ReleaseRegistrationFee rejects for non-existent player
+    Given no prior events for the player aggregate
+    When I handle a ReleaseRegistrationFee command for reservation "res-001" reason "timeout"
+    Then the command fails with status "FAILED_PRECONDITION"
+    And the error message equals "Player does not exist"
+
+  Scenario: InitiateRebuy rejects with empty tournament_root
+    Given a PlayerRegistered event for "Alice"
+    When I handle an InitiateRebuy command for tournament "" table "tbl-1" seat 0
+    Then the command fails with status "FAILED_PRECONDITION"
+    And the error message equals "tournament_root is required"
+
+  Scenario: InitiateRebuy rejects with empty table_root
+    Given a PlayerRegistered event for "Alice"
+    When I handle an InitiateRebuy command for tournament "trn-1" table "" seat 0
+    Then the command fails with status "FAILED_PRECONDITION"
+    And the error message equals "table_root is required"
+
+  Scenario: InitiateRebuy rejects for non-existent player
+    Given no prior events for the player aggregate
+    When I handle an InitiateRebuy command for tournament "trn-1" table "tbl-1" seat 0
+    Then the command fails with status "FAILED_PRECONDITION"
+    And the error message equals "Player does not exist"
+
+  Scenario: ConfirmRebuyFee rejects with empty reservation_id
+    Given a PlayerRegistered event for "Alice"
+    When I handle a ConfirmRebuyFee command for reservation ""
+    Then the command fails with status "FAILED_PRECONDITION"
+    And the error message equals "reservation_id is required"
+
+  Scenario: ConfirmRebuyFee rejects for non-existent player
+    Given no prior events for the player aggregate
+    When I handle a ConfirmRebuyFee command for reservation "res-001"
+    Then the command fails with status "FAILED_PRECONDITION"
+    And the error message equals "Player does not exist"
+
+  Scenario: ReleaseRebuyFee rejects with empty reservation_id
+    Given a PlayerRegistered event for "Alice"
+    When I handle a ReleaseRebuyFee command for reservation "" reason "timeout"
+    Then the command fails with status "FAILED_PRECONDITION"
+    And the error message equals "reservation_id is required"
+
+  Scenario: ReleaseRebuyFee rejects when no rebuy is pending
+    Given a PlayerRegistered event for "Alice"
+    When I handle a ReleaseRebuyFee command for reservation "res-001" reason "timeout"
+    Then the command fails with status "FAILED_PRECONDITION"
+    And the error message equals "No pending rebuy with this reservation_id"
+
+  Scenario: ReleaseRebuyFee rejects for non-existent player
+    Given no prior events for the player aggregate
+    When I handle a ReleaseRebuyFee command for reservation "res-001" reason "timeout"
+    Then the command fails with status "FAILED_PRECONDITION"
+    And the error message equals "Player does not exist"

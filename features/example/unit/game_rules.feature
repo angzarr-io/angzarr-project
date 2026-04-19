@@ -135,7 +135,9 @@ Feature: Game rules (Texas Hold'em, Omaha, Five Card Draw)
     And community cards "Td Tc 5s 6h 7d"
     When the best hand is evaluated
     Then the rank is FOUR_OF_A_KIND
-    And the kicker count is 1
+    And the score is 8001000
+    # Kicker score doesn't tiebreak: first combo wins, so kicker = lowest
+    And the kickers are 5
 
   @EU-0708
   Scenario: Texas Hold'em two pair has a single kicker
@@ -144,7 +146,9 @@ Feature: Game rules (Texas Hold'em, Omaha, Five Card Draw)
     And community cards "8d 8c 5s 6h 7d"
     When the best hand is evaluated
     Then the rank is TWO_PAIR
-    And the kicker count is 1
+    And the score is 3001008
+    # Same: pair scores already tiebreak, kicker is whichever combo enumerates first
+    And the kickers are 5
 
   @EU-0709
   Scenario: Texas Hold'em one pair has three kickers
@@ -153,7 +157,8 @@ Feature: Game rules (Texas Hold'em, Omaha, Five Card Draw)
     And community cards "2d 4c 6s 8h Qd"
     When the best hand is evaluated
     Then the rank is PAIR
-    And the kicker count is 3
+    And the score is 2010000
+    And the kickers are 6, 4, 2
 
   @EU-0710
   Scenario: _find_best_hand returns HIGH_CARD with score 0 for fewer than five cards
@@ -161,6 +166,14 @@ Feature: Game rules (Texas Hold'em, Omaha, Five Card Draw)
     When the best hand is evaluated from only "As Kh Qd Jc"
     Then the rank is HIGH_CARD
     And the score is 0
+
+  # Boundary: exactly 5 cards. Catches `if len(cards) < 5` → `<= 5` (would
+  # incorrectly return the empty default) and `< 5` → `< 6` (same issue).
+  Scenario: _find_best_hand evaluates the lower boundary of exactly five cards
+    Given Texas Hold'em rules
+    When the best hand is evaluated from only "As Ks Qs Js Ts"
+    Then the rank is ROYAL_FLUSH
+    And the score is 10000000
 
   # ==========================================================================
   # Hand evaluation — Omaha (must use exactly 2 hole + 3 community)
@@ -271,6 +284,9 @@ Feature: Game rules (Texas Hold'em, Omaha, Five Card Draw)
     And 5 cards were drawn
     And the remaining deck has 0 cards
     And the new hand does not contain "2c"
+    # Pin actual contents so ``new_hole.append(card)`` → ``append(None)`` is caught.
+    # Deck pops from end, so cards arrive in reverse: As, Ks, Qs, Js, Ts.
+    And the new hand equals "As Ks Qs Js Ts"
 
   @EU-0721
   Scenario: Draw caps at deck size when deck is shorter than discard count
@@ -343,3 +359,76 @@ Feature: Game rules (Texas Hold'em, Omaha, Five Card Draw)
   Scenario: get_game_rules falls back to Texas Hold'em for an unknown variant
     When I get game rules for an unknown variant
     Then the rules class is TexasHoldemRules
+
+  # ==========================================================================
+  # Hand evaluation — exact score per rank category
+  # ==========================================================================
+  # Score formulas (TexasHoldemRules._evaluate_five) embed magic offsets and
+  # multipliers; without scenarios that pin the exact score, mutations that
+  # swap +/- or shift constants survive silently.
+
+  Scenario: Texas Hold'em straight flush score embeds the high-card rank
+    Given Texas Hold'em rules
+    And hole cards "9s 8s"
+    And community cards "7s 6s 5s 2h 3d"
+    When the best hand is evaluated
+    Then the rank is STRAIGHT_FLUSH
+    And the score is 9000009
+
+  Scenario: Texas Hold'em full house score embeds trip rank * 100 + pair rank
+    Given Texas Hold'em rules
+    And hole cards "Ts Th"
+    And community cards "Td 5h 5s 2c 3d"
+    When the best hand is evaluated
+    Then the rank is FULL_HOUSE
+    And the score is 7001005
+
+  Scenario: Texas Hold'em flush score adds rank-weighted total
+    Given Texas Hold'em rules
+    And hole cards "As Ks"
+    And community cards "Qs Js 9s 2h 3d"
+    When the best hand is evaluated
+    Then the rank is FLUSH
+    And the score is 6755499
+
+  Scenario: Texas Hold'em straight score embeds high rank
+    Given Texas Hold'em rules
+    And hole cards "9s 8h"
+    And community cards "7d 6c 5s 2h 3d"
+    When the best hand is evaluated
+    Then the rank is STRAIGHT
+    And the score is 5000009
+
+  Scenario: Texas Hold'em three of a kind score embeds trip rank * 1000
+    Given Texas Hold'em rules
+    And hole cards "Ts Th"
+    And community cards "Td 5s 6h 2c 3d"
+    When the best hand is evaluated
+    Then the rank is THREE_OF_A_KIND
+    And the score is 4010000
+    And the kickers are 6, 5
+
+  Scenario: Texas Hold'em high card score adds rank-weighted total
+    Given Texas Hold'em rules
+    And hole cards "As Kh"
+    And community cards "Qd Jc 9s 2h 3d"
+    When the best hand is evaluated
+    Then the rank is HIGH_CARD
+    And the score is 1755499
+
+  Scenario: Texas Hold'em royal flush emits no kickers
+    Given Texas Hold'em rules
+    And hole cards "As Ks"
+    And community cards "Qs Js Ts 2h 3d"
+    When the best hand is evaluated
+    Then the rank is ROYAL_FLUSH
+    And the score is 10000000
+    And the kicker count is 0
+
+  Scenario: Texas Hold'em straight flush emits no kickers
+    Given Texas Hold'em rules
+    And hole cards "9s 8s"
+    And community cards "7s 6s 5s 2h 3d"
+    When the best hand is evaluated
+    Then the rank is STRAIGHT_FLUSH
+    And the kicker count is 0
