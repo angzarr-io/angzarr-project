@@ -1,0 +1,149 @@
+---
+title: Clients
+---
+import { Tabs, TabItem } from '@astrojs/starlight/components';
+
+
+The Angzarr SDK provides several client types for different use cases. All clients support both TCP endpoints and Unix Domain Sockets.
+
+---
+
+## DomainClient
+
+The recommended entry point for most applications. Combines `QueryClient` and `AggregateClient` into a single unified interface.
+
+**Benefits:**
+- Single connection — one endpoint, one channel, reduced resource usage
+- Unified API — both queries and commands through one object
+- Builder access — fluent builders attached to the client instance
+- Simpler DI — inject one client instead of two
+
+<Tabs>
+<TabItem label="Python">
+
+```python
+from angzarr_client import DomainClient
+
+# Connect to coordinator
+client = DomainClient.connect("localhost:1310")
+
+# Send a command
+response = client.aggregate.handle(command)
+
+# Query events
+events = client.query.get_event_book(query)
+
+client.close()
+```
+
+</TabItem>
+</Tabs>
+
+---
+
+## QueryClient
+
+Provides read access to aggregate event streams. Use for:
+
+- **State reconstruction**: Fetch events to rebuild aggregate state locally
+- **Audit trails**: Read complete history for debugging and compliance
+- **Projections**: Feed events to read-model projectors
+- **Testing**: Verify events were persisted correctly after commands
+
+<Tabs>
+<TabItem label="Python">
+
+```python
+from angzarr_client import QueryClient
+
+client = QueryClient.connect("localhost:1310")
+
+events = client.get_event_book(query)
+for page in events.pages:
+    print(f"Event {page.sequence}: {page.event.type_url}")
+
+client.close()
+```
+
+</TabItem>
+</Tabs>
+
+---
+
+## AggregateClient
+
+Sends commands to aggregates through the coordinator. Supports multiple execution modes:
+
+| Mode | Method | Description |
+|------|--------|-------------|
+| Async | `handle()` | Fire-and-forget, returns immediately after acceptance |
+| Sync | `handle_sync()` | Waits for persistence, returns resulting events |
+| Speculative | `handle_sync_speculative()` | What-if execution without persistence |
+
+<Tabs>
+<TabItem label="Python">
+
+```python
+from angzarr_client import AggregateClient
+
+client = AggregateClient.connect("localhost:1310")
+
+# Async execution
+response = client.handle(command)
+
+# Sync execution
+response = client.handle_sync(sync_command)
+
+client.close()
+```
+
+</TabItem>
+</Tabs>
+
+---
+
+## Environment Variables
+
+All clients support connecting via environment variables for deployment flexibility:
+
+<Tabs>
+<TabItem label="Python">
+
+```python
+# Connect using env var with fallback
+client = DomainClient.from_env("ANGZARR_ENDPOINT", "localhost:1310")
+```
+
+</TabItem>
+</Tabs>
+
+---
+
+## Unix Domain Sockets
+
+All clients support Unix Domain Sockets for local communication with reduced overhead:
+
+<Tabs>
+<TabItem label="Python">
+
+```python
+# Absolute path - auto-detected
+client = DomainClient.connect("/var/run/angzarr.sock")
+
+# Relative path
+client = DomainClient.connect("./angzarr.sock")
+
+# URI format
+client = DomainClient.connect("unix:///var/run/angzarr.sock")
+```
+
+</TabItem>
+</Tabs>
+
+---
+
+## Next Steps
+
+- **[Builders](/sdks/builders)** — Fluent API for constructing commands and queries
+- **[Error Handling](/sdks/error-handling)** — Error types and introspection methods
+- **[Speculative Execution](/sdks/speculative)** — What-if scenarios without persistence
