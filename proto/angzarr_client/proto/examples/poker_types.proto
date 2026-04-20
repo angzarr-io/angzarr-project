@@ -1,5 +1,5 @@
 syntax = "proto3";
-package examples;
+package angzarr_client.proto.examples;
 
 option csharp_namespace = "Angzarr.Examples";
 option go_package = "github.com/angzarr/angzarr/proto/examples";

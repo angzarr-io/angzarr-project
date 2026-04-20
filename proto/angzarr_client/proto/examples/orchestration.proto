@@ -1,5 +1,5 @@
 syntax = "proto3";
-package examples;
+package angzarr_client.proto.examples;
 
 import "google/protobuf/timestamp.proto";
 
