@@ -292,7 +292,7 @@ Feature: Process manager logic
     And a BuyInRequested event with table_root "table_456", reservation_id "res_789", seat 2, amount 500
     And destinations with sequences table=5
     When the BuyInPM handles buy_in_requested
-    Then the process event is a examples.BuyInInitiated event
+    Then the process event is a angzarr_client.proto.examples.BuyInInitiated event
     And the BuyInInitiated event has player_root "player_123"
     And the BuyInInitiated event has table_root "table_456"
     And the BuyInInitiated event phase is BUY_IN_SEATING
@@ -312,7 +312,7 @@ Feature: Process manager logic
     And a PlayerSeated event with player_root "player_123", reservation_id "res_789", seat_position 2, stack 500
     And destinations with sequences player=3
     When the BuyInPM handles player_seated
-    Then the process event is a examples.BuyInCompleted event
+    Then the process event is a angzarr_client.proto.examples.BuyInCompleted event
     And the BuyInCompleted event has player_root "player_123"
     And the BuyInCompleted event has seat 2
 
@@ -332,7 +332,7 @@ Feature: Process manager logic
     And a SeatingRejected event with player_root "player_123", reservation_id "res_789", reason "Seat already taken"
     And destinations with sequences player=3
     When the BuyInPM handles seating_rejected
-    Then the process event is a examples.BuyInFailed event
+    Then the process event is a angzarr_client.proto.examples.BuyInFailed event
     And the BuyInFailed event has player_root "player_123"
     And the BuyInFailed event failure code is "SEATING_REJECTED"
 
@@ -365,7 +365,7 @@ Feature: Process manager logic
     And a RebuyRequested event with tournament_root "tournament_456", table_root "table_789", reservation_id "res_001", seat 2, fee 50
     And destinations with sequences tournament=5
     When the RebuyPM handles rebuy_requested
-    Then the process event is a examples.RebuyInitiated event
+    Then the process event is a angzarr_client.proto.examples.RebuyInitiated event
     And the RebuyInitiated event has player_root "player_123"
     And the RebuyInitiated event has tournament_root "tournament_456"
     And the RebuyInitiated event phase is REBUY_APPROVING
@@ -398,7 +398,7 @@ Feature: Process manager logic
     And a RebuyDenied event with player_root "player_123", reservation_id "res_001", reason "Rebuy limit reached"
     And destinations with sequences player=5
     When the RebuyPM handles rebuy_denied
-    Then the process event is a examples.RebuyFailed event
+    Then the process event is a angzarr_client.proto.examples.RebuyFailed event
     And the RebuyFailed event has player_root "player_123"
     And the RebuyFailed event failure code is "REBUY_DENIED"
 
@@ -417,7 +417,7 @@ Feature: Process manager logic
     And a RebuyChipsAdded event with player_root "player_123", reservation_id "res_001", seat 2, amount 1500, new_stack 2000
     And destinations with sequences player=5
     When the RebuyPM handles chips_added
-    Then the process event is a examples.RebuyCompleted event
+    Then the process event is a angzarr_client.proto.examples.RebuyCompleted event
     And the RebuyCompleted event has player_root "player_123"
     And the RebuyCompleted event has chips_added 1500
 
@@ -517,7 +517,7 @@ Feature: Process manager logic
     Given a RegistrationPM with player_root "player_123"
     And a RegistrationRequested event with tournament_root "tournament_456", reservation_id "res_001" and no fee
     When the RegistrationPM handles registration_requested
-    Then the process event is a examples.RegistrationInitiated event
+    Then the process event is a angzarr_client.proto.examples.RegistrationInitiated event
     And the RegistrationInitiated event has fee amount 0
 
   # ==========================================================================

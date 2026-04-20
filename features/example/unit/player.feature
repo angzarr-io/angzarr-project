@@ -46,7 +46,7 @@ Feature: Player aggregate logic
   Scenario: Register a new human player
     Given no prior events for the player aggregate
     When I handle a RegisterPlayer command with name "Alice" and email "alice@example.com"
-    Then the result is a examples.PlayerRegistered event
+    Then the result is a angzarr_client.proto.examples.PlayerRegistered event
     And the event has a timestamp registered_at
     And the player event has display_name "Alice"
     And the player event has email "alice@example.com"
@@ -65,7 +65,7 @@ Feature: Player aggregate logic
   Scenario: Register an AI player
     Given no prior events for the player aggregate
     When I handle a RegisterPlayer command with name "Bot1" and email "bot1@example.com" as AI
-    Then the result is a examples.PlayerRegistered event
+    Then the result is a angzarr_client.proto.examples.PlayerRegistered event
     And the event has a timestamp registered_at
     And the player event has email "bot1@example.com"
     And the player event has player_type "AI"
@@ -82,7 +82,7 @@ Feature: Player aggregate logic
   Scenario: Deposit funds to bankroll
     Given a PlayerRegistered event for "Alice"
     When I handle a DepositFunds command with amount 1000
-    Then the result is a examples.FundsDeposited event
+    Then the result is a angzarr_client.proto.examples.FundsDeposited event
     And the event has a timestamp deposited_at
     And the player event has amount 1000
     And the player event has new_balance 1000
@@ -92,7 +92,7 @@ Feature: Player aggregate logic
     Given a PlayerRegistered event for "Alice"
     And a FundsDeposited event with amount 500
     When I handle a DepositFunds command with amount 300
-    Then the result is a examples.FundsDeposited event
+    Then the result is a angzarr_client.proto.examples.FundsDeposited event
     And the event has a timestamp deposited_at
     And the player event has new_balance 800
 
@@ -115,7 +115,7 @@ Feature: Player aggregate logic
   Scenario: Deposit of one chip succeeds at the lower boundary
     Given a PlayerRegistered event for "Alice"
     When I handle a DepositFunds command with amount 1
-    Then the result is a examples.FundsDeposited event
+    Then the result is a angzarr_client.proto.examples.FundsDeposited event
     And the player event has amount 1
     And the player event has new_balance 1
 
@@ -131,7 +131,7 @@ Feature: Player aggregate logic
     Given a PlayerRegistered event for "Alice"
     And a FundsDeposited event with amount 1000
     When I handle a WithdrawFunds command with amount 400
-    Then the result is a examples.FundsWithdrawn event
+    Then the result is a angzarr_client.proto.examples.FundsWithdrawn event
     And the event has a timestamp withdrawn_at
     And the player event has amount 400
     And the player event has new_balance 600
@@ -149,7 +149,7 @@ Feature: Player aggregate logic
     Given a PlayerRegistered event for "Alice"
     And a FundsDeposited event with amount 10
     When I handle a WithdrawFunds command with amount 1
-    Then the result is a examples.FundsWithdrawn event
+    Then the result is a angzarr_client.proto.examples.FundsWithdrawn event
     And the player event has amount 1
     And the player event has new_balance 9
 
@@ -176,7 +176,7 @@ Feature: Player aggregate logic
     Given a PlayerRegistered event for "Alice"
     And a FundsDeposited event with amount 1000
     When I handle a ReserveFunds command with amount 500 for table "table-1"
-    Then the result is a examples.FundsReserved event
+    Then the result is a angzarr_client.proto.examples.FundsReserved event
     And the event has a timestamp reserved_at
     And the player event has amount 500
     And the player event has new_available_balance 500
@@ -188,7 +188,7 @@ Feature: Player aggregate logic
     Given a PlayerRegistered event for "Alice"
     And a FundsDeposited event with amount 10
     When I handle a ReserveFunds command with amount 1 for table "table-1"
-    Then the result is a examples.FundsReserved event
+    Then the result is a angzarr_client.proto.examples.FundsReserved event
     And the player event has amount 1
   # docs:end:reservation_scenario
 
@@ -222,7 +222,7 @@ Feature: Player aggregate logic
     And a FundsDeposited event with amount 1000
     And a FundsReserved event with amount 500 for table "table-1"
     When I handle a ReleaseFunds command for table "table-1"
-    Then the result is a examples.FundsReleased event
+    Then the result is a angzarr_client.proto.examples.FundsReleased event
     And the event has a timestamp released_at
     And the player event has amount 500
     And the player event has new_available_balance 1000
@@ -266,7 +266,7 @@ Feature: Player aggregate logic
     And a FundsDeposited event with amount 500
     And a FundsReserved event with amount 200 for table "high-stakes"
     When I handle a ReleaseFunds command for table "high-stakes"
-    Then the result is a examples.FundsReleased event
+    Then the result is a angzarr_client.proto.examples.FundsReleased event
     And the event has a timestamp released_at
     And the player event has amount 200
     And the player event has new_available_balance 500
@@ -319,7 +319,7 @@ Feature: Player aggregate logic
     And a FundsDeposited event with amount 1000
     And a FundsReserved event with amount 600 for table "table-1"
     When I handle a WithdrawFunds command with amount 400
-    Then the result is a examples.FundsWithdrawn event
+    Then the result is a angzarr_client.proto.examples.FundsWithdrawn event
     And the event has a timestamp withdrawn_at
     And the player event has new_balance 600
 
@@ -355,7 +355,7 @@ Feature: Player aggregate logic
     And a FundsDeposited event with amount 1000
     And a FundsReserved event with amount 300 for table "table-1"
     When I handle a ReserveFunds command with amount 400 for table "table-2"
-    Then the result is a examples.FundsReserved event
+    Then the result is a angzarr_client.proto.examples.FundsReserved event
     And the event has a timestamp reserved_at
     And the player event has new_reserved_balance 700
     And the player event has new_available_balance 300
@@ -382,7 +382,7 @@ Feature: Player aggregate logic
     And a FundsReserved event with amount 300 for table "table-1"
     And a FundsReserved event with amount 400 for table "table-2"
     When I handle a ReleaseFunds command for table "table-1"
-    Then the result is a examples.FundsReleased event
+    Then the result is a angzarr_client.proto.examples.FundsReleased event
     And the event has a timestamp released_at
     And the player event has amount 300
     And the player event has new_reserved_balance 400
@@ -400,7 +400,7 @@ Feature: Player aggregate logic
     Given a PlayerRegistered event for "Alice"
     And a FundsDeposited event with amount 1000
     When I handle a TransferFunds command from "other" with amount 500 for hand "hand-1" reason "pot_win"
-    Then the result is a examples.FundsTransferred event
+    Then the result is a angzarr_client.proto.examples.FundsTransferred event
     And the event has a timestamp transferred_at
     And the player event has amount 500
     And the player event has new_balance 1500
@@ -466,7 +466,7 @@ Feature: Player aggregate logic
     Given a PlayerRegistered event for "Alice"
     And a FundsDeposited event with amount 5000
     When I handle an InitiateBuyIn command for table "table-1" seat 3 amount 500
-    Then the result is a examples.BuyInRequested event
+    Then the result is a angzarr_client.proto.examples.BuyInRequested event
     And the event has a timestamp requested_at
     And the orchestration event has table_root "table-1"
     # Non-zero seat so the seat=cmd.seat assignment can't be silently dropped
@@ -503,7 +503,7 @@ Feature: Player aggregate logic
     And a FundsDeposited event with amount 2000
     And a pending buy-in "res-001" for table "table-1" seat 2 amount 500
     When I handle a ConfirmBuyIn command for reservation "res-001"
-    Then the result is a examples.BuyInConfirmed event
+    Then the result is a angzarr_client.proto.examples.BuyInConfirmed event
     And the event has a timestamp confirmed_at
     And the orchestration event has reservation_id "res-001"
     And the orchestration event has table_root "table-1"
@@ -516,7 +516,7 @@ Feature: Player aggregate logic
     And a FundsDeposited event with amount 2000
     And a pending buy-in "res-001" for table "table-1" seat 0 amount 500
     When I handle a ReleaseBuyIn command for reservation "res-001" reason "timeout"
-    Then the result is a examples.BuyInReservationReleased event
+    Then the result is a angzarr_client.proto.examples.BuyInReservationReleased event
     And the event has a timestamp released_at
     And the orchestration event has reservation_id "res-001"
     And the orchestration event has reason "timeout"
@@ -541,7 +541,7 @@ Feature: Player aggregate logic
     Given a PlayerRegistered event for "Alice"
     And a FundsDeposited event with amount 1000
     When I handle an InitiateTournamentRegistration command for tournament "trn-1"
-    Then the result is a examples.RegistrationRequested event
+    Then the result is a angzarr_client.proto.examples.RegistrationRequested event
     And the event has a timestamp requested_at
     And the orchestration event has tournament_root "trn-1"
     And the orchestration event has a reservation_id
@@ -561,7 +561,7 @@ Feature: Player aggregate logic
     And a FundsDeposited event with amount 1000
     And a pending registration "res-001" for tournament "trn-1" fee 100
     When I handle a ConfirmRegistrationFee command for reservation "res-001"
-    Then the result is a examples.RegistrationFeeConfirmed event
+    Then the result is a angzarr_client.proto.examples.RegistrationFeeConfirmed event
     And the event has a timestamp confirmed_at
     And the orchestration event has reservation_id "res-001"
     And the orchestration event has tournament_root "trn-1"
@@ -573,7 +573,7 @@ Feature: Player aggregate logic
     And a FundsDeposited event with amount 1000
     And a pending registration "res-001" for tournament "trn-1" fee 100
     When I handle a ReleaseRegistrationFee command for reservation "res-001" reason "tournament full"
-    Then the result is a examples.RegistrationFeeReleased event
+    Then the result is a angzarr_client.proto.examples.RegistrationFeeReleased event
     And the event has a timestamp released_at
     And the orchestration event has reservation_id "res-001"
     And the orchestration event has reason "tournament full"
@@ -598,7 +598,7 @@ Feature: Player aggregate logic
     Given a PlayerRegistered event for "Alice"
     And a FundsDeposited event with amount 1000
     When I handle an InitiateRebuy command for tournament "trn-1" table "table-1" seat 2
-    Then the result is a examples.RebuyRequested event
+    Then the result is a angzarr_client.proto.examples.RebuyRequested event
     And the event has a timestamp requested_at
     And the orchestration event has tournament_root "trn-1"
     And the orchestration event has table_root "table-1"
@@ -619,7 +619,7 @@ Feature: Player aggregate logic
     And a FundsDeposited event with amount 1000
     And a pending rebuy "res-001" for tournament "trn-1" table "table-1" seat 2 fee 200 chips 500
     When I handle a ConfirmRebuyFee command for reservation "res-001"
-    Then the result is a examples.RebuyFeeConfirmed event
+    Then the result is a angzarr_client.proto.examples.RebuyFeeConfirmed event
     And the event has a timestamp confirmed_at
     And the orchestration event has reservation_id "res-001"
     And the orchestration event has tournament_root "trn-1"
@@ -632,7 +632,7 @@ Feature: Player aggregate logic
     And a FundsDeposited event with amount 1000
     And a pending rebuy "res-001" for tournament "trn-1" table "table-1" seat 2 fee 200 chips 500
     When I handle a ReleaseRebuyFee command for reservation "res-001" reason "denied"
-    Then the result is a examples.RebuyFeeReleased event
+    Then the result is a angzarr_client.proto.examples.RebuyFeeReleased event
     And the event has a timestamp released_at
     And the orchestration event has reservation_id "res-001"
     And the orchestration event has reason "denied"
@@ -678,7 +678,7 @@ Feature: Player aggregate logic
     Given a PlayerRegistered event for "Alice"
     And a FundsDeposited event with amount 10
     When I handle an InitiateBuyIn command for table "tbl-1" seat 0 amount 1
-    Then the result is a examples.BuyInRequested event
+    Then the result is a angzarr_client.proto.examples.BuyInRequested event
     And the orchestration event has amount 1
 
   # Boundary: amount == available_balance must succeed.
@@ -687,7 +687,7 @@ Feature: Player aggregate logic
     Given a PlayerRegistered event for "Alice"
     And a FundsDeposited event with amount 500
     When I handle an InitiateBuyIn command for table "tbl-1" seat 0 amount 500
-    Then the result is a examples.BuyInRequested event
+    Then the result is a angzarr_client.proto.examples.BuyInRequested event
     And the orchestration event has amount 500
 
   Scenario: ConfirmBuyIn rejects with empty reservation_id
@@ -826,7 +826,7 @@ Feature: Player aggregate logic
     And a FundsDeposited event with amount 1000
     And a FundsReserved event with amount 400 for table "table-1"
     When I handle a JoinTable rejection notification for table "table-1"
-    Then the result is a examples.FundsReleased event
+    Then the result is a angzarr_client.proto.examples.FundsReleased event
     And the player event has amount 400
     And the player event has new_reserved_balance 0
 
@@ -836,5 +836,5 @@ Feature: Player aggregate logic
     And a FundsDeposited event with amount 1000
     And a FundsReserved event with amount 100 for table "table-1"
     When I handle a JoinTable rejection notification for table "unknown-table"
-    Then the result is a examples.FundsReleased event
+    Then the result is a angzarr_client.proto.examples.FundsReleased event
     And the player event has amount 0

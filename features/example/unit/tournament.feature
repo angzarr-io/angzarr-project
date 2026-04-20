@@ -49,7 +49,7 @@ Feature: Tournament aggregate logic
   Scenario: Create a tournament successfully
     Given no prior events for the tournament aggregate
     When I handle a CreateTournament command with name "Test Tournament" buy_in 100 starting_stack 1000 max_players 100 min_players 10
-    Then the result is a examples.TournamentCreated event
+    Then the result is a angzarr_client.proto.examples.TournamentCreated event
     And the tournament event has name "Test Tournament"
     And the tournament event has buy_in 100
     And the tournament event has starting_stack 1000
@@ -107,7 +107,7 @@ Feature: Tournament aggregate logic
   Scenario: Open registration successfully
     Given a TournamentCreated event with name "Test Tournament" buy_in 100 starting_stack 1000 max_players 100 min_players 10
     When I handle an OpenRegistration command
-    Then the result is a examples.RegistrationOpened event
+    Then the result is a angzarr_client.proto.examples.RegistrationOpened event
 
   @EU-0808
   Scenario: Cannot open registration for nonexistent tournament
@@ -127,7 +127,7 @@ Feature: Tournament aggregate logic
   Scenario: Close registration successfully
     Given a tournament with registration open
     When I handle a CloseRegistration command
-    Then the result is a examples.RegistrationClosed event
+    Then the result is a angzarr_client.proto.examples.RegistrationClosed event
 
   @EU-0811
   Scenario: Cannot close registration that is not open
@@ -148,7 +148,7 @@ Feature: Tournament aggregate logic
   Scenario: Enroll a player successfully
     Given a tournament with registration open
     When I handle an EnrollPlayer command for player "player1" reservation "res1"
-    Then the result is a examples.TournamentPlayerEnrolled event
+    Then the result is a angzarr_client.proto.examples.TournamentPlayerEnrolled event
     And the tournament event has player_root "player1"
     And the tournament event has fee_paid 100
 
@@ -156,14 +156,14 @@ Feature: Tournament aggregate logic
   Scenario: Enrollment rejected with empty player_root
     Given a tournament with registration open
     When I handle an EnrollPlayer command for player "" reservation ""
-    Then the result is a examples.TournamentEnrollmentRejected event
+    Then the result is a angzarr_client.proto.examples.TournamentEnrollmentRejected event
     And the tournament event has reason containing "player_root"
 
   @EU-0814
   Scenario: Enrollment rejected when registration is not open
     Given a TournamentCreated event with name "Test Tournament" buy_in 100 starting_stack 1000 max_players 100 min_players 10
     When I handle an EnrollPlayer command for player "player1" reservation ""
-    Then the result is a examples.TournamentEnrollmentRejected event
+    Then the result is a angzarr_client.proto.examples.TournamentEnrollmentRejected event
     And the tournament event has reason containing "not open"
 
   @EU-0815
@@ -172,7 +172,7 @@ Feature: Tournament aggregate logic
     And a player "p1" enrolled
     And a player "p2" enrolled
     When I handle an EnrollPlayer command for player "p3" reservation ""
-    Then the result is a examples.TournamentEnrollmentRejected event
+    Then the result is a angzarr_client.proto.examples.TournamentEnrollmentRejected event
     And the tournament event has reason containing "full"
 
   @EU-0816
@@ -180,7 +180,7 @@ Feature: Tournament aggregate logic
     Given a tournament with registration open
     And a player "player1" enrolled
     When I handle an EnrollPlayer command for player "player1" reservation ""
-    Then the result is a examples.TournamentEnrollmentRejected event
+    Then the result is a angzarr_client.proto.examples.TournamentEnrollmentRejected event
     And the tournament event has reason containing "already registered"
 
   # ==========================================================================
@@ -200,7 +200,7 @@ Feature: Tournament aggregate logic
   Scenario: Rebuy denied for unregistered player
     Given a running tournament with min_players 2 and max_players 10 and 10 enrolled players
     When I handle a ProcessRebuy command for player "unknown"
-    Then the result is a examples.RebuyDenied event
+    Then the result is a angzarr_client.proto.examples.RebuyDenied event
     And the tournament event has reason containing "not registered"
 
   # ==========================================================================
@@ -247,7 +247,7 @@ Feature: Tournament aggregate logic
     And a player "p1" enrolled
     And a player "p2" enrolled
     When I handle a StartTournament command
-    Then the result is a examples.TournamentStarted event
+    Then the result is a angzarr_client.proto.examples.TournamentStarted event
     And the tournament event has total_players 2
 
   @EU-0823
@@ -277,7 +277,7 @@ Feature: Tournament aggregate logic
   Scenario: AdvanceBlindLevel on a running tournament emits BlindLevelAdvanced
     Given a running tournament with a two-level blind structure
     When I handle an AdvanceBlindLevel command
-    Then the result is a examples.BlindLevelAdvanced event
+    Then the result is a angzarr_client.proto.examples.BlindLevelAdvanced event
     And the tournament event has blind level 2
     And the tournament event has small_blind 50
     And the tournament event has ante 10
@@ -297,7 +297,7 @@ Feature: Tournament aggregate logic
   Scenario: EliminatePlayer emits PlayerEliminated with the supplied hand_root
     Given a running tournament with min_players 2 and max_players 10 and 2 enrolled players
     When I handle an EliminatePlayer command for player "p0" with hand_root "hand-01"
-    Then the result is a examples.PlayerEliminated event
+    Then the result is a angzarr_client.proto.examples.PlayerEliminated event
     And the tournament event has hand_root "hand-01"
 
   @EU-0828
@@ -315,7 +315,7 @@ Feature: Tournament aggregate logic
   Scenario: PauseTournament on a running tournament emits TournamentPaused
     Given a running tournament with min_players 2 and max_players 10 and 2 enrolled players
     When I handle a PauseTournament command with reason "dinner break"
-    Then the result is a examples.TournamentPaused event
+    Then the result is a angzarr_client.proto.examples.TournamentPaused event
     And the tournament event has reason "dinner break"
 
   @EU-0830
@@ -333,7 +333,7 @@ Feature: Tournament aggregate logic
   Scenario: ResumeTournament on a paused tournament emits TournamentResumed
     Given a paused tournament
     When I handle a ResumeTournament command
-    Then the result is a examples.TournamentResumed event
+    Then the result is a angzarr_client.proto.examples.TournamentResumed event
 
   # ==========================================================================
   # OpenRegistration — Running-Tournament Rejection
@@ -355,7 +355,7 @@ Feature: Tournament aggregate logic
     Given a tournament with registration open
     And a player "p1" enrolled
     When I handle a CloseRegistration command
-    Then the result is a examples.RegistrationClosed event
+    Then the result is a angzarr_client.proto.examples.RegistrationClosed event
     And the tournament event has total_registrations 1
 
   # ==========================================================================
@@ -366,7 +366,7 @@ Feature: Tournament aggregate logic
   Scenario: ProcessRebuy emits RebuyProcessed for an enrolled player with rebuys enabled
     Given a running tournament with rebuys enabled and 1 enrolled player
     When I handle a ProcessRebuy command for player "p0"
-    Then the result is a examples.RebuyProcessed event
+    Then the result is a angzarr_client.proto.examples.RebuyProcessed event
     And the tournament event has rebuy_cost 100
     And the tournament event has chips_added 1000
     And the tournament event has rebuy_count 1
@@ -382,7 +382,7 @@ Feature: Tournament aggregate logic
   Scenario: ProcessRebuy emits RebuyDenied when rebuys are not enabled
     Given a running tournament with min_players 2 and max_players 10 and 2 enrolled players
     When I handle a ProcessRebuy command for player "p0"
-    Then the result is a examples.RebuyDenied event
+    Then the result is a angzarr_client.proto.examples.RebuyDenied event
     And the tournament event has reason containing "not enabled"
 
   # ==========================================================================
@@ -395,35 +395,35 @@ Feature: Tournament aggregate logic
   Scenario: ProcessRebuy emits RebuyDenied when rebuys are disabled in config
     Given a running tournament with rebuys disabled and 1 enrolled player
     When I handle a ProcessRebuy command for player "p0"
-    Then the result is a examples.RebuyDenied event
+    Then the result is a angzarr_client.proto.examples.RebuyDenied event
     And the tournament event has reason containing "not enabled"
 
   @EU-0838
   Scenario: ProcessRebuy emits RebuyDenied when current level is past the cutoff
     Given a running tournament with rebuy cutoff 2 and 1 enrolled player at level 5
     When I handle a ProcessRebuy command for player "p0"
-    Then the result is a examples.RebuyDenied event
+    Then the result is a angzarr_client.proto.examples.RebuyDenied event
     And the tournament event has reason containing "closed"
 
   @EU-0839
   Scenario: ProcessRebuy emits RebuyDenied when player has reached max rebuys
     Given a running tournament with max_rebuys 2 and player "p0" who has used 2 rebuys
     When I handle a ProcessRebuy command for player "p0"
-    Then the result is a examples.RebuyDenied event
+    Then the result is a angzarr_client.proto.examples.RebuyDenied event
     And the tournament event has reason containing "Maximum"
 
   @EU-0840
   Scenario: ProcessRebuy succeeds when rebuy_level_cutoff is 0 (cutoff check disabled)
     Given a running tournament with rebuy cutoff 0 and 1 enrolled player at level 99
     When I handle a ProcessRebuy command for player "p0"
-    Then the result is a examples.RebuyProcessed event
+    Then the result is a angzarr_client.proto.examples.RebuyProcessed event
     And the tournament event has rebuy_count 1
 
   @EU-0841
   Scenario: ProcessRebuy succeeds when max_rebuys is 0 (unlimited rebuys)
     Given a running tournament with max_rebuys 0 and player "p0" who has used 100 rebuys
     When I handle a ProcessRebuy command for player "p0"
-    Then the result is a examples.RebuyProcessed event
+    Then the result is a angzarr_client.proto.examples.RebuyProcessed event
 
   # ==========================================================================
   # State Reconstruction
