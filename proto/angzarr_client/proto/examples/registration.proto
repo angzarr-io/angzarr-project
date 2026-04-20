@@ -22,6 +22,7 @@ option ruby_package = "Angzarr::Examples";
 // Client initiates tournament registration - triggers PM orchestration
 message InitiateTournamentRegistration {
   bytes tournament_root = 1;
+  bytes player_root = 2;
 }
 
 // PM confirms successful registration
@@ -45,6 +46,7 @@ message RegistrationRequested {
   bytes tournament_root = 2;
   Currency fee = 3; // Looked up from tournament
   google.protobuf.Timestamp requested_at = 4;
+  bytes player_root = 5;
 }
 
 // Emitted when registration fee is confirmed
@@ -53,6 +55,7 @@ message RegistrationFeeConfirmed {
   bytes tournament_root = 2;
   Currency fee = 3;
   google.protobuf.Timestamp confirmed_at = 4;
+  bytes player_root = 5;
 }
 
 // Emitted when registration fee is released
@@ -60,6 +63,9 @@ message RegistrationFeeReleased {
   bytes reservation_id = 1;
   string reason = 2;
   google.protobuf.Timestamp released_at = 3;
+  bytes player_root = 4;
+  bytes tournament_root = 5;
+  Currency fee = 6;
 }
 
 // -----------------------------------------------------------------------------

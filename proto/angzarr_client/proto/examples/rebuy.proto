@@ -24,6 +24,7 @@ message InitiateRebuy {
   bytes tournament_root = 1;
   bytes table_root = 2;
   int32 seat = 3; // Player's seat at table
+  bytes player_root = 4;
 }
 
 // PM confirms successful rebuy
@@ -61,6 +62,7 @@ message RebuyRequested {
   int32 seat = 4;
   Currency fee = 5; // Looked up from tournament rebuy config
   google.protobuf.Timestamp requested_at = 6;
+  bytes player_root = 7;
 }
 
 // Emitted when rebuy fee is confirmed
@@ -70,6 +72,8 @@ message RebuyFeeConfirmed {
   Currency fee = 3;
   int64 chips_added = 4;
   google.protobuf.Timestamp confirmed_at = 5;
+  bytes player_root = 6;
+  bytes table_root = 7;
 }
 
 // Emitted when rebuy fee is released
@@ -77,6 +81,10 @@ message RebuyFeeReleased {
   bytes reservation_id = 1;
   string reason = 2;
   google.protobuf.Timestamp released_at = 3;
+  bytes player_root = 4;
+  bytes tournament_root = 5;
+  bytes table_root = 6;
+  Currency fee = 7;
 }
 
 // -----------------------------------------------------------------------------

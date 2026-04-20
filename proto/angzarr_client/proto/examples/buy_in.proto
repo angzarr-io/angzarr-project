@@ -24,6 +24,7 @@ message InitiateBuyIn {
   bytes table_root = 1;
   int32 seat = 2; // Preferred seat (-1 for any)
   Currency amount = 3;
+  bytes player_root = 4;
 }
 
 // PM confirms successful buy-in
@@ -60,6 +61,7 @@ message BuyInRequested {
   int32 seat = 3;
   Currency amount = 4;
   google.protobuf.Timestamp requested_at = 5;
+  bytes player_root = 6;
 }
 
 // Emitted when buy-in is confirmed
@@ -69,6 +71,7 @@ message BuyInConfirmed {
   int32 seat = 3;
   Currency amount = 4;
   google.protobuf.Timestamp confirmed_at = 5;
+  bytes player_root = 6;
 }
 
 // Emitted when buy-in reservation is released
@@ -76,6 +79,9 @@ message BuyInReservationReleased {
   bytes reservation_id = 1;
   string reason = 2;
   google.protobuf.Timestamp released_at = 3;
+  bytes player_root = 4;
+  bytes table_root = 5;
+  Currency amount = 6;
 }
 
 // -----------------------------------------------------------------------------

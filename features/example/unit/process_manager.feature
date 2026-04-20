@@ -303,7 +303,7 @@ Feature: Process manager logic
     And a PlayerSeated event with player_root "player_123", reservation_id "res_789", seat_position 2, stack 500
     And destinations with sequences player=3
     When the BuyInPM handles player_seated
-    Then a ConfirmBuyIn command is sent to the "player" domain
+    Then a ConfirmBuyIn command is sent to the "reservation" domain
     And the ConfirmBuyIn command has reservation_id "res_789"
 
   @EU-0424
@@ -322,7 +322,7 @@ Feature: Process manager logic
     And a SeatingRejected event with player_root "player_123", reservation_id "res_789", reason "Seat already taken"
     And destinations with sequences player=3
     When the BuyInPM handles seating_rejected
-    Then a ReleaseBuyIn command is sent to the "player" domain
+    Then a ReleaseBuyIn command is sent to the "reservation" domain
     And the ReleaseBuyIn command has reservation_id "res_789"
     And the ReleaseBuyIn command has reason "Seat already taken"
 
@@ -388,7 +388,7 @@ Feature: Process manager logic
     And a RebuyDenied event with player_root "player_123", reservation_id "res_001", reason "Rebuy limit reached"
     And destinations with sequences player=5
     When the RebuyPM handles rebuy_denied
-    Then a ReleaseRebuyFee command is sent to the "player" domain
+    Then a ReleaseRebuyFee command is sent to the "reservation" domain
     And the ReleaseRebuyFee command has reservation_id "res_001"
     And the ReleaseRebuyFee command has reason "Rebuy limit reached"
 
@@ -407,8 +407,8 @@ Feature: Process manager logic
     Given a RebuyPM with tournament_root "tournament_456", table_root "table_789", fee 50
     And a RebuyChipsAdded event with player_root "player_123", reservation_id "res_001", seat 2, amount 1500, new_stack 2000
     And destinations with sequences player=5
-    When the RebuyPM handles chips_added
-    Then a ConfirmRebuyFee command is sent to the "player" domain
+    When the RebuyPM handles rebuy_chips_added
+    Then a ConfirmRebuyFee command is sent to the "reservation" domain
     And the ConfirmRebuyFee command has reservation_id "res_001"
 
   @EU-0433
@@ -416,7 +416,7 @@ Feature: Process manager logic
     Given a RebuyPM with tournament_root "tournament_456", table_root "table_789", fee 50
     And a RebuyChipsAdded event with player_root "player_123", reservation_id "res_001", seat 2, amount 1500, new_stack 2000
     And destinations with sequences player=5
-    When the RebuyPM handles chips_added
+    When the RebuyPM handles rebuy_chips_added
     Then the process event is a angzarr_client.proto.examples.RebuyCompleted event
     And the RebuyCompleted event has player_root "player_123"
     And the RebuyCompleted event has chips_added 1500
@@ -493,7 +493,7 @@ Feature: Process manager logic
     And a TournamentPlayerEnrolled event with player_root "player_123", reservation_id "res_001", fee_paid 50, starting_stack 1500
     And destinations with sequences player=3
     When the RegistrationPM handles player_enrolled
-    Then a ConfirmRegistrationFee command is sent to the "player" domain
+    Then a ConfirmRegistrationFee command is sent to the "reservation" domain
     And the ConfirmRegistrationFee command has reservation_id "res_001"
 
   @EU-0440
@@ -502,7 +502,7 @@ Feature: Process manager logic
     And a TournamentEnrollmentRejected event with player_root "player_123", reservation_id "res_001", reason "Tournament full"
     And destinations with sequences player=3
     When the RegistrationPM handles enrollment_rejected
-    Then a ReleaseRegistrationFee command is sent to the "player" domain
+    Then a ReleaseRegistrationFee command is sent to the "reservation" domain
     And the ReleaseRegistrationFee command has reservation_id "res_001"
     And the ReleaseRegistrationFee command has reason "Tournament full"
 
@@ -516,21 +516,10 @@ Feature: Process manager logic
   Scenario: RegistrationPM defaults missing fee to zero
     Given a RegistrationPM with player_root "player_123"
     And a RegistrationRequested event with tournament_root "tournament_456", reservation_id "res_001" and no fee
+    And destinations with sequences tournament=5
     When the RegistrationPM handles registration_requested
     Then the process event is a angzarr_client.proto.examples.RegistrationInitiated event
     And the RegistrationInitiated event has fee amount 0
 
-  # ==========================================================================
-  # HandFlowPM — HandComplete emits EndHand to table domain
-  # ==========================================================================
-  # When the hand aggregate signals HandComplete, the HandFlowPM must emit an
-  # EndHand command targeted at the table domain, carrying the original
-  # hand_root so the table applier can reconcile stacks.
-
-  @EU-0442
-  Scenario: HandFlowPM on_hand_complete emits EndHand with the original hand_root
-    Given a HandFlowPM with a started hand
-    When the HandFlowPM handles a HandComplete event with 1 winner amount 15
-    Then an EndHand command is sent to the "table" domain
-    And the EndHand command has 1 result
-    And the EndHand command preserves the original hand_root
+  # HandComplete -> EndHand was moved out of the PM and lives in
+  # TableSyncCompleteSaga. See saga.feature for coverage.
