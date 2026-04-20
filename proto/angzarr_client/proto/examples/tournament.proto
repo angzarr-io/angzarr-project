@@ -97,6 +97,12 @@ message StartTournament {
   // No parameters
 }
 
+// Complete the tournament — records the winner and closes the tournament.
+// Typically issued after the last elimination leaves one player remaining.
+message CompleteTournament {
+  bytes winner_root = 1;
+}
+
 // PM sends this command to process a rebuy
 message ProcessRebuy {
   bytes player_root = 1;
