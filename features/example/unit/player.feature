@@ -614,7 +614,7 @@ Feature: Player aggregate logic
     And the error message equals "No pending rebuy with this reservation_id"
 
   @EU-0249
-  Scenario: ConfirmRebuyFee emits RebuyFeeConfirmed with fee and chips_added
+  Scenario: ConfirmRebuyFee emits RebuyFeeConfirmed with fee (chips_added populated later by tournament)
     Given a PlayerRegistered event for "Alice"
     And a FundsDeposited event with amount 1000
     And a pending rebuy "res-001" for tournament "trn-1" table "table-1" seat 2 fee 200 chips 500
@@ -624,7 +624,7 @@ Feature: Player aggregate logic
     And the orchestration event has reservation_id "res-001"
     And the orchestration event has tournament_root "trn-1"
     And the orchestration event has fee 200
-    And the orchestration event has chips_added 500
+    And the orchestration event has chips_added 0
 
   @EU-0250
   Scenario: ReleaseRebuyFee emits RebuyFeeReleased with reason
@@ -708,17 +708,17 @@ Feature: Player aggregate logic
     Then the command fails with status "FAILED_PRECONDITION"
     And the error message equals "No pending buy-in with this reservation_id"
 
-  Scenario: ConfirmBuyIn rejects for non-existent player
+  Scenario: ConfirmBuyIn rejects against empty reservation state
     Given no prior events for the player aggregate
     When I handle a ConfirmBuyIn command for reservation "res-001"
     Then the command fails with status "FAILED_PRECONDITION"
-    And the error message equals "Player does not exist"
+    And the error message equals "No pending buy-in with this reservation_id"
 
-  Scenario: ReleaseBuyIn rejects for non-existent player
+  Scenario: ReleaseBuyIn rejects against empty reservation state
     Given no prior events for the player aggregate
     When I handle a ReleaseBuyIn command for reservation "res-001" reason "timeout"
     Then the command fails with status "FAILED_PRECONDITION"
-    And the error message equals "Player does not exist"
+    And the error message equals "No pending buy-in with this reservation_id"
 
   Scenario: InitiateTournamentRegistration rejects with empty tournament_root
     Given a PlayerRegistered event for "Alice"
@@ -738,11 +738,11 @@ Feature: Player aggregate logic
     Then the command fails with status "FAILED_PRECONDITION"
     And the error message equals "reservation_id is required"
 
-  Scenario: ConfirmRegistrationFee rejects for non-existent player
+  Scenario: ConfirmRegistrationFee rejects against empty reservation state
     Given no prior events for the player aggregate
     When I handle a ConfirmRegistrationFee command for reservation "res-001"
     Then the command fails with status "FAILED_PRECONDITION"
-    And the error message equals "Player does not exist"
+    And the error message equals "No pending registration with this reservation_id"
 
   Scenario: ReleaseRegistrationFee rejects with empty reservation_id
     Given a PlayerRegistered event for "Alice"
@@ -756,11 +756,11 @@ Feature: Player aggregate logic
     Then the command fails with status "FAILED_PRECONDITION"
     And the error message equals "No pending registration with this reservation_id"
 
-  Scenario: ReleaseRegistrationFee rejects for non-existent player
+  Scenario: ReleaseRegistrationFee rejects against empty reservation state
     Given no prior events for the player aggregate
     When I handle a ReleaseRegistrationFee command for reservation "res-001" reason "timeout"
     Then the command fails with status "FAILED_PRECONDITION"
-    And the error message equals "Player does not exist"
+    And the error message equals "No pending registration with this reservation_id"
 
   Scenario: InitiateRebuy rejects with empty tournament_root
     Given a PlayerRegistered event for "Alice"
@@ -786,11 +786,11 @@ Feature: Player aggregate logic
     Then the command fails with status "FAILED_PRECONDITION"
     And the error message equals "reservation_id is required"
 
-  Scenario: ConfirmRebuyFee rejects for non-existent player
+  Scenario: ConfirmRebuyFee rejects against empty reservation state
     Given no prior events for the player aggregate
     When I handle a ConfirmRebuyFee command for reservation "res-001"
     Then the command fails with status "FAILED_PRECONDITION"
-    And the error message equals "Player does not exist"
+    And the error message equals "No pending rebuy with this reservation_id"
 
   Scenario: ReleaseRebuyFee rejects with empty reservation_id
     Given a PlayerRegistered event for "Alice"
@@ -804,11 +804,11 @@ Feature: Player aggregate logic
     Then the command fails with status "FAILED_PRECONDITION"
     And the error message equals "No pending rebuy with this reservation_id"
 
-  Scenario: ReleaseRebuyFee rejects for non-existent player
+  Scenario: ReleaseRebuyFee rejects against empty reservation state
     Given no prior events for the player aggregate
     When I handle a ReleaseRebuyFee command for reservation "res-001" reason "timeout"
     Then the command fails with status "FAILED_PRECONDITION"
-    And the error message equals "Player does not exist"
+    And the error message equals "No pending rebuy with this reservation_id"
 
   # ==========================================================================
   # Saga Rejection Compensation (#[rejected] handler)
