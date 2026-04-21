@@ -46,7 +46,7 @@ Take `max + 1`. Concurrent PRs race; later-merger rebases.
 
 ## Consumer wiring
 
-- **Python**: `examples-python/main/tests/example/acceptance/steps/` — behave
+- **Python**: `examples-python/main/acceptance_steps/` — behave
 - **Rust**: `examples-rust/main/tests/tests/acceptance.rs` — cucumber-rs
 - Other languages: per-repo `tests/example/acceptance/`
 

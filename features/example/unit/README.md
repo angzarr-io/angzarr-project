@@ -47,7 +47,7 @@ Take `max + 1`. Concurrent PRs race; later-merger rebases.
 
 ## Consumer wiring
 
-- **Python**: `examples-python/main/tests/example/unit/steps/` — behave
+- **Python**: `examples-python/main/unit_steps/` — behave
 - Other languages: per-repo test dirs under `tests/example/unit/`
 
 Each runner reads feature files from `angzarr-project/features/example/unit/`
