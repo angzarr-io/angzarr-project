@@ -15,16 +15,16 @@ This document covers ⍼ Angzarr's core architectural concepts: event sourcing d
 | **Snapshot** | Point-in-time state for replay optimization |
 | **EventPages** | Ordered sequence of domain events |
 
-```protobuf file=proto/angzarr/types.proto region=cover
+```protobuf file=proto/angzarr_client/proto/angzarr/types.proto region=cover
 ```
 
-```protobuf file=proto/angzarr/types.proto region=event_page
+```protobuf file=proto/angzarr_client/proto/angzarr/types.proto region=event_page
 ```
 
-```protobuf file=proto/angzarr/types.proto region=aggregate_snapshot
+```protobuf file=proto/angzarr_client/proto/angzarr/types.proto region=aggregate_snapshot
 ```
 
-```protobuf file=proto/angzarr/types.proto region=event_book
+```protobuf file=proto/angzarr_client/proto/angzarr/types.proto region=event_book
 ```
 
 Commands follow the same pattern—a **CommandBook** contains one or more **CommandPages** targeting a single aggregate.
@@ -128,7 +128,7 @@ flowchart TB
 
 ### SyncMode
 
-```protobuf file=proto/angzarr/types.proto region=sync_mode
+```protobuf file=proto/angzarr_client/proto/angzarr/types.proto region=sync_mode
 ```
 
 | Mode | Projectors | Sagas | Use Case |
@@ -167,7 +167,7 @@ flowchart TB
 
 For observing events as they happen rather than waiting:
 
-```protobuf file=proto/angzarr/stream.proto region=event_stream_service
+```protobuf file=proto/angzarr_client/proto/angzarr/stream.proto region=event_stream_service
 ```
 
 Events are correlated via `correlation_id` on `Cover`, allowing clients to track causally-related events across aggregate boundaries.

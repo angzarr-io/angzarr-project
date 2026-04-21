@@ -61,7 +61,7 @@ These concerns live in different places, and understanding why matters.
 
 Every event has a **Cover** — metadata identifying the aggregate (domain, root, edition) and optional correlation ID for cross-domain tracing.
 
-```protobuf file=proto/angzarr/types.proto region=cover
+```protobuf file=proto/angzarr_client/proto/angzarr/types.proto region=cover
 ```
 
 The Cover identifies *which* aggregate the event belongs to. For facts, the idempotency key lives in the `PageHeader`'s `ExternalDeferredSequence`, not the Cover.
@@ -70,7 +70,7 @@ The Cover identifies *which* aggregate the event belongs to. For facts, the idem
 
 The `PageHeader` tells the coordinator how to handle sequencing. For facts, use `ExternalDeferredSequence`:
 
-```protobuf file=proto/angzarr/types.proto region=page_header
+```protobuf file=proto/angzarr_client/proto/angzarr/types.proto region=page_header
 ```
 
 The `external_deferred` variant is **transient**—after processing, it's replaced with a real `sequence` number. The event then looks like any other sequenced event. The `external_id` within the deferred sequence provides idempotency.

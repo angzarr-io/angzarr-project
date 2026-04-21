@@ -105,10 +105,10 @@ URI: gs://bucket/e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b85
 
 Events and commands reference external payloads via `PayloadReference`:
 
-```protobuf file=proto/angzarr/types.proto region=payload_reference
+```protobuf file=proto/angzarr_client/proto/angzarr/types.proto region=payload_reference
 ```
 
-```protobuf file=proto/angzarr/types.proto region=event_page
+```protobuf file=proto/angzarr_client/proto/angzarr/types.proto region=event_page
 ```
 
 ---
@@ -165,7 +165,7 @@ curl -X POST http://localhost:9099/admin/payload-store/cleanup?age=7d
 
 When payload retrieval fails, angzarr routes to DLQ:
 
-```protobuf file=proto/angzarr/types.proto region=dlq_details
+```protobuf file=proto/angzarr_client/proto/angzarr/types.proto region=dlq_details
 ```
 
 Common failure causes:

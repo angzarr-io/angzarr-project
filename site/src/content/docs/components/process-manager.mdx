@@ -91,7 +91,7 @@ PMs extend the client library's `ProcessManager` base class; handler methods are
 
 Process managers use the **correlation ID** as their aggregate root:
 
-```protobuf file=proto/angzarr/types.proto region=cover
+```protobuf file=proto/angzarr_client/proto/angzarr/types.proto region=cover
 ```
 
 All events in a workflow share the same correlation ID, allowing the PM to:

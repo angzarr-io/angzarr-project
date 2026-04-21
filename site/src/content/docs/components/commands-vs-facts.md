@@ -111,7 +111,7 @@ When the aggregate coordinator receives a fact event:
 
 The `PageHeader` uses a `oneof` to distinguish sequence types:
 
-```protobuf file=proto/angzarr/types.proto region=page_header
+```protobuf file=proto/angzarr_client/proto/angzarr/types.proto region=page_header
 ```
 
 **Key design:** The idempotency key (`external_id`) lives in `PageHeader.external_deferred`, keeping `Cover` focused on aggregate identity while `PageHeader` handles sequencing. The `ExternalDeferredSequence` carries both the idempotency key and a human-readable description. This ensures:
