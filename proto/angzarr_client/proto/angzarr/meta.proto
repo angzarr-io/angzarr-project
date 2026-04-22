@@ -19,11 +19,3 @@ message DeleteEditionEvents {
   string edition = 1; // Edition name to delete from
   string domain = 2; // Domain to delete from
 }
-
-// Response from edition event deletion.
-message EditionEventsDeleted {
-  string edition = 1;
-  string domain = 2;
-  uint32 deleted_count = 3;
-  string deleted_at = 4;
-}

@@ -317,7 +317,8 @@ message Notification {
   Cover cover = 1; // Routing: domain, root, correlation_id
   google.protobuf.Any payload = 2; // Type-specific content (RejectionNotification, etc.)
   google.protobuf.Timestamp sent_at = 3; // When notification was created
-  map<string, string> metadata = 4; // Optional key-value metadata
+  reserved 4;
+  reserved "metadata";
 }
 // endregion
 

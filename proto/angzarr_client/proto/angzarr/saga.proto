@@ -63,7 +63,8 @@ message SagaResponse {
 message SagaCompensationFailed {
   Cover triggering_aggregate = 1;
   uint32 triggering_event_sequence = 2;
-  string saga_name = 3;
+  reserved 3;
+  reserved "saga_name";
   string rejection_reason = 4;
   string compensation_failure_reason = 5;
   CommandBook rejected_command = 6;
