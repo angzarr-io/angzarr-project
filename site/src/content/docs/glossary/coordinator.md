@@ -3,7 +3,7 @@ title: Coordinator
 ---
 # Coordinator
 
-The angzarr sidecar that abstracts framework functionality away from business logic code. Deployed as sidecar container with business logic. Thin wrapper around library code reused in standalone mode.
+The angzarr sidecar that abstracts framework functionality away from business logic code. Deployed as sidecar container with business logic.
 
 Coordinators handle:
 - Event persistence and retrieval

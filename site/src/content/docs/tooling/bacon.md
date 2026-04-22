@@ -43,7 +43,6 @@ bacon doc      # Build docs
 | `d` | Switch to doc job |
 | `f` | Switch to fmt job |
 | `p` | Switch to proto generation |
-| `s` | Switch to standalone binary build |
 | `q` | Quit |
 | `w` | Toggle wrap |
 | `Esc` | Back / clear |
@@ -56,11 +55,11 @@ bacon doc      # Build docs
 
 | Job | Command |
 |-----|---------|
-| `check` | `cargo check --lib --bins --features standalone` |
-| `build` | `cargo build --lib --bins --features standalone --release` |
-| `test` | `cargo test --lib --features standalone` |
-| `clippy` | `cargo clippy --lib --bins --features standalone -- -D warnings` |
-| `doc` | `cargo doc --lib --features standalone --no-deps` |
+| `check` | `cargo check --lib --bins` |
+| `build` | `cargo build --lib --bins --release` |
+| `test` | `cargo test --lib` |
+| `clippy` | `cargo clippy --lib --bins -- -D warnings` |
+| `doc` | `cargo doc --lib --no-deps` |
 | `fmt` | `cargo fmt` |
 
 ### Example-Specific Jobs
@@ -104,7 +103,6 @@ Watch individual example crates:
 
 | Job | Binary |
 |-----|--------|
-| `bin-standalone` | angzarr-standalone |
 | `bin-aggregate` | angzarr-aggregate |
 | `bin-saga` | angzarr-saga |
 | `bin-projector` | angzarr-projector |

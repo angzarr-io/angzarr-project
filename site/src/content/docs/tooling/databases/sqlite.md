@@ -1,7 +1,7 @@
 ---
 title: SQLite
 ---
-SQLite is the **standalone/embedded** default. Single-file database with zero configuration, perfect for development and single-process deployments.
+SQLite is the **local dev/embedded** default. Single-file database with zero configuration, perfect for development and testing.
 
 ---
 
@@ -85,19 +85,6 @@ cargo test --test interfaces
 # Fast, no containers needed
 cargo test --lib
 ```
-
----
-
-## Standalone Mode
-
-Standalone deployments use SQLite by default:
-
-```bash
-# Start with SQLite storage
-angzarr standalone --storage sqlite --db-path ./data/events.db
-```
-
-All three stores (events, positions, snapshots) live in the same file.
 
 ---
 
