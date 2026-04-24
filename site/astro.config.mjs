@@ -103,12 +103,44 @@ document.addEventListener('astro:after-swap', run);
 						{
 							label: 'By Language',
 							items: [
-								{ label: 'Rust', link: 'https://github.com/angzarr-io/angzarr-client-rust', attrs: { target: '_blank' } },
-								{ label: 'Go', link: 'https://github.com/angzarr-io/angzarr-client-go', attrs: { target: '_blank' } },
-								{ label: 'Python', link: 'https://github.com/angzarr-io/angzarr-client-python', attrs: { target: '_blank' } },
-								{ label: 'Java', link: 'https://github.com/angzarr-io/angzarr-client-java', attrs: { target: '_blank' } },
-								{ label: 'C#', link: 'https://github.com/angzarr-io/angzarr-client-csharp', attrs: { target: '_blank' } },
-								{ label: 'C++', link: 'https://github.com/angzarr-io/angzarr-client-cpp', attrs: { target: '_blank' } },
+								{
+									label: 'Rust',
+									items: [
+										{ label: 'Repo', link: 'https://github.com/angzarr-io/angzarr-client-rust', attrs: { target: '_blank' } },
+										{ label: 'API docs', link: 'https://rust.angzarr.io/', attrs: { target: '_blank' } },
+									],
+								},
+								{
+									label: 'Python',
+									items: [
+										{ label: 'Repo', link: 'https://github.com/angzarr-io/angzarr-client-python', attrs: { target: '_blank' } },
+										{ label: 'API docs', link: 'https://python.angzarr.io/', attrs: { target: '_blank' } },
+									],
+								},
+								{
+									label: 'Go',
+									items: [
+										{ label: 'Repo', link: 'https://github.com/angzarr-io/angzarr-client-go', attrs: { target: '_blank' } },
+									],
+								},
+								{
+									label: 'Java',
+									items: [
+										{ label: 'Repo', link: 'https://github.com/angzarr-io/angzarr-client-java', attrs: { target: '_blank' } },
+									],
+								},
+								{
+									label: 'C#',
+									items: [
+										{ label: 'Repo', link: 'https://github.com/angzarr-io/angzarr-client-csharp', attrs: { target: '_blank' } },
+									],
+								},
+								{
+									label: 'C++',
+									items: [
+										{ label: 'Repo', link: 'https://github.com/angzarr-io/angzarr-client-cpp', attrs: { target: '_blank' } },
+									],
+								},
 							],
 						},
 					],
