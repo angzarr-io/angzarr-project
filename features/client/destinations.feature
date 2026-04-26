@@ -26,3 +26,12 @@ Feature: Destinations query surface
     And domains contains "billing"
     And domains contains "shipping"
     And domains has 3 entries
+
+  @C-0135
+  Scenario: domains preserves insertion order
+    Both languages must iterate destinations in the order they were
+    inserted, not in hash-random order. This pins the contract so a
+    storage-type swap can't silently drift.
+
+    Given a Destinations built from an ordered sequence list "zulu" then "alpha" then "mike"
+    Then domains in order are "zulu", "alpha", "mike"
