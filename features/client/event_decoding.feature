@@ -14,11 +14,17 @@ Feature: Event Decoding - Payload Deserialization
     Then decoding should succeed
     And I should get an OrderCreated message
 
-  Scenario: Decode event with type URL suffix match
+  Scenario: Decode rejects type-name suffix that isn't the full name
+    # PARITY_AUDIT.md finding #25: decode_event matches the FULL
+    # type name ("orders.OrderCreated"), not a suffix. Calling with
+    # a bare suffix like "OrderCreated" against an event whose URL
+    # is "type.googleapis.com/orders.OrderCreated" returns None
+    # because "type.googleapis.com/" + "OrderCreated" !=
+    # "type.googleapis.com/orders.OrderCreated". This pins exact
+    # matching as the cross-language contract.
     Given an event with type_url "type.googleapis.com/orders.OrderCreated"
-    When I decode looking for suffix "OrderCreated"
-    Then decoding should succeed
-    And the full type_url prefix should be ignored
+    When I decode the event with full_type_name "OrderCreated"
+    Then decoding should return None/null
 
   Scenario: Decode returns None for type mismatch
     Given an event with type_url "type.googleapis.com/orders.ItemAdded"
@@ -58,21 +64,15 @@ Feature: Event Decoding - Payload Deserialization
     When I match against "type.googleapis.com/myapp.events.v1.OrderCreated"
     Then the match should succeed
 
-  Scenario: Suffix matching for convenience
-    Given an event with type_url "type.googleapis.com/myapp.events.v1.OrderCreated"
-    When I match against suffix "OrderCreated"
-    Then the match should succeed
-
-  Scenario: Suffix matching is case-sensitive
-    Given an event with type_url ending in "OrderCreated"
-    When I match against suffix "ordercreated"
-    Then the match should fail
-
-  Scenario: Versioned type URLs
+  Scenario: Versioned type URLs distinguish via full match
+    # Per finding #25 — exact matching only. Two events with
+    # "myapp.events.v1.OrderCreated" and "myapp.events.v2.OrderCreated"
+    # are distinguished by the FULL type name; matching against
+    # "myapp.events.v1.OrderCreated" picks the v1 event.
     Given events with type_urls:
       | type.googleapis.com/myapp.events.v1.OrderCreated |
       | type.googleapis.com/myapp.events.v2.OrderCreated |
-    When I match against "v1.OrderCreated"
+    When I match against "type.googleapis.com/myapp.events.v1.OrderCreated"
     Then only the v1 event should match
 
   # ==========================================================================
@@ -118,8 +118,10 @@ Feature: Event Decoding - Payload Deserialization
   # ==========================================================================
 
   Scenario: decode_event helper function
-    Given the decode_event<T>(event, type_suffix) function
-    When I call decode_event(event, "OrderCreated")
+    # Renamed parameter from `type_suffix` to `full_type_name` per
+    # finding #25 — exact matching, not suffix.
+    Given the decode_event<T>(event, full_type_name) function
+    When I call decode_event(event, "orders.OrderCreated")
     Then if type matches, Some(T) is returned
     And if type doesn't match, None is returned
 
