@@ -45,12 +45,16 @@ Feature: QueryClient - Event Retrieval
     Then I should receive an EventBook with 5 events
     And the first event should have sequence 5
 
-  Scenario: Range query with upper bound
+  Scenario: Range query with upper bound (inclusive)
     Given an aggregate "orders" with root "order-004" has 10 events
     When I query events for "orders" root "order-004" from sequence 3 to 7
-    Then I should receive an EventBook with 4 events
+    # Per audit decision 2026-04-27 (finding #27): upper bound is
+    # INCLUSIVE — matches the `range_to(lower, upper)` docstrings in
+    # both Rust (`builder.rs:170`) and Python (`builder.py:155`).
+    # Sequences 3,4,5,6,7 → 5 events.
+    Then I should receive an EventBook with 5 events
     And the first event should have sequence 3
-    And the last event should have sequence 6
+    And the last event should have sequence 7
 
   Scenario: Range query beyond history returns empty
     Given an aggregate "orders" with root "order-005" has 5 events
