@@ -23,18 +23,17 @@ Feature: CommandBuilder - Fluent Command Construction
     And the built command should have root "order-001"
     And the built command should have type URL containing "CreateOrder"
 
-  Scenario: Build command for new aggregate (root assigned by client_new convention)
+  Scenario: Build command for new aggregate (auto-generates client-side UUID)
+    # Per audit decision 2026-04-27 (finding #20 / P2.4a closed):
+    # `command_new(domain)` auto-generates a fresh UUID v4 for the
+    # root. Aggregate roots are always client-assigned across all
+    # languages — you cannot create an aggregate without a root.
     When I build a command for new aggregate in domain "orders"
       And I set the command type to "CreateOrder"
       And I set the command payload
     Then the built command should have domain "orders"
-    # NOTE (PARITY_AUDIT.md P2.4a / finding #20): client_new's root
-    # convention diverges across languages — Python auto-generates a
-    # UUID v4, Rust leaves root unset for server-side assignment. The
-    # contract here only requires that the caller did not specify a
-    # root explicitly; how that materializes on the wire is per-language
-    # until P2.4a is resolved.
-    And the caller did not specify an explicit root
+    And the built command should have an auto-generated UUID root
+    And the auto-generated root should be a valid UUID
 
   Scenario: Build generates correlation ID when not provided
     When I build a command for domain "orders"
@@ -142,9 +141,9 @@ Feature: CommandBuilder - Fluent Command Construction
     Then I should receive a CommandBuilder for that domain and root
 
   Scenario: Client provides command_new shortcut
+    # Per finding #20 / P2.4a closed: command_new auto-generates a
+    # client-side UUID v4 for the root in every language. Shortcut
+    # returns a CommandBuilder with both domain and root populated.
     Given a GatewayClient implementation
     When I call client.command_new("orders")
-    # See P2.4a / finding #20: command_new's root materialization
-    # diverges; this scenario only pins that the shortcut returned a
-    # builder for the named domain without taking a root parameter.
-    Then I should receive a CommandBuilder for that domain (root convention is per-language)
+    Then I should receive a CommandBuilder for that domain and an auto-generated root
