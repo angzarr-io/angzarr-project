@@ -144,9 +144,12 @@ Feature: Public API parity
 
   @C-0103
   Scenario: Event-packing helpers are exported
-    Then the "pack_event" symbol is exported
-    And the "pack_events" symbol is exported
-    And the "new_event_book" symbol is exported
+    # Audit finding #57: per-language `pack_event` / `pack_events` were
+    # removed (Python's high-level + Rust's low-level had divergent
+    # contracts and zero production callers; production code uses
+    # `Any.Pack(msg)` / inline `Any { type_url, value }`). The book-level
+    # constructors remain.
+    Then the "new_event_book" symbol is exported
     And the "new_event_book_multi" symbol is exported
 
   @C-0104
