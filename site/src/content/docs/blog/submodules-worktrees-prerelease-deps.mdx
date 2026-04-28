@@ -1,0 +1,172 @@
+---
+title: "Git Submodules and Worktrees: The Prerelease-Dep Workflow Nobody Talks About"
+slug: "blog/submodules-worktrees-prerelease-deps"
+date: 2026-04-24
+authors:
+  - "angzarr"
+tags:
+  - "git"
+  - "submodules"
+  - "worktrees"
+  - "monorepo"
+  - "workflow"
+  - "llm"
+---
+
+import BlogHeader from '../../../components/BlogHeader.astro';
+
+<BlogHeader />
+
+Most people learn `git submodule` once, get burned, and never touch it again. Most people learn `git worktree` and use it for one off-branch checkout, then forget it exists. The combination — used deliberately, with a layout convention that makes both first-class — is the only sane way I've found to develop across many sibling repos with prerelease cross-repo deps. Here's the layout, the gotchas, and the AI failure mode that prompted me to write rules into the loom.
+
+## The Workspace Layout: `<repo>/main`, Not `<repo>/`
+
+The convention that makes everything else work: every repo in the workspace lives at `<repo>/main`, not `<repo>/`. The whole workspace looks like:
+
+```
+~/workspace/angzarr/
+  core/main/
+  client-rust/main/
+  client-python/main/
+  examples-python/main/
+  examples-rust/main/
+  angzarr-project/        # docs/proto hub — flat because it has no peer worktrees yet
+  ...
+```
+
+That extra `/main` segment looks pointless until the second worktree shows up. Then `core/feat-foo/`, `core/release-v0.4/`, and `core/main/` sit as siblings, all peers, none of them "the real one." No `git worktree add ../feat-foo` resolving outside the repo. No primary checkout that owns a privileged path. The path *is* the branch name, and branch names are how my brain finds things.
+
+The workspace `justfile` iterates them flatly:
+
+```just
+repos=(
+    core/main
+    client-rust/main
+    client-python/main
+    examples-python/main
+    examples-rust/main
+    ...
+)
+for repo in "${repos[@]}"; do
+    (cd "$repo" && lefthook install)
+done
+```
+
+If `main` were the parent directory, the iteration would have to special-case "the main worktree." It doesn't. Symmetry matters when you're scripting across thirteen repos.
+
+This is the part most teams skip. Worktrees are pitched as a power-user feature for "checking out two branches at once," but the real value is when they're the *default* unit of repository presence. You stop thinking "where is the repo" and start thinking "where is `feat-foo`."
+
+## Submodules Pinned to Feature Branches: Prerelease Deps That Compile
+
+Now the harder problem. The docs site (this repo) embeds Python source directly from sibling repos using `remark-code-region`. Those Python sources are mid-refactor — proto names changing, OO-style overhaul, naming unification. The work spans three repos at once: proto, client, examples. None of it is published to PyPI yet, and won't be for weeks.
+
+How do you depend on three coordinated, unpublished, in-flight branches and still get a reproducible build?
+
+You don't use a package manager. Package managers depend on *releases*. You use submodules pinned to feature branches:
+
+```ini
+# .gitmodules
+[submodule "vendor/examples/python"]
+    path = vendor/examples/python
+    url  = git@github.com:angzarr-io/angzarr-examples-python.git
+    branch = unify-naming-and-oo-style
+[submodule "vendor/client/python"]
+    path = vendor/client/python
+    url  = git@github.com:angzarr-io/angzarr-client-python.git
+    branch = feat/cross-language-unification
+```
+
+The `branch = …` field is *advisory*. The contract is the SHA in the parent's tree (`git ls-tree HEAD vendor/examples/python` returns a 40-char hash). That SHA is what every CI run, every fresh clone, every collaborator gets. The branch field only matters when *you* run `git submodule update --remote` to advance the pin.
+
+So the workflow is:
+
+1. Push work to the feature branch in the inner repo.
+2. From the parent: `git submodule update --remote vendor/examples/python` advances the pin to that branch's tip.
+3. `git diff` shows the parent now points at a new SHA.
+4. Commit the bump in the parent. CI rebuilds against the new SHA.
+
+That's prerelease deps with reproducibility. Anyone checking out the parent at any commit gets the *exact* constellation of inner-repo commits the build was made against. Published artifacts can't do this — there's no PyPI version for "the WIP branch as it stood Tuesday afternoon."
+
+For users who don't want submodules at all, the project `justfile` has a fallback recipe that does shallow clones to the same paths — `[ -d vendor/examples/python ] || git clone --depth=1 …`. Same SHA, two ways to land it.
+
+## Two CI Footguns
+
+Two CI gotchas worth surfacing, both lived through and committed against in this repo.
+
+**Use `submodules: true`, not `submodules: recursive`.** The `actions/checkout@v4` step has both options. `recursive` traverses *every* nested submodule, no matter how deep. In our case, `vendor/examples/python` itself has a submodule (`angzarr-client-python`) pinned at a SHA the remote no longer has — history was rewritten upstream. With `recursive`, every CI run failed on a fetch we didn't need:
+
+```yaml
+# .github/workflows/deploy.yml
+- name: Checkout (with submodules)
+  uses: actions/checkout@v4
+  with:
+    submodules: true       # one level — what we actually consume
+```
+
+Generalizable rule: `recursive` couples your CI's success to every transitive submodule's history-preservation policy, including ones you don't read from. Default to one level; opt into recursion only when you actually consume the nested tree.
+
+**Path filters must include `vendor/**` and `.gitmodules`.** A submodule bump is, from the parent's filesystem perspective, a one-line change to a `.gitmodules` field (when the branch changes) plus an opaque pointer mutation under `vendor/`. Easy to miss because the *content* changes are happening in a different repository. If your `paths:` filter only lists app directories, bumping a vendored dep won't redeploy:
+
+```yaml
+on:
+  push:
+    paths:
+      - 'site/**'
+      - 'proto/**'
+      - 'vendor/**'        # submodule bumps
+      - '.gitmodules'      # branch-tracking changes
+      - '.github/workflows/deploy.yml'
+```
+
+## .gitignore at the Parent for Cruft *Inside* Submodules
+
+Submodules carry their own `.gitignore`, but those rules cover what the *inner* repo cares about. They don't anticipate every tool a downstream consumer will run inside the checkout. The parent's `.gitignore` has:
+
+```gitignore
+# Cruft inside vendored submodules (submodules themselves are tracked via .gitmodules)
+vendor/*/*/node_modules/
+vendor/*/*/.uv-cache/
+vendor/*/*/target/
+vendor/*/*/dist/
+```
+
+The directory pointer is tracked via `.gitmodules`. The contents below it are ignored from the parent's perspective so a `uv sync` or `cargo build` inside `vendor/examples/python` doesn't show up as 4,000 dirty files in the parent's `git status`. Worth doing pre-emptively the first time you vendor anything that has a build step.
+
+## The AI Failure Mode
+
+Submodules and AI assistants interact badly by default. The model sees a directory tree, edits files, and stages changes. It does not naturally distinguish "this directory is a window into a different repository whose commits land in a different remote and whose state is recorded as a 40-char hash in the parent's tree." Every failure mode below has happened to me at least once.
+
+**1. Cross-repo commit confusion.** AI edits `vendor/examples/python/some_file.py`. That edit, when committed, lands in the *examples-python* repo, not the parent. If the AI then runs `git add vendor/examples/python && git commit` in the parent, it's bumping the pointer to a SHA that exists only on local disk. Push the parent and CI (or any collaborator) gets `fatal: reference is not a tree`. Every submodule edit is a two-repo, two-push operation, and the *inner* push must land first.
+
+**2. Sweep-up via `git add -A` or `git commit -a`.** Either of these in the parent will silently roll the submodule pointer forward to whatever the inner HEAD currently is — even if the inner HEAD moved because the AI ran `git checkout` to "look at something." Your parent now claims a SHA the human never approved. Stage submodule pointer bumps explicitly: `git add vendor/specific/path`. Never via `-A` or `-a`.
+
+**3. `git submodule update` discards uncommitted inner work.** If the AI sees a "modified" submodule and runs `git submodule update` to "clean it up," it resets the inner worktree to the SHA the parent records. The inner edits are gone. (Recoverable via reflog, but the AI won't think to look.) Treat `submodule update` as destructive whenever the inner repo is dirty.
+
+**4. Worktree + submodule state confusion.** Submodule state is recorded *per-worktree* under `.git/worktrees/<name>/modules/…`. The same `vendor/` path in two worktrees can — correctly — point at two different SHAs, because each worktree records its own pin. AIs switching between worktrees (or operating across them) can read the wrong pin and "fix" something that wasn't broken.
+
+The common shape: the AI's mental model of `git add` and `git commit` was trained on flat repos. Submodules silently violate the flat-repo assumption, and there's no error to surface that violation until the parent gets pushed and the rest of the world hits a missing object.
+
+## Enforcing It: Loom the Rules In
+
+CLAUDE.md helps, until you switch tools. Cursor reads its own files. Gemini reads its own files. Aider reads its own files. The rule "never commit a submodule pointer bump without the human approving the inner SHA first" needs to apply *uniformly* across every assistant that touches the repo, and it needs to travel with the repo so a fresh clone is governed the same way.
+
+That's what we use [ctxloom](https://ctxloom.dev) for. Rule fragments live in the repo, ctxloom weaves them into the context every agent loads, and the same rule lands in Claude Code, Cursor, Gemini, and anything else with an MCP-shaped mouth. The artifacts are visible in this very directory: `.mcp.json` and `.mcp.json.ctxloom.bak` mark the loom's footprint.
+
+The submodule rule reads roughly:
+
+> When working in a repo with submodules:
+> - Never use `git add -A`, `git add .`, or `git commit -a`. Stage paths explicitly.
+> - When a submodule pointer changes, surface the inner SHA and the corresponding inner-repo commit URL to the user. Do not commit the bump unilaterally.
+> - Before suggesting `git submodule update`, check `cd <submodule> && git status`. If dirty, refuse and explain why.
+> - Edits inside `vendor/**` are edits to a *different* repository. Push the inner commit first; only then bump the parent.
+
+Without ctxloom, this rule lives in CLAUDE.md and only Claude reads it. With ctxloom, it's the same rule everywhere. If you're running a polyglot agent setup against a polyrepo workspace, the per-tool config drift alone is reason enough.
+
+## Recap
+
+- Lay out worktrees with `<repo>/main` as a peer of `<repo>/feat-foo`. Never let any one worktree own the parent path.
+- Use submodules with `branch = …` and pinned SHAs to depend on prerelease, in-flight cross-repo work. The SHA is the contract; the branch is just the bump target.
+- `submodules: true` in CI, not `recursive`. Recursion couples you to every transitive history.
+- Add `vendor/**` and `.gitmodules` to your CI `paths:` filter. Pointer bumps need to retrigger.
+- Ignore submodule-internal build cruft at the parent's `.gitignore`. Don't rely on the inner repo to anticipate your tools.
+- AI assistants will commit submodule pointers to SHAs that don't exist on the remote. Loom in rules that travel across every agent, not CLAUDE.md notes that only one agent reads.
