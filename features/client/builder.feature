@@ -31,18 +31,27 @@ Feature: Router builder
     Then the builder raises a BuildError mentioning "cannot mix"
 
   @C-0064
-  Scenario: Duplicate (domain, type_url) across handlers is allowed
+  Scenario: Duplicate (domain, type_url) across CommandHandlers is rejected at build time
+    # Audit finding #18 (formerly #51): multi-handler CH dispatch is
+    # forbidden. Two CommandHandlers may not register for the same
+    # (domain, command_type_url) pair within one Router. Build fails
+    # with DuplicateCommandHandler. Saga / PM / projector / upcaster
+    # fan-out is unaffected (those kinds legitimately broadcast — see
+    # multi_handler.feature C-0013..C-0015).
     Given two command handlers Alpha and Beta for domain "order" both handling CreateOrder
     When I build the router
-    Then the build succeeds
-    And the router has two factories registered
+    Then the builder raises a BuildError mentioning "duplicate command handler"
 
   @C-0065
-  Scenario: Factories are not invoked at registration or build time
+  Scenario: Factories are invoked at most once per registered handler at build time
+    # Audit #18: the builder calls each CommandHandler factory once at
+    # build time to introspect its config (handled type URLs + domain)
+    # for the duplicate-detection pass. After build, each factory is
+    # called once per dispatch, not at registration.
     Given a command handler "Order" for domain "order" with state OrderState
     And a factory that counts invocations
     When I register the handler and build the router
-    Then the factory invocation count is 0
+    Then the factory invocation count is 1
 
   @C-0088
   Scenario: Single saga handler builds into the SagaRouter variant
