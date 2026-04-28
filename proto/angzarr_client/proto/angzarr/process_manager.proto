@@ -26,12 +26,12 @@ option ruby_package = "Angzarr";
 // Process Manager IS an aggregate with its own domain, events, and state.
 // It reuses all aggregate infrastructure (EventStore, SnapshotStore, AggregateCoordinator).
 service ProcessManagerService {
-  // Phase 1: Declare which additional destinations are needed beyond the trigger.
-  // PM automatically receives triggering event's domain state.
-  rpc Prepare(ProcessManagerPrepareRequest) returns (ProcessManagerPrepareResponse);
-
-  // Phase 2: Handle with trigger + process state + fetched destinations.
-  // Returns commands for other aggregates and events for the PM's own domain.
+  // Handle with trigger + process state. Returns commands for other
+  // aggregates and events for the PM's own domain.
+  //
+  // PMs do not rebuild destination aggregate state — they translate
+  // events into commands/facts and rely on destination_sequences for
+  // command stamping. See process manager design philosophy.
   rpc Handle(ProcessManagerHandleRequest) returns (ProcessManagerHandleResponse);
 }
 
@@ -68,22 +68,7 @@ message SpeculatePmRequest {
   ProcessManagerHandleRequest request = 1;
 }
 
-// Phase 1 request: PM declares additional destinations needed.
-message ProcessManagerPrepareRequest {
-  // Full state of triggering domain (by correlation_id).
-  EventBook trigger = 1;
-  // Current process manager state (by correlation_id). May be empty for new workflow.
-  EventBook process_state = 2;
-}
-
-// Phase 1 response: destinations to fetch before Handle.
-message ProcessManagerPrepareResponse {
-  // Additional aggregates needed beyond trigger. Query by correlation_id.
-  // Minimize fetches - only declare what's actually needed.
-  repeated Cover destinations = 1;
-}
-
-// Phase 2 request: full context for PM decision.
+// PM handle request: full context for PM decision.
 message ProcessManagerHandleRequest {
   // Full state of triggering domain.
   EventBook trigger = 1;
@@ -94,7 +79,7 @@ message ProcessManagerHandleRequest {
   map<string, uint32> destination_sequences = 3;
 }
 
-// Phase 2 response: local events, then remote commands and facts.
+// PM handle response: local events, then remote commands and facts.
 // Execution order: process_events persisted first, then commands sent, then facts injected.
 message ProcessManagerHandleResponse {
   // Local: Events for the process manager's own domain (non-duplicative workflow state).

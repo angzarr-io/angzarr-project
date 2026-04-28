@@ -680,7 +680,7 @@ Implementing teams get OpenTelemetry instrumentation for free. The sidecar/coord
 
 ### What You Get Without Writing Any Instrumentation Code
 
-Every command, saga, and projector execution is traced and metered at the coordinator level. The granularity is the `Handle` and `Prepare` boundaries—the exact points where the framework calls into your business logic:
+Every command, saga, and projector execution is traced and metered at the coordinator level. The granularity is the `Handle` boundary—the exact point where the framework calls into your business logic:
 
 | Pipeline | Traced Spans | Metrics |
 |----------|-------------|---------|
