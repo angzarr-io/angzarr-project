@@ -65,6 +65,7 @@ enum SyncMode {
   SYNC_MODE_SIMPLE = 1; // Sync projectors only, no saga cascade
   SYNC_MODE_CASCADE = 2; // Full sync: projectors + saga cascade (expensive)
   SYNC_MODE_DECISION = 3; // Sync aggregate accept/reject only; projectors + sagas run async
+  SYNC_MODE_ISOLATED = 4; // Sync accept/reject + persist; NO downstream (sync OR async). Replay / migration / recovery writes that must not trigger reactions. Distinct from DECISION (which still publishes to bus for async downstream).
 }
 // endregion
 
