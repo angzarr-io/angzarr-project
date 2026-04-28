@@ -1,39 +1,35 @@
 # Allocated: C-0010 .. C-0015, C-0087
-Feature: Multi-handler merge
+#
+# Audit finding #18 (formerly #51): multi-handler CommandHandler dispatch
+# is FORBIDDEN. Two CommandHandlers may not register for the same
+# (domain, command_type_url) pair within one Router — the builder
+# rejects duplicates at build time. Saga / PM / projector fan-out is
+# unaffected (those kinds legitimately broadcast).
+Feature: Multi-handler dispatch
   As a unified-Router user
-  I want multiple handlers for the same (domain, type_url) to all run
-  So that cross-cutting concerns compose without replacing domain logic
-
-  Background:
-    Given two command handlers Alpha and Beta for domain "order"
-    And Alpha handles CreateOrder by emitting OrderCreated
-    And Beta handles CreateOrder by emitting OrderCompleted
-    And the router is built with Alpha then Beta
+  I want sagas, PMs, and projectors that share an event source to ALL run
+  And I want CommandHandler duplicates to fail loudly at build time
+  So that fan-out cross-cutting concerns work without ambiguous CH semantics
 
   @C-0010
-  Scenario: Both handlers invoked in registration order
-    When CreateOrder(order_id="o-1") is dispatched
-    Then Alpha was called before Beta
-    And the response contains two events in [OrderCreated, OrderCompleted] order
+  Scenario: Router rejects duplicate CommandHandler registration
+    Given two command handlers Alpha and Beta for domain "order"
+    And both handle CreateOrder
+    When the router is built with Alpha then Beta
+    Then build fails with DuplicateCommandHandler for domain "order" and CreateOrder
 
   @C-0011
-  Scenario: Sequence numbers increment across handlers
-    Given the prior EventBook's next_sequence is 5
-    And Alpha emits two events per call
-    And Beta emits one event per call
-    When CreateOrder is dispatched
-    Then Alpha observed seq = 5
-    And Beta observed seq = 7
-    And the emitted pages carry sequences [5, 6, 7]
+  Scenario: Router accepts CommandHandlers in different domains for same command type
+    Given a command handler Alpha for domain "orderA" handling CreateOrder
+    And a command handler Beta for domain "orderB" handling CreateOrder
+    When the router is built with Alpha then Beta across domains
+    Then build succeeds with a CommandHandlerRouter
 
   @C-0012
-  Scenario: Each instance rebuilds its own state
-    Given Alpha applies OrderCreated by incrementing counter_a
-    And Beta applies OrderCompleted by incrementing counter_b
-    And a prior EventBook with [OrderCreated, OrderCreated, OrderCompleted]
-    When a command is dispatched
-    Then Alpha observed counter_a = 2
-    And Beta observed counter_b = 1
+  Scenario: Router accepts a single CommandHandler with multiple handled types
+    Given a command handler Player for domain "player" handling RegisterPlayer and DepositFunds
+    When the router is built with Player
+    Then build succeeds with a CommandHandlerRouter
 
   @C-0013
   Scenario: Saga multi-handler merge — all matching sagas invoked
@@ -66,10 +62,15 @@ Feature: Multi-handler merge
     And ProjB's log has 1 entry
 
   @C-0087
-  Scenario: Each matched factory invoked exactly once per dispatch
-    Given two command handlers Alpha and Beta for domain "order" both handling CreateOrder
-    And each factory counts invocations
-    And the router is built with Alpha then Beta
-    When CreateOrder(order_id="o-1") is dispatched
-    Then Alpha's factory was invoked exactly 1 time
-    And Beta's factory was invoked exactly 1 time
+  Scenario: Each matched factory invoked exactly once per dispatch (saga fan-out)
+    # Audit #18 reframe: the original C-0087 asserted factory invocation
+    # counts on multi-handler CH dispatch. CH multi-handler is now
+    # forbidden, so the only remaining "multi-handler dispatch with N
+    # factories invoked exactly once" surface is saga (and PM/projector,
+    # already covered above).
+    Given two sagas SagaA and SagaB both listening to source "order" for OrderCreated
+    And each saga factory counts invocations
+    And the saga router is built with SagaA then SagaB
+    When an OrderCreated event is dispatched to the saga router
+    Then SagaA's factory was invoked exactly 1 time
+    And SagaB's factory was invoked exactly 1 time
