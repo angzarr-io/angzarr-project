@@ -84,7 +84,13 @@ message ProcessManagerHandleRequest {
 message ProcessManagerHandleResponse {
   // Local: Events for the process manager's own domain (non-duplicative workflow state).
   // These are persisted via AggregateCoordinator to the PM's domain.
-  EventBook process_events = 1;
+  //
+  // Audit #92: changed from singular `EventBook` to `repeated EventBook`
+  // so the merge policy (which book's cover wins, how to concatenate
+  // pages from multiple emissions) lives in the coordinator with full
+  // information, not in the client doing first-non-empty-cover-wins
+  // pre-emit. PMs that emit a single book just send a 1-element list.
+  repeated EventBook process_events = 1;
   // Remote: Commands to issue to other aggregates.
   repeated CommandBook commands = 2;
   // Remote: Facts to inject to other aggregates.
