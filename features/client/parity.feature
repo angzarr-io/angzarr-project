@@ -142,15 +142,12 @@ Feature: Public API parity
     And the "pm_delegate_to_framework" symbol is exported
     And the "pm_emit_compensation_events" symbol is exported
 
-  @C-0103
-  Scenario: Event-packing helpers are exported
-    # Audit finding #57: per-language `pack_event` / `pack_events` were
-    # removed (Python's high-level + Rust's low-level had divergent
-    # contracts and zero production callers; production code uses
-    # `Any.Pack(msg)` / inline `Any { type_url, value }`). The book-level
-    # constructors remain.
-    Then the "new_event_book" symbol is exported
-    And the "new_event_book_multi" symbol is exported
+  # @C-0103 (Event-packing helpers) was removed: `new_event_book` /
+  # `new_event_book_multi` had no production callers in any client or
+  # example. Audit finding #57 already removed `pack_event` / `pack_events`
+  # for the same reason; this completes that cleanup. User code returns
+  # events via the proc-macro / decorator-driven dispatch, not these
+  # helpers. Slot intentionally vacant — do not reuse.
 
   @C-0104
   Scenario: Fluent builders are exported
