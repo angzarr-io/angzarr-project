@@ -1,0 +1,37 @@
+# syntax=docker/dockerfile:1.4
+# C# build image for angzarr.
+#
+# Provides: .NET SDK 8.0, csharpier formatter.
+# Based on: ghcr.io/angzarr-io/angzarr-base (inherits fixuid + angzarr user)
+
+ARG BASE_IMAGE
+FROM ${BASE_IMAGE}
+
+ARG DOTNET_VERSION=8.0
+
+# .NET SDK + libicu for globalization
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    wget \
+    ca-certificates \
+    libicu72 \
+    && wget https://dot.net/v1/dotnet-install.sh -O /tmp/dotnet-install.sh \
+    && chmod +x /tmp/dotnet-install.sh \
+    && /tmp/dotnet-install.sh --channel ${DOTNET_VERSION} --install-dir /usr/share/dotnet \
+    && ln -s /usr/share/dotnet/dotnet /usr/bin/dotnet \
+    && rm /tmp/dotnet-install.sh \
+    && rm -rf /var/lib/apt/lists/*
+
+ENV DOTNET_CLI_TELEMETRY_OPTOUT=1 \
+    DOTNET_NOLOGO=1
+
+# csharpier installed to /usr/local/dotnet-tools (avoid /root/.dotnet)
+RUN dotnet tool install csharpier --tool-path /usr/local/dotnet-tools && \
+    chmod -R a+rX /usr/local/dotnet-tools
+
+ENV PATH=/usr/local/dotnet-tools:${PATH}
+
+# Verify
+RUN dotnet --version && csharpier --version
+
+WORKDIR /workspace
+USER angzarr

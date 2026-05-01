@@ -1,0 +1,70 @@
+apiVersion: skaffold/v4beta11
+kind: Config
+metadata:
+  name: angzarr-build-images
+
+# Build + publish the toolchain images consumed by every angzarr repo.
+# - base/    → ghcr.io/angzarr-io/angzarr-base   (just, buf, fixuid, angzarr user)
+# - rust/    → ghcr.io/angzarr-io/angzarr-rust
+# - python/  → ghcr.io/angzarr-io/angzarr-python
+# - go/      → ghcr.io/angzarr-io/angzarr-go
+# - java/    → ghcr.io/angzarr-io/angzarr-java
+# - csharp/  → ghcr.io/angzarr-io/angzarr-csharp
+#
+# Usage:
+#   skaffold build -f build/images/skaffold.yaml             # local
+#   skaffold build -f build/images/skaffold.yaml --push      # CI
+
+build:
+  tagPolicy:
+    gitCommit: {}
+  local:
+    push: false
+    useBuildkit: true
+    tryImportMissing: true
+
+  artifacts:
+    - image: ghcr.io/angzarr-io/angzarr-base
+      context: base
+      docker:
+        dockerfile: Containerfile
+
+    - image: ghcr.io/angzarr-io/angzarr-rust
+      context: rust
+      docker:
+        dockerfile: Containerfile
+      requires:
+        - image: ghcr.io/angzarr-io/angzarr-base
+          alias: BASE_IMAGE
+
+    - image: ghcr.io/angzarr-io/angzarr-python
+      context: python
+      docker:
+        dockerfile: Containerfile
+      requires:
+        - image: ghcr.io/angzarr-io/angzarr-base
+          alias: BASE_IMAGE
+
+    - image: ghcr.io/angzarr-io/angzarr-go
+      context: go
+      docker:
+        dockerfile: Containerfile
+      requires:
+        - image: ghcr.io/angzarr-io/angzarr-base
+          alias: BASE_IMAGE
+
+    - image: ghcr.io/angzarr-io/angzarr-java
+      context: java
+      docker:
+        dockerfile: Containerfile
+      requires:
+        - image: ghcr.io/angzarr-io/angzarr-base
+          alias: BASE_IMAGE
+
+    - image: ghcr.io/angzarr-io/angzarr-csharp
+      context: csharp
+      docker:
+        dockerfile: Containerfile
+      requires:
+        - image: ghcr.io/angzarr-io/angzarr-base
+          alias: BASE_IMAGE
