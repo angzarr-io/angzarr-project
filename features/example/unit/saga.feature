@@ -50,6 +50,11 @@ Feature: Saga logic
     And the command has game_variant TEXAS_HOLDEM
     And the command has 2 players
     And the command has hand_number 1
+    # The saga must propagate hand_root as deck_seed so the deck shuffle is
+    # deterministic across runs — required for acceptance tests that assert
+    # specific cards. hand_root = sha256(table_id, hand_n) is itself
+    # deterministic per-hand, so this seed is reproducible.
+    And the command has deck_seed equal to the hand_root
 
   @EU-0301
   Scenario: Table sync saga routes HandComplete to EndHand

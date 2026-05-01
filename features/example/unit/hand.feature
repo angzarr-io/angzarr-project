@@ -198,6 +198,12 @@ Feature: Hand aggregate logic
     And the action event has action "RAISE"
     # amount on the event is chips_put_in: 30 total - 5 SB already posted = 25
     And the action event has amount 25
+    # amount_to_call is the absolute new current_bet level — the threshold any
+    # subsequent actor must reach to call. A consumer computes their owed
+    # amount as amount_to_call - their.bet_this_round. The raise totalled to
+    # 30, so current_bet := 30. (Emitting chips_put_in here would shadow the
+    # `amount` field and lose the absolute threshold needed for replay.)
+    And the action event has amount_to_call 30
 
   @EU-0015
   Scenario: Player goes all-in
@@ -288,11 +294,18 @@ Feature: Hand aggregate logic
     Given a CardsDealt event for FIVE_CARD_DRAW with 2 players
     And blinds posted with pot 15
     And a BettingRoundComplete event for preflop
+    And I capture player "player-1" hole cards as "pre_draw"
     When I handle a RequestDraw command for player "player-1" discarding indices [0, 2, 4]
     Then the result is a angzarr_client.proto.examples.DrawCompleted event
     And the draw event has cards_discarded 3
     And the draw event has cards_drawn 3
     And player "player-1" has 5 hole cards
+    # Discarding indices [0, 2, 4] must replace exactly those positions and
+    # leave indices 1 and 3 unchanged. (A buggy applier that slices off the
+    # first N hole cards and appends new ones would fail this — it would
+    # change positions 1 and 3 to whatever was at original positions 4 and N1.)
+    And player "player-1" hole card at index 1 matches "pre_draw" index 1
+    And player "player-1" hole card at index 3 matches "pre_draw" index 3
 
   @EU-0023
   Scenario: Player stands pat (no discard)
