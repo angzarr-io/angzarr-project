@@ -30,7 +30,7 @@ ENV UV_TOOL_DIR=/opt/uv-tools \
 RUN mkdir -p $UV_TOOL_DIR && \
     uv tool install black && \
     uv tool install ruff && \
-    chmod -R a+rX $UV_TOOL_DIR
+    chmod -R a+rwX $UV_TOOL_DIR
 
 # Verify
 RUN python --version && uv --version && \

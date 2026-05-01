@@ -26,7 +26,7 @@ ENV DOTNET_CLI_TELEMETRY_OPTOUT=1 \
 
 # csharpier installed to /usr/local/dotnet-tools (avoid /root/.dotnet)
 RUN dotnet tool install csharpier --tool-path /usr/local/dotnet-tools && \
-    chmod -R a+rX /usr/local/dotnet-tools
+    chmod -R a+rwX /usr/local/dotnet-tools
 
 ENV PATH=/usr/local/dotnet-tools:${PATH}
 
