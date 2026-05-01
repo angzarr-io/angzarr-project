@@ -66,9 +66,11 @@ RUN mkdir -p /usr/local/cargo && \
 # Verify
 RUN rustc --version && cargo --version && mold --version
 
-# Hand the toolchain dirs to angzarr so runtime cargo can refresh its registry
-# cache; binaries remain world-readable.
-RUN chown -R angzarr:angzarr /usr/local/cargo /usr/local/rustup
+# Make toolchain dirs world-writable so cargo can refresh its registry
+# cache from any runtime uid (fixuid remaps angzarr to whatever
+# `docker run --user UID:GID` requested, but file ownership inside the
+# image stays at build-time uid — chmod sidesteps the mismatch).
+RUN chmod -R a+rwX /usr/local/cargo /usr/local/rustup
 
 WORKDIR /workspace
 USER angzarr
