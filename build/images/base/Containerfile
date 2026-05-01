@@ -73,6 +73,7 @@ WORKDIR /workspace
 RUN chown angzarr:angzarr /workspace
 
 # Verify (still as root, before downstream images switch USER)
-RUN just --version && buf --version && fixuid -v
+RUN just --version && buf --version && \
+    test -u /usr/local/bin/fixuid && test -x /usr/local/bin/fixuid
 
 ENTRYPOINT ["fixuid", "-q"]
