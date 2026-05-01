@@ -1,0 +1,36 @@
+# syntax=docker/dockerfile:1.4
+# Java build image for angzarr.
+#
+# Provides: JDK 17, Gradle 8.5, protoc.
+# Based on: ghcr.io/angzarr-io/angzarr-base (inherits fixuid + angzarr user)
+
+ARG BASE_IMAGE
+FROM ${BASE_IMAGE}
+
+ARG TARGETARCH
+ARG JAVA_VERSION=17
+ARG GRADLE_VERSION=8.5
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    openjdk-${JAVA_VERSION}-jdk-headless \
+    protobuf-compiler \
+    && rm -rf /var/lib/apt/lists/*
+
+ENV JAVA_HOME=/usr/lib/jvm/java-${JAVA_VERSION}-openjdk-${TARGETARCH}
+ENV PATH=${JAVA_HOME}/bin:${PATH}
+
+# Gradle (system-wide; world-readable)
+RUN curl -Lo /tmp/gradle.zip \
+        "https://services.gradle.org/distributions/gradle-${GRADLE_VERSION}-bin.zip" && \
+    unzip -d /opt /tmp/gradle.zip && \
+    ln -s /opt/gradle-${GRADLE_VERSION} /opt/gradle && \
+    rm /tmp/gradle.zip && \
+    chmod -R a+rX /opt/gradle*
+
+ENV PATH=/opt/gradle/bin:$PATH
+
+# Verify
+RUN java -version && gradle --version
+
+WORKDIR /workspace
+USER angzarr

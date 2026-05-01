@@ -1,0 +1,74 @@
+# syntax=docker/dockerfile:1.4
+# Rust build image for angzarr.
+#
+# Provides: rustup, cargo, clippy, rustfmt, mold linker, clang, musl,
+#   protoc + protoc-gen-prost/tonic, cargo-llvm-cov.
+# Based on: ghcr.io/angzarr-io/angzarr-base (inherits fixuid + angzarr user)
+
+ARG BASE_IMAGE
+FROM ${BASE_IMAGE}
+
+ARG RUST_VERSION=1.93.0
+ARG MOLD_VERSION=2.40.1
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    clang \
+    lld \
+    protobuf-compiler \
+    musl-tools \
+    musl-dev \
+    libsasl2-dev \
+    cmake \
+    libcurl4-openssl-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# mold linker
+RUN ARCH=$(dpkg --print-architecture) && \
+    case "$ARCH" in \
+        amd64) MOLD_ARCH="x86_64" ;; \
+        arm64) MOLD_ARCH="aarch64" ;; \
+        *) echo "Unsupported architecture: $ARCH" && exit 1 ;; \
+    esac && \
+    curl -Lo /tmp/mold.tar.gz \
+        "https://github.com/rui314/mold/releases/download/v${MOLD_VERSION}/mold-${MOLD_VERSION}-${MOLD_ARCH}-linux.tar.gz" && \
+    tar -xzf /tmp/mold.tar.gz -C /tmp && \
+    cp /tmp/mold-${MOLD_VERSION}-${MOLD_ARCH}-linux/bin/mold /usr/local/bin/ && \
+    ln -sf /usr/local/bin/mold /usr/local/bin/ld.mold && \
+    rm -rf /tmp/mold*
+
+# Rust toolchain (system-wide install, not under /root/)
+ENV RUSTUP_HOME=/usr/local/rustup \
+    CARGO_HOME=/usr/local/cargo \
+    PATH=/usr/local/cargo/bin:$PATH
+
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- \
+    -y \
+    --default-toolchain ${RUST_VERSION} \
+    --profile minimal \
+    --component rustfmt,clippy
+
+RUN rustup target add x86_64-unknown-linux-musl aarch64-unknown-linux-musl
+
+# Codegen + coverage tooling
+RUN cargo install --locked \
+    protoc-gen-prost \
+    protoc-gen-tonic \
+    protoc-gen-prost-crate
+
+RUN rustup component add llvm-tools-preview && \
+    cargo install cargo-llvm-cov --locked
+
+# Default to mold linker
+RUN mkdir -p /usr/local/cargo && \
+    printf '[target.x86_64-unknown-linux-gnu]\nlinker = "clang"\nrustflags = ["-C", "link-arg=-fuse-ld=mold"]\n\n[target.aarch64-unknown-linux-gnu]\nlinker = "clang"\nrustflags = ["-C", "link-arg=-fuse-ld=mold"]\n' \
+        > /usr/local/cargo/config.toml
+
+# Verify
+RUN rustc --version && cargo --version && mold --version
+
+# Hand the toolchain dirs to angzarr so runtime cargo can refresh its registry
+# cache; binaries remain world-readable.
+RUN chown -R angzarr:angzarr /usr/local/cargo /usr/local/rustup
+
+WORKDIR /workspace
+USER angzarr

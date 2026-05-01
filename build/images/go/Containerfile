@@ -1,0 +1,39 @@
+# syntax=docker/dockerfile:1.4
+# Go build image for angzarr.
+#
+# Provides: Go toolchain, protoc-gen-go, protoc-gen-go-grpc, goimports.
+# Based on: ghcr.io/angzarr-io/angzarr-base (inherits fixuid + angzarr user)
+
+ARG BASE_IMAGE
+FROM ${BASE_IMAGE}
+
+ARG GO_VERSION=1.24.4
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    protobuf-compiler \
+    && rm -rf /var/lib/apt/lists/*
+
+# Go toolchain (system-wide)
+RUN ARCH=$(dpkg --print-architecture) && \
+    curl -Lo /tmp/go.tar.gz \
+        "https://go.dev/dl/go${GO_VERSION}.linux-${ARCH}.tar.gz" && \
+    tar -C /usr/local -xzf /tmp/go.tar.gz && \
+    rm /tmp/go.tar.gz
+
+# Tool installs land in /usr/local/go-tools (NOT /root/go) so angzarr can use them
+ENV GOPATH=/usr/local/go-tools \
+    PATH=/usr/local/go/bin:/usr/local/go-tools/bin:$PATH
+
+RUN go install google.golang.org/protobuf/cmd/protoc-gen-go@v1.36.6 && \
+    go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@v1.5.1 && \
+    go install golang.org/x/tools/cmd/goimports@latest && \
+    chmod -R a+rX /usr/local/go-tools
+
+# Verify
+RUN go version && protoc-gen-go --version && goimports -h 2>&1 | head -1
+
+# Hand GOPATH to angzarr so runtime `go build` can refresh module cache there
+RUN chown -R angzarr:angzarr /usr/local/go-tools
+
+WORKDIR /workspace
+USER angzarr

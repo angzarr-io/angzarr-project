@@ -1,0 +1,79 @@
+# syntax=docker/dockerfile:1.4
+# Base image for all angzarr language-specific build images.
+#
+# Provides: just, buf, fixuid (setuid runtime uid/gid remap), `angzarr`
+# non-root user (uid:gid 1000:1000) wired through `/etc/fixuid/config.yml`
+# so any consumer can `docker run --user "$(id -u):$(id -g)"` and have files
+# written through bind mounts owned by the host user.
+#
+# Based on: debian:bookworm-slim
+# Built/published: angzarr-project/.github/workflows/build-images.yml
+
+FROM docker.io/library/debian:bookworm-slim AS base
+
+ARG JUST_VERSION=1.36.0
+ARG BUF_VERSION=1.47.2
+ARG FIXUID_VERSION=0.6.0
+
+# System libraries needed for builds across languages
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    ca-certificates \
+    curl \
+    git \
+    pkg-config \
+    unzip \
+    libssl-dev \
+    libprotobuf-dev \
+    zlib1g-dev \
+    clang-format \
+    && rm -rf /var/lib/apt/lists/*
+
+# just (command runner)
+RUN curl --proto '=https' --tlsv1.2 -sSf https://just.systems/install.sh \
+    | bash -s -- --tag ${JUST_VERSION} --to /usr/local/bin
+
+# buf (modern protobuf toolchain)
+RUN ARCH=$(dpkg --print-architecture) && \
+    case "$ARCH" in \
+        amd64) BUF_ARCH="x86_64" ;; \
+        arm64) BUF_ARCH="aarch64" ;; \
+        *) echo "Unsupported architecture: $ARCH" && exit 1 ;; \
+    esac && \
+    curl --retry 3 --retry-delay 5 -fLo /usr/local/bin/buf \
+        "https://github.com/bufbuild/buf/releases/download/v${BUF_VERSION}/buf-Linux-${BUF_ARCH}" && \
+    chmod +x /usr/local/bin/buf && \
+    buf --version
+
+# fixuid: at container start, remaps the `angzarr` user's uid/gid to whatever
+# `docker run --user UID:GID` requested, then drops privileges. setuid root
+# so it can rewrite /etc/passwd and chown $HOME before exec'ing the command.
+RUN ARCH=$(dpkg --print-architecture) && \
+    case "$ARCH" in \
+        amd64) FIXUID_ARCH="amd64" ;; \
+        arm64) FIXUID_ARCH="arm64" ;; \
+        *) echo "Unsupported architecture: $ARCH" && exit 1 ;; \
+    esac && \
+    curl -fsSL --retry 3 -o /tmp/fixuid.tar.gz \
+        "https://github.com/boxboat/fixuid/releases/download/v${FIXUID_VERSION}/fixuid-${FIXUID_VERSION}-linux-${FIXUID_ARCH}.tar.gz" && \
+    tar -xzf /tmp/fixuid.tar.gz -C /usr/local/bin && \
+    chown root:root /usr/local/bin/fixuid && \
+    chmod 4755 /usr/local/bin/fixuid && \
+    rm /tmp/fixuid.tar.gz
+
+# Non-root user for runtime. Downstream language images install toolchains
+# as root, then end with `USER angzarr` to make non-root the default.
+RUN groupadd -g 1000 angzarr && \
+    useradd -u 1000 -g 1000 -m -s /bin/bash angzarr && \
+    mkdir -p /etc/fixuid && \
+    printf 'user: angzarr\ngroup: angzarr\npaths:\n  - /workspace\n  - /home/angzarr\n' \
+        > /etc/fixuid/config.yml
+
+WORKDIR /workspace
+RUN chown angzarr:angzarr /workspace
+
+# Verify (still as root, before downstream images switch USER)
+RUN just --version && buf --version && \
+    test -u /usr/local/bin/fixuid && test -x /usr/local/bin/fixuid
+
+ENTRYPOINT ["fixuid", "-q"]
