@@ -135,6 +135,15 @@ message PageHeader {
     ExternalDeferredSequence external_deferred = 2; // External fact (Stripe, FedEx, etc.)
     AngzarrDeferredSequence angzarr_deferred = 3; // Saga-produced command/fact
   }
+  // Per-command override of the enclosing CommandRequest's sync_mode.
+  // Only meaningful on CommandPage headers; ignored on EventPage headers.
+  // PMs emit a `repeated CommandBook` and cannot reach the request wrapper
+  // themselves; setting sync_mode here lets a PM tag a single emitted
+  // command (e.g. SYNC_MODE_DECISION when its accept/reject must surface
+  // synchronously) while the surrounding flow stays whatever the original
+  // caller asked for. When unset (the common case) coordinators inherit
+  // CommandRequest.sync_mode unchanged.
+  optional SyncMode sync_mode = 4;
 }
 
 // For facts from external systems (webhooks, integrations).
