@@ -1,4 +1,4 @@
-# Allocated: EU-0001 .. EU-0099, EU-0568
+# Allocated: EU-0001 .. EU-0099, EU-0568, EU-1008, EU-1009
 Feature: Hand aggregate logic
   The Hand aggregate manages a single poker hand: dealing, betting rounds,
   community cards, and showdown. Each hand is an isolated consistency
@@ -232,7 +232,7 @@ Feature: Hand aggregate logic
     And a BettingRoundComplete event for preflop
     And a CommunityCardsDealt event for FLOP
     When I handle a PlayerAction command for player "player-1" action BET amount 5
-    Then the command fails with status "INVALID_ARGUMENT"
+    Then the command fails with status "FAILED_PRECONDITION"
     And the error message contains "at least"
 
   # ==========================================================================
@@ -322,7 +322,7 @@ Feature: Hand aggregate logic
     Given a CardsDealt event for TEXAS_HOLDEM with 2 players
     And blinds posted with pot 15
     When I handle a RequestDraw command for player "player-1" discarding indices [0]
-    Then the command fails with status "INVALID_ARGUMENT"
+    Then the command fails with status "FAILED_PRECONDITION"
     And the error message contains "not supported"
 
   # ==========================================================================
@@ -503,7 +503,7 @@ Feature: Hand aggregate logic
     And blinds posted with pot 15 and current_bet 10
     And a ActionTaken event for player "player-1" with action CALL amount 5
     When I handle a PlayerAction command for player "player-2" action RAISE amount 15
-    Then the command fails with status "INVALID_ARGUMENT"
+    Then the command fails with status "FAILED_PRECONDITION"
     And the error message contains "raise"
 
   # ==========================================================================
@@ -600,7 +600,7 @@ Feature: Hand aggregate logic
   Scenario: Cannot post blind without player_root
     Given a CardsDealt event for TEXAS_HOLDEM with 2 players at stacks 500
     When I handle a PostBlind command with no player_root type "small" amount 5
-    Then the command fails with status "FAILED_PRECONDITION"
+    Then the command fails with status "INVALID_ARGUMENT"
     And the error message contains "player_root"
 
   @EU-0053
@@ -651,7 +651,7 @@ Feature: Hand aggregate logic
     Given a CardsDealt event for TEXAS_HOLDEM with 2 players at stacks 500
     And blinds posted with pot 15 and current_bet 10
     When I handle a PlayerAction command with no player_root action FOLD
-    Then the command fails with status "FAILED_PRECONDITION"
+    Then the command fails with status "INVALID_ARGUMENT"
     And the error message contains "player_root"
 
   @EU-0059
@@ -729,7 +729,7 @@ Feature: Hand aggregate logic
     Given a CardsDealt event for TEXAS_HOLDEM with 2 players at stacks 500
     And blinds posted with pot 15 and current_bet 10
     When I handle a PlayerAction command for player "player-1" action RAISE amount 12
-    Then the command fails with status "INVALID_ARGUMENT"
+    Then the command fails with status "FAILED_PRECONDITION"
     And the error message contains "at least"
 
   @EU-0068
@@ -737,7 +737,7 @@ Feature: Hand aggregate logic
     Given a CardsDealt event for TEXAS_HOLDEM with 2 players at stacks 500
     And blinds posted with pot 15 and current_bet 10
     When I handle a PlayerAction command for player "player-1" with unknown action type
-    Then the command fails with status "FAILED_PRECONDITION"
+    Then the command fails with status "INVALID_ARGUMENT"
     And the error message contains "Invalid action"
 
   @EU-0069
@@ -751,6 +751,11 @@ Feature: Hand aggregate logic
 
   @EU-0070
   Scenario: Bet for entire remaining stack becomes all-in
+    # short-stacked-blinds step posts SB 5 from initial stack 100, leaving
+    # player-1 with stack 95 going into FLOP. BET 95 == remaining stack, so
+    # the handler reclassifies the action as ALL_IN. Pin amount and resulting
+    # stack so a buggy classifier (e.g. emitting BET amount 95 with
+    # player_stack 0) is caught here, not just by the action label check.
     Given a CardsDealt event for TEXAS_HOLDEM with 2 players at stacks 100
     And short-stacked blinds posted with small 5 big 10 and stack 100
     And a BettingRoundComplete event for preflop
@@ -758,6 +763,8 @@ Feature: Hand aggregate logic
     When I handle a PlayerAction command for player "player-1" action BET amount 95
     Then the result is an angzarr_client.proto.examples.ActionTaken event
     And the action event has action "ALL_IN"
+    And the action event has amount 95
+    And the action event has player_stack 0
 
   @EU-0071
   Scenario: Raise for entire remaining stack becomes all-in
@@ -791,8 +798,8 @@ Feature: Hand aggregate logic
   Scenario: Cannot deal zero community cards
     Given a CardsDealt event for TEXAS_HOLDEM with 2 players at stacks 500
     When I handle a DealCommunityCards command with count 0
-    Then the command fails with status "INVALID_ARGUMENT"
-    And the error message contains "at least 1"
+    Then the command fails with status "FAILED_PRECONDITION"
+    And the error message contains "Must deal at least"
 
   @EU-0075
   Scenario: Wrong count for phase transition is rejected
@@ -834,7 +841,7 @@ Feature: Hand aggregate logic
     Given a completed betting for TEXAS_HOLDEM with 2 players
     And a ShowdownStarted event for the hand
     When I handle a RevealCards command with no player_root and muck false
-    Then the command fails with status "FAILED_PRECONDITION"
+    Then the command fails with status "INVALID_ARGUMENT"
     And the error message contains "player_root"
 
   @EU-0080
@@ -907,6 +914,38 @@ Feature: Hand aggregate logic
     When I handle an AwardPot command with winner "player-1" amount 10
     Then the result is a angzarr_client.proto.examples.PotAwarded event
     And the award event has winner "player-1" with amount 15
+
+  @EU-1009
+  Scenario: AwardPot splits pot evenly between two winners with identical hands
+    # Identical-hand split: pot 100, two winners each take 50. EU-0044
+    # confirms the rankings are equal but never asserts the pot is actually
+    # divided. Without this scenario, an evaluator that picks a single winner
+    # by enumeration order on ties would silently overpay one player and
+    # stiff the other — the rank labels would still match.
+    Given a CardsDealt event for TEXAS_HOLDEM with 2 players at stacks 500
+    And blinds posted with pot 100
+    When I handle an AwardPot command with awards:
+      | player_root | amount |
+      | player-1    | 50     |
+      | player-2    | 50     |
+    Then the result is a angzarr_client.proto.examples.PotAwarded event
+    And the award event has 2 winners
+    And the award event has winner "player-1" with amount 50
+    And the award event has winner "player-2" with amount 50
+
+  @EU-1008
+  Scenario: AwardPot rejects when sum exceeds pot total
+    # The under-award case (EU-0087) is silently corrected, but the over-award
+    # case must reject — paying out chips that don't exist would corrupt the
+    # ledger. The handler raises AwardsExceedPot (BoundViolation) which
+    # surfaces as FAILED_PRECONDITION + AWARDS_EXCEED_POT.
+    Given a CardsDealt event for TEXAS_HOLDEM with 2 players at stacks 500
+    And blinds posted with pot 15
+    When I handle an AwardPot command with winner "player-1" amount 50
+    Then the command fails with status "FAILED_PRECONDITION"
+    And the command is rejected with code "AWARDS_EXCEED_POT"
+    And the rejection field "got" equals "50"
+    And the rejection field "bound" equals "15"
 
   # ==========================================================================
   # BettingRoundComplete Applier — Per-Round State Reset

@@ -93,7 +93,8 @@ Feature: Table aggregate logic
     And a PlayerJoined event for player "player-1" at seat 3
     When I handle a JoinTable command for player "player-2" at seat 3 with buy-in 500
     Then the command fails with status "FAILED_PRECONDITION"
-    And the error message contains "Seat is occupied"
+    And the command is rejected with code "SEAT_OCCUPIED"
+    And the rejection field "seat" equals "3"
 
   @EU-0106
   Scenario: Cannot join table twice
@@ -107,8 +108,10 @@ Feature: Table aggregate logic
   Scenario: Cannot join with insufficient buy-in
     Given a TableCreated event for "Main Table" with min_buy_in 200
     When I handle a JoinTable command for player "player-1" at seat 0 with buy-in 100
-    Then the command fails with status "INVALID_ARGUMENT"
-    And the error message contains "Buy-in must be at least"
+    Then the command fails with status "FAILED_PRECONDITION"
+    And the command is rejected with code "BUY_IN_BELOW_MIN"
+    And the rejection field "got" equals "100"
+    And the rejection field "bound" equals "200"
 
   @EU-0108
   Scenario: Cannot join full table
@@ -273,23 +276,77 @@ Feature: Table aggregate logic
   # the Go implementation for cross-language consistency.
 
   @EU-0531
-  Scenario Outline: CreateTable rejects invalid configuration
+  Scenario: CreateTable rejects non-positive min_buy_in
     Given no prior events for the table aggregate
-    When I handle a CreateTable command with name "<name>" and variant "TEXAS_HOLDEM":
-      | small_blind   | big_blind   | min_buy_in   | max_buy_in   | max_players   |
-      | <small_blind> | <big_blind> | <min_buy_in> | <max_buy_in> | <max_players> |
-    Then the command fails with status "<status>"
-    And the error message contains "<message>"
+    When I handle a CreateTable command with name "Test" and variant "TEXAS_HOLDEM":
+      | small_blind | big_blind | min_buy_in | max_buy_in | max_players |
+      | 5           | 10        | 0          | 1000       | 6           |
+    Then the command fails with status "INVALID_ARGUMENT"
+    And the command is rejected with code "MIN_BUY_IN_MUST_BE_POSITIVE"
+    And the rejection field "value" equals "0"
 
-    Examples:
-      | name | small_blind | big_blind | min_buy_in | max_buy_in | max_players | status              | message                      |
-      | Test | 5           | 10        | 0          | 1000       | 6           | INVALID_ARGUMENT    | min_buy_in must be positive  |
-      | Test | 5           | 10        | 500        | 100        | 6           | FAILED_PRECONDITION | max_buy_in must be >= min_buy_in |
-      | Test | 0           | 10        | 100        | 1000       | 6           | INVALID_ARGUMENT    | small_blind                  |
-      | Test | 20          | 10        | 100        | 1000       | 6           | FAILED_PRECONDITION | big_blind must be >=         |
-      | Test | 5           | 0         | 100        | 1000       | 6           | FAILED_PRECONDITION | big_blind must be >= small_blind |
-      | Test | 5           | 10        | 100        | 1000       | 1           | FAILED_PRECONDITION | max_players must be 2-10     |
-      | Test | 5           | 10        | 100        | 1000       | 11          | FAILED_PRECONDITION | max_players must be 2-10     |
+  @EU-0531
+  Scenario: CreateTable rejects max_buy_in below min_buy_in
+    Given no prior events for the table aggregate
+    When I handle a CreateTable command with name "Test" and variant "TEXAS_HOLDEM":
+      | small_blind | big_blind | min_buy_in | max_buy_in | max_players |
+      | 5           | 10        | 500        | 100        | 6           |
+    Then the command fails with status "FAILED_PRECONDITION"
+    And the command is rejected with code "MAX_BUY_IN_MUST_EXCEED_MIN_BUY_IN"
+    And the rejection field "lhs" equals "100"
+    And the rejection field "rhs" equals "500"
+
+  @EU-0531
+  Scenario: CreateTable rejects non-positive small_blind
+    Given no prior events for the table aggregate
+    When I handle a CreateTable command with name "Test" and variant "TEXAS_HOLDEM":
+      | small_blind | big_blind | min_buy_in | max_buy_in | max_players |
+      | 0           | 10        | 100        | 1000       | 6           |
+    Then the command fails with status "INVALID_ARGUMENT"
+    And the command is rejected with code "SMALL_BLIND_MUST_BE_POSITIVE"
+    And the rejection field "value" equals "0"
+
+  @EU-0531
+  Scenario: CreateTable rejects big_blind below small_blind
+    Given no prior events for the table aggregate
+    When I handle a CreateTable command with name "Test" and variant "TEXAS_HOLDEM":
+      | small_blind | big_blind | min_buy_in | max_buy_in | max_players |
+      | 20          | 10        | 100        | 1000       | 6           |
+    Then the command fails with status "FAILED_PRECONDITION"
+    And the command is rejected with code "BIG_BLIND_MUST_EXCEED_SMALL_BLIND"
+    And the rejection field "lhs" equals "10"
+    And the rejection field "rhs" equals "20"
+
+  @EU-0531
+  Scenario: CreateTable rejects zero big_blind
+    Given no prior events for the table aggregate
+    When I handle a CreateTable command with name "Test" and variant "TEXAS_HOLDEM":
+      | small_blind | big_blind | min_buy_in | max_buy_in | max_players |
+      | 5           | 0         | 100        | 1000       | 6           |
+    Then the command fails with status "FAILED_PRECONDITION"
+    And the command is rejected with code "BIG_BLIND_MUST_EXCEED_SMALL_BLIND"
+    And the rejection field "lhs" equals "0"
+    And the rejection field "rhs" equals "5"
+
+  @EU-0531
+  Scenario: CreateTable rejects max_players below 2
+    Given no prior events for the table aggregate
+    When I handle a CreateTable command with name "Test" and variant "TEXAS_HOLDEM":
+      | small_blind | big_blind | min_buy_in | max_buy_in | max_players |
+      | 5           | 10        | 100        | 1000       | 1           |
+    Then the command fails with status "INVALID_ARGUMENT"
+    And the command is rejected with code "MAX_PLAYERS_OUT_OF_RANGE"
+    And the rejection field "got" equals "1"
+
+  @EU-0531
+  Scenario: CreateTable rejects max_players above 10
+    Given no prior events for the table aggregate
+    When I handle a CreateTable command with name "Test" and variant "TEXAS_HOLDEM":
+      | small_blind | big_blind | min_buy_in | max_buy_in | max_players |
+      | 5           | 10        | 100        | 1000       | 11          |
+    Then the command fails with status "INVALID_ARGUMENT"
+    And the command is rejected with code "MAX_PLAYERS_OUT_OF_RANGE"
+    And the rejection field "got" equals "11"
 
   @EU-0532
   Scenario: CreateTable requires a table_name
@@ -297,7 +354,7 @@ Feature: Table aggregate logic
     When I handle a CreateTable command with name "" and variant "TEXAS_HOLDEM":
       | small_blind | big_blind | min_buy_in | max_buy_in | max_players |
       | 5           | 10        | 100        | 1000       | 6           |
-    Then the command fails with status "FAILED_PRECONDITION"
+    Then the command fails with status "INVALID_ARGUMENT"
     And the error message contains "table_name"
 
   # ==========================================================================
@@ -311,8 +368,10 @@ Feature: Table aggregate logic
   Scenario: JoinTable rejects when buy-in exceeds max
     Given a TableCreated event for "Main Table"
     When I handle a JoinTable command for player "player-1" at seat 0 with buy-in 5000
-    Then the command fails with status "INVALID_ARGUMENT"
-    And the error message contains "cannot exceed"
+    Then the command fails with status "FAILED_PRECONDITION"
+    And the command is rejected with code "BUY_IN_ABOVE_MAX"
+    And the rejection field "got" equals "5000"
+    And the rejection field "bound" equals "1000"
 
   @EU-0534
   Scenario: JoinTable rejects when table does not exist
@@ -325,7 +384,7 @@ Feature: Table aggregate logic
   Scenario: JoinTable requires a player_root
     Given a TableCreated event for "Main Table"
     When I handle a JoinTable command for player "" at seat 0 with buy-in 500
-    Then the command fails with status "FAILED_PRECONDITION"
+    Then the command fails with status "INVALID_ARGUMENT"
     And the error message contains "player_root"
 
   @EU-0536
@@ -334,7 +393,8 @@ Feature: Table aggregate logic
     And a PlayerJoined event for player "player-1" at seat 3
     When I handle a JoinTable command for player "player-2" at seat 3 with buy-in 500
     Then the command fails with status "FAILED_PRECONDITION"
-    And the error message contains "Seat is occupied"
+    And the command is rejected with code "SEAT_OCCUPIED"
+    And the rejection field "seat" equals "3"
 
   # ==========================================================================
   # Leave Validation (Phase 2)
@@ -351,7 +411,7 @@ Feature: Table aggregate logic
   Scenario: LeaveTable requires a player_root
     Given a TableCreated event for "Main Table"
     When I handle a LeaveTable command for player ""
-    Then the command fails with status "FAILED_PRECONDITION"
+    Then the command fails with status "INVALID_ARGUMENT"
     And the error message contains "player_root"
 
   # ==========================================================================
@@ -634,5 +694,5 @@ Feature: Table aggregate logic
     Given a TableCreated event for "Main Table"
     And a PlayerJoined event for player "player-a" at seat 2 with stack 500
     When I handle an AddRebuyChips command for player "" reservation "res-001" seat 2 amount 100
-    Then the command fails with status "FAILED_PRECONDITION"
+    Then the command fails with status "INVALID_ARGUMENT"
     And the error message contains "player_root"

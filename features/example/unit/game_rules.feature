@@ -1,4 +1,4 @@
-# Allocated: EU-0700 .. EU-0740
+# Allocated: EU-0700 .. EU-0740 (in use: 0700..0728, 0729..0732)
 
 Feature: Game rules (Texas Hold'em, Omaha, Five Card Draw)
   The game_rules module defines polymorphic rule objects for each poker
@@ -432,3 +432,50 @@ Feature: Game rules (Texas Hold'em, Omaha, Five Card Draw)
     When the best hand is evaluated
     Then the rank is STRAIGHT_FLUSH
     And the kicker count is 0
+
+  # ==========================================================================
+  # Intra-class ordering (same rank category, different strength)
+  # ==========================================================================
+  # Same-class comparisons are where evaluators most often regress: a single
+  # field swap (e.g. comparing pair rank instead of trip rank in a full house)
+  # silently mis-awards pots without any rank label changing. Each scenario
+  # below pins the higher hand's score above the lower hand's so a bad
+  # comparator can't slip past with the same rank label.
+
+  @EU-0729
+  Scenario: Higher straight beats lower straight (A-high vs K-high)
+    Given Texas Hold'em rules
+    When I evaluate hand A with hole "Ah Qh" and community "Kd Jc Ts 4h 2c"
+    And I evaluate hand B with hole "Kh Qd" and community "Jc Ts 9h 4c 2s"
+    Then both hands rank STRAIGHT
+    And hand A score is greater than hand B score
+
+  @EU-0730
+  Scenario: Higher flush beats lower flush (A-high spades vs K-high spades)
+    Given Texas Hold'em rules
+    When I evaluate hand A with hole "As 7s" and community "2s 4s 6s Kc Qd"
+    And I evaluate hand B with hole "Ks 7s" and community "2s 4s 6s Ac Qd"
+    Then both hands rank FLUSH
+    And hand A score is greater than hand B score
+
+  @EU-0731
+  Scenario: Full house tiebreak uses trip rank, not pair rank
+    # JJJ-22 must beat TTT-AA: trip rank dominates pair rank. A buggy formula
+    # like (pair * 100 + trip) instead of (trip * 100 + pair) would invert
+    # this and silently award pots backwards.
+    Given Texas Hold'em rules
+    When I evaluate hand A with hole "Jh Jd" and community "Js 2c 2h 7c 4d"
+    And I evaluate hand B with hole "Ts Td" and community "Tc Ah Ad 7s 4c"
+    Then both hands rank FULL_HOUSE
+    And hand A score is greater than hand B score
+
+  @EU-0732
+  Scenario: Three of a kind tiebreak uses trip rank
+    # KKK with low kickers beats QQQ with higher kickers — trip rank is the
+    # primary tiebreaker. Catches a comparator that summed kickers before
+    # weighting trip rank.
+    Given Texas Hold'em rules
+    When I evaluate hand A with hole "Kh Kd" and community "Ks 4c 2h 5d 7c"
+    And I evaluate hand B with hole "Qh Qd" and community "Qs Ah Jc 9d 8c"
+    Then both hands rank THREE_OF_A_KIND
+    And hand A score is greater than hand B score

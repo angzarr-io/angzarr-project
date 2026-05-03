@@ -1,4 +1,4 @@
-# Allocated: EU-0400 .. EU-0499 (in use: 0400..0440, 0441..0442)
+# Allocated: EU-0400 .. EU-0499 (in use: 0400..0440, 0441..0442, 0445..0447)
 Feature: Process manager logic
   The HandFlowPM orchestrates a poker hand's state machine: dealing, blind
   posting, betting rounds, community cards, and showdown. Unlike sagas,
@@ -147,6 +147,62 @@ Feature: Process manager logic
     When the process manager ends the betting round
     Then the process transitions to phase SHOWDOWN
     And an AwardPot command is sent
+
+  # ==========================================================================
+  # Position-Specific Action Order
+  # ==========================================================================
+  # Three positional rules every poker engine must get right:
+  #   - Preflop: BB acts last and retains the "option" to check or raise even
+  #     when current_bet == BB amount (everyone else just called the blind).
+  #   - Post-flop, ring (3+): action starts at the first un-folded seat left
+  #     of the dealer (typically the SB position).
+  #   - Post-flop, heads-up: action reverses — BB acts first, dealer/SB last.
+  # All three are easy to get wrong with off-by-one logic in the seat walker.
+
+  @EU-0445
+  Scenario: BB retains option preflop after non-BB players match the blind
+    # Three-handed: dealer at 0, SB at 1, BB at 2. Blinds posted, current_bet
+    # = BB. Dealer (UTG with 3 players) calls; SB completes. Both have
+    # bet_this_round == current_bet, but the round must NOT be complete: BB's
+    # has_acted is still false (the PM resets it on _start_betting), so BB
+    # gets the option to check or raise even though their blind already
+    # matches. A buggy implementation that closes the round on
+    # "everyone-matched" would skip BB entirely.
+    Given an active hand process in phase BETTING
+    And dealer is at position 0 and 3 players seated at positions 0, 1, 2
+    And blinds posted: SB position 1 amount 5, BB position 2 amount 10
+    And action_on is position 0
+    When the player at position 0 calls 10
+    And the player at position 1 calls 5
+    Then the betting round is not complete
+    And action_on is position 2
+
+  @EU-0446
+  Scenario: Post-flop action starts at first active seat left of dealer (3-handed)
+    # After the flop is dealt with 3 players still in (dealer at seat 0, SB at
+    # 1, BB at 2), the next betting round opens with action on seat 1 (SB) —
+    # the first active seat clockwise from the dealer. Confirms the seat
+    # walker uses the dealer position, not the previous-round action_on.
+    Given an active hand process with betting_phase PREFLOP
+    And dealer is at position 0 and 3 players seated at positions 0, 1, 2
+    And the preflop betting round is complete
+    When a CommunityCardsDealt event for FLOP is handled
+    Then the process transitions to phase BETTING
+    And action_on is position 1
+
+  @EU-0447
+  Scenario: Post-flop action starts on the BB in heads-up
+    # Heads-up reverses the post-flop order: dealer/SB at seat 0 acts last,
+    # BB at seat 1 acts first. _find_next_active(dealer_position) wraps to
+    # the next seat — which IS the BB. Without an explicit assertion, a
+    # heads-up off-by-one (e.g. starting on the dealer post-flop) would slip
+    # through unit tests because the action still completes.
+    Given an active hand process with betting_phase PREFLOP
+    And dealer is at position 0 and 2 players seated at positions 0, 1
+    And the preflop betting round is complete
+    When a CommunityCardsDealt event for FLOP is handled
+    Then the process transitions to phase BETTING
+    And action_on is position 1
 
   # ==========================================================================
   # All-in and Early Endings

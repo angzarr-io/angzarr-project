@@ -1,4 +1,4 @@
-# Allocated: EU-0800 .. EU-0854
+# Allocated: EU-0800 .. EU-0856
 # DOC: Unit scenarios for the Tournament aggregate (tournament/agg/handlers.py).
 
 Feature: Tournament aggregate logic
@@ -65,28 +65,28 @@ Feature: Tournament aggregate logic
   Scenario: Cannot create tournament with empty name
     Given no prior events for the tournament aggregate
     When I handle a CreateTournament command with name "" buy_in 100 starting_stack 1000 max_players 100 min_players 10
-    Then the command fails with status "FAILED_PRECONDITION"
+    Then the command fails with status "INVALID_ARGUMENT"
     And the error message contains "name is required"
 
   @EU-0803
   Scenario: Cannot create tournament with non-positive buy_in
     Given no prior events for the tournament aggregate
     When I handle a CreateTournament command with name "Test Tournament" buy_in 0 starting_stack 1000 max_players 100 min_players 10
-    Then the command fails with status "FAILED_PRECONDITION"
+    Then the command fails with status "INVALID_ARGUMENT"
     And the error message contains "buy_in must be positive"
 
   @EU-0804
   Scenario: Cannot create tournament with non-positive starting_stack
     Given no prior events for the tournament aggregate
     When I handle a CreateTournament command with name "Test Tournament" buy_in 100 starting_stack 0 max_players 100 min_players 10
-    Then the command fails with status "FAILED_PRECONDITION"
+    Then the command fails with status "INVALID_ARGUMENT"
     And the error message contains "starting_stack must be positive"
 
   @EU-0805
   Scenario: Cannot create tournament with min_players below 2
     Given no prior events for the tournament aggregate
     When I handle a CreateTournament command with name "Test Tournament" buy_in 100 starting_stack 1000 max_players 100 min_players 1
-    Then the command fails with status "FAILED_PRECONDITION"
+    Then the command fails with status "INVALID_ARGUMENT"
     And the error message contains "min_players must be at least 2"
 
   @EU-0806
@@ -94,7 +94,9 @@ Feature: Tournament aggregate logic
     Given no prior events for the tournament aggregate
     When I handle a CreateTournament command with name "Test Tournament" buy_in 100 starting_stack 1000 max_players 5 min_players 10
     Then the command fails with status "FAILED_PRECONDITION"
-    And the error message contains "min_players cannot exceed"
+    And the command is rejected with code "MIN_PLAYERS_EXCEEDS_MAX"
+    And the rejection field "lhs" equals "10"
+    And the rejection field "rhs" equals "5"
 
   # ==========================================================================
   # Open / Close Registration
@@ -289,6 +291,31 @@ Feature: Tournament aggregate logic
     Then the command fails with status "FAILED_PRECONDITION"
     And the error message contains "not running"
 
+  # IDs renumbered to EU-0855/0856; the original numbers collided with the
+  # Pause/Resume scenarios further down. EU-0842's comment block has been
+  # updated to reference the new ID.
+  @EU-0855
+  Scenario: AdvanceBlindLevel rejects when blind structure is exhausted
+    # current_level is at the final defined level (2); advancing past it would
+    # write a BlindLevelAdvanced event with level 3 the structure does not
+    # define. Reject so the operator decides explicitly (extend the structure
+    # or end the tournament).
+    Given a running tournament at the final defined blind level
+    When I handle an AdvanceBlindLevel command
+    Then the command fails with status "FAILED_PRECONDITION"
+    And the command is rejected with code "BLIND_STRUCTURE_EXHAUSTED"
+    And the rejection field "current" equals "2"
+    And the rejection field "max_value" equals "2"
+
+  @EU-0856
+  Scenario: AdvanceBlindLevel rejects when no blind structure is defined
+    # Empty structure folds into BLIND_STRUCTURE_EXHAUSTED with max=0.
+    Given a running tournament with no blind structure
+    When I handle an AdvanceBlindLevel command
+    Then the command fails with status "FAILED_PRECONDITION"
+    And the command is rejected with code "BLIND_STRUCTURE_EXHAUSTED"
+    And the rejection field "max_value" equals "0"
+
   # ==========================================================================
   # EliminatePlayer — Success and Unregistered Rejection
   # ==========================================================================
@@ -434,6 +461,9 @@ Feature: Tournament aggregate logic
 
   @EU-0842
   Scenario: Rebuild state from TournamentCreated sets identity and initial level
+    # blind_structure is preserved as supplied — when the create event omits
+    # one, the rebuilt state has no levels and AdvanceBlindLevel rejects with
+    # BLIND_STRUCTURE_EXHAUSTED (see EU-0856).
     Given a TournamentCreated event for "Spring Classic" with buy_in 500 starting_stack 10000 max_players 9 min_players 2
     When I rebuild the tournament state
     Then the tournament state has tournament_id "tournament_Spring Classic"
@@ -444,7 +474,7 @@ Feature: Tournament aggregate logic
     And the tournament state has max_players 9
     And the tournament state has min_players 2
     And the tournament state has current_level 1
-    And the tournament state has blind_structure count 1
+    And the tournament state has blind_structure count 0
 
   @EU-0843
   Scenario: Rebuild state after RegistrationOpened transitions status

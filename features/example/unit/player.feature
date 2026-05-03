@@ -106,9 +106,15 @@ Feature: Player aggregate logic
   @EU-0206
   Scenario: Cannot deposit zero or negative
     Given a PlayerRegistered event for "Alice"
+    And the command cover has domain "player" and correlation_id "deposit-flow-1"
     When I handle a DepositFunds command with amount 0
     Then the command fails with status "INVALID_ARGUMENT"
-    And the error message equals "amount must be positive"
+    And the command is rejected with code "AMOUNT_MUST_BE_POSITIVE"
+    And the rejection field "value" equals "0"
+    # The router stamps the originating cover onto every rejection so the
+    # caller can trace it back to (domain, correlation_id, root) without
+    # threading context through handler signatures.
+    And the rejection cover has domain "player" and correlation_id "deposit-flow-1"
 
   # Boundary: amount=1 must succeed. Catches `if amount <= 0` → `<= 1`
   # which would (wrongly) reject the smallest positive deposit.
@@ -142,7 +148,9 @@ Feature: Player aggregate logic
     And a FundsDeposited event with amount 500
     When I handle a WithdrawFunds command with amount 600
     Then the command fails with status "FAILED_PRECONDITION"
-    And the error message equals "insufficient available balance"
+    And the command is rejected with code "INSUFFICIENT_AVAILABLE_BALANCE"
+    And the rejection field "requested" equals "600"
+    And the rejection field "available" equals "500"
 
   # Boundary: amount=1 must succeed. Catches `if amount <= 0` → `<= 1`.
   Scenario: Withdraw of one chip succeeds at the lower boundary
@@ -160,7 +168,9 @@ Feature: Player aggregate logic
     And a FundsReserved event with amount 800 for table "table-1"
     When I handle a WithdrawFunds command with amount 300
     Then the command fails with status "FAILED_PRECONDITION"
-    And the error message equals "insufficient available balance"
+    And the command is rejected with code "INSUFFICIENT_AVAILABLE_BALANCE"
+    And the rejection field "requested" equals "300"
+    And the rejection field "available" equals "200"
 
   # ==========================================================================
   # Fund Reservation - Locking Funds for Table Buy-ins
@@ -198,7 +208,9 @@ Feature: Player aggregate logic
     And a FundsDeposited event with amount 500
     When I handle a ReserveFunds command with amount 600 for table "table-1"
     Then the command fails with status "FAILED_PRECONDITION"
-    And the error message equals "Insufficient funds"
+    And the command is rejected with code "INSUFFICIENT_FUNDS"
+    And the rejection field "requested" equals "600"
+    And the rejection field "available" equals "500"
 
   @EU-0212
   Scenario: Cannot reserve for same table twice
@@ -207,7 +219,9 @@ Feature: Player aggregate logic
     And a FundsReserved event with amount 500 for table "table-1"
     When I handle a ReserveFunds command with amount 200 for table "table-1"
     Then the command fails with status "FAILED_PRECONDITION"
-    And the error message equals "Funds already reserved for this table"
+    And the command is rejected with code "FUNDS_ALREADY_RESERVED_FOR_TABLE"
+    # uuid5(NAMESPACE_OID, "table-1").bytes.hex() — byte-identical across Python and Rust.
+    And the rejection field "table_root_hex" equals "eba6a19b488f5e1097a5a34a92553679"
 
   # ==========================================================================
   # Fund Release - Returning Reserved Funds
@@ -235,7 +249,9 @@ Feature: Player aggregate logic
     And a FundsDeposited event with amount 1000
     When I handle a ReleaseFunds command for table "table-1"
     Then the command fails with status "FAILED_PRECONDITION"
-    And the error message equals "No funds reserved for this table"
+    And the command is rejected with code "NO_FUNDS_RESERVED_FOR_TABLE"
+    # uuid5(NAMESPACE_OID, "table-1").bytes.hex() — byte-identical across Python and Rust.
+    And the rejection field "table_root_hex" equals "eba6a19b488f5e1097a5a34a92553679"
 
   # ==========================================================================
   # State Reconstruction
@@ -281,14 +297,14 @@ Feature: Player aggregate logic
   Scenario: Cannot register with empty display_name
     Given no prior events for the player aggregate
     When I handle a RegisterPlayer command with name "" and email "alice@example.com"
-    Then the command fails with status "FAILED_PRECONDITION"
+    Then the command fails with status "INVALID_ARGUMENT"
     And the error message equals "display_name is required"
 
   @EU-0218
   Scenario: Cannot register with empty email
     Given no prior events for the player aggregate
     When I handle a RegisterPlayer command with name "Alice" and email ""
-    Then the command fails with status "FAILED_PRECONDITION"
+    Then the command fails with status "INVALID_ARGUMENT"
     And the error message equals "email is required"
 
   @EU-0219
@@ -296,7 +312,8 @@ Feature: Player aggregate logic
     Given a PlayerRegistered event for "Alice"
     When I handle a DepositFunds command with amount -100
     Then the command fails with status "INVALID_ARGUMENT"
-    And the error message equals "amount must be positive"
+    And the command is rejected with code "AMOUNT_MUST_BE_POSITIVE"
+    And the rejection field "value" equals "-100"
 
   @EU-0220
   Scenario: Cannot withdraw from non-existent player
@@ -311,7 +328,8 @@ Feature: Player aggregate logic
     And a FundsDeposited event with amount 1000
     When I handle a WithdrawFunds command with amount 0
     Then the command fails with status "INVALID_ARGUMENT"
-    And the error message equals "amount must be positive"
+    And the command is rejected with code "AMOUNT_MUST_BE_POSITIVE"
+    And the rejection field "value" equals "0"
 
   @EU-0222
   Scenario: Can withdraw the exact available balance
@@ -336,7 +354,8 @@ Feature: Player aggregate logic
     And a FundsDeposited event with amount 1000
     When I handle a ReserveFunds command with amount 0 for table "table-1"
     Then the command fails with status "INVALID_ARGUMENT"
-    And the error message equals "amount must be positive"
+    And the command is rejected with code "AMOUNT_MUST_BE_POSITIVE"
+    And the rejection field "value" equals "0"
 
   @EU-0225
   Scenario: Insufficient funds error beats duplicate-reservation error
@@ -347,7 +366,9 @@ Feature: Player aggregate logic
     And a FundsReserved event with amount 50 for table "table-1"
     When I handle a ReserveFunds command with amount 500 for table "table-1"
     Then the command fails with status "FAILED_PRECONDITION"
-    And the error message equals "Insufficient funds"
+    And the command is rejected with code "INSUFFICIENT_FUNDS"
+    And the rejection field "requested" equals "500"
+    And the rejection field "available" equals "50"
 
   @EU-0226
   Scenario: Reserve funds across multiple tables accumulates reserved balance
@@ -372,7 +393,7 @@ Feature: Player aggregate logic
     Given a PlayerRegistered event for "Alice"
     And a FundsDeposited event with amount 1000
     When I handle a ReleaseFunds command for table ""
-    Then the command fails with status "FAILED_PRECONDITION"
+    Then the command fails with status "INVALID_ARGUMENT"
     And the error message equals "table_root is required"
 
   @EU-0229
@@ -422,7 +443,7 @@ Feature: Player aggregate logic
     And a FundsDeposited event with amount 1000
     When I handle a TransferFunds command from "other" with amount 0 for hand "hand-1" reason "pot_win"
     Then the command fails with status "INVALID_ARGUMENT"
-    And the error message equals "amount must be non-zero"
+    And the command is rejected with code "AMOUNT_MUST_BE_NON_ZERO"
 
   # ==========================================================================
   # Full Lifecycle Replays
