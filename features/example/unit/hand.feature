@@ -1,4 +1,4 @@
-# Allocated: EU-0001 .. EU-0099, EU-0568, EU-1008, EU-1009
+# Allocated: EU-0001 .. EU-0099, EU-0568, EU-1008, EU-1009, EU-1100 .. EU-1124
 Feature: Hand aggregate logic
   The Hand aggregate manages a single poker hand: dealing, betting rounds,
   community cards, and showdown. Each hand is an isolated consistency
@@ -1067,3 +1067,377 @@ Feature: Hand aggregate logic
     When I handle a RequestDraw command for player "player-1" discarding indices [0, 0, 1]
     Then the command fails with status "FAILED_PRECONDITION"
     And the error message contains "Duplicate"
+
+  # ==========================================================================
+  # Side Pots — Layered Awards When Stacks Differ
+  # ==========================================================================
+  # Real poker (TDA Rule 42): when a player goes all-in for less than the
+  # current bet, a side pot is created from the additional chips contributed
+  # by the players with deeper stacks. The all-in player is eligible only for
+  # the main pot; the side pot is contested only among the remaining bettors.
+  # The proto already exposes ``PotAward.pot_type`` and ``PotWinner.pot_type``
+  # ("main", "side_1", "side_2", ...) — these scenarios exercise that surface.
+
+  @EU-1100
+  Scenario: Three-way all-in at different stacks creates a main pot and one side pot
+    # A=100, B=200, C=500. A all-in for 100. B all-in for 200. C calls 200.
+    # Main pot = 100 * 3 = 300, eligible {A,B,C}.
+    # Side pot = (200 - 100) * 2 = 200, eligible {B,C} only.
+    # C's uncontested chips (300) return to C — not part of any pot.
+    Given a CardsDealt event for TEXAS_HOLDEM with players:
+      | player_root | position | stack |
+      | player-A    | 0        | 100   |
+      | player-B    | 1        | 200   |
+      | player-C    | 2        | 500   |
+    And blinds posted with pot 15
+    And a ActionTaken event for player "player-A" with action ALL_IN amount 100
+    And a ActionTaken event for player "player-B" with action ALL_IN amount 200
+    And a ActionTaken event for player "player-C" with action CALL amount 200
+    When the side pots are computed
+    Then there are 2 pots
+    And pot "main" has amount 300 and eligible players "player-A,player-B,player-C"
+    And pot "side_1" has amount 200 and eligible players "player-B,player-C"
+
+  @EU-1101
+  Scenario: Side pot is contested only by players who could match the higher all-in
+    # Same setup as EU-1100. If player-A wins the showdown, A takes only the
+    # main pot (300); the side pot (200) is awarded to whichever of B/C has
+    # the better hand among them, since A was not eligible for it.
+    Given a CardsDealt event for TEXAS_HOLDEM with players:
+      | player_root | position | stack |
+      | player-A    | 0        | 100   |
+      | player-B    | 1        | 200   |
+      | player-C    | 2        | 500   |
+    And blinds posted with pot 15
+    And all three players are all-in with totals 100/200/200
+    And the side pots are computed:
+      | pot_type | amount | eligible                            |
+      | main     | 300    | player-A,player-B,player-C          |
+      | side_1   | 200    | player-B,player-C                   |
+    When I handle an AwardPot command with awards:
+      | player_root | amount | pot_type |
+      | player-A    | 300    | main     |
+      | player-C    | 200    | side_1   |
+    Then the result is a angzarr_client.proto.examples.PotAwarded event
+    And the award event has 2 winners
+    And the award event winner 0 has player_root "player-A" amount 300 pot_type "main"
+    And the award event winner 1 has player_root "player-C" amount 200 pot_type "side_1"
+
+  @EU-1102
+  Scenario: Award rejects a winner who is not eligible for the pot they were assigned
+    # Player-A is all-in for the main pot only; awarding player-A any chips
+    # from "side_1" must be rejected — A could not have matched those chips.
+    Given a CardsDealt event for TEXAS_HOLDEM with players:
+      | player_root | position | stack |
+      | player-A    | 0        | 100   |
+      | player-B    | 1        | 200   |
+      | player-C    | 2        | 500   |
+    And blinds posted with pot 15
+    And the side pots are computed:
+      | pot_type | amount | eligible                            |
+      | main     | 300    | player-A,player-B,player-C          |
+      | side_1   | 200    | player-B,player-C                   |
+    When I handle an AwardPot command with awards:
+      | player_root | amount | pot_type |
+      | player-A    | 200    | side_1   |
+    Then the command fails with status "FAILED_PRECONDITION"
+    And the command is rejected with code "WINNER_NOT_ELIGIBLE_FOR_POT"
+    And the rejection field "pot_type" equals "side_1"
+    And the rejection field "player_root" contains "player-A"
+
+  @EU-1103
+  Scenario: Four-way all-in produces a main pot and two distinct side pots
+    # A=50, B=150, C=300, D=300. All four all-in.
+    # Main pot   = 50  * 4 = 200, eligible {A,B,C,D}
+    # Side pot 1 = 100 * 3 = 300, eligible {B,C,D}
+    # Side pot 2 = 150 * 2 = 300, eligible {C,D}
+    Given a CardsDealt event for TEXAS_HOLDEM with players:
+      | player_root | position | stack |
+      | player-A    | 0        | 50    |
+      | player-B    | 1        | 150   |
+      | player-C    | 2        | 300   |
+      | player-D    | 3        | 300   |
+    And blinds posted with pot 15
+    And all four players are all-in with totals 50/150/300/300
+    When the side pots are computed
+    Then there are 3 pots
+    And pot "main" has amount 200 and eligible players "player-A,player-B,player-C,player-D"
+    And pot "side_1" has amount 300 and eligible players "player-B,player-C,player-D"
+    And pot "side_2" has amount 300 and eligible players "player-C,player-D"
+
+  @EU-1104
+  Scenario: Folded player contributions stay in the pot they were already part of
+    # Folding does not refund chips. If a player put in 80 and then folded
+    # before an opponent went all-in for 100, that 80 still counts toward
+    # the main pot. The main pot is sized to the smallest still-contesting
+    # all-in (100), not to the folded player's contribution (80).
+    Given a CardsDealt event for TEXAS_HOLDEM with players:
+      | player_root | position | stack |
+      | player-A    | 0        | 100   |
+      | player-B    | 1        | 200   |
+      | player-C    | 2        | 500   |
+    And blinds posted with pot 15
+    And player "player-B" has invested 80 then folded
+    And player "player-A" is all-in for 100
+    And player "player-C" called 100
+    When the side pots are computed
+    Then there is 1 pot
+    And pot "main" has amount 280 and eligible players "player-A,player-C"
+
+  @EU-1105
+  Scenario: Uncontested over-bet by the deepest stack is returned, not pooled
+    # If C bets 500 but the next-deepest stack is 200 (B all-in), the
+    # uncontested 300 of C's bet is NOT placed into any pot — it returns to
+    # C's stack. Only chips that at least two players can match form a pot.
+    Given a CardsDealt event for TEXAS_HOLDEM with players:
+      | player_root | position | stack |
+      | player-A    | 0        | 100   |
+      | player-B    | 1        | 200   |
+      | player-C    | 2        | 500   |
+    And blinds posted with pot 15
+    And player-A all-in for 100, player-B all-in for 200, player-C bets 500
+    When the side pots are computed
+    Then the uncontested return to "player-C" is 300
+    And the sum of all pot amounts equals 500
+
+  @EU-1106
+  Scenario: AwardPot routes pot_type per-pot and pot_total reflects each pot's amount
+    Given a CardsDealt event for TEXAS_HOLDEM with players:
+      | player_root | position | stack |
+      | player-A    | 0        | 100   |
+      | player-B    | 1        | 200   |
+      | player-C    | 2        | 500   |
+    And blinds posted with pot 15
+    And the side pots are computed:
+      | pot_type | amount |
+      | main     | 300    |
+      | side_1   | 200    |
+    When I handle an AwardPot command with awards:
+      | player_root | amount | pot_type |
+      | player-A    | 300    | main     |
+      | player-B    | 200    | side_1   |
+    Then a PotAwarded event is emitted
+    And the award event winner 0 has pot_type "main"
+    And the award event winner 1 has pot_type "side_1"
+
+  @EU-1107
+  Scenario: HandComplete after multi-pot award lists every winner across pots
+    Given a CardsDealt event for TEXAS_HOLDEM with players:
+      | player_root | position | stack |
+      | player-A    | 0        | 100   |
+      | player-B    | 1        | 200   |
+      | player-C    | 2        | 500   |
+    And blinds posted with pot 15
+    And the side pots are computed:
+      | pot_type | amount |
+      | main     | 300    |
+      | side_1   | 200    |
+    When I handle an AwardPot command with awards:
+      | player_root | amount | pot_type |
+      | player-A    | 300    | main     |
+      | player-C    | 200    | side_1   |
+    Then a HandComplete event is emitted
+    And the HandComplete event has 2 winners
+    And the HandComplete winners include "player-A" with pot_type "main"
+    And the HandComplete winners include "player-C" with pot_type "side_1"
+
+  @EU-1108
+  Scenario: Split within a side pot when two eligible players tie
+    # B and C are eligible for side_1. Both have identical hands. The pot
+    # (200) splits 100/100. A is ineligible and receives nothing from side_1.
+    Given a CardsDealt event for TEXAS_HOLDEM with players:
+      | player_root | position | stack |
+      | player-A    | 0        | 100   |
+      | player-B    | 1        | 200   |
+      | player-C    | 2        | 500   |
+    And blinds posted with pot 15
+    And the side pots are computed:
+      | pot_type | amount |
+      | main     | 300    |
+      | side_1   | 200    |
+    When I handle an AwardPot command with awards:
+      | player_root | amount | pot_type |
+      | player-A    | 300    | main     |
+      | player-B    | 100    | side_1   |
+      | player-C    | 100    | side_1   |
+    Then a PotAwarded event is emitted
+    And the award event has 3 winners
+
+  @EU-1109
+  Scenario: All-in for less than min-raise does not create a side pot when only one other caller remains
+    # When only one player has chips left to bet after a short all-in, no
+    # side pot can form (a pot needs at least two contestable bettors).
+    # Main pot just absorbs both contributions.
+    Given a CardsDealt event for TEXAS_HOLDEM with players:
+      | player_root | position | stack |
+      | player-A    | 0        | 30    |
+      | player-B    | 1        | 500   |
+    And blinds posted with pot 15
+    And player-A all-in for 30, player-B called 30
+    When the side pots are computed
+    Then there is 1 pot
+    And pot "main" has amount 60 and eligible players "player-A,player-B"
+
+  # ==========================================================================
+  # Antes — Forced Per-Player Bets Before Blinds
+  # ==========================================================================
+  # Real poker (TDA Rule 7 + level structure): tournaments commonly require
+  # every player to post an ante in addition to the blinds. Modern WSOP /
+  # TDA structures more often use the "BB ante" — a single ante posted by
+  # the BB equal to the BB amount. Either form must contribute to the pot
+  # before the deal-deciding action begins. ``BlindLevel.ante`` already
+  # exists in the proto; ``BlindPosted.blind_type`` accepts "ante".
+
+  @EU-1110
+  Scenario: Each player posts an ante before the small blind
+    # Per-player ante. Three players each post ante 2 (total 6) before SB/BB
+    # are posted. Pot after antes = 6, after SB+BB = 21.
+    Given a CardsDealt event for TEXAS_HOLDEM with players:
+      | player_root | position | stack |
+      | player-1    | 0        | 500   |
+      | player-2    | 1        | 500   |
+      | player-3    | 2        | 500   |
+    When I handle a PostBlind command for player "player-1" type "ante" amount 2
+    And I handle a PostBlind command for player "player-2" type "ante" amount 2
+    And I handle a PostBlind command for player "player-3" type "ante" amount 2
+    Then 3 BlindPosted events are emitted with blind_type "ante"
+    And the hand state pot_total is 6
+    And player "player-1" has stack 498
+    And player "player-2" has stack 498
+    And player "player-3" has stack 498
+
+  @EU-1111
+  Scenario: Big-blind ante is posted once by the BB seat for the whole table
+    # BB ante = the BB amount, posted by the BB seat in addition to the BB.
+    # With BB=10 and a BB-ante structure, the BB seat puts 20 in (10 BB +
+    # 10 ante), other seats post no ante.
+    Given a CardsDealt event for TEXAS_HOLDEM with 3 players at stacks 500
+    When I handle a PostBlind command for player "player-2" type "bb_ante" amount 10
+    Then the result is a angzarr_client.proto.examples.BlindPosted event
+    And the blind event has blind_type "bb_ante"
+    And the blind event has amount 10
+    And the blind event has player_stack 490
+    And the hand state pot_total is 10
+
+  @EU-1112
+  Scenario: Short-stacked player posts an all-in ante for less than the full ante
+    # A short stack with chips below the ante still posts what they have and
+    # is marked all-in for the hand. The ante they did post still contributes
+    # to the main pot (parallel to short-stacked blinds, EU-0009).
+    Given a CardsDealt event for TEXAS_HOLDEM with players:
+      | player_root | position | stack |
+      | player-1    | 0        | 1     |
+      | player-2    | 1        | 500   |
+    When I handle a PostBlind command for player "player-1" type "ante" amount 5
+    Then the result is a angzarr_client.proto.examples.BlindPosted event
+    And the blind event has blind_type "ante"
+    And the blind event has amount 1
+    And the blind event has player_stack 0
+    And player "player-1" is all-in
+
+  @EU-1113
+  Scenario: Posting an ante does not start the betting round on its own
+    # Antes are forced bets but do NOT establish current_bet (only the BB
+    # does). After ante and SB are posted, current_bet is the SB amount.
+    Given a CardsDealt event for TEXAS_HOLDEM with 2 players at stacks 500
+    When I handle a PostBlind command for player "player-1" type "ante" amount 2
+    Then the result is a angzarr_client.proto.examples.BlindPosted event
+    And the hand state current_bet is 0
+
+  @EU-1114
+  Scenario: Cannot post an ante after blinds are already posted
+    # Procedural ordering: antes are collected before blinds. Posting an
+    # ante after the BB is up is rejected.
+    Given a CardsDealt event for TEXAS_HOLDEM with 2 players at stacks 500
+    And blinds posted with pot 15
+    When I handle a PostBlind command for player "player-1" type "ante" amount 2
+    Then the command fails with status "FAILED_PRECONDITION"
+    And the error message contains "ante"
+
+  @EU-1115
+  Scenario: Ante contributes to the main pot for side-pot accounting
+    # An ante from a player who later folds still belongs to the main pot,
+    # exactly like blinds (parallel to EU-1104).
+    Given a CardsDealt event for TEXAS_HOLDEM with players:
+      | player_root | position | stack |
+      | player-A    | 0        | 100   |
+      | player-B    | 1        | 200   |
+    And player "player-A" posts ante 5 then folds before the flop
+    And player "player-B" posts ante 5
+    When the side pots are computed
+    Then pot "main" includes the 5 ante from "player-A"
+    And pot "main" includes the 5 ante from "player-B"
+
+  # ==========================================================================
+  # Showdown Reveal Order
+  # ==========================================================================
+  # Real poker (TDA Rule 36 + Robert's Rules §36): at showdown the player
+  # who took the last aggressive action (bet or raise) on the river must
+  # show first. If there was no betting on the river, the first un-folded
+  # seat clockwise of the dealer button shows first; remaining players
+  # follow in clockwise order. The proto's ``ShowdownStarted.players_to_show``
+  # is a repeated bytes field — these scenarios pin the order.
+
+  @EU-1120
+  Scenario: Last aggressor on the river shows cards first
+    # Three-handed: dealer at seat 0 (player-A), SB at 1 (player-B), BB at 2
+    # (player-C). On the river, player-B bets, player-C calls, player-A
+    # calls. Last aggressor was player-B. Showdown order: B, then C clockwise,
+    # then A.
+    Given a hand at showdown with:
+      | player_root | seat | folded |
+      | player-A    | 0    | false  |
+      | player-B    | 1    | false  |
+      | player-C    | 2    | false  |
+    And the last aggressive action on the river was by "player-B"
+    When the ShowdownStarted event is emitted
+    Then the showdown players_to_show order is "player-B,player-C,player-A"
+
+  @EU-1121
+  Scenario: With no river betting, the first seat clockwise of the dealer shows first
+    # Dealer at seat 0. Round was checked through. Seat 1 (SB) is the first
+    # un-folded clockwise seat from the dealer, so SB shows first; the rest
+    # follow clockwise.
+    Given a hand at showdown with:
+      | player_root | seat | folded |
+      | player-A    | 0    | false  |
+      | player-B    | 1    | false  |
+      | player-C    | 2    | false  |
+    And there was no aggressive action on the river
+    And the dealer is at seat 0
+    When the ShowdownStarted event is emitted
+    Then the showdown players_to_show order is "player-B,player-C,player-A"
+
+  @EU-1122
+  Scenario: Folded players are excluded from the showdown order
+    # player-C folded on the turn. They do not appear in players_to_show
+    # even though they were dealt in.
+    Given a hand at showdown with:
+      | player_root | seat | folded |
+      | player-A    | 0    | false  |
+      | player-B    | 1    | false  |
+      | player-C    | 2    | true   |
+      | player-D    | 3    | false  |
+    And the last aggressive action on the river was by "player-A"
+    When the ShowdownStarted event is emitted
+    Then the showdown players_to_show order is "player-A,player-B,player-D"
+
+  @EU-1123
+  Scenario: An out-of-order reveal is rejected
+    # The hand aggregate enforces showdown order: a RevealCards from a player
+    # whose turn has not yet come up must be rejected. (Once the player
+    # ahead has shown or mucked, the next player can act.)
+    Given a hand at showdown with players_to_show order "player-A,player-B,player-C"
+    When I handle a RevealCards command for player "player-B" with muck false
+    Then the command fails with status "FAILED_PRECONDITION"
+    And the error message contains "out of order"
+
+  @EU-1124
+  Scenario: A muck advances the showdown to the next player in order
+    # When the leading player mucks (without showing), the next player in
+    # players_to_show becomes the active showdown player. They may show or
+    # muck in turn.
+    Given a hand at showdown with players_to_show order "player-A,player-B,player-C"
+    When I handle a RevealCards command for player "player-A" with muck true
+    Then the result is a angzarr_client.proto.examples.CardsMucked event
+    And the next showdown player is "player-B"

@@ -1,4 +1,4 @@
-# Allocated: EU-0800 .. EU-0856
+# Allocated: EU-0800 .. EU-0865
 # DOC: Unit scenarios for the Tournament aggregate (tournament/agg/handlers.py).
 
 Feature: Tournament aggregate logic
@@ -586,3 +586,134 @@ Feature: Tournament aggregate logic
     When I rebuild the tournament state
     Then the tournament state has total_prize_pool 750
     And the tournament state has rebuys_used 2 for player "p1"
+
+  # ==========================================================================
+  # Late Registration
+  # ==========================================================================
+  # Real tournaments (TDA Rule 30) keep registration open for several blind
+  # levels into running play. The previously implicit rule "TournamentStarted
+  # closes registration" was a real-rule violation: registration must remain
+  # open until either the configured cutoff level or an explicit
+  # CloseRegistration. These scenarios pin the late-registration surface.
+
+  @EU-0857
+  Scenario: EnrollPlayer succeeds against a Running tournament when registration is still open
+    # Tournament starts with min_players=2 enrolled. A third player registers
+    # AFTER the start while registration is still open. They are enrolled and
+    # added to the prize pool.
+    Given a running tournament with registration open and 2 enrolled players
+    When I handle an EnrollPlayer command for player "p3" reservation "res-3"
+    Then the result is a angzarr_client.proto.examples.TournamentPlayerEnrolled event
+    And the tournament event has player_root "p3"
+    And the tournament event has fee_paid 100
+    And the tournament state has registered_players count 3
+    And the tournament state has players_remaining 3
+
+  @EU-0858
+  Scenario: Late-registered player receives the configured starting stack
+    # Late entries get the FULL starting stack regardless of how much is
+    # already in play (TDA Rule 30 — late registrants do not receive a
+    # discounted stack). Pin starting_stack on enrollment.
+    Given a running tournament with starting_stack 1500, registration open, and 2 enrolled players
+    When I handle an EnrollPlayer command for player "p3" reservation "res-3"
+    Then the result is a angzarr_client.proto.examples.TournamentPlayerEnrolled event
+    And the tournament event has starting_stack 1500
+
+  @EU-0859
+  Scenario: Registration auto-closes when the cutoff level is reached
+    # Tournaments configure a registration_cutoff_level. When the tournament
+    # advances to a level past the cutoff, registration auto-closes and a
+    # subsequent enrollment is rejected.
+    Given a running tournament with registration_cutoff_level 3 at level 4 and 2 enrolled players
+    When I handle an EnrollPlayer command for player "p3" reservation "res-3"
+    Then the result is a angzarr_client.proto.examples.TournamentEnrollmentRejected event
+    And the tournament event has reason containing "registration closed"
+
+  @EU-0860
+  Scenario: Explicit CloseRegistration during a running tournament prevents further enrollment
+    # Operators can close registration manually (e.g. after announcing the
+    # late-reg deadline). Enrollments after that are rejected even though
+    # the tournament is still running.
+    Given a running tournament with 2 enrolled players
+    When I handle a CloseRegistration command
+    And I handle an EnrollPlayer command for player "p3" reservation "res-3"
+    Then the result is a angzarr_client.proto.examples.TournamentEnrollmentRejected event
+    And the tournament event has reason containing "not open"
+
+  # ==========================================================================
+  # Multi-place Payout
+  # ==========================================================================
+  # Real tournaments (TDA Rule 14, WSOP standard) pay multiple finishing
+  # positions on a published payout schedule. The proto's TournamentResult
+  # already carries (position, player_root, payout) — these scenarios pin
+  # the distribution. The payout schedule is supplied to CompleteTournament
+  # (or pre-configured at create time); the aggregate verifies payouts sum
+  # to total_prize_pool.
+
+  @EU-0861
+  Scenario: CompleteTournament emits results for the top-N finishers per the payout schedule
+    # 9-player $500 buy-in. Pool = 4500. Schedule pays top 3 at 50/30/20.
+    Given a running tournament "Spring" with total_prize_pool 4500 and 9 enrolled players
+    And a payout_structure paying positions 1,2,3 at percentages 50,30,20
+    And finishing order "p1,p2,p3,p4,p5,p6,p7,p8,p9"
+    When I handle a CompleteTournament command with winner "p1"
+    Then the result is a angzarr_client.proto.examples.TournamentCompleted event
+    And the tournament event has winner_root "p1"
+    And the tournament event has 3 results
+    And TournamentResult 0 has position 1 player_root "p1" payout 2250
+    And TournamentResult 1 has position 2 player_root "p2" payout 1350
+    And TournamentResult 2 has position 3 player_root "p3" payout 900
+
+  @EU-0862
+  Scenario: Sum of payouts equals total_prize_pool
+    # The aggregate must reject a TournamentCompleted whose payouts do not
+    # sum to the prize pool. This guards the chip ledger from drift when
+    # the payout schedule and pool are out of sync.
+    Given a running tournament "Spring" with total_prize_pool 1000 and 5 enrolled players
+    And a payout_structure paying positions 1,2 at percentages 50,30
+    When I handle a CompleteTournament command with winner "p1" and finishing order "p1,p2,p3,p4,p5"
+    Then the command fails with status "FAILED_PRECONDITION"
+    And the command is rejected with code "PAYOUTS_DO_NOT_SUM_TO_POOL"
+    And the rejection field "got" equals "800"
+    And the rejection field "bound" equals "1000"
+
+  @EU-0863
+  Scenario: Bubble — the player eliminated immediately before the money receives no payout
+    # 10-player tournament paying top 3. The 4th-place finisher is the
+    # "bubble" — they are recorded in finishing order but get no payout
+    # entry. Only positions 1..3 appear in TournamentResult.
+    Given a running tournament "Spring" with total_prize_pool 1000 and 10 enrolled players
+    And a payout_structure paying positions 1,2,3 at percentages 50,30,20
+    And finishing order "p1,p2,p3,p4,p5,p6,p7,p8,p9,p10"
+    When I handle a CompleteTournament command with winner "p1"
+    Then the result is a angzarr_client.proto.examples.TournamentCompleted event
+    And the tournament event has 3 results
+    And no TournamentResult has player_root "p4"
+
+  @EU-0864
+  Scenario: Heads-up split when the payout schedule pays first and second equally
+    # Some tournaments allow a heads-up "chop" — payouts to top 2 at
+    # configurable percentages (e.g. 50/50 if both stacks are equal at the
+    # heads-up start). The aggregate just enforces the schedule it is given.
+    Given a running tournament "Spring" with total_prize_pool 1000 and 2 enrolled players
+    And a payout_structure paying positions 1,2 at percentages 50,50
+    And finishing order "p1,p2"
+    When I handle a CompleteTournament command with winner "p1"
+    Then the result is a angzarr_client.proto.examples.TournamentCompleted event
+    And the tournament event has 2 results
+    And TournamentResult 0 has position 1 player_root "p1" payout 500
+    And TournamentResult 1 has position 2 player_root "p2" payout 500
+
+  @EU-0865
+  Scenario: CompleteTournament rejects when the supplied finishing order is shorter than the paid positions
+    # Schedule pays top 3 but only 2 finishing positions are supplied.
+    # Reject so the operator decides explicitly (extend the order or trim
+    # the schedule).
+    Given a running tournament "Spring" with total_prize_pool 1000 and 5 enrolled players
+    And a payout_structure paying positions 1,2,3 at percentages 50,30,20
+    And finishing order "p1,p2"
+    When I handle a CompleteTournament command with winner "p1"
+    Then the command fails with status "FAILED_PRECONDITION"
+    And the command is rejected with code "FINISHING_ORDER_SHORTER_THAN_PAYOUT_POSITIONS"
+    And the rejection field "got" equals "2"
+    And the rejection field "bound" equals "3"

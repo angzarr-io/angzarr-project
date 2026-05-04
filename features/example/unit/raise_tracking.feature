@@ -1,4 +1,4 @@
-# Allocated: EU-1000 .. EU-1030
+# Allocated: EU-1000 .. EU-1030 (in use: 1000..1007, 1010..1013)
 Feature: Minimum raise tracking arithmetic
   Client-side tracking of ``last_raise_increment`` must match the server's
   ``min_raise``. If they drift, the client will submit raises that the
@@ -77,17 +77,68 @@ Feature: Minimum raise tracking arithmetic
     And min_raise_to is 150
 
   # ==========================================================================
-  # Cross-Round Persistence
+  # Cross-Round Reset
   # ==========================================================================
+  # Real poker (NLHE / WSOP / standard cardroom): the minimum bet on a NEW
+  # street is the big blind, and the minimum raise is the size of the
+  # previous bet/raise *on that street*. Both reset between streets. The
+  # legacy implementation that carried last_raise_increment across streets
+  # produced spurious "Raise must be at least N" rejections after a large
+  # preflop raise, which is not how real poker is played.
 
   @EU-1006
-  Scenario: A new betting round does not reset last_raise_increment
-    # At the start of a post-flop round, current_bet resets to 0 but
-    # last_raise_increment persists. A subsequent bet that exceeds the old
-    # increment will grow it; a smaller bet will not shrink it.
-    Given current_bet is 0 and last_raise_increment is 20
-    When a player bets 25 on a new round
+  Scenario: A new betting round resets last_raise_increment to the big blind
+    # Preflop produced last_raise_increment=140. At the start of the flop,
+    # current_bet resets to 0 (existing behaviour) AND last_raise_increment
+    # resets to the BB amount, so a flop bet of 25 is legal at BB=10.
+    Given current_bet is 140 and last_raise_increment is 140 and big_blind is 10
+    When a new betting round begins
+    Then current_bet is 0
+    And last_raise_increment is 10
+
+  @EU-1010
+  Scenario: First bet on a new street establishes the new last_raise_increment
+    # A flop bet of 25 sets last_raise_increment=25 (the size of the bet
+    # itself, since current_bet was 0). The next raise must be at least 25
+    # more — i.e. raise-to 50.
+    Given current_bet is 0 and last_raise_increment is 10 on a new street
+    When a player bets 25
     Then last_raise_increment is 25
+    And current_bet is 25
+    And min_raise_to is 50
+
+  @EU-1011
+  Scenario: A flop bet smaller than the prior preflop increment is allowed
+    # Preflop was BB=10, raised to 60, reraised to 200 (last_raise_increment
+    # was 140 by end of preflop). On the flop the minimum bet is BB (10),
+    # NOT 140. A bet of 25 is legal.
+    Given preflop ended with last_raise_increment 140 and big_blind 10
+    When a new betting round begins
+    And a player bets 25
+    Then the bet is accepted
+    And last_raise_increment is 25
+    And min_raise_to is 50
+
+  @EU-1012
+  Scenario: The minimum bet on a new street is the big blind
+    # A bet below BB is rejected (real poker NLHE convention). At BB=10,
+    # a flop bet of 5 is illegal even though current_bet is 0. After the
+    # per-street reset (EU-1006), last_raise_increment == BB, so the
+    # existing BET_BELOW_MIN_RAISE rejection covers this case directly.
+    Given current_bet is 0 and last_raise_increment is 10 on a new street with big_blind 10
+    When a player attempts to bet 5
+    Then the bet is rejected with code "BET_BELOW_MIN_RAISE"
+    And the rejection field "got" equals "5"
+    And the rejection field "bound" equals "10"
+
+  @EU-1013
+  Scenario: After a check-around, last_raise_increment stays at the big blind
+    # Checks don't change last_raise_increment. Going into the next street,
+    # the increment is still BB.
+    Given current_bet is 0 and last_raise_increment is 10 on a new street with big_blind 10
+    When all active players check
+    And the next betting round begins
+    Then last_raise_increment is 10
 
   # ==========================================================================
   # All-In Short Raise

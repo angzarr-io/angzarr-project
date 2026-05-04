@@ -1,4 +1,4 @@
-# Allocated: EU-0700 .. EU-0740 (in use: 0700..0728, 0729..0732)
+# Allocated: EU-0700 .. EU-0740 (in use: 0700..0728, 0729..0732, 0733..0738)
 
 Feature: Game rules (Texas Hold'em, Omaha, Five Card Draw)
   The game_rules module defines polymorphic rule objects for each poker
@@ -129,26 +129,32 @@ Feature: Game rules (Texas Hold'em, Omaha, Five Card Draw)
     And the score is 10000000
 
   @EU-0707
-  Scenario: Texas Hold'em four of a kind has a single kicker
+  Scenario: Texas Hold'em four of a kind has the highest remaining card as kicker
+    # Real poker (Robert's Rules §31): with 7 cards available the kicker for
+    # FOUR_OF_A_KIND is the *highest* remaining card, not the lowest. Two
+    # players who both have AAAA on a board with AAAA-x are still ranked by
+    # their hole-card kicker — the legacy "first combo wins" implementation
+    # was a real-rule violation. Score formula must embed this kicker.
     Given Texas Hold'em rules
     And hole cards "Ts Th"
     And community cards "Td Tc 5s 6h 7d"
     When the best hand is evaluated
     Then the rank is FOUR_OF_A_KIND
-    And the score is 8001000
-    # Kicker score doesn't tiebreak: first combo wins, so kicker = lowest
-    And the kickers are 5
+    And the kickers are 7
 
   @EU-0708
-  Scenario: Texas Hold'em two pair has a single kicker
+  Scenario: Texas Hold'em two pair carries the highest remaining card as kicker
+    # Real poker: TWO_PAIR ties break on (high pair, low pair, kicker). The
+    # kicker is the *highest* remaining card from the 7 available. Best 5
+    # from "Ts Th 8d 8c 5s 6h 7d" is TT-88-7. The legacy assertion of "5"
+    # ignored the kicker entirely; pinning 7 forces the evaluator to pick
+    # the highest non-pair card.
     Given Texas Hold'em rules
     And hole cards "Ts Th"
     And community cards "8d 8c 5s 6h 7d"
     When the best hand is evaluated
     Then the rank is TWO_PAIR
-    And the score is 3001008
-    # Same: pair scores already tiebreak, kicker is whichever combo enumerates first
-    And the kickers are 5
+    And the kickers are 7
 
   @EU-0709
   Scenario: Texas Hold'em one pair has three kickers
@@ -479,3 +485,81 @@ Feature: Game rules (Texas Hold'em, Omaha, Five Card Draw)
     And I evaluate hand B with hole "Qh Qd" and community "Qs Ah Jc 9d 8c"
     Then both hands rank THREE_OF_A_KIND
     And hand A score is greater than hand B score
+
+  # ==========================================================================
+  # Kicker tiebreaks (matching primary rank, different kickers)
+  # ==========================================================================
+  # When two hands share the same primary structure (same quads, same trips,
+  # same two pair), real poker breaks the tie by the *highest* remaining
+  # card. These scenarios exercise each rank category that can have kicker
+  # ties — they're the cases an implementation that drops kickers will
+  # silently mis-award.
+
+  @EU-0733
+  Scenario: Four of a kind with quads on board — kicker decides the winner
+    # Board has AAAA. Both players have quads-aces; the higher hole-card
+    # kicker wins. K beats Q.
+    Given Texas Hold'em rules
+    When I evaluate hand A with hole "Kh 2c" and community "As Ah Ad Ac 5s"
+    And I evaluate hand B with hole "Qh 3d" and community "As Ah Ad Ac 5s"
+    Then both hands rank FOUR_OF_A_KIND
+    And hand A score is greater than hand B score
+
+  @EU-0734
+  Scenario: Two pair with same pairs on board — kicker decides the winner
+    # Board has KK 88 + low. Both players have two pair K-K-8-8; the higher
+    # hole-card kicker wins. A-kicker beats Q-kicker.
+    Given Texas Hold'em rules
+    When I evaluate hand A with hole "Ah 2c" and community "Ks Kh 8d 8c 4s"
+    And I evaluate hand B with hole "Qh 3d" and community "Ks Kh 8d 8c 4s"
+    Then both hands rank TWO_PAIR
+    And hand A score is greater than hand B score
+
+  @EU-0735
+  Scenario: Full house tiebreak uses pair rank when trip rank is equal
+    # Both players have AAA full house: A-tripped from board. Pair rank
+    # decides — KK beats QQ.
+    Given Texas Hold'em rules
+    When I evaluate hand A with hole "Kh Kd" and community "Ah Ad As Qc 4s"
+    And I evaluate hand B with hole "Qh Qd" and community "Ah Ad As Kc 4s"
+    Then both hands rank FULL_HOUSE
+    And hand A score is greater than hand B score
+
+  @EU-0736
+  Scenario: Three of a kind with trips on board — kicker decides the winner
+    # Board has AAA. Both players have trips-aces; higher hole-card kicker
+    # wins. K beats J.
+    Given Texas Hold'em rules
+    When I evaluate hand A with hole "Kh 2c" and community "As Ah Ad 5c 4s"
+    And I evaluate hand B with hole "Jh 3d" and community "As Ah Ad 5c 4s"
+    Then both hands rank THREE_OF_A_KIND
+    And hand A score is greater than hand B score
+
+  @EU-0737
+  Scenario: Steel wheel — A-2-3-4-5 of one suit is the lowest STRAIGHT_FLUSH
+    # The wheel is recognised as STRAIGHT (EU-0717). Suited it is also a
+    # STRAIGHT_FLUSH, ranked above all FOUR_OF_A_KIND but below higher
+    # straight flushes. 5-high SF is the lowest possible STRAIGHT_FLUSH.
+    Given Texas Hold'em rules
+    And hole cards "As 2s"
+    And community cards "3s 4s 5s 9h Td"
+    When the best hand is evaluated
+    Then the rank is STRAIGHT_FLUSH
+    # Higher SFs (e.g. 9-high) must outrank the wheel SF.
+    And the score is less than the score of "9s 8s" with community "7s 6s 5s 2h 3d"
+
+  @EU-0738
+  Scenario: Pot-limit Omaha — maximum legal bet is the size of the pot
+    # PLO: a bet/raise is capped at the size of the pot after the call would
+    # be made. Pot=100, current_bet=20 facing a $20 call: max raise-to is
+    # 20 (call) + 100 + 20 (the call you would make, doubled) = 140 total
+    # ("pot-sized raise"). Actions exceeding that are rejected.
+    Given Pot-Limit Omaha rules
+    And the pot is 100 and current_bet is 20
+    When I compute the maximum raise-to amount
+    Then the maximum raise-to is 140
+
+    When I attempt a raise-to of 141
+    Then the raise is rejected with code "EXCEEDS_POT_LIMIT"
+    And the rejection field "got" equals "141"
+    And the rejection field "bound" equals "140"

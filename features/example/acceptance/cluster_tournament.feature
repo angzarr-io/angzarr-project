@@ -1,4 +1,4 @@
-# Allocated: EA-0006 .. EA-0010
+# Allocated: EA-0006 .. EA-0013
 Feature: Cluster Tournament Acceptance
   Tournament-scoped cluster-tier acceptance scenarios. These exercise
   the tournament aggregate end-to-end against a deployed angzarr
@@ -276,3 +276,130 @@ Feature: Cluster Tournament Acceptance
     # --- Cleanup financial path ----------------------------------------------
     When player "Alice" withdraws 1000 chips
     Then player "Alice" has bankroll 3800
+
+  # ===========================================================================
+  # Color-up chip race (TDA Rule 28). Between blind levels, low-denomination
+  # chips are removed from play and exchanged for higher-denomination chips
+  # via a randomised "race" for any odd chips that don't divide evenly.
+  # ===========================================================================
+
+  @tournament @color-up @cluster
+  @EA-0011
+  Scenario: Color-up at level transition removes low-denom chips from every stack
+    Given registered players with bankroll:
+      | name    | bankroll |
+      | Alice   | 5000     |
+      | Bob     | 5000     |
+      | Charlie | 5000     |
+    And a tournament "ColorUp" with buy_in 500, starting_stack 1500, max_players 9, min_players 2
+    When I create a Texas Hold'em table "ColorUp-1" with blinds 5/10
+    And player "Alice" joins table "ColorUp-1" at seat 0 with buy-in 1500
+    And player "Bob" joins table "ColorUp-1" at seat 1 with buy-in 1500
+    And player "Charlie" joins table "ColorUp-1" at seat 2 with buy-in 1500
+    And I open registration on tournament "ColorUp"
+    And player "Alice" registers for tournament "ColorUp"
+    And player "Bob" registers for tournament "ColorUp"
+    And player "Charlie" registers for tournament "ColorUp"
+    And I start tournament "ColorUp"
+
+    # Stacks accumulate odd chips during play; assume each player has a few
+    # 25-denom chips that will be retired at the level transition. The
+    # color-up replaces them with 100-denom chips, randomly racing odd
+    # remainders to whole 100s. Total chips in play must be conserved
+    # (modulo legal rounding at the race step).
+    When I advance blind level on tournament "ColorUp" with color-up:
+      | retire_denomination | new_denomination |
+      | 25                  | 100              |
+    Then a ColorUpCompleted event is emitted on tournament "ColorUp"
+    And every active player's stack contains no chips of denomination 25
+    And the sum of all active stacks equals total_chips_in_play before the color-up
+
+  # ===========================================================================
+  # Table balancing (TDA Rule 14). When tables differ in active player count
+  # by more than one, the tournament must move a player from the larger
+  # table to the smaller. The moved player's stack travels with them.
+  # ===========================================================================
+
+  @tournament @balancing @cluster
+  @EA-0012
+  Scenario: Table balancing moves a player when one table is short
+    Given registered players with bankroll:
+      | name    | bankroll |
+      | Alice   | 5000     |
+      | Bob     | 5000     |
+      | Charlie | 5000     |
+      | Dana    | 5000     |
+      | Eve     | 5000     |
+    And a tournament "Balance" with buy_in 500, starting_stack 1500, max_players 9, min_players 2
+    When I create a Texas Hold'em table "Balance-1" with blinds 5/10
+    And I create a Texas Hold'em table "Balance-2" with blinds 5/10
+    And player "Alice" joins table "Balance-1" at seat 0 with buy-in 1500
+    And player "Bob" joins table "Balance-1" at seat 1 with buy-in 1500
+    And player "Charlie" joins table "Balance-1" at seat 2 with buy-in 1500
+    And player "Dana" joins table "Balance-1" at seat 3 with buy-in 1500
+    And player "Eve" joins table "Balance-2" at seat 0 with buy-in 1500
+    And I open registration on tournament "Balance"
+    And every player registers for tournament "Balance"
+    And I start tournament "Balance"
+
+    # Table-1 has 4 players, Table-2 has 1. Difference is 3 — must rebalance
+    # to (3, 2) or (2, 3). The tournament emits a PlayerMoved event that
+    # reseats one player at Table-2 with their existing stack intact.
+    When I trigger table balancing on tournament "Balance"
+    Then a PlayerMovedBetweenTables event is emitted on tournament "Balance"
+    And table "Balance-1" has 3 active players
+    And table "Balance-2" has 2 active players
+    And the moved player's stack on table "Balance-2" equals their stack on table "Balance-1" before the move
+
+  # ===========================================================================
+  # Hand-for-hand on the bubble (TDA Rule 12). When the next elimination is
+  # the bubble (last out-of-the-money finisher), all tables must complete
+  # one hand simultaneously before any starts the next, so a single player
+  # cannot stall to pass the bubble onto another table.
+  # ===========================================================================
+
+  @tournament @bubble @cluster
+  @EA-0013
+  Scenario: Bubble triggers hand-for-hand play across all active tables
+    Given registered players with bankroll:
+      | name    | bankroll |
+      | Alice   | 5000     |
+      | Bob     | 5000     |
+      | Charlie | 5000     |
+      | Dana    | 5000     |
+    And a tournament "Bubble" with buy_in 500, starting_stack 1500, max_players 9, min_players 2
+    And the tournament pays positions 1,2,3 at percentages 50,30,20
+    When I create a Texas Hold'em table "Bubble-1" with blinds 5/10
+    And I create a Texas Hold'em table "Bubble-2" with blinds 5/10
+    And player "Alice" joins table "Bubble-1" at seat 0 with buy-in 1500
+    And player "Bob" joins table "Bubble-1" at seat 1 with buy-in 1500
+    And player "Charlie" joins table "Bubble-2" at seat 0 with buy-in 1500
+    And player "Dana" joins table "Bubble-2" at seat 1 with buy-in 1500
+    And I open registration on tournament "Bubble"
+    And every player registers for tournament "Bubble"
+    And I start tournament "Bubble"
+
+    # 4 players; 3 paid; next elimination is the bubble. The tournament
+    # enters HAND_FOR_HAND. Tables must wait for both hands to complete
+    # before either starts a new one.
+    When the tournament enters bubble play
+    Then a HandForHandStarted event is emitted on tournament "Bubble"
+    And table "Bubble-1" status is "hand_for_hand_waiting"
+    And table "Bubble-2" status is "hand_for_hand_waiting"
+
+    # First synchronised hand: Bubble-1 finishes quickly, Bubble-2 still
+    # in progress. Bubble-1 must NOT start the next hand until Bubble-2
+    # completes the current one.
+    When a hand completes at table "Bubble-1"
+    Then table "Bubble-1" status is "hand_for_hand_complete"
+    And table "Bubble-2" status is "hand_for_hand_waiting"
+    And table "Bubble-1" cannot start a new hand
+
+    When a hand completes at table "Bubble-2"
+    Then a HandForHandRoundComplete event is emitted on tournament "Bubble"
+    And both tables can start the next synchronised hand
+
+    # On bubble break (an elimination), hand-for-hand ends.
+    When I eliminate player "Dana" from tournament "Bubble"
+    Then a HandForHandEnded event is emitted on tournament "Bubble"
+    And tournament "Bubble" has players_remaining 3

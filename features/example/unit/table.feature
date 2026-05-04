@@ -1,4 +1,4 @@
-# Allocated: EU-0100 .. EU-0120, EU-0531 .. EU-0567, EU-0570 .. EU-0574
+# Allocated: EU-0100 .. EU-0120, EU-0531 .. EU-0567, EU-0570 .. EU-0574, EU-0575 .. EU-0578
 Feature: Table aggregate logic
   The Table aggregate manages a poker table session: configuration, player
   seating, and hand lifecycle. It's the orchestration layer between players
@@ -696,3 +696,94 @@ Feature: Table aggregate logic
     When I handle an AddRebuyChips command for player "" reservation "res-001" seat 2 amount 100
     Then the command fails with status "INVALID_ARGUMENT"
     And the error message contains "player_root"
+
+  # ==========================================================================
+  # Dead Button Rule (button advancement after eliminations)
+  # ==========================================================================
+  # Real poker (TDA Rule 6, Robert's Rules §6): when a player in or near the
+  # blind position is eliminated between hands, the button advances using
+  # the "dead button" rule rather than naive +1. The intent: every player
+  # gets the BB exactly once per orbit. Specifically:
+  #   - If the player who would be the new BB is gone, the BB moves to the
+  #     next active seat clockwise; the button itself "freezes" or moves to
+  #     a vacant seat ("dead button") so the orbit does not double-blind
+  #     anyone.
+  #   - The previous SB seat is never the BB on the next hand (no player
+  #     pays the BB twice in a row).
+  # The simple "advance to next *seated* seat" rule (current implementation)
+  # violates this when the BB busts.
+
+  @EU-0575
+  Scenario: BB busts — button stays put, BB skips to the next active seat (dead button)
+    # Pre-elimination: dealer at seat 0 (player-A), SB at 1 (player-B),
+    # BB at 2 (player-C). player-C busts at end of hand. Next hand:
+    #   - The dealer button stays on seat 0 (dead button — there is no
+    #     player at seat 2 to be SB on the following hand if it advanced).
+    #   - SB is the next active seat clockwise of the dead button: seat 3.
+    #   - BB is the next active seat after SB.
+    Given a TableCreated event for "Main Table"
+    And a PlayerJoined event for player "player-A" at seat 0
+    And a PlayerJoined event for player "player-B" at seat 1
+    And a PlayerJoined event for player "player-D" at seat 3
+    And a HandStarted event for hand 1 with dealer at seat 0
+    And a HandEnded event for hand 1
+    And player "player-C" busted at seat 2 during hand 1
+    When I handle a StartHand command
+    Then the result is a angzarr_client.proto.examples.HandStarted event
+    And the table event has dealer_position 0
+    And the small_blind_position is seat 3
+    And the big_blind_position is seat 0
+
+  @EU-0576
+  Scenario: SB busts — BB stays in place, button advances normally
+    # Dealer 0, SB 1 (player-B), BB 2 (player-C). player-B busts.
+    # Next hand: button → 1 is dead (no player), so dealer advances to the
+    # *next active* seat... but the BB still must not double-blind. By the
+    # dead-button rule, the player who was BB last hand (player-C) becomes
+    # SB this hand, and BB moves to the next active seat (seat 3).
+    Given a TableCreated event for "Main Table"
+    And a PlayerJoined event for player "player-A" at seat 0
+    And a PlayerJoined event for player "player-C" at seat 2
+    And a PlayerJoined event for player "player-D" at seat 3
+    And a HandStarted event for hand 1 with dealer at seat 0
+    And a HandEnded event for hand 1
+    And player "player-B" busted at seat 1 during hand 1
+    When I handle a StartHand command
+    Then the result is a angzarr_client.proto.examples.HandStarted event
+    And the small_blind_position is seat 2
+    And the big_blind_position is seat 3
+
+  @EU-0577
+  Scenario: Three players collapse to heads-up — dealer becomes SB and acts first preflop
+    # 3-handed: dealer 0, SB 1, BB 2. player-B (SB seat 1) busts during
+    # hand 1. Heads-up next hand: by TDA Rule 6 the dealer is the SB and
+    # acts first preflop (matches EU-0543). The dead-button mechanics
+    # collapse cleanly when the table reaches heads-up.
+    Given a TableCreated event for "Main Table"
+    And a PlayerJoined event for player "player-A" at seat 0
+    And a PlayerJoined event for player "player-C" at seat 2
+    And a HandStarted event for hand 1 with dealer at seat 0
+    And a HandEnded event for hand 1
+    And player "player-B" busted at seat 1 during hand 1
+    When I handle a StartHand command
+    Then the result is a angzarr_client.proto.examples.HandStarted event
+    And the small_blind_position equals the dealer_position
+    And the dealer_position is seat 0
+    And the big_blind_position is seat 2
+
+  @EU-0578
+  Scenario: No player pays the big blind twice in a row across an elimination
+    # The orbit invariant: a player who was BB on hand N is NEVER BB on
+    # hand N+1 even if eliminations would naively produce that. This
+    # scenario constructs the elimination pattern that breaks naive +1
+    # advancement and asserts the BB seat changes occupant.
+    Given a TableCreated event for "Main Table"
+    And a PlayerJoined event for player "player-A" at seat 0
+    And a PlayerJoined event for player "player-D" at seat 3
+    And a HandStarted event for hand 1 with dealer at seat 0
+    And big_blind_position on hand 1 was player "player-D"
+    And a HandEnded event for hand 1
+    And player "player-C" busted at seat 2 during hand 1
+    When I handle a StartHand command
+    Then the result is a angzarr_client.proto.examples.HandStarted event
+    And the player at the big_blind_position is not "player-D"
