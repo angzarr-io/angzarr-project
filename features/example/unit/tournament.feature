@@ -623,11 +623,12 @@ Feature: Tournament aggregate logic
   Scenario: Registration auto-closes when the cutoff level is reached
     # Tournaments configure a registration_cutoff_level. When the tournament
     # advances to a level past the cutoff, registration auto-closes and a
-    # subsequent enrollment is rejected.
+    # subsequent enrollment is rejected with the "not open" reason — same
+    # rejection path as an explicit CloseRegistration.
     Given a running tournament with registration_cutoff_level 3 at level 4 and 2 enrolled players
     When I handle an EnrollPlayer command for player "p3" reservation "res-3"
     Then the result is a angzarr_client.proto.examples.TournamentEnrollmentRejected event
-    And the tournament event has reason containing "registration closed"
+    And the tournament event has reason containing "not open"
 
   @EU-0860
   Scenario: Explicit CloseRegistration during a running tournament prevents further enrollment
