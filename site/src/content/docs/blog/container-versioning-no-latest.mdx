@@ -5,105 +5,13 @@ date: 2026-04-23
 authors:
   - "angzarr"
 tags:
-  - "containers"
-  - "ci-cd"
-  - "supply-chain"
-  - "operations"
-  - "patterns"
+  - "moved"
 ---
 
 import BlogHeader from '../../../components/BlogHeader.astro';
 
 <BlogHeader />
 
-`:latest` is the `/dev/urandom` of container tags: convenient, non-reproducible, and a standing invitation to supply-chain attacks. Publish images under `major.minor.patch` and `major.minor`; consumers pin to `major.minor.patch@sha256:<digest>` in source. Nothing should ever pull `:latest`.
+This post has moved to [Append Only](https://ben.abbitt.me/posts/container-versioning-no-latest/), my main blog. Future updates will live there.
 
-## The Tags We Publish
-
-For every coordinator image — `angzarr-aggregate`, `angzarr-saga`, `angzarr-projector`, `angzarr-process-manager`, `angzarr-stream`, `angzarr-log`, `angzarr-grpc-gateway` — each release pushes three refs to the same manifest:
-
-- `v1.2.3` — the immutable patch tag. Once published, never moved.
-- `v1.2` — the rolling minor tag. Moves forward as `v1.2.3 → v1.2.4 → …`. Stops moving when `v1.3.0` ships.
-- `v1` — the rolling major tag. Similarly moves within a major line.
-
-That's it. No `latest`. No `stable`. No `edge`. No `dev`.
-
-Consumers pick their promise level:
-
-- **Reproducible builds** (production, CI acceptance tests, anything that must bit-match on replay): pin to `v1.2.3@sha256:<digest>`. Both the tag and the digest are specified — tag for humans, digest for the runtime. The digest is what actually gets resolved.
-- **Auto-patch within a minor** (development clusters that want fixes but not features): pin to `v1.2`.
-- **Auto-minor within a major** (aggressive integration, throw-away envs): pin to `v1`.
-
-Each choice is an explicit decision about what floats. `:latest` makes that decision implicit and invisible.
-
-## Why Not `:latest`
-
-1. **Non-reproducible deploys.** Three pods rolling behind a Deployment can pull three different digests of `:latest` within a single rollout if a push lands mid-roll. Debug output is now a race condition.
-2. **Cache confusion.** `imagePullPolicy` for `:latest` is `Always`; for any other tag it's `IfNotPresent`. That surprises people. Switching to explicit version tags makes the policy intent match the tag.
-3. **Rollback is a myth.** Rolling back requires knowing which image you were on. `:latest` doesn't tell you; you have to dig digests out of logs or pod annotations. Versioned tags make the answer a `kubectl describe`.
-4. **Supply chain.** A mutable tag is a blank check. If someone compromises the registry credentials and pushes a malicious `:latest`, every consumer pulls it on their next restart. Pinned `@sha256` refs break that path: the runtime verifies digest on pull, so a tampered image fails resolution.
-
-The first three are operational annoyances. The fourth is the reason we removed `:latest` from the published tag set entirely — not deprecated, not discouraged, **not published**. `docker pull ghcr.io/angzarr-io/angzarr-aggregate:latest` returns `manifest unknown`. That's the correct error: the tag doesn't exist; asking for it is the bug.
-
-## What Consumers Do
-
-In the poker examples repos (`examples-python`, `examples-rust`), coordinator images live in the shared `values.yaml` used by both CI acceptance tests and production Helm deploys:
-
-```yaml
-images:
-  aggregate:
-    repository: ghcr.io/angzarr-io/angzarr-aggregate
-    # tag form: v<semver>@sha256:<digest>
-    # runtime resolves by digest; the semver part is advisory for humans.
-    tag: "v1.2.3@sha256:5349d55cc56291f435eb21d660e115c8f17b58f6ce4d265c1a1b4158045ea78b"
-    pullPolicy: IfNotPresent
-  saga:
-    repository: ghcr.io/angzarr-io/angzarr-saga
-    tag: "v1.2.3@sha256:ea7ec02f56ff64ccae6942727b95fb34703b4d99ff9a16c215cc325fd8addc01"
-    pullPolicy: IfNotPresent
-  # …
-```
-
-The `repo:tag@sha256:digest` form is a valid OCI reference: the runtime resolves by digest, rejecting the image if the manifest's computed digest doesn't match. The tag portion sits there for humans — `kubectl describe pod` shows `v1.2.3@sha256:…` and on-call knows immediately what version is running.
-
-CI mirrors the same pins when pre-loading images into a Kind cluster:
-
-```bash
-# The reference matches what Helm templates render. docker pull verifies
-# the digest on transit; kind load puts the image into the cluster.
-docker pull "ghcr.io/angzarr-io/angzarr-aggregate:v1.2.3@sha256:5349…"
-docker tag  "ghcr.io/angzarr-io/angzarr-aggregate:v1.2.3@sha256:5349…" \
-            "ghcr.io/angzarr-io/angzarr-aggregate:v1.2.3"
-kind load docker-image "ghcr.io/angzarr-io/angzarr-aggregate:v1.2.3" --name angzarr-test
-```
-
-Both CI and production consume the same `values.yaml`. There is no separate "CI variant" of the image list. That keeps them from drifting.
-
-## How Releases Publish These Tags
-
-The release workflow (in `angzarr-core`) is a single declarative block. For a release tagged `v1.2.3`:
-
-```yaml
-- name: Push coordinator images
-  run: |
-    for coord in aggregate saga projector process-manager stream log grpc-gateway; do
-      img="ghcr.io/angzarr-io/angzarr-${coord}"
-      # Build once.
-      docker buildx build --push --platform linux/amd64,linux/arm64 \
-        -f coordinator/${coord}/Dockerfile \
-        -t "${img}:v1.2.3" \
-        -t "${img}:v1.2" \
-        -t "${img}:v1" \
-        .
-    done
-```
-
-Three tags, same manifest, same digest. The digest is printed to the release notes so consumers can pin exactly.
-
-Patch releases (`v1.2.4`) overwrite only `v1.2.3`'s successors — `v1.2` and `v1` roll forward, `v1.2.3` stays pinned to its original digest forever. Minor releases (`v1.3.0`) publish `v1.3.0`, `v1.3`, and advance `v1`; `v1.2` freezes.
-
-## Migrating
-
-The release-named packages (`angzarr-aggregate`, `angzarr-saga`, …) on ghcr currently have no `:latest` and — for the newest additions — no published versions at all. That's deliberate: the release pipeline for these coordinators is being set up now, and the absence of `:latest` is a feature, not a gap. Consumers pinning to `:latest` will fail loudly. Consumers pinning to a real `v1.2.3@sha256:…` will keep working indefinitely.
-
-If you're maintaining a downstream project that pulls these images, the migration is one line per image in your values file: replace `tag: latest` with `tag: "v1.2.3@sha256:<digest>"`. Bookmark the release notes. Update when you want to, not when the registry decides to move the tag under you.
+The Angzarr blog will keep covering things specific to the framework. General software, AI tooling, and workflow lessons now live with the rest of my writing.

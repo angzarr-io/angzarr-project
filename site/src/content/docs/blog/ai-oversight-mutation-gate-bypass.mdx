@@ -5,91 +5,13 @@ date: 2026-04-19
 authors:
   - "angzarr"
 tags:
-  - "llm"
-  - "ci-cd"
-  - "mutation-testing"
-  - "oversight"
-  - "workflow"
+  - "moved"
 ---
 
 import BlogHeader from '../../../components/BlogHeader.astro';
 
 <BlogHeader />
 
-I still stand by the argument from [Mutation Testing: The Deterministic Arbiter of LLM-Generated Tests](/blog/mutation-testing-validates-llm-tests): if you're going to let an LLM write your tests, you need a deterministic check that the tests actually test things. Mutation testing does that.
+This post has moved to [Append Only](https://ben.abbitt.me/posts/ai-oversight-mutation-gate-bypass/), my main blog. Future updates will live there.
 
-But a mutation-testing gate only protects you if the gate runs and fails the build when the kill rate drops. If the AI you're collaborating with can reach into the CI configuration, it can — and will, occasionally, with the best of intentions — silently disarm the gate it's supposed to be pressing against. This week it happened to me. Worth writing down, because I don't think the fix is "don't use AI assistants." The fix is oversight.
-
-## The Incident
-
-I was working through a batch of PRs bringing two example repos (Rust and Python poker examples) up to current framework APIs. The Rust PR had a mutation-test CI step backed by `cargo-mutants`, wrapped by a `just` recipe that checked the kill rate and exited non-zero if it fell below 70%. The gate had been green for months.
-
-Then it started failing. Not because the code changed — the rate was fine locally — but because `cargo-mutants` exits with code 2 whenever any mutant is missed, even if the overall kill rate is well above threshold. With `set -euo pipefail`, the recipe was aborting on that exit code before it ever computed the score. So every CI run failed whether the kill rate was 99% or 9%.
-
-The AI assistant I was pairing with diagnosed this correctly and proposed a change:
-
-```bash
-cargo mutants ... || true
-# Check mutation score meets 70% threshold
-```
-
-The `|| true` silences `cargo-mutants`' exit code so the downstream score computation can run. The score check still fails the recipe if the rate is below 70%. In that narrow sense, the change is correct: the gate stays functional, and the false-alarm reports actually reflect a real problem.
-
-I almost merged it. It took a second pass for me to notice the shape: the AI had just added `|| true` to the line running `cargo mutants` on CI. Reading the diff in isolation, that is exactly what a bypass looks like.
-
-## Why This Is Dangerous
-
-Two problems collided.
-
-**First, the fix was genuinely necessary.** The recipe was broken. Without the `|| true` (or an equivalent exit-code check), the threshold gate couldn't function. Any code reviewer — human or AI — would reasonably patch it. The "do the right thing here" signal and the "silently bypass the safety net" signal look identical from one diff's worth of context.
-
-**Second, the fix pattern generalizes to real bypasses.** Add `|| true` after a flaky test runner, a strict linter, a type-checker, an integrity check, a security scanner — and the build stays green forever. None of it is reviewed again unless someone specifically audits the pipeline. And CI pipelines get reviewed exactly once: when they're first written, or when they break loudly. A gate that stops failing never gets read.
-
-The AI I was working with will happily make both kinds of change. It does not know which is which, because from its vantage point the local context looks the same: a CI step is red, the user wants it green. The way `cargo mutants` uses exit codes is a bug-like quirk that benefits from `|| true`. The way `cargo clippy -- -D warnings` uses exit codes is a contract that absolutely must not be suppressed. Both look like "CI red; wrap the call."
-
-## What Oversight Looks Like
-
-I am not going to tell you to stop using AI assistants on CI. We're past that. The workflow that actually keeps the gates intact is something like:
-
-1. **Name the invariant.** Every CI gate should have a comment above it stating, in one sentence, what must be true for the build to pass. *"Mutation kill rate must be at least 70% over viable mutants."* If the invariant is written down, it becomes obvious when a change violates it. When an AI writes `|| true`, a reviewer can ask "does this preserve the invariant?" and answer it by reading one line of prose.
-
-2. **Split the error-tolerance boundary.** The runner exit code and the gate check are different concerns. Collapse them into a single pipeline and you lose the audit surface. Keep them separate — capture the runner's status into a variable, then decide — and any later edit has to touch both the capture and the check, which is harder to do by accident.
-
-3. **Review CI diffs specifically.** I've been lax about this. A code reviewer who glances at twenty files and scrolls past `.github/workflows/ci.yml` is — in this AI-pair era — a reviewer who hasn't checked the gates. Two minutes on the CI diff per PR. That's what it takes.
-
-4. **Mutation-test the CI too.** This one is tongue-in-cheek but not entirely. The lesson from the earlier post was that deterministic checks validate tests. The same reasoning applies one level up: periodically run a known-bad change (drop a test file, deliberately miss a mutant) through CI and confirm it fails. A gate you've never seen fail is a gate you can't trust. Quarterly fire-drill the gates.
-
-5. **Keep a short list of "never silence" commands.** `cargo clippy -- -D warnings`. `cargo fmt --check`. `ruff check`. `mypy --strict`. `cargo audit`. Anything whose exit code IS the signal. If an AI proposes `|| true` near one of these, it's either confused or (rarely) the command itself is broken and needs upstream fixing — not suppression.
-
-## The Narrow Fix, Properly Scoped
-
-What finally shipped in my `just` recipe doesn't suppress the gate. It preserves the intent — score computed, threshold enforced — and makes the error-tolerance surface narrow:
-
-```bash
-mutation-test:
-    #!/usr/bin/env bash
-    set -uo pipefail
-    # cargo-mutants returns 2 when any mutant is missed; we want the recipe
-    # to continue to the score check below, which IS the gate. Any other
-    # non-zero exit (build failure, segfault, timeout) is a real problem.
-    cargo mutants ... || true
-    # --- gate below ---
-    TOTAL=$((CAUGHT + MISSED))
-    SCORE=$((CAUGHT * 100 / TOTAL))
-    if [ "$SCORE" -lt 70 ]; then
-        echo "FAIL: $SCORE% < 70% threshold"
-        exit 1
-    fi
-```
-
-The comment is what makes this safe, not the code. A future reviewer — or a future AI — reading this file knows that the `|| true` is specifically about `cargo-mutants`'s exit-code idiosyncrasy and that the gate sits below. Any attempt to remove or weaken the score check will fail the explicit "what must be true" test. Any attempt to widen the `|| true` scope (e.g., applying it to other calls) has to argue against a comment that says no.
-
-## Meta: The Pattern
-
-Every category of quiet failure I've hit with AI pairing has the same shape:
-
-- The AI is solving the visible problem (CI red → CI green).
-- The invariant the gate was enforcing is two levels removed from the immediate failure.
-- The change is one-line, local, and — in isolation — looks reasonable.
-
-The defense is also boringly consistent: write invariants down, review CI specifically, keep a shortlist of sacred exit codes, and periodically confirm the gates still catch their target. Mutation testing is still a good idea. It just doesn't defend itself.
+The Angzarr blog will keep covering things specific to the framework. General software, AI tooling, and workflow lessons now live with the rest of my writing.
