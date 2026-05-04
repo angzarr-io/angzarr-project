@@ -754,11 +754,15 @@ Feature: Table aggregate logic
     And the big_blind_position is seat 3
 
   @EU-0577
-  Scenario: Three players collapse to heads-up — dealer becomes SB and acts first preflop
+  Scenario: Three players collapse to heads-up — button advances, dealer is SB
     # 3-handed: dealer 0, SB 1, BB 2. player-B (SB seat 1) busts during
-    # hand 1. Heads-up next hand: by TDA Rule 6 the dealer is the SB and
-    # acts first preflop (matches EU-0543). The dead-button mechanics
-    # collapse cleanly when the table reaches heads-up.
+    # hand 1. Heads-up next hand: TDA Rule 6 says the button alternates
+    # — so the button moves clockwise to the next active player. With
+    # seat 1 vacated, the next active seat after the prior dealer (0)
+    # is seat 2. Player-C is now dealer (and SB by the heads-up rule);
+    # player-A is BB. This satisfies the orbit invariant that BB does
+    # not repeat the same occupant on consecutive hands (also tested
+    # in EU-0578).
     Given a TableCreated event for "Main Table"
     And a PlayerJoined event for player "player-A" at seat 0
     And a PlayerJoined event for player "player-C" at seat 2
@@ -768,8 +772,8 @@ Feature: Table aggregate logic
     When I handle a StartHand command
     Then the result is a angzarr_client.proto.examples.HandStarted event
     And the small_blind_position equals the dealer_position
-    And the dealer_position is seat 0
-    And the big_blind_position is seat 2
+    And the dealer_position is seat 2
+    And the big_blind_position is seat 0
 
   @EU-0578
   Scenario: No player pays the big blind twice in a row across an elimination
