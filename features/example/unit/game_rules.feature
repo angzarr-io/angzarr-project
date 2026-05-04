@@ -157,14 +157,18 @@ Feature: Game rules (Texas Hold'em, Omaha, Five Card Draw)
     And the kickers are 7
 
   @EU-0709
-  Scenario: Texas Hold'em one pair has three kickers
+  Scenario: Texas Hold'em one pair carries the three highest remaining kickers
+    # Real poker: PAIR tiebreaks on (pair_rank, k1, k2, k3) where k1..k3 are
+    # the *highest* three remaining cards. Best 5 from "Ts Th 2 4 6 8 Q" is
+    # TT + Q + 8 + 6 — not TT + 6 + 4 + 2 (the legacy "first combo wins"
+    # implementation pinned the wrong kickers).
     Given Texas Hold'em rules
     And hole cards "Ts Th"
     And community cards "2d 4c 6s 8h Qd"
     When the best hand is evaluated
     Then the rank is PAIR
     And the score is 2010000
-    And the kickers are 6, 4, 2
+    And the kickers are 12, 8, 6
 
   @EU-0710
   Scenario: _find_best_hand returns HIGH_CARD with score 0 for fewer than five cards
