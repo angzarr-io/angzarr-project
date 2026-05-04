@@ -189,6 +189,8 @@ message TournamentCreated {
   AddonConfig addon_config = 9;
   repeated BlindLevel blind_structure = 10;
   google.protobuf.Timestamp created_at = 11;
+  int32 registration_cutoff_level = 12;
+  repeated PayoutPosition payout_structure = 13;
 }
 
 message RegistrationOpened {
