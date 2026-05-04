@@ -44,6 +44,13 @@ message AddonConfig {
   int64 addon_chips = 4;
 }
 
+// Payout schedule entry — position N pays this percentage of the pool.
+// Sum of percentages across all entries must equal 100.
+message PayoutPosition {
+  int32 position = 1; // 1 = first place, 2 = second, ...
+  int32 percentage = 2; // 0..100; sum across all entries == 100
+}
+
 // Player registration record
 message PlayerRegistration {
   bytes player_root = 1;
@@ -71,6 +78,12 @@ message CreateTournament {
   RebuyConfig rebuy_config = 8;
   AddonConfig addon_config = 9;
   repeated BlindLevel blind_structure = 10;
+  // Late-registration cutoff: 0 means registration auto-closes only
+  // on explicit CloseRegistration. N > 0 means registration auto-closes
+  // when the tournament reaches blind level N+1.
+  int32 registration_cutoff_level = 11;
+  // Prize-pool distribution by finishing position.
+  repeated PayoutPosition payout_structure = 12;
 }
 
 message OpenRegistration {
@@ -101,6 +114,30 @@ message StartTournament {
 // Typically issued after the last elimination leaves one player remaining.
 message CompleteTournament {
   bytes winner_root = 1;
+  // Players in finishing order (1st place, 2nd, ...). Used to populate
+  // TournamentResult entries when payout_structure is configured.
+  // Must contain at least as many entries as payout_structure positions.
+  repeated bytes finishing_order = 2;
+}
+
+// Operator command to retire low-denomination chips between levels.
+message ColorUp {
+  int64 retire_denomination = 1;
+  int64 new_denomination = 2;
+}
+
+// Operator command to rebalance players across tables.
+message RebalanceTables {
+  // Source/destination derived from current table sizes.
+}
+
+// Operator/coordinator command to enter hand-for-hand play at the
+// money bubble.
+message EnterHandForHand {}
+
+// Tables signal the tournament after each synchronised hand completes.
+message NotifyHandComplete {
+  bytes table_root = 1;
 }
 
 // PM sends this command to process a rebuy
@@ -246,6 +283,42 @@ message TournamentCompleted {
   int64 total_prize_pool = 2;
   repeated TournamentResult results = 3;
   google.protobuf.Timestamp completed_at = 4;
+}
+
+// Color-up event: low-denomination chips retired, replaced with
+// higher-denomination chips on every active stack.
+message ColorUpCompleted {
+  int64 retired_denomination = 1;
+  int64 new_denomination = 2;
+  google.protobuf.Timestamp completed_at = 3;
+}
+
+// Player moved between tables for rebalancing (TDA Rule 14).
+// The moved player keeps their stack.
+message PlayerMovedBetweenTables {
+  bytes player_root = 1;
+  bytes source_table_root = 2;
+  bytes destination_table_root = 3;
+  int32 destination_seat = 4;
+  int64 stack = 5;
+  google.protobuf.Timestamp moved_at = 6;
+}
+
+// Hand-for-hand bubble play started (TDA Rule 12). Tables must
+// complete each hand simultaneously until the next elimination.
+message HandForHandStarted {
+  google.protobuf.Timestamp started_at = 1;
+}
+
+// All tables finished their synchronised hand. The next round can begin.
+message HandForHandRoundComplete {
+  int32 round_number = 1;
+  google.protobuf.Timestamp completed_at = 2;
+}
+
+// An elimination occurred — bubble has burst, hand-for-hand ends.
+message HandForHandEnded {
+  google.protobuf.Timestamp ended_at = 1;
 }
 
 message TournamentResult {
