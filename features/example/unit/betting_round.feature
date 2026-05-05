@@ -17,15 +17,15 @@ Feature: Betting round iteration logic
   #     them." When the last aggressor is all-in, the round terminates
   #     once remaining active players have called.
   # See features/example/RULES.md for the full rule cross-reference.
-
-  Why this matters:
-  - A skipped player is a silent correctness bug: they lose the right to act
-    mid-hand, which can cascade into incorrect pot settlement.
-  - An infinite loop around an all-in aggressor blocks progression of the
-    hand forever.
-
-  These scenarios exercise ``BettingRoundTester`` + ``MockPlayer`` fixtures
-  that mirror the real ``betting_round()`` driver from ``run_game.py``.
+  #
+  # Why this matters:
+  # - A skipped player is a silent correctness bug: they lose the right to act
+  #   mid-hand, which can cascade into incorrect pot settlement.
+  # - An infinite loop around an all-in aggressor blocks progression of the
+  #   hand forever.
+  #
+  # These scenarios exercise ``BettingRoundTester`` + ``MockPlayer`` fixtures
+  # that mirror the real ``betting_round()`` driver from ``run_game.py``.
 
   # ==========================================================================
   # Correct Iteration After a Raise — TDA Rule 50
