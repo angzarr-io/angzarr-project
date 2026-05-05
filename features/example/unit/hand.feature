@@ -5,7 +5,8 @@
 #            EU-1250, EU-1260 .. EU-1261,
 #            EU-1270 .. EU-1278, EU-1280 .. EU-1282, EU-1284 .. EU-1290,
 #            EU-1295 .. EU-1296,
-#            EU-1320 .. EU-1341 (stud-specific)
+#            EU-1320 .. EU-1341 (stud-specific),
+#            EU-1342 .. EU-1365 (TDA betting/disclosure gap scenarios)
 Feature: Hand aggregate logic
   The Hand aggregate manages a single poker hand: dealing, betting rounds,
   community cards, and showdown. Each hand is an isolated consistency
@@ -1569,7 +1570,7 @@ Feature: Hand aggregate logic
   # seat currently to act. Time-out emits an ActionTaken event with action
   # FOLD or CHECK as appropriate.
 
-  @EU-1130 @wip
+  @EU-1130
   Scenario: Action clock expires while facing a bet — hand auto-folds
     # Rule: TDA Rule 29 (2024) — 25s + 5s clock; "if the player faces a bet
     #       and time expires, the hand is dead".
@@ -1581,7 +1582,7 @@ Feature: Hand aggregate logic
     And the action event has action "FOLD"
     And the action event has player_root "Alice"
 
-  @EU-1131 @wip
+  @EU-1131
   Scenario: Action clock expires with no bet to call — hand auto-checks
     # Rule: TDA Rule 29 (2024) — "if not facing a bet, the hand is checked".
     Given a CardsDealt event for TEXAS_HOLDEM with 2 players "Alice,Bob" at stacks 500
@@ -1594,7 +1595,7 @@ Feature: Hand aggregate logic
     And the action event has action "CHECK"
     And the action event has player_root "Alice"
 
-  @EU-1132 @wip
+  @EU-1132
   Scenario: Cannot start an action clock for a seat that is not currently to act
     # Rule: TDA Rule 29 (2024) — "Players must be at their seats to call for
     #       a clock"; the clock applies to the seat currently to act.
@@ -1617,7 +1618,7 @@ Feature: Hand aggregate logic
   # under-min-raise case — the implementation must distinguish silent-push
   # from declared-raise and apply the 50%-rule for the silent path.
 
-  @EU-1133 @wip
+  @EU-1133
   Scenario: Silent push of 50%+ of min raise is auto-promoted to a full minimum raise
     # Rule: TDA Rule 43A (2024) — "A player who raises 50% or more of the
     #       largest prior bet but less than a minimum raise must make a full
@@ -1632,7 +1633,7 @@ Feature: Hand aggregate logic
     And the action event has action "RAISE"
     And the action event has amount_to_call 20
 
-  @EU-1134 @wip
+  @EU-1134
   Scenario: Silent push of less than 50% of min raise is treated as a CALL
     # Rule: TDA Rule 43A (2024) — "If less than 50% it is a call unless
     #       'raise' is first declared or the player is all-in."
@@ -1647,7 +1648,7 @@ Feature: Hand aggregate logic
     And the action event has action "CALL"
     And the action event has amount 5
 
-  @EU-1135 @wip
+  @EU-1135
   Scenario: Explicit declared raise below the minimum is corrected to the minimum (Rule 52A)
     # Rule: TDA Rule 52A (2024) — "Opening or raising less than the minimum
     #       legal amount is corrected anywhere on the current street (if on
@@ -1713,7 +1714,7 @@ Feature: Hand aggregate logic
   # blinds/antes forfeit to the pot. The aggregate must accept an explicit
   # "absent at deal" marker so the events are emitted before action begins.
 
-  @EU-1145 @wip
+  @EU-1145
   Scenario: Absent player at initial deal — cards killed, posted blinds forfeit to the pot
     # Rule: TDA Rule 30 (2024) — "Players not then at their seats may not
     #       look at their cards which are killed immediately. Their posted
@@ -1733,7 +1734,7 @@ Feature: Hand aggregate logic
     And player "Bob" has_folded is true
     And the hand state pot_total is 5
 
-  @EU-1146 @wip
+  @EU-1146
   Scenario: Absent player's hand is killed even if cards were physically dealt
     # Rule: TDA Rule 30 (2024) — absent-at-deal hands are killed immediately
     #       and may not be resurrected by a returning player.
@@ -1754,7 +1755,7 @@ Feature: Hand aggregate logic
   # in, the rebuy chips are treated as posted-behind for the purposes of the
   # current hand's max bet, and the rebuy MUST be paid afterwards.
 
-  @EU-1150 @wip
+  @EU-1150
   Scenario: Declared rebuy commits the player and treats the chips as playing behind
     # Rule: TDA Rule 27 (2024) — "Players may not miss a hand. Players
     #       declaring intent to rebuy before a hand are playing chips behind
@@ -1843,7 +1844,7 @@ Feature: Hand aggregate logic
   # the claim. Robert's Rules §Omaha-1 disallows playing the board in Omaha
   # entirely (must use 2 hole cards).
 
-  @EU-1200 @wip
+  @EU-1200
   Scenario: Hold'em player tabling both hole cards plays the board successfully
     # Rule: TDA Rule 19 (2024) — "To play the board, players must table all
     #       hole cards to get part of the pot."
@@ -1858,7 +1859,7 @@ Feature: Hand aggregate logic
     And the revealed ranking is "ROYAL_FLUSH"
     And the reveal event has plays_the_board true
 
-  @EU-1201 @wip
+  @EU-1201
   Scenario: Hold'em player who mucks one hole card forfeits playing-the-board
     # Rule: TDA Rule 19 (2024) — must table ALL hole cards; partial muck
     #       forfeits any claim on the pot.
@@ -1879,7 +1880,7 @@ Feature: Hand aggregate logic
   # event-sourced engine, "in-hand" is determined by whether the
   # CardsDealt event has been emitted for the current hand.
 
-  @EU-1210 @wip
+  @EU-1210
   Scenario: Level change announced after the deal — current hand stays at the prior level
     # Rule: TDA Rule 23 (2024) — "A new level applies to the next hand. If a
     #       hand starts at the prior level by mistake, the hand will continue
@@ -1895,7 +1896,7 @@ Feature: Hand aggregate logic
     Then the hand state big_blind is 10
     And the hand state min_raise is 10
 
-  @EU-1211 @wip
+  @EU-1211
   Scenario: Level change during dealer push — incoming dealer deals one hand at the prior level
     # Rule: TDA Rule 23 (2024) — "If a new level starts during the dealer
     #       push, the incoming dealer will deal one hand at the prior level."
@@ -1920,7 +1921,7 @@ Feature: Hand aggregate logic
   #    mucks face down without tabling. The last live hand wins and is not
   #    required to table.
 
-  @EU-1220 @wip
+  @EU-1220
   Scenario: Once action is closed with at least one all-in, every remaining hand must be tabled
     # Rule: TDA Rule 16 (2024) — "All hands will be tabled without delay
     #       once a player is all-in and all betting action by all other
@@ -1938,7 +1939,7 @@ Feature: Hand aggregate logic
     Then the command fails with status "FAILED_PRECONDITION"
     And the command is rejected with code "FACE_UP_REQUIRED"
 
-  @EU-1221 @wip
+  @EU-1221
   Scenario: Uncontested showdown — last live hand wins without tabling
     # Rule: TDA Rule 17B (2024) — "A non all-in showdown is uncontested if
     #       all but one player mucks face down without tabling. The last
@@ -1970,7 +1971,7 @@ Feature: Hand aggregate logic
   #  Rule 38 — burns are one-per-street even if the stub is reshuffled
   #    mid-hand.
 
-  @EU-1230 @wip
+  @EU-1230
   Scenario Outline: Misdeal triggers — pre-SA, hand is redealt; post-SA, hand stands
     # Rule: TDA Rule 35A & 35D (2024) — misdeal taxonomy: boxed cards on
     #       initial deal; first card to wrong seat; cards dealt to a seat
@@ -1991,7 +1992,7 @@ Feature: Hand aggregate logic
       | EXPOSED_DOWNCARD       | true  | HAND_STANDS          |
       | BOXED_CARDS_INITIAL    | true  | HAND_STANDS          |
 
-  @EU-1231 @wip
+  @EU-1231
   Scenario: Fouled deck — duplicate (rank, suit) found at any time returns all bets
     # Rule: TDA Rule 35E (2024) — "If 2 or more cards of the same suit and
     #       rank are found, the deck is fouled. If a fouled deck is
@@ -2008,7 +2009,7 @@ Feature: Hand aggregate logic
     And every player's bet_this_round and prior contributions are refunded
     And the hand status is "void"
 
-  @EU-1232 @wip
+  @EU-1232
   Scenario Outline: Substantial Action threshold — pre-SA misdeals redeal, post-SA stand
     # Rule: TDA Rule 36 (2024) — "Substantial Action is either A) any 2
     #       actions in turn, at least one of which puts chips in the pot
@@ -2032,7 +2033,7 @@ Feature: Hand aggregate logic
       | RAISE                 | false |
       | RAISE,FOLD            | true  |
 
-  @EU-1233 @wip
+  @EU-1233
   Scenario: Stub reshuffle mid-hand still burns exactly one card per street
     # Rule: TDA Rule 38 (2024) — "The burn is always one card per street,
     #       never more." Even after a mid-hand reshuffle (Rule 39A premature
@@ -2058,7 +2059,7 @@ Feature: Hand aggregate logic
   # not binding and the OOT player has all options. An OOT fold is always
   # binding.
 
-  @EU-1240 @wip
+  @EU-1240
   Scenario: OOT call is binding when prior players check or call without changing the action
     # Rule: TDA Rule 53A (2024) — "Any action out of turn (check, call, or
     #       raise) will be backed up to the correct player in order. The OOT
@@ -2068,7 +2069,7 @@ Feature: Hand aggregate logic
     # 3 players, action on Alice. Carol acts out of turn with CALL.
     # Alice then checks (no change), Bob checks (no change). When
     # action returns to Carol, the OOT CALL is binding.
-    Given a CardsDealt event for TEXAS_HOLDEM with 3 players at stacks 500
+    Given a CardsDealt event for TEXAS_HOLDEM with 3 players "Alice,Bob,Carol" at stacks 500
     And blinds posted with pot 15
     And a BettingRoundComplete event for preflop
     And a CommunityCardsDealt event for FLOP
@@ -2079,7 +2080,7 @@ Feature: Hand aggregate logic
     Then player "Carol" OOT action is binding
     And an ActionTaken event is emitted for player "Carol" with action "CHECK"
 
-  @EU-1241 @wip
+  @EU-1241
   Scenario: OOT raise is NOT binding when an earlier player bets or raises
     # Rule: TDA Rule 53A (2024) — "If action changes, the OOT action is not
     #       binding; any bet or raise is returned to the OOT player who has
@@ -2087,7 +2088,7 @@ Feature: Hand aggregate logic
     # Action on Alice. Carol OOT pushes RAISE 60. Alice then bets
     # 50 — action has changed. The OOT RAISE is returned to Carol, who
     # may now call, raise, or fold.
-    Given a CardsDealt event for TEXAS_HOLDEM with 3 players at stacks 500
+    Given a CardsDealt event for TEXAS_HOLDEM with 3 players "Alice,Bob,Carol" at stacks 500
     And blinds posted with pot 15
     And a BettingRoundComplete event for preflop
     And a CommunityCardsDealt event for FLOP
@@ -2098,13 +2099,13 @@ Feature: Hand aggregate logic
     Then player "Carol" OOT action is returned
     And player "Carol" may now call, raise, or fold
 
-  @EU-1242 @wip
+  @EU-1242
   Scenario: OOT fold is always binding even if action changes
     # Rule: TDA Rule 53A (2024) — last sentence: "An OOT fold is binding."
     # Action on Alice. Carol OOT folds. Even after Alice bets and
     # the situation changes, Carol's fold stands — Rule 53A specifically
     # makes OOT folds binding.
-    Given a CardsDealt event for TEXAS_HOLDEM with 3 players at stacks 500
+    Given a CardsDealt event for TEXAS_HOLDEM with 3 players "Alice,Bob,Carol" at stacks 500
     And blinds posted with pot 15
     And a BettingRoundComplete event for preflop
     And a CommunityCardsDealt event for FLOP
@@ -2123,7 +2124,7 @@ Feature: Hand aggregate logic
   # the error stands. EU-0067 hard-rejects below-min raises; this scenario
   # captures the corrective alternative when the error is detected mid-street.
 
-  @EU-1250 @wip
+  @EU-1250
   Scenario: Underraise corrected on the same street before the next street is dealt
     # Rule: TDA Rule 52A (2024) — "In limit and no-limit, opening or raising
     #       less than the minimum legal amount is corrected anywhere on the
@@ -2134,7 +2135,7 @@ Feature: Hand aggregate logic
     # (200 underraise — should be at least 1200), C and D call. Error noticed
     # before the turn is dealt. Per Rule 52A, every bettor's contribution
     # is corrected to the legal min raise of 1200 anywhere before the turn.
-    Given a CardsDealt event for TEXAS_HOLDEM with 4 players at stacks 5000
+    Given a CardsDealt event for TEXAS_HOLDEM with 4 players "Alice,Bob,Carol,Dave" at stacks 5000
     And a CommunityCardsDealt event for FLOP at blinds 100/200
     And player "Alice" bets 600
     And player "Bob" raises to 1000
@@ -2159,7 +2160,7 @@ Feature: Hand aggregate logic
   #    player initiated a bet or raise that hasn't been called, the uncalled
   #    amount is returned.
 
-  @EU-1260 @wip
+  @EU-1260
   Scenario: Accidentally killed hand — uncalled portion of player's bet is returned
     # Rule: TDA Rule 65A (2024) — "If the dealer kills a hand by mistake or
     #       if a hand is fouled and cannot be identified to 100% certainty,
@@ -2179,7 +2180,7 @@ Feature: Hand aggregate logic
     And player "Alice" has stack 400
     And the hand state pot_total is 15
 
-  @EU-1261 @wip
+  @EU-1261
   Scenario: Mucked-while-still-claiming — uncalled raise is refunded
     # Rule: TDA Rule 15B (2024) — "If a player bets then discards thinking
     #       they have won (forgetting another player is still in the hand)
@@ -2205,7 +2206,7 @@ Feature: Hand aggregate logic
   # engine, this means: once a hand ends (HandComplete emitted), the
   # remaining stub MUST NOT be revealed via any query, event, or projection.
 
-  @EU-1270 @wip
+  @EU-1270
   Scenario: Hand ending early does not reveal the unburned community cards
     # Rule: TDA Rule 28 (2024) — "Rabbit hunting … is not allowed."
     # Bob folds preflop. The flop, turn, and river are never dealt and never
@@ -2229,7 +2230,7 @@ Feature: Hand aggregate logic
   # cards in Omaha, all 7 cards in 7-stud, etc." A reveal that omits any
   # required card is rejected.
 
-  @EU-1271 @wip
+  @EU-1271
   Scenario: Hold'em reveal must include both hole cards
     # Rule: TDA Rule 13A (2024) — must table both hole cards.
     Given a hand at showdown with player "Alice" holding "Ah Kh" and community "Qh Jh Th 2c 3d"
@@ -2237,7 +2238,7 @@ Feature: Hand aggregate logic
     Then the command fails with status "FAILED_PRECONDITION"
     And the command is rejected with code "INCOMPLETE_REVEAL"
 
-  @EU-1272 @wip
+  @EU-1272
   Scenario: A properly tabled winning hand cannot be killed by an erroneous AwardPot
     # Rule: TDA Rule 13C (2024) — "Dealers cannot kill a properly tabled hand
     #       that was obviously the winner."
@@ -2263,7 +2264,7 @@ Feature: Hand aggregate logic
   #  Rule 35C — "In misdeals, the re-deal is an exact re-play: the button
   #    doesn't move, no new players are seated, limits stay the same."
 
-  @EU-1273 @wip
+  @EU-1273
   Scenario: Two consecutive cards on the button are not a misdeal
     # Rule: TDA Rule 35B (2024) — explicit allowance.
     Given a CardsDealt event for TEXAS_HOLDEM with 4 players "Alice,Bob,Carol,Dave" at stacks 500
@@ -2273,7 +2274,7 @@ Feature: Hand aggregate logic
     Then the hand state has phase "PREFLOP"
     And no MisdealDeclared event is in the hand stream
 
-  @EU-1274 @wip
+  @EU-1274
   Scenario: Re-deal preserves the dealer button position and blind levels
     # Rule: TDA Rule 35C (2024) — "the button doesn't move, no new players
     #       are seated, limits stay the same."
@@ -2286,7 +2287,7 @@ Feature: Hand aggregate logic
     And the dealer button is still at seat 0 (Alice)
     And the hand level is 1 (SB 5 / BB 10)
 
-  @EU-1275 @wip
+  @EU-1275
   Scenario: Button dealt too few cards — replaceable if announced before the button acts
     # Rule: TDA Rule 37 (2024) — "Missing button cards may be replaced even
     #       after substantial action if permitted for the game type. However,
@@ -2303,7 +2304,7 @@ Feature: Hand aggregate logic
   # Irregular Flops — TDA Rule 39
   # ==========================================================================
 
-  @EU-1276 @wip
+  @EU-1276
   Scenario: 4-card flop — scramble all four, randomly select burn, remaining 3 = flop
     # Rule: TDA Rule 39A (2024) — "If the flop has 4 rather than 3 cards,
     #       exposed or not … the dealer scrambles the 4 cards face down, the
@@ -2318,7 +2319,7 @@ Feature: Hand aggregate logic
     And the event has 3 cards dealt
     And the burn card count for this street is 1
 
-  @EU-1277 @wip
+  @EU-1277
   Scenario: No-burn 3-card flop pre-action — scramble flop, one becomes burn, complete flop from stub
     # Rule: TDA Rule 39B (2024) — "If there was no burn on a 3-card flop,
     #       exposed or not … if no action has occurred, the 3 cards are
@@ -2334,7 +2335,7 @@ Feature: Hand aggregate logic
     And the burn card count for this street is 1
     And exactly 1 of the original 3 flop cards is now the burn
 
-  @EU-1278 @wip
+  @EU-1278
   Scenario: No-burn 3-card flop after action — flop stands, no extra burn for the turn
     # Rule: TDA Rule 39B (2024) — "If any action (even one check) has
     #       occurred, play proceeds with the initial 3 cards. Only one card
@@ -2358,7 +2359,7 @@ Feature: Hand aggregate logic
   # stub, reshuffle the entire stub, and re-deal the street WITHOUT another
   # burn.
 
-  @EU-1280 @wip
+  @EU-1280
   Scenario: Premature flop — burn stays, premature flop returns to stub, reshuffle, re-deal without new burn
     # Rule: TDA RP-5A (2024) — premature flop procedure.
     Given a CardsDealt event for TEXAS_HOLDEM with 3 players "Alice,Bob,Carol" at stacks 500
@@ -2374,7 +2375,7 @@ Feature: Hand aggregate logic
     Then the result is a angzarr_client.proto.examples.CommunityCardsDealt event
     And the burn card count for this street is 0
 
-  @EU-1281 @wip
+  @EU-1281
   Scenario: Premature turn — burn stays, premature card returns, reshuffle, re-deal without new burn
     # Rule: TDA RP-5B (2024) — premature turn procedure.
     Given a CardsDealt event for TEXAS_HOLDEM with 3 players "Alice,Bob,Carol" at stacks 500
@@ -2391,7 +2392,7 @@ Feature: Hand aggregate logic
     And I handle a DealCommunityCards command with count 1
     Then the burn card count for this street is 0
 
-  @EU-1282 @wip
+  @EU-1282
   Scenario: Premature river — burn stays, premature card returns, reshuffle, re-deal without new burn
     # Rule: TDA RP-5C (2024) — premature river procedure.
     Given a CardsDealt event for TEXAS_HOLDEM with 3 players "Alice,Bob,Carol" at stacks 500
@@ -2415,7 +2416,7 @@ Feature: Hand aggregate logic
   # street; if too low, corrected until substantial action occurs after the
   # bet."
 
-  @EU-1284 @wip
+  @EU-1284
   Scenario: PL high (illegal) underbet is corrected for all players anywhere on the current street
     # Rule: TDA Rule 52B (2024) — high count = illegal bet, correct any time.
     # PLO 500/1000. Pot=10500. Alice asks for count, dealer says "11500"
@@ -2441,7 +2442,7 @@ Feature: Hand aggregate logic
   # not speak up before substantial action OOT occurs after the player, the
   # OOT action is binding."
 
-  @EU-1285 @wip
+  @EU-1285
   Scenario: Skipped player who doesn't defend before SA-OOT loses their action
     # Rule: TDA Rule 53B (2024).
     # Action on Bob (seat 4). Alice (seat 5) acts OOT with CALL 600. Carol
@@ -2464,7 +2465,7 @@ Feature: Hand aggregate logic
   # not affect pot calculation. All pre-flop pot and re-pot bets will assume
   # full blinds were posted."
 
-  @EU-1286 @wip
+  @EU-1286
   Scenario: PLO pre-flop pot calculation assumes full blinds even with a short SB
     # Rule: TDA Rule 54B (2024) — full blinds assumed.
     # PLO 100/200. Alice (SB seat) is short and posts only 100 (full SB).
@@ -2485,7 +2486,7 @@ Feature: Hand aggregate logic
   # minimum bet) and may be subject to penalty. Players facing a bet must
   # make a valid raise."
 
-  @EU-1287 @wip
+  @EU-1287
   Scenario: "Bet the pot" declaration in no-limit binds the player to at least a minimum bet
     # Rule: TDA Rule 54D (2024).
     Given a CardsDealt event for TEXAS_HOLDEM with 2 players "Alice,Bob" at stacks 500
@@ -2505,7 +2506,7 @@ Feature: Hand aggregate logic
   # least a minimum bet. A player declaring 'check' when facing a bet may
   # call or fold, but cannot raise."
 
-  @EU-1288 @wip
+  @EU-1288
   Scenario Outline: Invalid bet declaration outcomes
     # Rule: TDA Rule 55 (2024) — bind invalid declarations to the legal
     #       in-context action.
@@ -2529,7 +2530,7 @@ Feature: Hand aggregate logic
   # first to act post-flop) or folding out of turn are binding folds subject
   # to penalty."
 
-  @EU-1289 @wip
+  @EU-1289
   Scenario: Folding in turn with no bet to call is a binding fold
     # Rule: TDA Rule 58 (2024) — folds are binding even with no bet facing.
     Given a CardsDealt event for TEXAS_HOLDEM with 2 players "Alice,Bob" at stacks 500
@@ -2549,7 +2550,7 @@ Feature: Hand aggregate logic
   # occurred, play will continue. … the button will not be backed-up on
   # the next hand."
 
-  @EU-1290 @wip
+  @EU-1290
   Scenario: Incorrect button movement after substantial action stands for the rest of the hand
     # Rule: TDA Rule 34A (2024) — SA freezes the error in place.
     Given a CardsDealt event for TEXAS_HOLDEM with 4 players "Alice,Bob,Carol,Dave" at stacks 500
@@ -2566,7 +2567,7 @@ Feature: Hand aggregate logic
   # Limit-only rules (Hold'em, Omaha-Hi, etc. when played as a limit
   # variant). Marked @limit so engines that don't support limit can skip.
 
-  @EU-1295 @wip @limit
+  @EU-1295 @limit
   Scenario: Limit — short all-in of at least 50% of a full bet reopens betting
     # Rule: TDA Rule 47B (2024) — "In limit, at least 50% of a full bet or
     #       raise is required to re-open betting for players who have
@@ -2582,7 +2583,7 @@ Feature: Hand aggregate logic
     And player "Carol" goes all-in for 500
     Then the bet is reopened for prior actors
 
-  @EU-1296 @wip @limit
+  @EU-1296 @limit
   Scenario: Limit — at most 1 bet and 4 raises per round until heads-up
     # Rule: TDA Rule 48 (2024) — "In limit play, there is a limit to raises
     #       even when heads-up until the event is down to 2 players; the
@@ -2604,7 +2605,7 @@ Feature: Hand aggregate logic
   # All variants of stud (Seven Card Stud, Stud Hi/Lo, Razz) share these
   # aggregate rules unless noted.
 
-  @EU-1320 @stud @wip
+  @EU-1320 @stud
   Scenario: HORSE button shifts when game type changes from flop game to stud
     # Rule: TDA Rule 11B (2024) — "In mixed games (ex: HORSE), when the game
     #       shifts from hold'em to stud, after the last hold'em hand the
@@ -2623,7 +2624,7 @@ Feature: Hand aggregate logic
     When the rotation transitions back to Texas Hold'em after the stud rotation
     Then the dealer button resumes at seat 1
 
-  @EU-1321 @stud @wip
+  @EU-1321 @stud
   Scenario: 7th-street showdown order — high hand showing tables first
     # Rule: TDA Rule 17A (2024) — "In a non all-in showdown, if cards are
     #       not spontaneously tabled or discarded, the TD may enforce an
@@ -2645,7 +2646,7 @@ Feature: Hand aggregate logic
     When the ShowdownStarted event is emitted
     Then the showdown players_to_show order is "Carol,Alice,Bob"
 
-  @EU-1322 @stud @wip
+  @EU-1322 @stud
   Scenario: Stud odd chip — high card by suit gets the odd chip
     # Rule: TDA Rule 20B (2024) — "Stud, razz, and if 2 or more high or low
     #       hands in stud/8: the odd chip goes to the high card by suit in
@@ -2667,7 +2668,7 @@ Feature: Hand aggregate logic
     And the award event has winner "Alice" with amount 51
     And the award event has winner "Bob" with amount 50
 
-  @EU-1323 @stud @wip
+  @EU-1323 @stud
   Scenario: Stud — exposed first or second downcard on initial deal is a misdeal
     # Rule: TDA Rule 35A-6 (2024) — "Before SA, a non-standard card for the
     #       game type is found"; specifically: "In flop games, if 1 of the
@@ -2684,7 +2685,7 @@ Feature: Hand aggregate logic
     And the dealer button is preserved
     And no chips have been forfeited
 
-  @EU-1324 @stud @wip
+  @EU-1324 @stud
   Scenario: Mucking in stud — proper muck is turning down all up cards and pushing them forward
     # Rule: TDA Rule 66 (2024) — "In stud poker, if a player picks up the
     #       upcards while facing action, the hand is dead. Proper mucking
@@ -2695,7 +2696,7 @@ Feature: Hand aggregate logic
     Then the command fails with status "FAILED_PRECONDITION"
     And the command is rejected with code "STUD_MUCK_BY_PICKUP_FORBIDDEN"
 
-  @EU-1325 @stud @wip
+  @EU-1325 @stud
   Scenario: RP-10A — downcard exposed on initial deal becomes the player's upcard
     # Rule: TDA RP-10A (2024) — "A downcard exposed on the initial deal
     #       will be the player's upcard and 3rd street will be dealt down
@@ -2708,7 +2709,7 @@ Feature: Hand aggregate logic
     And the next dealt card to Alice (the door card) is dealt face down
     And player "Alice" remains eligible to be the bring-in based on her up card
 
-  @EU-1326 @stud @wip
+  @EU-1326 @stud
   Scenario: RP-10B — exposed 7th-street card is replaced when betting action remains
     # Rule: TDA RP-10B (2024) — "A card exposed by the dealer on 7th street
     #       will be replaced if betting action remains on the hand. 7th
@@ -2721,7 +2722,7 @@ Feature: Hand aggregate logic
     And the original card is removed from play
     And the replacement card is dealt face down to Alice
 
-  @EU-1327 @stud @wip
+  @EU-1327 @stud
   Scenario: RP-10C — absent player's cards are killed; no 4th street to non-live hand
     # Rule: TDA RP-10C (2024) — "Cards of a player not at his or her seat
     #       (See Rule 30) for the deal will be killed. No cards will be
@@ -2730,11 +2731,11 @@ Feature: Hand aggregate logic
     And player "Bob" was absent for the initial deal
     Then player "Bob" hand is killed
     When I handle a DealStreet command for FOURTH_STREET
-    Then the result is a angzarr_client.proto.examples.StreetDealt event
+    Then the result is a angzarr_client.proto.examples.StudStreetDealt event
     And the street event has 2 cards dealt
     And no card was dealt to player "Bob"
 
-  @EU-1328 @stud @wip
+  @EU-1328 @stud
   Scenario: RP-10D — tied stud high-up acts first by suit ranking
     # Rule: TDA RP-10D (2024) — "If there are two or more matching high
     #       hands showing in Stud (or Stud-8) or low hands in Razz, betting
@@ -2749,7 +2750,7 @@ Feature: Hand aggregate logic
     # hearts). Alice acts first.
     Then the first-to-act player is "Alice"
 
-  @EU-1329 @stud @wip
+  @EU-1329 @stud
   Scenario: RP-10E — bring-in player all-in for the ante: betting starts to their left
     # Rule: TDA RP-10E (2024) — "If the player dealt the low card by suit
     #       is all-in for the ante, betting starts to his or her left.
@@ -2760,7 +2761,7 @@ Feature: Hand aggregate logic
     Then the first-to-act player is "Bob"
     And the minimum bet for "Bob" and "Carol" is the bring-in amount
 
-  @EU-1330 @stud @wip
+  @EU-1330 @stud
   Scenario: RP-10F — open pair on 4th street does NOT enable a doubled bet (TDA standard)
     # Rule: TDA RP-10F (2024) — "Bets will not be doubled on 4th street for
     #       a pair showing." (Note: WSOP-1521/1531 says the OPPOSITE for
@@ -2773,7 +2774,7 @@ Feature: Hand aggregate logic
     And the command is rejected with code "DOUBLED_BET_NOT_ALLOWED_4TH_STREET"
     And the rejection field "max_bet" equals "100"
 
-  @EU-1331 @stud @wip
+  @EU-1331 @stud
   Scenario: RP-10H sub-C — 7th-street short stub (<3 cards) becomes a community card
     # Rule: TDA RP-10H sub-C (2024) — "If the current stub has less than 3
     #       cards, it will be scrambled with the 3 prior burns for a new
@@ -2790,7 +2791,7 @@ Feature: Hand aggregate logic
     And the community card is shared by all 5 active players
     And the first-to-act on 7th street is the same player who acted first on 6th street
 
-  @EU-1332 @stud @wip
+  @EU-1332 @stud
   Scenario: RP-10G / RP-5D — premature card in stud returned to stub, reshuffled, no extra burn
     # Rule: TDA RP-10G (2024) — "For premature cards dealt in stud see
     #       RP-5-D."
@@ -2806,10 +2807,10 @@ Feature: Hand aggregate logic
     And the stub is reshuffled
     When 4th-street betting completes
     And I handle a DealStreet command for FIFTH_STREET
-    Then the result is a angzarr_client.proto.examples.StreetDealt event
+    Then the result is a angzarr_client.proto.examples.StudStreetDealt event
     And the burn card count for this street is 0
 
-  @EU-1333 @stud @wip
+  @EU-1333 @stud
   Scenario: RP-10H sub-A — short stub: stub + prior burns reaches required count
     # Rule: TDA RP-10H sub-A (2024) — "if the required number can be reached
     #       by adding the 3 prior burn cards (for 4th, 5th, and 6th street)
@@ -2823,11 +2824,11 @@ Feature: Hand aggregate logic
     And the burn pile has 3 prior burns
     When the dealer scrambles the stub with the prior burns into a new stub
     And one card is burned from the new stub
-    Then a angzarr_client.proto.examples.SeventhStreetDealt event is emitted
+    Then a angzarr_client.proto.examples.StudStreetDealt event is emitted
     And one card is dealt to each of the 5 active players
     And no community card is in play
 
-  @EU-1334 @stud @wip
+  @EU-1334 @stud
   Scenario: RP-10H sub-B — stub has ≥3 but combining with burns is still short → community card
     # Rule: TDA RP-10H sub-B (2024) — "if there are at least 3 cards in the
     #       current stub but adding the prior burns would not reach the
@@ -2846,7 +2847,7 @@ Feature: Hand aggregate logic
     And the community card is shared by all 6 active players
     And the first-to-act on 7th street is the same player who acted first on 6th street
 
-  @EU-1335 @stud @wip
+  @EU-1335 @stud
   Scenario: WSOP — all 3 first cards dealt face down: scramble, randomly turn one face up
     # Rule: WSOP §Seven Card Games (2025) — "If a Participant receives each
     #       of the first three cards down, the floor supervisor will
@@ -2860,7 +2861,7 @@ Feature: Hand aggregate logic
     And player "Alice" has 2 down cards and 1 up card
     And the up-card selection has rng_seed populated for replay determinism
 
-  @EU-1336 @stud @wip
+  @EU-1336 @stud
   Scenario: WSOP — wrong bring-in correction window: fix until the next player has acted
     # Rule: WSOP §Seven Card Games (2025) — "When the wrong person is
     #       designated as the bring-in and bets, if the next Participant
@@ -2877,7 +2878,7 @@ Feature: Hand aggregate logic
     And player "Alice" wager is returned
     And player "Carol" (the actual low card) is now obligated to post the bring-in
 
-  @EU-1337 @stud @wip
+  @EU-1337 @stud
   Scenario: WSOP — bring-in completion to a full bet does not count as a raise
     # Rule: WSOP §Seven Card Games (2025) — "Increasing the amount wagered
     #       by the forced bring-in, up to a full bet does not count as a
@@ -2892,7 +2893,7 @@ Feature: Hand aggregate logic
     And the action event does NOT count toward the per-round raise cap
     And up to 4 subsequent raises are allowed
 
-  @EU-1338 @stud @wip
+  @EU-1338 @stud
   Scenario: WSOP — absent at 3rd-street completion forfeits ante and bring-in
     # Rule: WSOP §Seven Card Games (2025) — "If you are not present at the
     #       table when third street has been delivered to the final
@@ -2910,7 +2911,7 @@ Feature: Hand aggregate logic
     And player "Bob" bring-in 10 is forfeited to the pot
     And the hand state pot_total is 15 (Alice ante 0 + Carol ante 0 + Dave ante 0 + Bob 5 + Bob bring-in 10)
 
-  @EU-1339 @stud @wip
+  @EU-1339 @stud
   Scenario: WSOP — open pair on 4th street locks lower limit in Stud Hi/Lo and Razz
     # Rule: WSOP §Seven Card Stud Hi/Lo 8b (2025) — "On Fourth Street, a
     #       Participant showing an open pair does not have an option of
@@ -2926,7 +2927,7 @@ Feature: Hand aggregate logic
     Then the command fails with status "FAILED_PRECONDITION"
     And the command is rejected with code "OPEN_PAIR_LOCKS_LOWER_LIMIT"
 
-  @EU-1340 @stud @wip
+  @EU-1340 @stud
   Scenario: Robert's §SC Stud #18 — hand with too few or too many cards at showdown is dead
     # Rule: Robert's Rules §SC Stud #18 (Ciaffone v11) — "A hand with more
     #       than seven cards is dead. A hand with less than seven cards at
@@ -2945,7 +2946,7 @@ Feature: Hand aggregate logic
     Then the command fails with status "FAILED_PRECONDITION"
     And the command is rejected with code "STUD_TOO_MANY_CARDS"
 
-  @EU-1341 @stud @wip
+  @EU-1341 @stud
   Scenario: Robert's §RAZZ #3 — open pair on 4th street does not affect the limit (Razz only)
     # Rule: Robert's Rules §RAZZ #3 (Ciaffone v11) — "Fixed-limit games use
     #       the lower limit on third and fourth streets and the upper limit
@@ -2960,3 +2961,389 @@ Feature: Hand aggregate logic
     And the action event has action "BET"
     And the action event has amount 200
     And no rejection is raised based on the open pair
+
+  # ==========================================================================
+  # Showdown Disclosure — TDA Rule 18
+  # ==========================================================================
+  # Real poker (TDA Rule 18): "A: Players not still in possession of cards at
+  # showdown, or who have mucked their cards face down without tabling, lose
+  # any rights or privileges to ask to see any hand. B: If there was a river
+  # bet, any caller has an inalienable right to have the last aggressor's
+  # hand tabled on request ('the hand they paid to see') provided the
+  # caller tabled or retains his or her cards."
+
+  @EU-1342
+  Scenario: River caller can demand last aggressor's hand at showdown
+    # Rule: TDA Rule 18B (2024) — caller's "inalienable right" to see the
+    #       hand they paid for, provided they retained their cards.
+    Given a CardsDealt event for TEXAS_HOLDEM with 2 players "Alice,Bob" at stacks 500
+    And the river betting closed with "Bob" as last aggressor and "Alice" as caller
+    And player "Alice" still holds her cards
+    When I handle a RequestShowHand command from "Alice" targeting "Bob"
+    Then a HandTablingRequired event is emitted for player "Bob"
+    And player "Bob" hand must be tabled
+
+  @EU-1343
+  Scenario: Mucked-without-tabling player loses right to demand a hand
+    # Rule: TDA Rule 18A (2024) — players who mucked face-down at showdown
+    #       have no right to ask to see any hand.
+    Given a CardsDealt event for TEXAS_HOLDEM with 2 players "Alice,Bob" at stacks 500
+    And the river betting closed with "Bob" as last aggressor and "Alice" as caller
+    And player "Alice" mucked her cards face-down without tabling
+    When I handle a RequestShowHand command from "Alice" targeting "Bob"
+    Then the command fails with status "FAILED_PRECONDITION"
+    And the command is rejected with code "MUCKED_WITHOUT_TABLING"
+
+  # ==========================================================================
+  # Disputed Pots Window — TDA Rule 22
+  # ==========================================================================
+  # Real poker (TDA Rule 22): "The right to dispute a hand ends when a new
+  # hand begins. A hand begins with the first riffle of the deck." Once the
+  # next StartHand command runs through to its first DeckShuffled event,
+  # the prior hand's pot distribution is final.
+
+  @EU-1344
+  Scenario: Pot dispute window closes when the next hand begins shuffling
+    # Rule: TDA Rule 22 (2024) — dispute window ends at first riffle.
+    # Rule: WSOP Rule 76 (2025) — same wording.
+    Given a HandComplete event for the prior hand with pot 600 awarded to "Alice"
+    And a StartHand command has been accepted and a DeckShuffled event emitted
+    When I handle a DisputePotDistribution command from "Bob" referencing the prior hand
+    Then the command fails with status "FAILED_PRECONDITION"
+    And the command is rejected with code "DISPUTE_WINDOW_CLOSED"
+
+  # ==========================================================================
+  # Discretionary Color-Up — TDA Rule 25
+  # ==========================================================================
+  # Real poker (TDA Rule 25): the TD may color-up smaller-denom chips
+  # outside the scheduled chip race. The hand-aggregate effect is that a
+  # ColorUpScheduled event triggers stack reconciliation at the *next*
+  # break or hand boundary; in-hand chips are not retroactively converted.
+
+  @EU-1345
+  Scenario: Discretionary color-up is deferred to the next hand boundary
+    # Rule: TDA Rule 25 (2024) — color-ups happen between hands, never
+    #       mid-hand.
+    Given a hand in progress with current_bet 200 and pot 1000
+    When the TD issues a DiscretionaryColorUp command for denomination 25
+    Then the command is accepted but no stack mutation occurs in this hand
+    And a ColorUpScheduled event is emitted with apply_at "NEXT_HAND_BOUNDARY"
+
+  # ==========================================================================
+  # Verbal vs Chip Betting Mechanics — TDA Rules 40, 42, 51
+  # ==========================================================================
+  # Real poker (TDA Rules 40-42, 51): an in-turn verbal declaration is
+  # binding. Verbal raise without a stated amount commits the player to at
+  # least the minimum legal raise. Chips put forward without verbal context
+  # are interpreted by Rules 41 (call) and 44/45 (oversized/multi-chip).
+
+  @EU-1346
+  Scenario: In-turn verbal "raise" without amount commits to minimum legal raise
+    # Rule: TDA Rule 42 (2024) — "Verbal raise without an amount commits
+    #       the player to at least the minimum legal raise."
+    Given a CardsDealt event for TEXAS_HOLDEM with 3 players "Alice,Bob,Carol" at stacks 1000
+    And blinds posted with pot 15 and current_bet 10
+    And player "Bob" has bet 50 (a 40 raise increment)
+    When player "Carol" verbally declares "raise" without an amount
+    Then a angzarr_client.proto.examples.ActionTaken event is emitted
+    And the action event has action "RAISE"
+    And the action event has amount 90 (50 + 40 minimum raise increment)
+
+  @EU-1347
+  Scenario: In-turn verbal "all-in" is binding even before chips move
+    # Rule: TDA Rule 40 (2024) — "Acting in turn verbally is binding."
+    # Alice posted SB 5 from her 500 stack so she enters the action
+    # with bet_this_round=5 and stack=495. Verbal all-in commits the
+    # remaining 495 chips on top of the SB; the emitted ActionTaken
+    # ``amount`` field is chips_put_in (495), per the existing
+    # convention used by the other ALL_IN scenarios.
+    Given a CardsDealt event for TEXAS_HOLDEM with 2 players "Alice,Bob" at stacks 500
+    And blinds posted with pot 15 and current_bet 10
+    When player "Alice" verbally declares "all-in" with no chips yet pushed
+    Then a angzarr_client.proto.examples.ActionTaken event is emitted
+    And the action event has action "ALL_IN"
+    And the action event has amount 495
+    And player "Alice" stack is 0
+
+  # ==========================================================================
+  # Chip-Only Betting — TDA Rules 41, 44, 45, 46
+  # ==========================================================================
+  # Real poker (TDA Rules 41/44/45/46): silent (no verbal) chip pushes are
+  # interpreted by deterministic rules. Single oversized chip = call.
+  # Multi-chip pushed silently is a call if every chip is needed; otherwise
+  # the 50% threshold (Rule 43A) decides whether it's a raise.
+
+  @EU-1348
+  Scenario: Multi-chip silent bet is a call when every chip is needed to call
+    # Rule: TDA Rule 41 (2024) — "When facing a bet, unless raise is declared
+    #       first, a multiple-chip bet is a call if every chip is needed to
+    #       make the call."
+    # Rule: WSOP Rule 92 (2025) — same wording.
+    # Pot=15, current_bet=200 (post-flop opening bet by SB). Bob silently
+    # puts out two 100 chips. Both are needed to call 200 → ruled a call.
+    Given a CardsDealt event for TEXAS_HOLDEM with 2 players "Alice,Bob" at stacks 1000
+    And blinds posted with pot 15 and current_bet 200
+    When player "Bob" silently pushes chips totaling 200 (two 100 chips, both required)
+    Then a angzarr_client.proto.examples.ActionTaken event is emitted
+    And the action event has action "CALL"
+    And the action event has amount 200
+
+  @EU-1350
+  Scenario: Single oversized chip pushed silently is a call
+    # Rule: TDA Rule 44 (2024) — "Putting a single oversized chip into the
+    #       pot will be considered a call if the player doesn't verbally
+    #       declare a raise."
+    # Rule: WSOP Rule 97 (2025) — same wording.
+    # current_bet=200 (post-flop opening). Bob silently drops a single
+    # 1000 chip → call (200). Change of 800 is implicit in the
+    # chips_put_in vs pushed-chip-count distinction.
+    Given a CardsDealt event for TEXAS_HOLDEM with 2 players "Alice,Bob" at stacks 5000
+    And blinds posted with pot 15 and current_bet 200
+    When player "Bob" silently pushes a single 1000 chip
+    Then a angzarr_client.proto.examples.ActionTaken event is emitted
+    And the action event has action "CALL"
+    And the action event has amount 200
+
+  @EU-1351
+  Scenario: Multi-chip silent bet meeting the 50% threshold is a full minimum raise
+    # Rule: TDA Rule 45 (2024) + Rule 43A (50% rule) — "A multi-chip bet
+    #       not all-needed-to-call that meets the 50% raise threshold is
+    #       promoted to a full minimum raise."
+    # current_bet=200 (post-flop opening). Bob silently pushes 400.
+    # Excess over call = 200, last_raise_increment = 200, so 200 == full
+    # legal raise → no promotion needed. Final chips_put_in = 400.
+    Given a CardsDealt event for TEXAS_HOLDEM with 2 players "Alice,Bob" at stacks 5000
+    And blinds posted with pot 15 and current_bet 200
+    When player "Bob" silently pushes 400 (two 200 chips, not all required)
+    Then a angzarr_client.proto.examples.ActionTaken event is emitted
+    And the action event has action "RAISE"
+    And the action event has amount 400
+
+  @EU-1352
+  Scenario: Prior-bet chips topped silently to >=50% threshold becomes a full raise
+    # Rule: TDA Rule 46C (2024) — "If new chip(s) are added silently … the
+    #       combined final chip bet is a raise if reaching the 50% standard
+    #       (Rules 43 and 45)."
+    # Alice prior bet 100; Bob raises to 300 (+200 increment); Alice
+    # silently adds 300 more (total 400 on the table). 100 excess over
+    # call meets 50% of 200 → promoted to full minimum raise. Final
+    # absolute commit = 500. ``amount`` is chips_put_in (400) per the
+    # established convention; ``amount_to_call`` is the absolute target.
+    Given a CardsDealt event for TEXAS_HOLDEM with 2 players "Alice,Bob" at stacks 2000
+    And blinds posted with pot 15 and current_bet 0
+    And player "Alice" has already bet 100 this street
+    And player "Bob" raised to 300 (200 raise increment)
+    When player "Alice" silently adds chips totaling 300 on top of her prior 100
+    Then a angzarr_client.proto.examples.ActionTaken event is emitted
+    And the action event has action "RAISE"
+    And the action event has amount 400
+    And the action event has amount_to_call 500
+
+  @EU-1353
+  Scenario: Pulling back a prior-bet chip while facing a raise binds the player to call or raise
+    # Rule: TDA Rule 46B (2024) — "If facing a raise, clearly pulling back
+    #       a prior bet chip binds a player to call or raise; they may not
+    #       put the chip(s) back out and fold."
+    Given a CardsDealt event for TEXAS_HOLDEM with 2 players "Alice,Bob" at stacks 2000
+    And blinds posted with pot 15 and current_bet 0
+    And player "Alice" has already bet 100 this street
+    And player "Bob" raised to 300 (200 raise increment)
+    When player "Alice" pulls back her prior 100 chip while facing the raise
+    Then player "Alice" is bound to call or raise
+    When I handle a Fold command from "Alice"
+    Then the command fails with status "FAILED_PRECONDITION"
+    And the command is rejected with code "BOUND_TO_CALL_OR_RAISE"
+
+  # ==========================================================================
+  # Accepted Action / Undercalls — TDA Rules 49, 51
+  # ==========================================================================
+  # Real poker (TDA Rules 49/51): the caller bears responsibility to know
+  # the bet amount; an in-turn undercall is corrected up to the actual bet
+  # before substantial action, otherwise stands as accepted action.
+
+  @EU-1354
+  Scenario: Verbal undercall in turn is corrected up to the actual bet before SA
+    # Rule: TDA Rule 51 (2024) — "An in-turn verbal undercall must be
+    #       corrected up to the bet amount provided no substantial action
+    #       has occurred. After SA, the undercall stands as accepted."
+    Given a CardsDealt event for TEXAS_HOLDEM with 3 players "Alice,Bob,Carol" at stacks 1000
+    And blinds posted with pot 15 and current_bet 100
+    When player "Bob" verbally declares "call 60" in turn (an undercall)
+    And no substantial action has occurred since
+    Then the undercall is corrected up to 100
+    And a angzarr_client.proto.examples.ActionTaken event is emitted
+    And the action event has action "CALL"
+    And the action event has amount 100
+
+  @EU-1355
+  Scenario: Verbal undercall in turn stands at the lesser amount after substantial action
+    # Rule: TDA Rule 51 (2024) — "After SA the undercall stands."
+    Given a CardsDealt event for TEXAS_HOLDEM with 3 players "Alice,Bob,Carol" at stacks 1000
+    And blinds posted with pot 15 and current_bet 100
+    And player "Bob" verbally declared "call 60" in turn (an undercall)
+    And player "Carol" then raised (SA occurred)
+    When the dealer notices the undercall after Carol's raise
+    Then no correction is applied
+    And player "Bob" commit for the prior action stands at 60
+    And the SA action by "Carol" stands
+
+  # ==========================================================================
+  # Non-Standard Betting — TDA Rules 56, 57, 59
+  # ==========================================================================
+  # Real poker (TDA Rules 56-57, 59): chips moved in multiple motions
+  # ("string bet") are dead money returned to the player. Non-standard
+  # declarations are at player's risk; conditional/future-action statements
+  # are non-binding when the condition fails.
+
+  @EU-1356
+  Scenario: String bet — chips beyond the first forward motion are returned
+    # Rule: TDA Rule 56 (2024) — "Dealers will be responsible for calling
+    #       string bets/raises. Chips beyond the first forward motion are
+    #       returned and the bet stands at the first-motion amount."
+    # Rule: WSOP Rule 103 (2025) — same wording.
+    # Alice (SB, prior bet 5) pushes 30 in the first forward motion.
+    # chips_put_in to reach 30 = 25. Second motion of 70 is returned.
+    Given a CardsDealt event for TEXAS_HOLDEM with 2 players "Alice,Bob" at stacks 1000
+    And blinds posted with pot 15 and current_bet 10
+    When player "Alice" pushes 30 in a first forward motion
+    And player "Alice" then reaches back and adds 70 in a second motion
+    Then the dealer rules a string bet
+    And the second-motion 70 is returned to "Alice"
+    And a angzarr_client.proto.examples.ActionTaken event is emitted
+    And the action event has action "RAISE"
+    And the action event has amount 25
+    And the action event has amount_to_call 30
+
+  @EU-1357
+  Scenario: Non-standard bet declaration is ruled by the floor with player at risk
+    # Rule: TDA Rule 57 (2024) — "Players using non-standard or unclear
+    #       betting declarations bear the risk of the floor's interpretation."
+    # Rule: WSOP Rule 60 (2025) — same.
+    Given a CardsDealt event for TEXAS_HOLDEM with 2 players "Alice,Bob" at stacks 1000
+    And blinds posted with pot 15 and current_bet 10
+    When player "Alice" verbally declares "I bet a buck" (non-standard)
+    Then a FloorDecisionRequired event is emitted with reason "NON_STANDARD_DECLARATION"
+    And the action is held pending floor interpretation
+
+  @EU-1358
+  Scenario: Conditional declaration referring to future action is non-binding
+    # Rule: TDA Rule 59 (2024) — "Conditional and premature declarations are
+    #       non-standard and may be binding or non-binding at floor's
+    #       discretion." Default: non-binding when the condition fails.
+    Given a CardsDealt event for TEXAS_HOLDEM with 3 players "Alice,Bob,Carol" at stacks 1000
+    And blinds posted with pot 15 and current_bet 0
+    And it is "Alice" turn to act
+    When player "Bob" out of turn says "if Alice raises, I'm all-in"
+    And player "Alice" then checks (no raise — the condition fails)
+    Then no action is recorded for player "Bob"
+    And player "Bob" still has the option to act in turn
+
+  # ==========================================================================
+  # Information Disclosure & Over-Betting — TDA Rules 60, 61
+  # ==========================================================================
+  # Real poker (TDA Rules 60-61): a player is entitled to a reasonable
+  # estimation of opponents' chip stacks. Over-betting expecting change is
+  # forbidden — bets are accepted at the chip-tendered amount.
+
+  @EU-1359
+  Scenario: Player is entitled to opponent's stack count on request
+    # Rule: TDA Rule 60 (2024) — "Players are entitled to a reasonable
+    #       estimation of opponents' chip stacks."
+    # Rule: WSOP Rule 62 (2025) — same.
+    Given a CardsDealt event for TEXAS_HOLDEM with 2 players "Alice,Bob" at stacks 500
+    And blinds posted with pot 15 and current_bet 0
+    When player "Alice" requests an opponent stack count for player "Bob"
+    Then an OpponentStackDisclosed event is emitted with player "Bob" stack 500
+
+  @EU-1360
+  Scenario: Over-betting expecting change is forbidden
+    # Rule: TDA Rule 61 (2024) — "Betting action should not be used to
+    #       obtain change. Bets are accepted at the chip-tendered amount."
+    # Rule: WSOP Rule 99 (2025) — same.
+    # Alice silently pushes a 500 chip while declaring "I bet 325" —
+    # bet stands at 500, no change is given.
+    Given a CardsDealt event for TEXAS_HOLDEM with 2 players "Alice,Bob" at stacks 1000
+    And blinds posted with pot 15 and current_bet 0
+    When player "Alice" pushes a single 500 chip declaring "bet 325"
+    Then a angzarr_client.proto.examples.ActionTaken event is emitted
+    And the action event has action "BET"
+    And the action event has amount 500
+    And no change is returned to "Alice"
+
+  # ==========================================================================
+  # All-In Chips Found Behind — TDA Rule 62
+  # ==========================================================================
+  # Real poker (TDA Rule 62): "If A bets all-in and a hidden chip is found
+  # behind after a Participant has called, the chip(s) found behind are not
+  # in play for this hand." Hidden chips do not retroactively join the all-in.
+
+  @EU-1361
+  Scenario: Hidden chip discovered after a call to all-in is not in play this hand
+    # Rule: TDA Rule 62 (2024) — chips found behind after a call do not
+    #       retroactively join the all-in.
+    # Rule: WSOP Rule 105 (2025) — same.
+    Given a CardsDealt event for TEXAS_HOLDEM with 2 players "Alice,Bob" at stacks 200
+    And player "Alice" went all-in for 200
+    And player "Bob" called the 200 all-in
+    When a hidden 25 chip is discovered behind player "Alice" after the call
+    Then the hidden 25 is not added to the current pot
+    And player "Alice" effective stack for the next hand is 25
+
+  # ==========================================================================
+  # No Disclosure & Exposing Cards — TDA Rules 67, 68
+  # ==========================================================================
+  # Real poker (TDA Rules 67-68): one player to a hand. Disclosing hand
+  # contents to anyone during a live hand is a penalty. Exposing cards
+  # with action pending earns a penalty (Rule 68 + WSOP Rule 117).
+
+  @EU-1362
+  Scenario: Disclosing hand contents during a live hand triggers a penalty
+    # Rule: TDA Rule 67 (2024) — "One player to a hand. Players in or out of
+    #       a hand may not disclose contents."
+    # Rule: WSOP Rule 116 (2025) — same.
+    Given a CardsDealt event for TEXAS_HOLDEM with 3 players "Alice,Bob,Carol" at stacks 500
+    And the hand is live and pot 15
+    When player "Alice" discloses her hole cards to a railbird while facing action
+    Then a PenaltyAssessed event is emitted with player "Alice" reason "DISCLOSURE_VIOLATION"
+    And the penalty severity is "MISSED_HAND" or above
+
+  @EU-1363
+  Scenario: Exposing cards with action pending earns a penalty and the hand stays live
+    # Rule: TDA Rule 68 (2024) — "A player exposing his or her cards with
+    #       action pending will incur a penalty but the hand will not be
+    #       killed. The penalty starts at the end of the hand."
+    # Rule: WSOP Rule 117 (2025) — same.
+    Given a CardsDealt event for TEXAS_HOLDEM with 3 players "Alice,Bob,Carol" at stacks 500
+    And it is "Alice" turn to act with action pending
+    When player "Alice" exposes both her hole cards face-up
+    Then a PenaltyAssessed event is emitted with player "Alice" reason "EXPOSED_CARDS"
+    And the penalty starts at the end of the current hand
+    And player "Alice" hand remains live this hand
+
+  # ==========================================================================
+  # Disordered Stub & Random Tiebreaks — TDA RP-4, RP-14
+  # ==========================================================================
+  # Real poker (TDA RP-4): "If during the deal the dealer realizes the stub
+  # is disordered (fewer cards than expected, an exposed card mid-stub, etc.)
+  # the deal is paused and a fresh shuffle of the affected stub portion is
+  # made before the deal resumes." (TDA RP-14): "Randomness may be applied
+  # to special situations such as tied late-reg seats, tied stack draws."
+
+  @EU-1364
+  Scenario: Disordered stub triggers reshuffle of the remaining stub
+    # Rule: TDA RP-4 (2024) — disordered stub reshuffle.
+    Given a hand mid-deal on the river with a disordered stub
+    When the dealer detects the stub disorder
+    Then a StubReshuffleRequired event is emitted
+    And the burn for the next street is taken from the reshuffled stub
+    And no community cards already exposed are altered
+
+  @EU-1365
+  Scenario: Tied late-reg seat picks resolved by deterministic randomness
+    # Rule: TDA RP-14 (2024) — randomness for special situations.
+    Given two late-registering players "Eve" and "Frank" assigned to the same hand_no
+    And the same arrival timestamp
+    When the seating coordinator handles the tie
+    Then a SeatTiebreakResolved event is emitted using a deterministic random
+    And the tiebreak seed is derived from (hand_no, both player_roots) so it is reproducible
+    And exactly one of "Eve" or "Frank" is seated first

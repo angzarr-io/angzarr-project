@@ -645,7 +645,7 @@ Feature: Game rules (Texas Hold'em, Omaha, Five Card Draw, Stud)
   #   stud. Stud variants expose initial_deal_count (3), total_card_count
   #   (7), forced_bet_type (ANTE_AND_BRINGIN), and phase list separately.
 
-  @EU-0750 @wip
+  @EU-0750
   Scenario Outline: Stud variant exposes the correct static properties
     # Rule: TDA-RP-10 (2024) — stud format definitions.
     # Rule: WSOP Section IX, Seven Card Games (2025).
@@ -660,10 +660,10 @@ Feature: Game rules (Texas Hold'em, Omaha, Five Card Draw, Stud)
     Examples:
       | variant                    | variant_name              | phases                                                                              |
       | Seven Card Stud            | SEVEN_CARD_STUD           | THIRD_STREET,FOURTH_STREET,FIFTH_STREET,SIXTH_STREET,SEVENTH_STREET,SHOWDOWN        |
-      | Seven Card Stud Hi/Lo 8b   | SEVEN_CARD_STUD_HILO      | THIRD_STREET,FOURTH_STREET,FIFTH_STREET,SIXTH_STREET,SEVENTH_STREET,SHOWDOWN        |
+      | Seven Card Stud Hi/Lo 8b   | STUD_HI_LO_8B             | THIRD_STREET,FOURTH_STREET,FIFTH_STREET,SIXTH_STREET,SEVENTH_STREET,SHOWDOWN        |
       | Razz                       | RAZZ                      | THIRD_STREET,FOURTH_STREET,FIFTH_STREET,SIXTH_STREET,SEVENTH_STREET,SHOWDOWN        |
 
-  @EU-0751 @wip
+  @EU-0751
   Scenario Outline: Stud advances through streets one card at a time
     # Rule: WSOP Section IX, Seven Card Games (2025) — "two down cards followed
     #       by one up card to start the hand. There are then three more
@@ -682,7 +682,7 @@ Feature: Game rules (Texas Hold'em, Omaha, Five Card Draw, Stud)
       | SIXTH_STREET   | SEVENTH_STREET | 1    | False |
       | SEVENTH_STREET | SHOWDOWN       | 0    | False |
 
-  @EU-0752 @wip
+  @EU-0752
   Scenario: Stud has no community cards; players hold their own 7
     # Rule: WSOP Section IX, Seven Card Games (2025) — no community cards.
     Given Seven Card Stud rules
@@ -690,7 +690,7 @@ Feature: Game rules (Texas Hold'em, Omaha, Five Card Draw, Stud)
     Then has_community_cards is False
     And total_card_count is 7
 
-  @EU-0753 @wip
+  @EU-0753
   Scenario Outline: 3rd-street bring-in is the low card by rank-then-suit (Stud high)
     # Rule: WSOP §Seven Card Stud (2025) — "the lowest card by rank and suit."
     # Rule: TDA-RP-10D (2024) — tiebreak by suit.
@@ -709,7 +709,7 @@ Feature: Game rules (Texas Hold'em, Omaha, Five Card Draw, Stud)
       | Th Ks Qd 9c      | 3              |
       | 2d 2h 2s 2c      | 3              |
 
-  @EU-0754 @wip
+  @EU-0754
   Scenario Outline: Razz 3rd-street bring-in is the high card by rank-then-suit
     # Rule: WSOP §Seven Card Razz (2025) — "the high card, with the king of
     #       spades being the highest card by rank and suit, is required to
@@ -725,7 +725,7 @@ Feature: Game rules (Texas Hold'em, Omaha, Five Card Draw, Stud)
       | Ks Kh Kd Kc      | 0              |
       | Ah As Ad Ac      | 1              |
 
-  @EU-0755 @wip
+  @EU-0755
   Scenario: Stud high — first-to-act on 4th street and beyond is the high hand showing
     # Rule: WSOP §Seven Card Stud (2025) — "On subsequent betting rounds,
     #       the high hand on board initiates the action, a tie is broken by
@@ -739,7 +739,7 @@ Feature: Game rules (Texas Hold'em, Omaha, Five Card Draw, Stud)
     When I determine the first-to-act on 4th street
     Then the first-to-act player is "Bob"
 
-  @EU-0756 @wip
+  @EU-0756
   Scenario: Razz — first-to-act on 4th street and beyond is the low hand showing
     # Rule: WSOP §Seven Card Razz (2025) — "The low hand acts first on all
     #       subsequent rounds."
@@ -752,7 +752,7 @@ Feature: Game rules (Texas Hold'em, Omaha, Five Card Draw, Stud)
     When I determine the first-to-act on 4th street
     Then the first-to-act player is "Alice"
 
-  @EU-0757 @wip
+  @EU-0757
   Scenario Outline: Seven Card Stud hand evaluation — best 5 of 7 standard ranking
     # Rule: Robert's Rules §1 (Ciaffone v11) — universal high hand hierarchy.
     Given Seven Card Stud rules
@@ -770,7 +770,7 @@ Feature: Game rules (Texas Hold'em, Omaha, Five Card Draw, Stud)
       | Ts Th 7h 7d 5s 4c 2h           | TWO_PAIR         |
       | Ah Ac Kd Js 9h 4c 2d           | PAIR             |
 
-  @EU-0758 @wip
+  @EU-0758
   Scenario: Razz hand evaluation — wheel A-2-3-4-5 is the best possible hand
     # Rule: WSOP §Seven Card Razz (2025) — "the best possible hand is
     #       5-4-3-2-A". Aces are low; straights and flushes don't count.
@@ -780,7 +780,7 @@ Feature: Game rules (Texas Hold'em, Omaha, Five Card Draw, Stud)
     Then the razz rank is "WHEEL"
     And the razz rank value is 1
 
-  @EU-0759 @wip
+  @EU-0759
   Scenario: Razz tiebreak — among non-wheel lows, compare highest card downward
     # Rule: WSOP §Seven Card Razz (2025) — "Aces are low only, and two aces
     #       are the lowest pair." Among non-paired/non-flush 5-card lows,
@@ -794,19 +794,21 @@ Feature: Game rules (Texas Hold'em, Omaha, Five Card Draw, Stud)
     Then both hands rank as razz lows
     And hand A is lower than hand B
 
-  @EU-0760 @wip
+  @EU-0760
   Scenario: Stud Hi/Lo (8 or better) — qualifier requires 5 unpaired cards each ≤ 8
     # Rule: WSOP §Seven Card Stud Hi/Lo 8 or Better (2025) — "to win the low
     #       half of the pot, a Participant's hand at showdown must have five
     #       cards of different ranks that are an eight or lower in rank."
-    # Hand A: cards 9c 9d 8s 7h 6d 5c 4c — high two pair 9s + 7-low qualifier
+    # Hand A: cards 9c 9d 8s 7h 6d 5c 4c — best high is the 9-high straight
+    #         (9-8-7-6-5); the qualifying low is 8-7-6-5-4 (an "8-low").
+    #         Note: TWO_PAIR + an 8-low qualifier is structurally impossible
+    #         from 7 cards (the 5 distinct low ranks 8-7-6-5-4 are a straight,
+    #         which beats two pair as the best high).
     # Hand B: cards Ks Kh 9d 7s 5c 3h 2d — high pair Ks; no low qualifier
-    #        (no 5-card combination strictly ≤ 8 unpaired with required count
-    #        — actually 9d disqualifies one slot; 7-5-3-2 is only 4 cards
-    #        plus we'd need one more ≤ 8 unpaired — not present, so no low).
+    #         (only 4 distinct ranks ≤ 8: 7, 5, 3, 2 — need 5).
     Given Seven Card Stud Hi/Lo rules
     When I evaluate hand A with cards "9c 9d 8s 7h 6d 5c 4c"
-    Then hand A high rank is "TWO_PAIR"
+    Then hand A high rank is "STRAIGHT"
     And hand A has a qualifying low
     And hand A low best 5 is "8 7 6 5 4"
     When I evaluate hand B with cards "Ks Kh 9d 7s 5c 3h 2d"

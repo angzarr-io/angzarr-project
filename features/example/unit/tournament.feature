@@ -1,5 +1,6 @@
 # Allocated: EU-0800 .. EU-0865, EU-1151, EU-1160 .. EU-1162,
-#            EU-1190 .. EU-1192, EU-1310 .. EU-1317
+#            EU-1190 .. EU-1192, EU-1310 .. EU-1317,
+#            EU-1370 .. EU-1376 (TDA RP / WSOP gap scenarios)
 # DOC: Unit scenarios for the Tournament aggregate (tournament/agg/handlers.py).
 
 Feature: Tournament aggregate logic
@@ -800,7 +801,7 @@ Feature: Tournament aggregate logic
   # the prior (forfeited) stack from total_chips_in_play. Without this, a
   # re-entry would silently inflate the chip economy.
 
-  @EU-1151 @wip
+  @EU-1151
   Scenario: Re-entry removes the player's prior forfeited chips from total_chips_in_play
     # Rule: TDA Rule 8B (2024) — re-entry forfeited chips removed from play.
     # Tournament with starting_stack=1500. player-A has been eliminated
@@ -827,7 +828,7 @@ Feature: Tournament aggregate logic
   # The cluster-tier @wip scenario EA-0011 covers the cluster integration;
   # these unit scenarios pin the aggregate-level invariants.
 
-  @EU-1160 @wip
+  @EU-1160
   Scenario: Chip race awards at most one chip to any single player
     # Rule: TDA Rule 24A (2024) — "max of one chip awarded to a player".
     # Three players each have 75 chips of denomination 25 (3 chips each).
@@ -841,7 +842,7 @@ Feature: Tournament aggregate logic
     Then the result is a angzarr_client.proto.examples.ColorUpCompleted event
     And no player received more than 1 chip from the race
 
-  @EU-1161 @wip
+  @EU-1161
   Scenario: Chip race cannot eliminate a player — single-chip rescue applies
     # Rule: TDA Rule 24A (2024) — "Players can't be raced out of play: a
     #       player losing their last chip(s) in a race will get 1 chip of
@@ -855,7 +856,7 @@ Feature: Tournament aggregate logic
     Then the result is a angzarr_client.proto.examples.ColorUpCompleted event
     And player "Alice" stack is at least 100
 
-  @EU-1162 @wip
+  @EU-1162
   Scenario: Total chips in play is conserved by the chip race (modulo rescue clause)
     # Rule: TDA Rule 24C (2024) — "Chips of removed denominations that do
     #       not fully total at least the smallest denomination still in
@@ -883,7 +884,7 @@ Feature: Tournament aggregate logic
   #   - the level clock deducts at most 3 minutes per H4H hand (RP-8B);
   #   - clock reduction is applied per-hand, not in batches (RP-8C).
 
-  @EU-1190 @wip
+  @EU-1190
   Scenario: Two players bust on the same hand-for-hand hand share the next bubble payout
     # Rule: TDA RP-8A (2024) — "If enough players bust on the current hand
     #       to break into the money, the busting players will be eligible
@@ -905,7 +906,7 @@ Feature: Tournament aggregate logic
     And TournamentResult 2 has position 3 player_root "Carol" payout 100
     And TournamentResult 3 has position 3 player_root "Dave" payout 100
 
-  @EU-1191 @wip
+  @EU-1191
   Scenario: Hand-for-hand deducts at most 3 minutes per hand from the level clock
     # Rule: TDA RP-8B (2024) — "During H4H play, a maximum of 3 minutes per
     #       hand will be deducted from the clock."
@@ -916,7 +917,7 @@ Feature: Tournament aggregate logic
     When a hand-for-hand hand takes 5 minutes of real time to complete
     Then the level_seconds_remaining after the hand equals 420
 
-  @EU-1192 @wip
+  @EU-1192
   Scenario: Hand-for-hand clock reduction is applied per-hand, not in batches
     # Rule: TDA RP-8C (2024) — "Whenever possible the clock should be
     #       reduced by 2-minutes each hand not after 'batches' of multiple
@@ -940,7 +941,7 @@ Feature: Tournament aggregate logic
   # the penalty is given multiplied by the number of penalty rounds."
   # WSOP Rule 113 mirrors with a 4-round maximum.
 
-  @EU-1310 @wip
+  @EU-1310
   Scenario Outline: Penalty types — verbal warning, missed-hand, missed-round, disqualification
     # Rule: TDA Rule 71A (2024) — penalty options.
     # Rule: WSOP Rule 113 (2025) — penalty hierarchy.
@@ -959,7 +960,7 @@ Feature: Tournament aggregate logic
       | MISSED_ROUND   | 2      | 12     |
       | DISQUALIFIED   | 0      | 0      |
 
-  @EU-1311 @wip
+  @EU-1311
   Scenario: Player on penalty has cards dealt then killed; blinds and antes are still posted
     # Rule: TDA Rule 71C (2024) — "Players on penalty must be away from the
     #       table. Cards are dealt to their seats, their blinds and antes
@@ -973,7 +974,7 @@ Feature: Tournament aggregate logic
     And player "Alice" hand is killed after the initial deal
     And player "Alice" remains on penalty with rounds_remaining decremented by 1
 
-  @EU-1312 @wip
+  @EU-1312
   Scenario: Disqualified player chips are removed from play
     # Rule: TDA Rule 71D (2024) — "Chips of a disqualified player shall be
     #       removed from play."
@@ -997,7 +998,7 @@ Feature: Tournament aggregate logic
   # at the table, even if that means assuming the button, small blind, or
   # big blind during the first hand."
 
-  @EU-1313 @wip
+  @EU-1313
   Scenario: Late-reg player can be dealt the button on their first hand without missing the hand
     # Rule: WSOP Rule 14 (2025) — late registrant assumes first available
     #       starting position even if it's the button.
@@ -1018,7 +1019,7 @@ Feature: Tournament aggregate logic
   # a 'no show.' These Participants will have their chips removed from play
   # and will not be eligible to participate in that Event."
 
-  @EU-1314 @wip
+  @EU-1314
   Scenario: No-show player after the first-break deadline has their chips removed
     # Rule: WSOP Rule 16 (2025) — no-show chip removal.
     Given a running tournament "Spring" with starting_stack 1500
@@ -1038,7 +1039,7 @@ Feature: Tournament aggregate logic
   # position every two minutes and the Participant will be awarded the
   # small blind and the big blind."
 
-  @EU-1315 @wip
+  @EU-1315
   Scenario: Heads-up with one player absent — button advances every 2 minutes and lone player banks blinds
     # Rule: WSOP Rule 36 (2025) — heads-up absent-opponent blind progression.
     Given a running tournament "HU-Final" in heads-up between "Alice" and "Bob"
@@ -1057,7 +1058,7 @@ Feature: Tournament aggregate logic
   # for the final table seat assignments for Events that have 100 or more
   # Participants."
 
-  @EU-1316 @wip
+  @EU-1316
   Scenario Outline: Seat redraw is triggered at 3 tables, 2 tables, and final table for 100+ events
     # Rule: WSOP Rule 67c (2025) — redraw thresholds.
     Given a running tournament "Worlds" with original_field 250 and <tables_remaining> tables remaining
@@ -1080,7 +1081,7 @@ Feature: Tournament aggregate logic
   # finish." TDA RP-8A handles the simultaneous-bust-at-different-tables
   # case (EU-1190); this scenario pins the same-table case.
 
-  @EU-1317 @wip
+  @EU-1317
   Scenario: Two players bust at the same table on the same hand — higher pre-hand stack gets higher place
     # Rule: WSOP Rule 126b (2025) — same-table tiebreak by pre-hand chip count.
     # 4-player tournament paying top 3 (50/30/20). Hand-for-hand active.
@@ -1091,6 +1092,7 @@ Feature: Tournament aggregate logic
     And a payout_structure paying positions 1,2,3 at percentages 50,30,20
     And hand-for-hand is active
     And the current hand started with stacks: Alice 2000, Bob 1600, Carol 800, Dave 600
+    And finishing order "Alice,Bob,Carol,Dave"
     When players "Carol,Dave" both bust on the same hand at the same table
     And I handle a CompleteTournament command with winner "Alice"
     Then the result is a angzarr_client.proto.examples.TournamentCompleted event
@@ -1098,3 +1100,116 @@ Feature: Tournament aggregate logic
     And no TournamentResult has player_root "Dave" with non-zero payout
     # Carol's higher pre-hand stack (800 > 600) earns her the higher finish
     And TournamentResult tiebreak_reason for position 3 is "PRE_HAND_STACK"
+
+  # ==========================================================================
+  # Player Absent on Breaking Table — TDA RP-16
+  # ==========================================================================
+  # Real poker (TDA RP-16): "If a player is absent on a breaking table,
+  # the player should be moved to a new table with whatever chips were on
+  # the broken table; the missed-blinds clock continues at the new table."
+
+  @EU-1370
+  Scenario: Absent player from a broken table is moved with their chips intact
+    # Rule: TDA RP-16 (2024) — absent player on a breaking table.
+    Given a tournament with table "T1" being broken and player "Eve" absent at "T1"
+    And player "Eve" had 1850 in chips on "T1"
+    And open seats exist at table "T2" and "T3"
+    When the breaking-table coordinator reseats absent "Eve"
+    Then a PlayerMovedTables event is emitted for "Eve" with from_table "T1"
+    And player "Eve" stack at the new table equals 1850
+    And player "Eve" missed-blinds clock continues at the new table
+
+  # ==========================================================================
+  # Mixed-Game Rotation Order — TDA RP-18
+  # ==========================================================================
+  # Real poker (TDA RP-18): in HORSE the rotation order is fixed —
+  # H(old'em) → O(maha Hi/Lo) → R(azz) → S(even Card Stud) →
+  # E(ight or Better Stud Hi/Lo). One full orbit (button completes the
+  # table) before transitioning to the next variant.
+
+  @EU-1371
+  Scenario: HORSE rotation cycles H → O → R → S → E in fixed order
+    # Rule: TDA RP-18 (2024) — fixed mixed-game rotation order.
+    Given a HORSE tournament with 5 active players starting on Texas Hold'em
+    When one full orbit of Texas Hold'em completes (button returns to seat 0)
+    Then the variant transitions to Omaha Hi/Lo
+    When one full orbit of Omaha Hi/Lo completes
+    Then the variant transitions to Razz
+    When one full orbit of Razz completes
+    Then the variant transitions to Seven Card Stud
+    When one full orbit of Seven Card Stud completes
+    Then the variant transitions to Seven Card Stud Hi/Lo 8 or Better
+    When one full orbit of Seven Card Stud Hi/Lo 8 or Better completes
+    Then the variant transitions back to Texas Hold'em
+
+  # ==========================================================================
+  # Bounty Tournaments — TDA RP-22 + WSOP Rule 39
+  # ==========================================================================
+  # Real poker (TDA RP-22 / WSOP Rule 39): in bounty events, knocking out
+  # a player triggers a bounty payout to the eliminator. When the last two
+  # players go all-in and one busts, the bounty goes to the player with
+  # the higher pre-hand stack (TDA RP-22 + WSOP Rule 39).
+
+  @EU-1372
+  Scenario: Bounty tournament — eliminator collects bounty on knockout
+    # Rule: TDA RP-22 (2024) — bounty payout on knockout.
+    # Rule: WSOP Rule 39 (2025) — bounty markers.
+    Given a bounty tournament with bounty_per_knockout 100
+    And player "Alice" eliminates player "Bob" by winning the showdown
+    When the elimination is processed
+    Then a BountyAwarded event is emitted with eliminator "Alice" knocked_out "Bob" amount 100
+    And player "Alice" bounty_total increases by 100
+
+  @EU-1373
+  Scenario: Bounty tournament — last-two simultaneous bust splits to higher pre-hand stack
+    # Rule: TDA RP-22 (2024) — simultaneous-bust tiebreak by pre-hand stack.
+    Given a bounty tournament with bounty_per_knockout 200
+    And exactly 2 players left "Alice" stack 500 and "Bob" stack 400 pre-hand
+    When both players go all-in and lose at the same showdown (split-pot push not applicable)
+    And the higher pre-hand stack is "Alice" (500 > 400)
+    Then a BountyAwarded event is emitted with eliminator "Alice" knocked_out "Bob" amount 200
+    And no bounty is awarded for "Alice"
+
+  # ==========================================================================
+  # Soft Play & End-of-Day — WSOP Rule 118 + TDA Rule 23
+  # ==========================================================================
+  # Real poker (WSOP Rule 118): soft play between players results in
+  # forfeiture of chips and possible disqualification. (WSOP Rule 125):
+  # at end-of-day, hands in progress complete, then bagging begins.
+
+  @EU-1374
+  Scenario: Soft-play DQ removes the offending player's chips from play
+    # Rule: WSOP Rule 118 (2025) — "Soft play will result in penalties
+    #       that may include forfeiture of chips and/or disqualification."
+    # Rule: TDA Rule 71D (2024) — DQ chips removed from play.
+    Given a running tournament with player "Carol" reported for soft play with player "Dave"
+    When the floor disqualifies player "Carol" for soft play
+    Then a PlayerDisqualified event is emitted with player "Carol" reason "SOFT_PLAY"
+    And player "Carol" chips are removed from total_chips_in_play
+
+  @EU-1375
+  Scenario: End-of-day stop time pauses the tournament after the in-progress hand finishes
+    # Rule: WSOP Rule 125 (2025) — "Prior to the end of each day's play,
+    #       Personnel will determine between 7-13 minutes left in last
+    #       level when to stop new hands; in-progress hands complete and
+    #       bagging begins."
+    Given a running tournament at minute 53 of the final scheduled level (60 min levels)
+    And a hand is currently in progress
+    When the floor issues a StopNewHands command
+    Then a NewHandsHalted event is emitted with effective_at "AFTER_CURRENT_HAND"
+    And the in-progress hand is allowed to complete normally
+    When the in-progress hand completes
+    Then the tournament transitions to BAGGING_AND_TAGGING
+    And no new StartHand command is accepted until the next day's resume
+
+  @EU-1376
+  Scenario: Tournament resume on Day 2 restores stacks and seat assignments from bag-and-tag
+    # Rule: WSOP Rule 122 (2025) — "Play on Day 2 and beyond may be
+    #       suspended prior to the end of scheduled play and will resume
+    #       the following day with stacks and seats as bagged."
+    Given a tournament that completed Day 1 with bag-and-tag for 18 surviving players
+    And a BagAndTagComplete event recorded each player's stack and seat
+    When the floor issues a ResumeTournament command for Day 2
+    Then a TournamentResumed event is emitted
+    And every player's starting stack equals their Day 1 bagged stack
+    And every player's seat assignment matches the Day 2 redraw if 100+ event, else bagged seat

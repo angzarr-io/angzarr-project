@@ -881,7 +881,7 @@ Feature: Table aggregate logic
   # tier @wip EA-0012 covers the multi-table cluster integration; this
   # unit scenario pins the deterministic per-table algorithm.
 
-  @EU-1180 @wip
+  @EU-1180
   Scenario: Balancing moves the BB-next player from the larger table to the worst seat at the shorter table
     # Rule: TDA Rule 11A (2024) — "the player to be big blind next moves to
     #       the worst position ... Worst position is never the small blind."
@@ -907,19 +907,21 @@ Feature: Table aggregate logic
     And the moved player is "Dave"
     And the moved player's destination seat at "Dest" is the BB position (not the SB position)
 
-  @EU-1181 @wip
+  @EU-1181
   Scenario: Final-table combination — 9-handed event collapses 2 tables of 5 to one final table of 9
     # Rule: TDA RP-9 (2024) — "9 and 8-handed events will combine from two
     #       tables of five players each to a 9-handed final table."
     # Two 5-handed tables with one elimination remaining before the final
     # table. After the next bust, the remaining 9 players are seated at a
     # single final table by random redraw.
+    # The "next bust" referred to in the rule narrative trims the field
+    # from 10 to 9 before the seating; we represent the post-bust state
+    # below by listing only the 9 players who reach the FT.
     Given a TableCreated event for "Semi-1"
     And a PlayerJoined event for player "Alice" at seat 0
     And a PlayerJoined event for player "Bob" at seat 1
     And a PlayerJoined event for player "Carol" at seat 2
     And a PlayerJoined event for player "Dave" at seat 3
-    And a PlayerJoined event for player "Eve" at seat 4
     And a TableCreated event for "Semi-2"
     And a PlayerJoined event for player "Frank" at seat 0 of "Semi-2"
     And a PlayerJoined event for player "Grace" at seat 1 of "Semi-2"
@@ -942,7 +944,7 @@ Feature: Table aggregate logic
   # seat=-1 picks the next *available* seat — this is fine for cash play
   # but tournament seating must be RNG-driven.
 
-  @EU-1182 @wip
+  @EU-1182
   Scenario: Tournament seat assignment is uniformly random among available seats
     # Rule: TDA Rule 7 (2024) — random correct seating.
     # Rule: WSOP Rule 34 (2025) — random computer selection.
@@ -960,7 +962,7 @@ Feature: Table aggregate logic
   # players from broken tables can get any seat including the small or big
   # blind or the button and be dealt in except between the SB and button."
 
-  @EU-1183 @wip
+  @EU-1183
   Scenario: Broken-table player can take any seat except between SB and button
     # Rule: TDA Rule 10A (2024).
     # Source table is broken; Eve (a moved player) joins the destination
@@ -991,7 +993,7 @@ Feature: Table aggregate logic
   # short (by elimination) than the table with the most players once the
   # blinds are impacted."
 
-  @EU-1184 @wip
+  @EU-1184
   Scenario: Play halts on a short table when 3+ behind once the blinds are impacted
     # Rule: TDA Rule 11D (2024).
     # 9-handed event. Source table A has 8 players. Short table B has 5.
@@ -1011,7 +1013,7 @@ Feature: Table aggregate logic
   # forfeit both blinds (and BBA if applicable) and will receive a one (1)
   # round penalty."
 
-  @EU-1185 @wip
+  @EU-1185
   Scenario: A player who skips a blind by moving forfeits the missed blinds and earns a round penalty
     # Rule: TDA Rule 33 (2024) + WSOP Rule 86 (2025).
     Given a TableCreated event for "Main Table" with blinds 5/10
@@ -1031,7 +1033,7 @@ Feature: Table aggregate logic
   # Operationally: the button on hand 1 of any new table is *deterministic*
   # given the seat-occupancy list, not a coin flip.
 
-  @EU-1186 @wip
+  @EU-1186
   Scenario: Initial button placement on hand 1 starts at the seat to the dealer's right
     # Rule: WSOP Rule 85 (2025) — initial button placement.
     # Dealer position (the dealer person, not the button) is at seat 0.
@@ -1057,7 +1059,7 @@ Feature: Table aggregate logic
   #   7-handed event → combine to FT with 8 remaining (4+4 → 7)
   #   6-handed event → combine to FT with 7 remaining (4+3 → 6)
 
-  @EU-1187 @wip
+  @EU-1187
   Scenario: 8-handed event combines 2 tables of 4 and 5 to a final table of 9 then 8
     # Rule: WSOP Rule 68b (2025) — 8-handed → combine at 9 remaining.
     Given an 8-handed tournament with 9 active players across "Semi-1" and "Semi-2"
@@ -1068,7 +1070,7 @@ Feature: Table aggregate logic
     And the final table has 9 active_players
     And the final table is configured as 8-handed
 
-  @EU-1188 @wip
+  @EU-1188
   Scenario: 6-handed event combines at 7 remaining
     # Rule: WSOP Rule 68d (2025) — 6-handed → combine at 7 remaining.
     Given a 6-handed tournament with 7 active players across "Semi-1" and "Semi-2"
