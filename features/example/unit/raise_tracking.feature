@@ -4,13 +4,26 @@ Feature: Minimum raise tracking arithmetic
   ``min_raise``. If they drift, the client will submit raises that the
   server rejects with messages like ``Raise must be at least N``.
 
+  # ==========================================================================
+  # Rule references (cited via "# Rule:" comments throughout this file)
+  # ==========================================================================
+  # Every scenario in this file expresses one or both of:
+  #   TDA Rule 43 (2024) — "A raise must be at least equal to the largest
+  #     prior full bet or raise of the current betting round." (See also
+  #     TDA Rule 43 examples in the Illustration Addendum.)
+  #   TDA Rule 47A (2024) — short all-in does not reopen betting; on a new
+  #     street, the minimum bet is the BB and the minimum raise is the
+  #     prior bet/raise on THAT street.
+  # See features/example/RULES.md for the full rule cross-reference.
+
   These scenarios exercise the raise-tracking arithmetic in isolation:
   pure math with no handlers, no state machine, no protocol. Think of
   this as a spec document for the client's raise-computation helpers.
 
   # ==========================================================================
-  # Initial State — After Blinds Are Posted
+  # Initial State — After Blinds Are Posted — TDA Rule 43
   # ==========================================================================
+  # Rule: TDA Rule 43 (2024) — initial min raise is the BB amount.
 
   @EU-1000
   Scenario: Initial min raise equals the big blind
@@ -21,8 +34,10 @@ Feature: Minimum raise tracking arithmetic
     Then min_raise_to is 20
 
   # ==========================================================================
-  # Single Raise
+  # Single Raise — TDA Rule 43
   # ==========================================================================
+  # Rule: TDA Rule 43 (2024) — last_raise_increment tracks the largest
+  # additional action; subsequent raises must equal or exceed it.
 
   @EU-1001
   Scenario: A raise updates last_raise_increment when larger
@@ -56,8 +71,10 @@ Feature: Minimum raise tracking arithmetic
     And min_raise_to is 330
 
   # ==========================================================================
-  # Non-Raise Actions
+  # Non-Raise Actions — TDA Rule 43
   # ==========================================================================
+  # Rule: TDA Rule 43 (2024) — calls and below-increment raises do not
+  # decrease last_raise_increment.
 
   @EU-1004
   Scenario: A call does not affect last_raise_increment
@@ -77,14 +94,25 @@ Feature: Minimum raise tracking arithmetic
     And min_raise_to is 150
 
   # ==========================================================================
-  # Cross-Round Reset
+  # Cross-Round Reset — TDA Rule 47A "current betting round"
   # ==========================================================================
-  # Real poker (NLHE / WSOP / standard cardroom): the minimum bet on a NEW
-  # street is the big blind, and the minimum raise is the size of the
-  # previous bet/raise *on that street*. Both reset between streets. The
-  # legacy implementation that carried last_raise_increment across streets
-  # produced spurious "Raise must be at least N" rejections after a large
-  # preflop raise, which is not how real poker is played.
+  # Rule: TDA Rule 47A (2024) — "the minimum raise is always the last full
+  #       valid bet or raise of the round." The phrase "of the round"
+  #       (i.e. the current street) means the increment resets between
+  #       streets — preflop's last_raise_increment does not carry over to
+  #       the flop.
+  # Rule: TDA Rule 43 (2024) — "A raise must be at least equal to the
+  #       largest prior full bet or raise of the current betting round."
+  #       (See Rule 43 examples in the Illustration Addendum confirming
+  #       "current round" = "current street".)
+  # Rule: WSOP §VIII NO-LIMIT (2025) — "The minimum bet is equal to the
+  #       amount of the Big Blind" (per street).
+  # The minimum bet on a NEW street is the big blind; the minimum raise
+  # is the size of the previous bet/raise *on that street*. Both reset
+  # between streets. A legacy implementation that carried
+  # last_raise_increment across streets produced spurious "Raise must be
+  # at least N" rejections after a large preflop raise, which is not how
+  # real poker is played.
 
   @EU-1006
   Scenario: A new betting round resets last_raise_increment to the big blind
@@ -141,8 +169,11 @@ Feature: Minimum raise tracking arithmetic
     Then last_raise_increment is 10
 
   # ==========================================================================
-  # All-In Short Raise
+  # All-In Short Raise — TDA Rule 47A
   # ==========================================================================
+  # Rule: TDA Rule 47A (2024) — "An all-in wager … totaling less than a full
+  # bet or raise will not reopen betting for players who have already
+  # acted."
 
   @EU-1007
   Scenario: An all-in for less than the min raise is allowed but does not reopen

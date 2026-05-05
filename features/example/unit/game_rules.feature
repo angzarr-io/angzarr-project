@@ -1,11 +1,23 @@
-# Allocated: EU-0700 .. EU-0740 (in use: 0700..0728, 0729..0732, 0733..0738)
+# Allocated: EU-0700 .. EU-0740 (in use: 0700..0728, 0729..0732, 0733..0738),
+#            EU-0750 .. EU-0760 (stud variants)
 
-Feature: Game rules (Texas Hold'em, Omaha, Five Card Draw)
+Feature: Game rules (Texas Hold'em, Omaha, Five Card Draw, Stud)
   The game_rules module defines polymorphic rule objects for each poker
   variant. Each rule object knows how many hole cards to deal, what the
   valid phase transitions are, and how to evaluate a 5-card poker hand
   from the available cards. These are pure functions — no aggregate state,
   no commands, no events.
+
+  # ==========================================================================
+  # Rule references (cited via "# Rule:" comments throughout this file)
+  # ==========================================================================
+  # Hand-evaluation scenarios cite Robert's Rules §1 (universal hand
+  # hierarchy: royal flush > straight flush > four of a kind > full house
+  # > flush > straight > three of a kind > two pair > one pair > high card).
+  # Variant scenarios cite WSOP Section IX game format definitions and
+  # TDA-RP-10 (stud), with Robert's §SC Hold'em / §SC Omaha / §SC Draw /
+  # §SC Stud / §RAZZ filling in tiebreaks the TDA delegates to "house."
+  # See features/example/RULES.md for the full rule cross-reference.
 
   # Why these rules exist:
   # - Different variants deal different numbers of hole cards
@@ -31,6 +43,8 @@ Feature: Game rules (Texas Hold'em, Omaha, Five Card Draw)
   # ==========================================================================
   # Variant properties (hole-card count, phase list, variant enum)
   # ==========================================================================
+  # Rule: WSOP §IX (2025) — variant definitions for Hold'em / Omaha / Draw.
+  #       Robert's §SC Hold'em / §SC Omaha / §SC Draw — hole-card counts.
   # Each rule object exposes the static properties that define the variant.
   # Collapsed into one outline — the properties are independent of any hand.
 
@@ -50,6 +64,8 @@ Feature: Game rules (Texas Hold'em, Omaha, Five Card Draw)
   # ==========================================================================
   # Phase transitions
   # ==========================================================================
+  # Rule: WSOP §IX Texas Hold'em / Omaha (2025) — preflop/flop/turn/river.
+  #       WSOP §IX Draw Games — single-draw / triple-draw structures.
   # Each variant defines a linear sequence of betting phases. get_next_phase
   # returns the next phase plus how many community cards to deal. SHOWDOWN
   # is terminal — returns None.
@@ -97,6 +113,12 @@ Feature: Game rules (Texas Hold'em, Omaha, Five Card Draw)
   # ==========================================================================
   # Hand evaluation — Texas Hold'em (7-card: 2 hole + 5 community)
   # ==========================================================================
+  # Rule: Robert's Rules §1 (Ciaffone v11) — universal 10-rank hand
+  #       hierarchy: royal flush > straight flush > four of a kind > full
+  #       house > flush > straight > three of a kind > two pair > one pair
+  #       > high card.
+  # Rule: Robert's §SC Hold'em — best 5-card hand from any combination of
+  #       the 7 available cards (2 hole + 5 community).
   # evaluate_hand returns (rank_type, score, kickers). Every rank category
   # in the 10-class poker hierarchy is exercised below.
 
@@ -188,6 +210,11 @@ Feature: Game rules (Texas Hold'em, Omaha, Five Card Draw)
   # ==========================================================================
   # Hand evaluation — Omaha (must use exactly 2 hole + 3 community)
   # ==========================================================================
+  # Rule: Robert's §SC Omaha-1 (Ciaffone v11) — "All the rules of holdem
+  #       apply to Omaha except the rule on playing the board, which is
+  #       not possible in Omaha (because you must use two cards from your
+  #       hand and three cards from the board)."
+  # Rule: WSOP §IX Omaha (2025) — same.
   # Omaha's evaluation enforces that every best-hand candidate uses exactly
   # two of the four hole cards plus three of the five community cards. The
   # scenarios below check that the constraint is honoured.
@@ -219,6 +246,8 @@ Feature: Game rules (Texas Hold'em, Omaha, Five Card Draw)
   # ==========================================================================
   # Hand evaluation — Five Card Draw (uses only hole cards)
   # ==========================================================================
+  # Rule: Robert's §SC Draw / WSOP §IX Draw Games — best 5-card hand from
+  #       the player's 5 hole cards; no community cards.
 
   @EU-0714
   Scenario: Five Card Draw evaluates a pair from hole cards
@@ -245,6 +274,9 @@ Feature: Game rules (Texas Hold'em, Omaha, Five Card Draw)
   # ==========================================================================
   # Edge cases: wheel straight (A-2-3-4-5) evaluates correctly
   # ==========================================================================
+  # Rule: Robert's Rules §1 (Ciaffone v11) — universal: ace-to-five (the
+  #       "wheel") ranks as a 5-high straight; suited it is the lowest
+  #       possible straight flush ("steel wheel").
 
   @EU-0717
   Scenario: Wheel straight (A-2-3-4-5) is recognised as STRAIGHT
@@ -257,6 +289,10 @@ Feature: Game rules (Texas Hold'em, Omaha, Five Card Draw)
   # ==========================================================================
   # Five Card Draw — execute_draw
   # ==========================================================================
+  # Rule: WSOP §IX Draw Games (2025) — discard/draw mechanics; "If a
+  #       Participant wishes to draw an entirely new hand, the Participant
+  #       will receive all five cards consecutively."
+  # Rule: TDA RP-17 (2024) — limping allowed in single-draw games.
   # The draw phase lets players discard selected hole cards and draw
   # replacements from the top of the deck. Hand size stays 5 unless the
   # deck runs out.
@@ -311,6 +347,8 @@ Feature: Game rules (Texas Hold'em, Omaha, Five Card Draw)
   # ==========================================================================
   # Deck creation and dealing
   # ==========================================================================
+  # (Framework: 52-card deck construction + deterministic shuffle. Backs
+  # all variants. Not a poker rule — supports the rules above.)
 
   @EU-0722
   Scenario: A freshly created deck has 52 cards
@@ -350,6 +388,9 @@ Feature: Game rules (Texas Hold'em, Omaha, Five Card Draw)
   # ==========================================================================
   # get_game_rules() factory
   # ==========================================================================
+  # (Framework: variant→rules-class dispatch. Not a poker rule itself —
+  # this is the polymorphism backbone that lets the Hand aggregate run any
+  # of the variants whose rules ARE codified above.)
   # The factory dispatches the GameVariant enum to the matching rules class.
   # Unknown variants fall through to TexasHoldemRules.
 
@@ -373,6 +414,10 @@ Feature: Game rules (Texas Hold'em, Omaha, Five Card Draw)
   # ==========================================================================
   # Hand evaluation — exact score per rank category
   # ==========================================================================
+  # Rule: Robert's Rules §1 (Ciaffone v11) — universal hand hierarchy is
+  #       encoded in the score formula: each rank category occupies a
+  #       distinct score range so any higher-rank hand always outscores
+  #       any lower-rank hand regardless of kickers.
   # Score formulas (TexasHoldemRules._evaluate_five) embed magic offsets and
   # multipliers; without scenarios that pin the exact score, mutations that
   # swap +/- or shift constants survive silently.
@@ -446,6 +491,9 @@ Feature: Game rules (Texas Hold'em, Omaha, Five Card Draw)
   # ==========================================================================
   # Intra-class ordering (same rank category, different strength)
   # ==========================================================================
+  # Rule: Robert's §31 (Ciaffone v11) — within a rank class, primary-rank
+  #       ordering applies (e.g. higher straight > lower straight; full
+  #       house with higher trip > full house with lower trip).
   # Same-class comparisons are where evaluators most often regress: a single
   # field swap (e.g. comparing pair rank instead of trip rank in a full house)
   # silently mis-awards pots without any rank label changing. Each scenario
@@ -493,6 +541,8 @@ Feature: Game rules (Texas Hold'em, Omaha, Five Card Draw)
   # ==========================================================================
   # Kicker tiebreaks (matching primary rank, different kickers)
   # ==========================================================================
+  # Rule: Robert's §31 (Ciaffone v11) — when primary ranks tie, the highest
+  #       remaining card(s) decide the winner.
   # When two hands share the same primary structure (same quads, same trips,
   # same two pair), real poker breaks the tie by the *highest* remaining
   # card. These scenarios exercise each rank category that can have kicker
@@ -567,3 +617,198 @@ Feature: Game rules (Texas Hold'em, Omaha, Five Card Draw)
     Then the raise is rejected with code "EXCEEDS_POT_LIMIT"
     And the rejection field "got" equals "141"
     And the rejection field "bound" equals "140"
+
+  # ==========================================================================
+  # Stud variants — Seven Card Stud, Stud Hi/Lo (8 or better), Razz
+  # ==========================================================================
+  # Rule references (cited via "# Rule:" comments throughout this section)
+  #   TDA       = Poker Tournament Directors Association Rules, 2024 v1.0
+  #   TDA-RP    = TDA Recommended Procedures (longform addendum)
+  #   WSOP      = WSOP Official Tournament Rules, 2025 (Section IX)
+  #   Robert's  = Robert's Rules of Poker, Bob Ciaffone v11
+  #
+  # Stud is fundamentally different from board games:
+  #   - No community cards. Each player has their own 7 cards.
+  #   - Forced bets are ANTE + BRING-IN, not blinds.
+  #   - Initial deal is 3 cards: 2 down + 1 up (the "door card").
+  #   - Streets 4, 5, 6 each deal 1 up card; 7th street deals 1 down card.
+  #   - First-to-act on 3rd street is the LOW card by rank-then-suit (high
+  #     stud) or HIGH card by rank-then-suit (razz).
+  #   - First-to-act on subsequent streets is the HIGH hand showing (high
+  #     stud / stud-8) or LOW hand showing (razz).
+  #   - In Razz, A is low, straights and flushes don't count, best is wheel.
+  #   - Stud Hi/Lo (8 or better) splits the pot between best high and best
+  #     qualifying low (5 cards 8-or-lower, no pair).
+  #
+  # Why "hole_count" doesn't apply:
+  #   The board-game "hole_count" + "phases" schema (EU-0700) doesn't fit
+  #   stud. Stud variants expose initial_deal_count (3), total_card_count
+  #   (7), forced_bet_type (ANTE_AND_BRINGIN), and phase list separately.
+
+  @EU-0750 @wip
+  Scenario Outline: Stud variant exposes the correct static properties
+    # Rule: TDA-RP-10 (2024) — stud format definitions.
+    # Rule: WSOP Section IX, Seven Card Games (2025).
+    Given <variant> rules
+    Then the variant is "<variant_name>"
+    And the initial_deal_count is 3
+    And the total_card_count is 7
+    And the forced_bet_type is "ANTE_AND_BRINGIN"
+    And has_community_cards is False
+    And the phases are "<phases>"
+
+    Examples:
+      | variant                    | variant_name              | phases                                                                              |
+      | Seven Card Stud            | SEVEN_CARD_STUD           | THIRD_STREET,FOURTH_STREET,FIFTH_STREET,SIXTH_STREET,SEVENTH_STREET,SHOWDOWN        |
+      | Seven Card Stud Hi/Lo 8b   | SEVEN_CARD_STUD_HILO      | THIRD_STREET,FOURTH_STREET,FIFTH_STREET,SIXTH_STREET,SEVENTH_STREET,SHOWDOWN        |
+      | Razz                       | RAZZ                      | THIRD_STREET,FOURTH_STREET,FIFTH_STREET,SIXTH_STREET,SEVENTH_STREET,SHOWDOWN        |
+
+  @EU-0751 @wip
+  Scenario Outline: Stud advances through streets one card at a time
+    # Rule: WSOP Section IX, Seven Card Games (2025) — "two down cards followed
+    #       by one up card to start the hand. There are then three more
+    #       up-cards and a final down card, with a betting round after each."
+    Given Seven Card Stud rules
+    When I get the next phase from <current>
+    Then the next phase is <next_phase>
+    And the per-player cards to deal is <deal>
+    And the dealt card is_up is <is_up>
+
+    Examples:
+      | current        | next_phase     | deal | is_up |
+      | THIRD_STREET   | FOURTH_STREET  | 1    | True  |
+      | FOURTH_STREET  | FIFTH_STREET   | 1    | True  |
+      | FIFTH_STREET   | SIXTH_STREET   | 1    | True  |
+      | SIXTH_STREET   | SEVENTH_STREET | 1    | False |
+      | SEVENTH_STREET | SHOWDOWN       | 0    | False |
+
+  @EU-0752 @wip
+  Scenario: Stud has no community cards; players hold their own 7
+    # Rule: WSOP Section IX, Seven Card Games (2025) — no community cards.
+    Given Seven Card Stud rules
+    When I check community card support
+    Then has_community_cards is False
+    And total_card_count is 7
+
+  @EU-0753 @wip
+  Scenario Outline: 3rd-street bring-in is the low card by rank-then-suit (Stud high)
+    # Rule: WSOP §Seven Card Stud (2025) — "the lowest card by rank and suit."
+    # Rule: TDA-RP-10D (2024) — tiebreak by suit.
+    # Suit ranking high→low: spades, hearts, diamonds, clubs.
+    # Among the listed up-cards, the lowest by rank-then-suit is the
+    # bring-in. With "2c, 2d, 5h" the lowest is 2c (clubs is lowest suit).
+    Given Seven Card Stud rules
+    And players have door cards "<door_cards>"
+    When I determine the bring-in
+    Then the bring-in player is at index <bring_in_index>
+
+    Examples:
+      | door_cards       | bring_in_index |
+      | 2c 2d 5h         | 0              |
+      | 5s 4s 3c         | 2              |
+      | Th Ks Qd 9c      | 3              |
+      | 2d 2h 2s 2c      | 3              |
+
+  @EU-0754 @wip
+  Scenario Outline: Razz 3rd-street bring-in is the high card by rank-then-suit
+    # Rule: WSOP §Seven Card Razz (2025) — "the high card, with the king of
+    #       spades being the highest card by rank and suit, is required to
+    #       make the forced bet on the first round."
+    Given Razz rules
+    And players have door cards "<door_cards>"
+    When I determine the bring-in
+    Then the bring-in player is at index <bring_in_index>
+
+    Examples:
+      | door_cards       | bring_in_index |
+      | 2c 5h Kd Ah      | 2              |
+      | Ks Kh Kd Kc      | 0              |
+      | Ah As Ad Ac      | 1              |
+
+  @EU-0755 @wip
+  Scenario: Stud high — first-to-act on 4th street and beyond is the high hand showing
+    # Rule: WSOP §Seven Card Stud (2025) — "On subsequent betting rounds,
+    #       the high hand on board initiates the action, a tie is broken by
+    #       high card by suit."
+    Given Seven Card Stud rules
+    And up cards by player:
+      | player | up_cards     |
+      | Alice  | 2h           |
+      | Bob    | Kc           |
+      | Carol  | 5d           |
+    When I determine the first-to-act on 4th street
+    Then the first-to-act player is "Bob"
+
+  @EU-0756 @wip
+  Scenario: Razz — first-to-act on 4th street and beyond is the low hand showing
+    # Rule: WSOP §Seven Card Razz (2025) — "The low hand acts first on all
+    #       subsequent rounds."
+    Given Razz rules
+    And up cards by player:
+      | player | up_cards     |
+      | Alice  | 2h           |
+      | Bob    | Kc           |
+      | Carol  | 5d           |
+    When I determine the first-to-act on 4th street
+    Then the first-to-act player is "Alice"
+
+  @EU-0757 @wip
+  Scenario Outline: Seven Card Stud hand evaluation — best 5 of 7 standard ranking
+    # Rule: Robert's Rules §1 (Ciaffone v11) — universal high hand hierarchy.
+    Given Seven Card Stud rules
+    And player cards "<seven>"
+    When the best high hand is evaluated
+    Then the rank is <rank>
+
+    Examples:
+      | seven                          | rank             |
+      | Ks Kh Kd Kc 5s 6h 7d           | FOUR_OF_A_KIND   |
+      | As Ad 8s 8h 8d 4c 2h           | FULL_HOUSE       |
+      | Ah 7h 5h 3h 2h Kd 9c           | FLUSH            |
+      | 9s 8h 7d 6c 5s 2h Kd           | STRAIGHT         |
+      | Js Jc Jh 8d 7c 5s 2h           | THREE_OF_A_KIND  |
+      | Ts Th 7h 7d 5s 4c 2h           | TWO_PAIR         |
+      | Ah Ac Kd Js 9h 4c 2d           | PAIR             |
+
+  @EU-0758 @wip
+  Scenario: Razz hand evaluation — wheel A-2-3-4-5 is the best possible hand
+    # Rule: WSOP §Seven Card Razz (2025) — "the best possible hand is
+    #       5-4-3-2-A". Aces are low; straights and flushes don't count.
+    Given Razz rules
+    And player cards "Ah 2h 3h 4h 5h Kc Qd"
+    When the best low hand is evaluated
+    Then the razz rank is "WHEEL"
+    And the razz rank value is 1
+
+  @EU-0759 @wip
+  Scenario: Razz tiebreak — among non-wheel lows, compare highest card downward
+    # Rule: WSOP §Seven Card Razz (2025) — "Aces are low only, and two aces
+    #       are the lowest pair." Among non-paired/non-flush 5-card lows,
+    #       the lower hand is the one with the lower highest card; ties
+    #       broken by next-highest, etc.
+    # Hand A: best 5 = 7-5-4-3-2 (a "seven low")
+    # Hand B: best 5 = 8-5-4-3-2 (an "eight low") — A wins, lower top card.
+    Given Razz rules
+    When I evaluate hand A with cards "7h 5d 4c 3s 2h Kd Qc"
+    And I evaluate hand B with cards "8h 5d 4c 3s 2h Kd Qc"
+    Then both hands rank as razz lows
+    And hand A is lower than hand B
+
+  @EU-0760 @wip
+  Scenario: Stud Hi/Lo (8 or better) — qualifier requires 5 unpaired cards each ≤ 8
+    # Rule: WSOP §Seven Card Stud Hi/Lo 8 or Better (2025) — "to win the low
+    #       half of the pot, a Participant's hand at showdown must have five
+    #       cards of different ranks that are an eight or lower in rank."
+    # Hand A: cards 9c 9d 8s 7h 6d 5c 4c — high two pair 9s + 7-low qualifier
+    # Hand B: cards Ks Kh 9d 7s 5c 3h 2d — high pair Ks; no low qualifier
+    #        (no 5-card combination strictly ≤ 8 unpaired with required count
+    #        — actually 9d disqualifies one slot; 7-5-3-2 is only 4 cards
+    #        plus we'd need one more ≤ 8 unpaired — not present, so no low).
+    Given Seven Card Stud Hi/Lo rules
+    When I evaluate hand A with cards "9c 9d 8s 7h 6d 5c 4c"
+    Then hand A high rank is "TWO_PAIR"
+    And hand A has a qualifying low
+    And hand A low best 5 is "8 7 6 5 4"
+    When I evaluate hand B with cards "Ks Kh 9d 7s 5c 3h 2d"
+    Then hand B high rank is "PAIR"
+    And hand B has no qualifying low

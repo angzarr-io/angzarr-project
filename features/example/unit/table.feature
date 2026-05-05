@@ -1,8 +1,20 @@
-# Allocated: EU-0100 .. EU-0120, EU-0531 .. EU-0567, EU-0570 .. EU-0574, EU-0575 .. EU-0578
+# Allocated: EU-0100 .. EU-0120, EU-0531 .. EU-0567, EU-0570 .. EU-0574,
+#            EU-0575 .. EU-0578, EU-1180 .. EU-1188
 Feature: Table aggregate logic
   The Table aggregate manages a poker table session: configuration, player
   seating, and hand lifecycle. It's the orchestration layer between players
   (who have money) and hands (where money changes ownership).
+
+  # ==========================================================================
+  # Rule references (cited via "# Rule:" comments throughout this file)
+  # ==========================================================================
+  #   TDA       = Poker Tournament Directors Association Rules, 2024 v1.0
+  #               (Oct 9, 2024). Canonical at https://www.pokertda.com/.
+  #               Rule numbers refer to the longform document.
+  #   TDA-RP    = TDA Recommended Procedures (longform addendum).
+  #   Robert's  = Robert's Rules of Poker, Bob Ciaffone v11.
+  # See angzarr docs site or features/example/RULES.md for the full
+  # cross-reference between scenarios and rule sources.
 
   Why this aggregate exists:
   - Tables have configuration (blinds, limits) that hands inherit
@@ -32,6 +44,11 @@ Feature: Table aggregate logic
   # ==========================================================================
   # Table Creation
   # ==========================================================================
+  # Rule: WSOP §IX (2025) — variant choice, max-handed configuration (2-10
+  #       for flop games, 7 for Big-O, 8 for stud, 6/7/8 for short-deck).
+  # (Framework: configuration validation — blinds, buy-in bounds, max
+  # players. The non-poker side of table creation is event-sourcing
+  # idempotency: cannot create the same table twice.)
   # Tables are created with game configuration. Once created, the table
   # exists until closed (future feature). Duplicate creation is rejected.
 
@@ -68,6 +85,12 @@ Feature: Table aggregate logic
   # ==========================================================================
   # Player Seating
   # ==========================================================================
+  # Rule: TDA Rule 7 (2024) / WSOP Rule 34/65 (2025) — random seat
+  #       assignment in tournament events (cash play allows preferred seat).
+  # Rule: WSOP §I-13 (2025) — re-entry: zero chips remaining required.
+  # Rule: TDA Rule 8A / WSOP §I-14 (2025) — late entrants get full stack.
+  # (Framework: seat occupancy is enforced; one player per seat at most.
+  # Buy-in bounds enforce per-table min/max chip configuration.)
   # Players join with a buy-in (chips for play). The table tracks occupied
   # seats. Players can request a specific seat or take any available one.
   # Join failures don't affect the player's bankroll - no funds reserved yet.
@@ -125,6 +148,9 @@ Feature: Table aggregate logic
   # ==========================================================================
   # Player Departure
   # ==========================================================================
+  # Rule: TDA Rule 31 (2024) — players with action pending must remain at
+  #       the table; mid-hand departure is incompatible with protecting
+  #       the hand and following the action.
   # Players leave with their remaining stack (may differ from buy-in).
   # Departure during an active hand is forbidden - the player must wait
   # for the hand to complete. This prevents mid-hand bailouts.
@@ -157,6 +183,10 @@ Feature: Table aggregate logic
   # ==========================================================================
   # Hand Lifecycle - Start
   # ==========================================================================
+  # Rule: TDA Rule 32 (2024) — tournament play uses a dead button.
+  # Rule: TDA Rule 34B (2024) — heads-up: SB is the button, dealt last,
+  #       acts first preflop and last on subsequent betting rounds.
+  # Rule: WSOP §IX Flop Games (2025) — minimum 2 players to deal.
   # Starting a hand captures the current player stacks and advances the
   # dealer button. The HandStarted event triggers the hand-table-saga to
   # deal cards in the hand domain.
@@ -204,6 +234,10 @@ Feature: Table aggregate logic
   # ==========================================================================
   # Hand Lifecycle - End
   # ==========================================================================
+  # (Framework: stack reconciliation between hand outcome and table seat
+  # state. The poker rules driving the WIN/LOSS amounts are codified in
+  # the Hand aggregate — see hand.feature side-pots, antes, and
+  # showdown sections.)
   # Ending a hand applies stack changes (wins/losses) to seated players.
   # The HandEnded event triggers the hand-player-saga to update player
   # bankrolls in the player domain.
@@ -244,6 +278,9 @@ Feature: Table aggregate logic
   # ==========================================================================
   # State Reconstruction
   # ==========================================================================
+  # (Framework: event-replay correctness. Not a poker rule — pins that
+  # the rules above produce a consistent rebuilt state from any prefix
+  # of the table's event stream.)
   # Table state is rebuilt by replaying events. This verifies that joining,
   # leaving, and hand events correctly update seated players and table status.
 
@@ -271,6 +308,11 @@ Feature: Table aggregate logic
   # ==========================================================================
   # Create Validation (Phase 2 — test_table.py)
   # ==========================================================================
+  # (Framework: input validation for table configuration. Bounds are
+  # WSOP/TDA-derived — small_blind/big_blind sanity, max_players ≤ 10
+  # for flop games per WSOP §IX, but the validation logic itself is
+  # framework, not a poker rule.)
+  # Rule: WSOP §IX Flop Games (2025) — 2-10 player range.
   # Configuration must be sane before accepting players. Blinds, buy-in
   # bounds, and max_players are validated synchronously. These checks match
   # the Go implementation for cross-language consistency.
@@ -360,6 +402,9 @@ Feature: Table aggregate logic
   # ==========================================================================
   # Join Validation (Phase 2)
   # ==========================================================================
+  # (Framework: input validation for join requests. Buy-in min/max enforce
+  # the per-table economics; seat occupancy enforces the universal poker
+  # constraint that one seat = at most one player.)
   # Joining requires an existing table, a player_root, and a buy-in that
   # fits within the configured bounds. Preferred-seat occupancy is checked
   # before the any-seat fallback.
@@ -399,6 +444,7 @@ Feature: Table aggregate logic
   # ==========================================================================
   # Leave Validation (Phase 2)
   # ==========================================================================
+  # (Framework: input validation for leave requests.)
 
   @EU-0537
   Scenario: LeaveTable rejects when table does not exist
@@ -417,6 +463,9 @@ Feature: Table aggregate logic
   # ==========================================================================
   # Hand Lifecycle Validation (Phase 2)
   # ==========================================================================
+  # Rule: TDA Rule 32 + 34B (2024) — dead button + heads-up button = SB,
+  #       carried over from the Hand Lifecycle - Start section above.
+  # (Framework: pre-condition gates for StartHand / EndHand.)
 
   @EU-0539
   Scenario: StartHand rejects when table does not exist
@@ -473,6 +522,10 @@ Feature: Table aggregate logic
   # ==========================================================================
   # State Accessors (Phase 2)
   # ==========================================================================
+  # (Framework: state-projection accessors. table_id derivation, is_full
+  # check, sit-in/sit-out tracking. Sitting-out is a simulable conse-
+  # quence of TDA Rule 30 — players away from table can be marked
+  # sitting out so blinds skip them or are paid into the pot.)
 
   @EU-0545
   Scenario: Table id is derived from the table name
@@ -501,6 +554,8 @@ Feature: Table aggregate logic
   # ==========================================================================
   # Event Replay (Phase 2)
   # ==========================================================================
+  # (Framework: event-replay applier correctness — PlayerSatIn,
+  # ChipsAdded, etc. project into table state.)
 
   @EU-0548
   Scenario: PlayerSatIn restores a sat-out player to active
@@ -522,6 +577,9 @@ Feature: Table aggregate logic
   # ==========================================================================
   # Cross-language Consistency (Phase 2)
   # ==========================================================================
+  # (Framework: scenarios that pin behavior identically across language
+  # implementations — seat 0 is valid, negative preferred_seat picks
+  # next available.)
 
   @EU-0550
   Scenario: Seat 0 is an explicit valid preferred seat
@@ -541,6 +599,9 @@ Feature: Table aggregate logic
   # ==========================================================================
   # Full Lifecycle (Phase 2)
   # ==========================================================================
+  # (Framework: end-to-end create → join → start hand → end hand → leave
+  # round-trip on a single aggregate. Exercises the rule sections above
+  # in sequence.)
 
   @EU-0552
   Scenario: Full create/join/start/end/leave lifecycle
@@ -553,6 +614,12 @@ Feature: Table aggregate logic
   # ==========================================================================
   # SeatPlayer Orchestration Command (Phase 2 — test_orchestration.py)
   # ==========================================================================
+  # Rule: TDA Rule 7 / WSOP Rule 34 (2025) — random tournament seating.
+  # (Framework: PM-orchestrated seat assignment. Rejections become
+  # SeatingRejected events so the PM can compensate by releasing the
+  # buy-in reservation. The rules driving rejections — buy-in bounds,
+  # seat occupancy, table fullness — are inherited from Player Seating
+  # and Join Validation sections above.)
   # SeatPlayer is the PM-orchestrated seating flow. Unlike JoinTable, a
   # rejection becomes a SeatingRejected event (not an exception) so the PM
   # can compensate by releasing the buy-in reservation.
@@ -615,6 +682,11 @@ Feature: Table aggregate logic
   # ==========================================================================
   # AddRebuyChips Orchestration Command (Phase 2)
   # ==========================================================================
+  # Rule: TDA Rule 27 (2024) — re-buys allowed during running tournament;
+  #       declared rebuy plays chips behind.
+  # (Framework: PM-orchestrated chip top-up. Raises rather than emitting
+  # an event because the rebuy PM has already reserved funds — pre-
+  # conditions cannot fail at this stage.)
   # AddRebuyChips tops up a seated player's stack. Unlike SeatPlayer this
   # handler raises — the rebuy PM has already reserved the funds, so the
   # command should never reach the table if preconditions fail.
@@ -655,6 +727,9 @@ Feature: Table aggregate logic
   # ==========================================================================
   # SeatPlayer / AddRebuyChips — Guard Rejections
   # ==========================================================================
+  # (Framework: command-level guard rejections vs event-level rejections.
+  # Documents the dual-mode rejection strategy: table-existence checks
+  # raise; everything else emits a rejection event for PM compensation.)
   # SeatPlayer raises a CommandRejectedError only when the table does not
   # exist; all other validation failures become SeatingRejected events so
   # the PM can compensate. AddRebuyChips rejects at the command level for
@@ -700,10 +775,14 @@ Feature: Table aggregate logic
   # ==========================================================================
   # Dead Button Rule (button advancement after eliminations)
   # ==========================================================================
-  # Real poker (TDA Rule 6, Robert's Rules §6): when a player in or near the
-  # blind position is eliminated between hands, the button advances using
-  # the "dead button" rule rather than naive +1. The intent: every player
-  # gets the BB exactly once per orbit. Specifically:
+  # Rule: TDA Rule 32 (2024) — "Tournament play will use a dead button."
+  # Rule: TDA Rule 34B (2024) — "Heads-up, the small blind is the button …
+  #       Starting heads-up play, the button may need to be adjusted to
+  #       ensure no player has the big blind twice in a row."
+  # When a player in or near the blind position is eliminated between
+  # hands, the button advances using the "dead button" rule rather than
+  # naive +1. The intent: every player gets the BB exactly once per
+  # orbit. Specifically:
   #   - If the player who would be the new BB is gone, the BB moves to the
   #     next active seat clockwise; the button itself "freezes" or moves to
   #     a vacant seat ("dead button") so the orbit does not double-blind
@@ -791,3 +870,211 @@ Feature: Table aggregate logic
     When I handle a StartHand command
     Then the result is a angzarr_client.proto.examples.HandStarted event
     And the player at the big_blind_position is not "player-D"
+
+  # ==========================================================================
+  # Table Balancing — TDA Rule 11A
+  # ==========================================================================
+  # Real poker (TDA Rule 11A): "To balance in flop and mixed-games, the
+  # player to be big blind next moves to the worst position, including
+  # single big blind if available, even if that means the seat is big
+  # blind twice. Worst position is never the small blind." The cluster-
+  # tier @wip EA-0012 covers the multi-table cluster integration; this
+  # unit scenario pins the deterministic per-table algorithm.
+
+  @EU-1180 @wip
+  Scenario: Balancing moves the BB-next player from the larger table to the worst seat at the shorter table
+    # Rule: TDA Rule 11A (2024) — "the player to be big blind next moves to
+    #       the worst position ... Worst position is never the small blind."
+    # Source table: 4 players (Alice/Bob/Carol/Dave at seats 0/1/2/3),
+    # current dealer at seat 0 (Alice). The BB-next is the player who would
+    # be BB on the upcoming hand — at a 4-handed table with dealer 0 that's
+    # seat 3 (Dave). Dave is the player who must move.
+    # Destination table: short table with 2 players, dealer about to be at
+    # seat 0. The "worst position" — never the small blind — is the seat
+    # immediately to the right of the would-be small blind, i.e. the BB
+    # position (or single-BB if the source table has SB filled).
+    Given a TableCreated event for "Source"
+    And a PlayerJoined event for player "Alice" at seat 0
+    And a PlayerJoined event for player "Bob" at seat 1
+    And a PlayerJoined event for player "Carol" at seat 2
+    And a PlayerJoined event for player "Dave" at seat 3
+    And the source table has the dealer button at seat 0
+    And a TableCreated event for "Dest"
+    And a PlayerJoined event for player "Eve" at seat 0 of "Dest"
+    And a PlayerJoined event for player "Frank" at seat 1 of "Dest"
+    When I handle a BalanceTables command moving from "Source" to "Dest"
+    Then the result is a angzarr_client.proto.examples.PlayerMovedBetweenTables event
+    And the moved player is "Dave"
+    And the moved player's destination seat at "Dest" is the BB position (not the SB position)
+
+  @EU-1181 @wip
+  Scenario: Final-table combination — 9-handed event collapses 2 tables of 5 to one final table of 9
+    # Rule: TDA RP-9 (2024) — "9 and 8-handed events will combine from two
+    #       tables of five players each to a 9-handed final table."
+    # Two 5-handed tables with one elimination remaining before the final
+    # table. After the next bust, the remaining 9 players are seated at a
+    # single final table by random redraw.
+    Given a TableCreated event for "Semi-1"
+    And a PlayerJoined event for player "Alice" at seat 0
+    And a PlayerJoined event for player "Bob" at seat 1
+    And a PlayerJoined event for player "Carol" at seat 2
+    And a PlayerJoined event for player "Dave" at seat 3
+    And a PlayerJoined event for player "Eve" at seat 4
+    And a TableCreated event for "Semi-2"
+    And a PlayerJoined event for player "Frank" at seat 0 of "Semi-2"
+    And a PlayerJoined event for player "Grace" at seat 1 of "Semi-2"
+    And a PlayerJoined event for player "Henry" at seat 2 of "Semi-2"
+    And a PlayerJoined event for player "Ivy"   at seat 3 of "Semi-2"
+    And a PlayerJoined event for player "Jack"  at seat 4 of "Semi-2"
+    When I handle a CombineFinalTable command for "Final" combining "Semi-1,Semi-2"
+    Then the result is a angzarr_client.proto.examples.FinalTableCombined event
+    And the final table has 9 active_players
+    And every original player has been reseated at "Final"
+    And "Semi-1" status is "broken"
+    And "Semi-2" status is "broken"
+
+  # ==========================================================================
+  # Random Seat Assignment — TDA Rule 7 / WSOP Rule 34/65
+  # ==========================================================================
+  # Real poker (TDA Rule 7): "Tournament and satellite seats will be randomly
+  # assigned." WSOP Rule 34: "Entrants will be assigned to a table and seat
+  # through a random computer selection." The current SeatPlayer flow with
+  # seat=-1 picks the next *available* seat — this is fine for cash play
+  # but tournament seating must be RNG-driven.
+
+  @EU-1182 @wip
+  Scenario: Tournament seat assignment is uniformly random among available seats
+    # Rule: TDA Rule 7 (2024) — random correct seating.
+    # Rule: WSOP Rule 34 (2025) — random computer selection.
+    Given a TableCreated event for "Random-1" tagged for tournament play
+    And seats 0, 2, 5, and 7 are unoccupied
+    When I handle a SeatPlayer command for player "Alice" with seat -1 amount 1500 in tournament mode
+    Then the result is a angzarr_client.proto.examples.PlayerSeated event
+    And the seating event has seat_position drawn uniformly at random from {0, 2, 5, 7}
+    And the seating event has rng_seed populated for replay determinism
+
+  # ==========================================================================
+  # Broken-Table Reseating — TDA Rule 10A
+  # ==========================================================================
+  # Real poker (TDA Rule 10A): "New players entering the tournament and
+  # players from broken tables can get any seat including the small or big
+  # blind or the button and be dealt in except between the SB and button."
+
+  @EU-1183 @wip
+  Scenario: Broken-table player can take any seat except between SB and button
+    # Rule: TDA Rule 10A (2024).
+    # Source table is broken; Eve (a moved player) joins the destination
+    # table. The destination has dealer at seat 0 (Alice), SB seat 1 (Bob),
+    # BB seat 2 (Carol), Dave at seat 3, and seats 4, 5 open. The forbidden
+    # seat range is "between SB and button" — for a 6-handed table with
+    # button at 0 and SB at 1, the seat between them on the same hand
+    # doesn't exist; for an 8-handed table with seats 4 and 5 open AFTER
+    # the button on the next deal, those are legal. The rule guards against
+    # being dealt in to a position that has already received cards on the
+    # current orbit.
+    Given a TableCreated event for "Dest"
+    And a PlayerJoined event for player "Alice" at seat 0 (button)
+    And a PlayerJoined event for player "Bob" at seat 1 (SB)
+    And a PlayerJoined event for player "Carol" at seat 2 (BB)
+    And a PlayerJoined event for player "Dave" at seat 3
+    And seats 4, 5, 6, 7 are open
+    And a hand has been dealt at "Dest" with substantial action this orbit
+    When I handle a SeatPlayer command for moved player "Eve" at seat 4 amount 1500
+    Then the result is a angzarr_client.proto.examples.PlayerSeated event
+    And player "Eve" is dealt out of the current hand
+    And player "Eve" is dealt in starting the next hand
+
+  # ==========================================================================
+  # Halt Play When Short — TDA Rule 11D
+  # ==========================================================================
+  # Real poker (TDA Rule 11D): "Play will halt on tables 3 or more players
+  # short (by elimination) than the table with the most players once the
+  # blinds are impacted."
+
+  @EU-1184 @wip
+  Scenario: Play halts on a short table when 3+ behind once the blinds are impacted
+    # Rule: TDA Rule 11D (2024).
+    # 9-handed event. Source table A has 8 players. Short table B has 5.
+    # The difference is 3, which triggers halt-play once the blinds at B
+    # are impacted (i.e. when the BB hits an open seat at B).
+    Given a TableCreated event for "Table-A" with 8 active players
+    And a TableCreated event for "Table-B" with 5 active players
+    When the next hand at "Table-B" would assign the BB to an empty seat
+    Then a angzarr_client.proto.examples.TableHaltedForBalancing event is emitted for "Table-B"
+    And "Table-B" status is "halted_for_balancing"
+
+  # ==========================================================================
+  # Dodging Blinds Penalty — TDA Rule 33 / WSOP Rule 86
+  # ==========================================================================
+  # Real poker (TDA Rule 33 + WSOP Rule 86): "A Participant who intentionally
+  # dodges his or her blind(s) when moving from an existing seat must
+  # forfeit both blinds (and BBA if applicable) and will receive a one (1)
+  # round penalty."
+
+  @EU-1185 @wip
+  Scenario: A player who skips a blind by moving forfeits the missed blinds and earns a round penalty
+    # Rule: TDA Rule 33 (2024) + WSOP Rule 86 (2025).
+    Given a TableCreated event for "Main Table" with blinds 5/10
+    And a PlayerJoined event for player "Alice" at seat 1
+    And the next hand would post Alice's BB
+    When player "Alice" requests a seat change to seat 4 to skip her blind
+    Then a angzarr_client.proto.examples.BlindDodgePenalty event is emitted
+    And the penalty event has player_root "Alice"
+    And the penalty event has chips_forfeited 15
+    And the penalty event has missed_round_count 1
+
+  # ==========================================================================
+  # Initial Button Placement — WSOP Rule 85
+  # ==========================================================================
+  # WSOP-specific (Rule 85): "At the start of an Event, the button will
+  # begin in the seat with the first chip stack to the dealer's right."
+  # Operationally: the button on hand 1 of any new table is *deterministic*
+  # given the seat-occupancy list, not a coin flip.
+
+  @EU-1186 @wip
+  Scenario: Initial button placement on hand 1 starts at the seat to the dealer's right
+    # Rule: WSOP Rule 85 (2025) — initial button placement.
+    # Dealer position (the dealer person, not the button) is at seat 0.
+    # First chip stack to the dealer's right (counter-clockwise) is the
+    # highest seat number with a player. With seats 1, 3, 5 occupied,
+    # the button starts at seat 5.
+    Given a TableCreated event for "Main Table"
+    And a PlayerJoined event for player "Alice" at seat 1
+    And a PlayerJoined event for player "Bob" at seat 3
+    And a PlayerJoined event for player "Carol" at seat 5
+    When I handle a StartHand command for the first hand
+    Then the result is a angzarr_client.proto.examples.HandStarted event
+    And the table event has hand_number 1
+    And the table event has dealer_position 5
+
+  # ==========================================================================
+  # Final-Table Combination Thresholds — TDA RP-9 / WSOP Rule 68
+  # ==========================================================================
+  # Real poker (TDA RP-9 + WSOP Rule 68): final-table combination point
+  # depends on the event's max-handed configuration:
+  #   9-handed event → combine to FT with 10 remaining (5+5 → 9 was EU-1181)
+  #   8-handed event → combine to FT with 9 remaining (4+5 → 8)
+  #   7-handed event → combine to FT with 8 remaining (4+4 → 7)
+  #   6-handed event → combine to FT with 7 remaining (4+3 → 6)
+
+  @EU-1187 @wip
+  Scenario: 8-handed event combines 2 tables of 4 and 5 to a final table of 9 then 8
+    # Rule: WSOP Rule 68b (2025) — 8-handed → combine at 9 remaining.
+    Given an 8-handed tournament with 9 active players across "Semi-1" and "Semi-2"
+    And "Semi-1" has 4 players "Alice,Bob,Carol,Dave"
+    And "Semi-2" has 5 players "Eve,Frank,Grace,Henry,Ivy"
+    When I handle a CombineFinalTable command for "Final" combining "Semi-1,Semi-2"
+    Then the result is a angzarr_client.proto.examples.FinalTableCombined event
+    And the final table has 9 active_players
+    And the final table is configured as 8-handed
+
+  @EU-1188 @wip
+  Scenario: 6-handed event combines at 7 remaining
+    # Rule: WSOP Rule 68d (2025) — 6-handed → combine at 7 remaining.
+    Given a 6-handed tournament with 7 active players across "Semi-1" and "Semi-2"
+    And "Semi-1" has 4 players "Alice,Bob,Carol,Dave"
+    And "Semi-2" has 3 players "Eve,Frank,Grace"
+    When I handle a CombineFinalTable command for "Final" combining "Semi-1,Semi-2"
+    Then the result is a angzarr_client.proto.examples.FinalTableCombined event
+    And the final table has 7 active_players
+    And the final table is configured as 6-handed

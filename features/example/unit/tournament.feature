@@ -1,4 +1,5 @@
-# Allocated: EU-0800 .. EU-0865
+# Allocated: EU-0800 .. EU-0865, EU-1151, EU-1160 .. EU-1162,
+#            EU-1190 .. EU-1192, EU-1310 .. EU-1317
 # DOC: Unit scenarios for the Tournament aggregate (tournament/agg/handlers.py).
 
 Feature: Tournament aggregate logic
@@ -7,6 +8,18 @@ Feature: Tournament aggregate logic
   truth for who is registered, how many chips are in play, and which
   tournament phase (created / registration / running / paused / completed)
   is currently active.
+
+  # ==========================================================================
+  # Rule references (cited via "# Rule:" comments throughout this file)
+  # ==========================================================================
+  #   TDA       = Poker Tournament Directors Association Rules, 2024 v1.0
+  #               (Oct 9, 2024). Canonical at https://www.pokertda.com/.
+  #               Rule numbers refer to the longform document.
+  #   TDA-RP    = TDA Recommended Procedures (longform addendum).
+  #   WSOP      = World Series of Poker Official Tournament Rules, 2025.
+  #               Canonical at https://www.wsop.com/.
+  # See angzarr docs site or features/example/RULES.md for the full
+  # cross-reference between scenarios and rule sources.
 
   # Why this aggregate exists:
   # - Tournaments have a strict lifecycle with guard-gated transitions
@@ -41,6 +54,10 @@ Feature: Tournament aggregate logic
   # ==========================================================================
   # Tournament Creation
   # ==========================================================================
+  # Rule: WSOP §I-1, §I-2 (2025) — tournament event configuration: buy-in,
+  #       starting stack, structure sheet defines payout / blind structure.
+  # (Framework: configuration validation. The min/max_players bounds are
+  # universal poker requirements — at least 2 to deal a hand.)
   # Tournaments are created with core configuration: name, buy-in, stacks,
   # and player bounds. Validation rules reject empty names, non-positive
   # amounts, and min/max_player inconsistencies.
@@ -101,6 +118,11 @@ Feature: Tournament aggregate logic
   # ==========================================================================
   # Open / Close Registration
   # ==========================================================================
+  # Rule: WSOP §I-12 (2025) — late registration closes at end of level
+  #       specified on the structure sheet.
+  # Rule: TDA Rule 8 (2024) — late registrants get full stacks; details
+  #       per the late-registration scenarios further down.
+  # (Framework: state-machine transitions for registration lifecycle.)
   # Registration must be explicitly opened before players can enroll, and can
   # be closed before the tournament starts. Both transitions gate on the
   # current registration status.
@@ -141,6 +163,10 @@ Feature: Tournament aggregate logic
   # ==========================================================================
   # Player Enrollment
   # ==========================================================================
+  # Rule: WSOP §I-1, §I-3 (2025) — registration via in-person or online
+  #       methods; participant pays buy-in to enter prize pool.
+  # Rule: WSOP §I-2, §I-7 (2025) — capacity controls + entry refusal at
+  #       host discretion (mapped here to "tournament full" rejection).
   # Successful enrollment emits TournamentPlayerEnrolled with the buy-in as
   # fee_paid. Guard failures (empty player_root, registration closed, full
   # tournament, duplicate player) emit TournamentEnrollmentRejected instead
@@ -188,6 +214,10 @@ Feature: Tournament aggregate logic
   # ==========================================================================
   # Rebuy Processing
   # ==========================================================================
+  # Rule: TDA Rule 27 (2024) — rebuy mechanics: declared rebuy plays
+  #       chips behind; player must complete the rebuy.
+  # Rule: WSOP §I-13 (2025) — re-entry events: zero chips required;
+  #       re-entrants get a full starting stack.
   # Rebuys only work while the tournament is running. Unregistered players
   # get a RebuyDenied event on the stream rather than a raised error.
 
@@ -208,6 +238,12 @@ Feature: Tournament aggregate logic
   # ==========================================================================
   # Player Elimination
   # ==========================================================================
+  # Rule: WSOP §I-13 (2025) — re-entry events allow eliminated players to
+  #       re-enter with a fresh stack; per Rule 8B their forfeited chips
+  #       are removed from play (codified at EU-1151).
+  # (Framework: lifecycle gate — only running tournaments can record
+  # eliminations. The bust-into-money tiebreak rules are codified in the
+  # hand-for-hand and payout sections.)
   # Elimination requires the tournament to be running. Eliminating before
   # start is a guard-raised error.
 
@@ -221,6 +257,8 @@ Feature: Tournament aggregate logic
   # ==========================================================================
   # Pause / Resume
   # ==========================================================================
+  # Rule: WSOP §I-122 (2025) — play may be suspended and resumed; dinner
+  #       breaks are listed on structure sheets.
   # Pause gates on running; Resume gates on paused. Each transition asserts
   # that the tournament is in the expected prior phase.
 
@@ -241,6 +279,7 @@ Feature: Tournament aggregate logic
   # ==========================================================================
   # Start Tournament
   # ==========================================================================
+  # Rule: WSOP §IX Flop Games (2025) — minimum 2 players to deal a hand.
   # Start requires open registration plus at least min_players enrolled.
 
   @EU-0822
@@ -263,6 +302,8 @@ Feature: Tournament aggregate logic
   # ==========================================================================
   # EnrollPlayer — Non-existent Tournament
   # ==========================================================================
+  # (Framework: pre-condition gate. Rules covered by Player Enrollment
+  # section above.)
 
   @EU-0824
   Scenario: EnrollPlayer rejects when the tournament does not exist
@@ -274,6 +315,9 @@ Feature: Tournament aggregate logic
   # ==========================================================================
   # AdvanceBlindLevel — Success and Not-Running Rejection
   # ==========================================================================
+  # Rule: TDA Rule 23 (2024) — new level applies to next hand; level
+  #       changes are explicit transitions (covered at EU-1210, EU-1211).
+  # Rule: TDA RP-11 (2024) — antes do not reduce as play progresses.
 
   @EU-0825
   Scenario: AdvanceBlindLevel on a running tournament emits BlindLevelAdvanced
@@ -319,6 +363,9 @@ Feature: Tournament aggregate logic
   # ==========================================================================
   # EliminatePlayer — Success and Unregistered Rejection
   # ==========================================================================
+  # (Framework: PlayerEliminated event captures the hand that knocked
+  # the player out, for tournament audit and bubble-tiebreak reasoning.
+  # Rules covered by Player Elimination section above.)
 
   @EU-0827
   Scenario: EliminatePlayer emits PlayerEliminated with the supplied hand_root
@@ -337,6 +384,8 @@ Feature: Tournament aggregate logic
   # ==========================================================================
   # PauseTournament — Success and Already-Paused Rejection
   # ==========================================================================
+  # (Framework: state-machine guards. Rules covered by Pause / Resume
+  # section above.)
 
   @EU-0829
   Scenario: PauseTournament on a running tournament emits TournamentPaused
@@ -355,6 +404,7 @@ Feature: Tournament aggregate logic
   # ==========================================================================
   # ResumeTournament — Success
   # ==========================================================================
+  # (Framework: state-machine transition. Rules covered by Pause / Resume.)
 
   @EU-0831
   Scenario: ResumeTournament on a paused tournament emits TournamentResumed
@@ -365,6 +415,8 @@ Feature: Tournament aggregate logic
   # ==========================================================================
   # OpenRegistration — Running-Tournament Rejection
   # ==========================================================================
+  # (Framework: state-machine guard. Rule covered by Open / Close
+  # Registration section above.)
 
   @EU-0832
   Scenario: OpenRegistration rejects when tournament is running
@@ -376,6 +428,7 @@ Feature: Tournament aggregate logic
   # ==========================================================================
   # CloseRegistration — total_registrations count
   # ==========================================================================
+  # (Framework: snapshot of registered count at registration close.)
 
   @EU-0833
   Scenario: CloseRegistration emits RegistrationClosed with the registered count
@@ -388,6 +441,9 @@ Feature: Tournament aggregate logic
   # ==========================================================================
   # ProcessRebuy — Success, Missing Tournament, Disabled Rebuys
   # ==========================================================================
+  # Rule: TDA Rule 27 (2024) — rebuys; Rule covered by Rebuy Processing
+  # section above. Disabled-rebuys is a per-tournament configuration
+  # setting (rebuys_enabled) — when false, rebuys are denied.
 
   @EU-0834
   Scenario: ProcessRebuy emits RebuyProcessed for an enrolled player with rebuys enabled
@@ -415,6 +471,9 @@ Feature: Tournament aggregate logic
   # ==========================================================================
   # ProcessRebuy — Config Threshold Variations
   # ==========================================================================
+  # Rule: TDA Rule 27 (2024) — rebuys are subject to per-event configura-
+  #       tion (cutoff level, max rebuys per player). The structure sheet
+  #       defines these per WSOP §I-13.
   # can_rebuy() combines state (running) with config (enabled / cutoff_level /
   # max_rebuys) — each threshold gets its own denial/allow scenario.
 
@@ -455,6 +514,10 @@ Feature: Tournament aggregate logic
   # ==========================================================================
   # State Reconstruction
   # ==========================================================================
+  # (Framework: event-replay correctness. Pins the projection of each
+  # event type into tournament state. Rules driving the events are
+  # codified in the sections above; this section pins that they replay
+  # consistently from any event prefix.)
   # Tournament state is rebuilt by replaying all events in order. These
   # scenarios exercise each apply_* function: identity, lifecycle transitions,
   # no-ops (closed/rejected/denied), and cumulative updates (pool/level/remaining).
@@ -590,9 +653,15 @@ Feature: Tournament aggregate logic
   # ==========================================================================
   # Late Registration
   # ==========================================================================
-  # Real tournaments (TDA Rule 30) keep registration open for several blind
-  # levels into running play. The previously implicit rule "TournamentStarted
-  # closes registration" was a real-rule violation: registration must remain
+  # Rule: TDA Rule 8A (2024) — "Alternates, players registering late, and
+  #       re-entries will be sold full stacks. They will randomly draw a
+  #       seat and table … and are dealt in except between the small
+  #       blind and button."
+  # Rule: WSOP §I-12, §I-14 (2025) — late registration closes at end of
+  #       structure-defined level; late registrants get full stack.
+  # Real tournaments keep registration open for several blind levels into
+  # running play. The previously implicit rule "TournamentStarted closes
+  # registration" was a real-rule violation: registration must remain
   # open until either the configured cutoff level or an explicit
   # CloseRegistration. These scenarios pin the late-registration surface.
 
@@ -644,12 +713,14 @@ Feature: Tournament aggregate logic
   # ==========================================================================
   # Multi-place Payout
   # ==========================================================================
-  # Real tournaments (TDA Rule 14, WSOP standard) pay multiple finishing
-  # positions on a published payout schedule. The proto's TournamentResult
-  # already carries (position, player_root, payout) — these scenarios pin
-  # the distribution. The payout schedule is supplied to CompleteTournament
-  # (or pre-configured at create time); the aggregate verifies payouts sum
-  # to total_prize_pool.
+  # Rule: WSOP §III-31 (2025) — "Prize structures depend on the number of
+  #       entrants and type of Event. Prizes are paid out as posted."
+  # Rule: WSOP §III-37 (2025) — schedule cannot be modified once awarded.
+  # Tournaments pay multiple finishing positions on a published payout
+  # schedule. The proto's TournamentResult already carries (position,
+  # player_root, payout) — these scenarios pin the distribution. The
+  # payout schedule is supplied to CompleteTournament (or pre-configured
+  # at create time); the aggregate verifies payouts sum to total_prize_pool.
 
   @EU-0861
   Scenario: CompleteTournament emits results for the top-N finishers per the payout schedule
@@ -718,3 +789,312 @@ Feature: Tournament aggregate logic
     And the command is rejected with code "FINISHING_ORDER_SHORTER_THAN_PAYOUT_POSITIONS"
     And the rejection field "got" equals "2"
     And the rejection field "bound" equals "3"
+
+  # ==========================================================================
+  # Re-Entry Forfeited Chips — TDA Rule 8B
+  # ==========================================================================
+  # Real poker (TDA Rule 8B): "In re-entry events, if a player is permitted
+  # to forfeit chips and buy a new stack, the forfeited chips will be
+  # removed from play." This protects the chip-ledger conservation: a
+  # re-entry adds a fresh starting stack to the player's seat AND removes
+  # the prior (forfeited) stack from total_chips_in_play. Without this, a
+  # re-entry would silently inflate the chip economy.
+
+  @EU-1151 @wip
+  Scenario: Re-entry removes the player's prior forfeited chips from total_chips_in_play
+    # Rule: TDA Rule 8B (2024) — re-entry forfeited chips removed from play.
+    # Tournament with starting_stack=1500. player-A has been eliminated
+    # earlier with 0 chips (busted) AND a separate scenario where they
+    # forfeit 200 chips to re-enter. Total chips in play before the re-entry
+    # is 6000 (4 players * 1500 starting). After the re-entry: 6000 - 200
+    # forfeited + 1500 fresh = 7300.
+    Given a running tournament "Reentry" with starting_stack 1500 and 4 enrolled players
+    And total_chips_in_play is 6000
+    And player "Alice" has 200 chips remaining and elects to re-enter
+    When I handle a ReEntryPlayer command for player "Alice" forfeiting 200 chips
+    Then the result is a angzarr_client.proto.examples.PlayerReEntered event
+    And the tournament event has chips_forfeited 200
+    And the tournament event has chips_added 1500
+    And total_chips_in_play is 7300
+
+  # ==========================================================================
+  # Chip Race / Color-Up — TDA Rule 24
+  # ==========================================================================
+  # Real poker (TDA Rule 24): "At scheduled color-ups, chips will be raced
+  # off starting in seat 1, with a maximum of one chip awarded to a player.
+  # Players can't be raced out of play: a player losing their last chip(s)
+  # in a race will get 1 chip of the lowest denomination still in play."
+  # The cluster-tier @wip scenario EA-0011 covers the cluster integration;
+  # these unit scenarios pin the aggregate-level invariants.
+
+  @EU-1160 @wip
+  Scenario: Chip race awards at most one chip to any single player
+    # Rule: TDA Rule 24A (2024) — "max of one chip awarded to a player".
+    # Three players each have 75 chips of denomination 25 (3 chips each).
+    # Race retires denomination 25 in favour of denomination 100. Each
+    # player keeps 3*25 = 75; integer-divides to 0 chips of denomination
+    # 100; each is eligible for the race. The race awards at most ONE
+    # chip per player.
+    Given a running tournament "Race" with 3 active players
+    And every active player has exactly 75 chips of denomination 25
+    When I handle an AdvanceBlindLevel command with chip-race retiring 25 to 100
+    Then the result is a angzarr_client.proto.examples.ColorUpCompleted event
+    And no player received more than 1 chip from the race
+
+  @EU-1161 @wip
+  Scenario: Chip race cannot eliminate a player — single-chip rescue applies
+    # Rule: TDA Rule 24A (2024) — "Players can't be raced out of play: a
+    #       player losing their last chip(s) in a race will get 1 chip of
+    #       the lowest denomination still in play."
+    # player-A has 25 chips total (one chip of denom 25), about to be raced
+    # off entirely. The race must give them at least 1 chip of the lowest
+    # remaining denomination (100) so they remain in play.
+    Given a running tournament "Race" with 3 active players
+    And player "Alice" has exactly 25 chips of denomination 25 and nothing else
+    When I handle an AdvanceBlindLevel command with chip-race retiring 25 to 100
+    Then the result is a angzarr_client.proto.examples.ColorUpCompleted event
+    And player "Alice" stack is at least 100
+
+  @EU-1162 @wip
+  Scenario: Total chips in play is conserved by the chip race (modulo rescue clause)
+    # Rule: TDA Rule 24C (2024) — "Chips of removed denominations that do
+    #       not fully total at least the smallest denomination still in
+    #       play will be removed without compensation." The rescue clause
+    #       (24A) is the only legal chip-creation path during a race.
+    # 3 players. Total chips before race = 6000. Race retires denom 25 to
+    # denom 100. After race: total_chips_in_play differs from before only
+    # by the rescue clause and by removed odd-denomination chips that
+    # didn't qualify; the difference must be auditable.
+    Given a running tournament "Race" with total_chips_in_play 6000
+    When I handle an AdvanceBlindLevel command with chip-race retiring 25 to 100
+    Then the result is a angzarr_client.proto.examples.ColorUpCompleted event
+    And the event has chips_added_by_rescue and chips_removed_by_race
+    And total_chips_in_play after race equals 6000 + chips_added_by_rescue - chips_removed_by_race
+
+  # ==========================================================================
+  # Hand-for-Hand — TDA RP-8
+  # ==========================================================================
+  # Real poker (TDA RP-8): on the bubble, all active tables play one hand
+  # synchronously and pause until every table completes the hand. The
+  # cluster-tier @wip EA-0013 covers the multi-table integration; these
+  # unit scenarios pin the tournament-aggregate-level rules:
+  #   - simultaneous bust on the same hand-for-hand hand split the next
+  #     bubble payout (RP-8A);
+  #   - the level clock deducts at most 3 minutes per H4H hand (RP-8B);
+  #   - clock reduction is applied per-hand, not in batches (RP-8C).
+
+  @EU-1190 @wip
+  Scenario: Two players bust on the same hand-for-hand hand share the next bubble payout
+    # Rule: TDA RP-8A (2024) — "If enough players bust on the current hand
+    #       to break into the money, the busting players will be eligible
+    #       for a share of the place(s) paid on the current hand."
+    # 4-player tournament paying top 3 (50/30/20). Two players bust
+    # simultaneously on the H4H hand: by RP-8A they share the 3rd-place
+    # payout (the lowest paid position). Each gets half of position-3.
+    Given a running tournament "Bubble" with total_prize_pool 1000 and 4 enrolled players
+    And a payout_structure paying positions 1,2,3 at percentages 50,30,20
+    And hand-for-hand is active
+    And finishing order "Alice,Bob,Carol,Dave"
+    When players "Carol,Dave" both bust on the same hand-for-hand hand
+    And I handle a CompleteTournament command with winner "Alice"
+    Then the result is a angzarr_client.proto.examples.TournamentCompleted event
+    And the tournament event has 4 results
+    And TournamentResult 0 has position 1 player_root "Alice" payout 500
+    And TournamentResult 1 has position 2 player_root "Bob" payout 300
+    # 3rd place is split 50/50 between the two simultaneous busts
+    And TournamentResult 2 has position 3 player_root "Carol" payout 100
+    And TournamentResult 3 has position 3 player_root "Dave" payout 100
+
+  @EU-1191 @wip
+  Scenario: Hand-for-hand deducts at most 3 minutes per hand from the level clock
+    # Rule: TDA RP-8B (2024) — "During H4H play, a maximum of 3 minutes per
+    #       hand will be deducted from the clock."
+    # An H4H hand that takes longer than 3 minutes still only deducts 3
+    # minutes from the level clock — the level cannot be drained faster
+    # than the H4H pacing rule allows.
+    Given a running tournament "Bubble" with hand-for-hand active and level_seconds_remaining 600
+    When a hand-for-hand hand takes 5 minutes of real time to complete
+    Then the level_seconds_remaining after the hand equals 420
+
+  @EU-1192 @wip
+  Scenario: Hand-for-hand clock reduction is applied per-hand, not in batches
+    # Rule: TDA RP-8C (2024) — "Whenever possible the clock should be
+    #       reduced by 2-minutes each hand not after 'batches' of multiple
+    #       hands."
+    # Two H4H hands complete back-to-back. The clock must show a 2-minute
+    # deduction after the first hand and another 2-minute deduction after
+    # the second — not a single 4-minute deduction at the end.
+    Given a running tournament "Bubble" with hand-for-hand active and level_seconds_remaining 600
+    When the first hand-for-hand hand completes
+    Then the level_seconds_remaining is 480
+    When the second hand-for-hand hand completes
+    Then the level_seconds_remaining is 360
+
+  # ==========================================================================
+  # Penalty System — TDA Rule 71 / WSOP Rule 113
+  # ==========================================================================
+  # Real poker (TDA Rule 71): "Enforcement options include but are not
+  # limited to verbal warnings, one or more 'missed hand' or 'missed round'
+  # penalties, and disqualification. For missed rounds, the offender will
+  # miss one hand for every player (including him or her) at the table when
+  # the penalty is given multiplied by the number of penalty rounds."
+  # WSOP Rule 113 mirrors with a 4-round maximum.
+
+  @EU-1310 @wip
+  Scenario Outline: Penalty types — verbal warning, missed-hand, missed-round, disqualification
+    # Rule: TDA Rule 71A (2024) — penalty options.
+    # Rule: WSOP Rule 113 (2025) — penalty hierarchy.
+    Given a running tournament "Spring" with min_players 6, max_players 9, and 6 enrolled players
+    And player "Alice" is at a table with 6 active players
+    When I handle an IssuePenalty command for player "Alice" with type "<type>" rounds <rounds>
+    Then the result is a angzarr_client.proto.examples.PenaltyIssued event
+    And the penalty event has type "<type>"
+    And the penalty event has missed_hands <missed>
+
+    Examples:
+      | type           | rounds | missed |
+      | VERBAL_WARNING | 0      | 0      |
+      | MISSED_HAND    | 0      | 1      |
+      | MISSED_ROUND   | 1      | 6      |
+      | MISSED_ROUND   | 2      | 12     |
+      | DISQUALIFIED   | 0      | 0      |
+
+  @EU-1311 @wip
+  Scenario: Player on penalty has cards dealt then killed; blinds and antes are still posted
+    # Rule: TDA Rule 71C (2024) — "Players on penalty must be away from the
+    #       table. Cards are dealt to their seats, their blinds and antes
+    #       posted, their hands are killed after the initial deal."
+    Given a running tournament "Spring" with min_players 2 and max_players 9 and 2 enrolled players
+    And player "Alice" is on a 1-round MISSED_ROUND penalty
+    And the next hand at Alice's table has SB at Alice's seat
+    When I handle a StartHand command at Alice's table
+    Then the result is a angzarr_client.proto.examples.HandStarted event
+    And player "Alice" had her SB posted from her stack
+    And player "Alice" hand is killed after the initial deal
+    And player "Alice" remains on penalty with rounds_remaining decremented by 1
+
+  @EU-1312 @wip
+  Scenario: Disqualified player chips are removed from play
+    # Rule: TDA Rule 71D (2024) — "Chips of a disqualified player shall be
+    #       removed from play."
+    # Rule: WSOP Rule 114 (2025) — same.
+    Given a running tournament "Spring" with min_players 2 and max_players 9 and 4 enrolled players
+    And player "Alice" has stack 1500 and tournament total_chips_in_play is 6000
+    When I handle a DisqualifyPlayer command for player "Alice" with reason "collusion"
+    Then the result is a angzarr_client.proto.examples.PlayerDisqualified event
+    And the disqualification event has chips_forfeited 1500
+    And total_chips_in_play is 4500
+    And player "Alice" is no longer in registered_players
+
+  # ==========================================================================
+  # Late Registration First-Hand Position — WSOP Rule 14
+  # ==========================================================================
+  # Real poker (WSOP Rule 14): "Late registrants will either begin play at
+  # the start of the subsequent level or be randomly seated at tables where
+  # Participants have already been eliminated. All late registrants will
+  # start the Event with a full chip stack. Late registrants do not have
+  # to post to begin play but must assume first available starting position
+  # at the table, even if that means assuming the button, small blind, or
+  # big blind during the first hand."
+
+  @EU-1313 @wip
+  Scenario: Late-reg player can be dealt the button on their first hand without missing the hand
+    # Rule: WSOP Rule 14 (2025) — late registrant assumes first available
+    #       starting position even if it's the button.
+    Given a running tournament "Spring" with registration open and 8 enrolled players
+    And the dealer button at "Spring-1" is about to advance to a vacated seat 5
+    When player "Alice" late-registers and is seated at "Spring-1" seat 5
+    Then the result is a angzarr_client.proto.examples.TournamentPlayerEnrolled event
+    When I handle a StartHand command at "Spring-1"
+    Then the result is a angzarr_client.proto.examples.HandStarted event
+    And the dealer_position is seat 5
+    And player "Alice" is dealt in for that hand
+
+  # ==========================================================================
+  # No-Show Policy — WSOP Rule 16
+  # ==========================================================================
+  # Real poker (WSOP Rule 16): "Any Participant who has not taken a hand by
+  # the start of the level after the first official break will be considered
+  # a 'no show.' These Participants will have their chips removed from play
+  # and will not be eligible to participate in that Event."
+
+  @EU-1314 @wip
+  Scenario: No-show player after the first-break deadline has their chips removed
+    # Rule: WSOP Rule 16 (2025) — no-show chip removal.
+    Given a running tournament "Spring" with starting_stack 1500
+    And player "Alice" enrolled but never took a hand before the first break ended
+    And the new level after the first break has begun
+    When the no-show deadline for "Spring" expires
+    Then a angzarr_client.proto.examples.NoShowDetected event is emitted for player "Alice"
+    And player "Alice" chips are removed from total_chips_in_play
+    And player "Alice" buy-in 500 is held in safekeeping
+    And player "Alice" is not in players_remaining
+
+  # ==========================================================================
+  # Absent Player Blind Progression at Heads-Up — WSOP Rule 36
+  # ==========================================================================
+  # Real poker (WSOP Rule 36): "After five minutes has elapsed, if there is
+  # only one Participant present at the table, the button will advance one
+  # position every two minutes and the Participant will be awarded the
+  # small blind and the big blind."
+
+  @EU-1315 @wip
+  Scenario: Heads-up with one player absent — button advances every 2 minutes and lone player banks blinds
+    # Rule: WSOP Rule 36 (2025) — heads-up absent-opponent blind progression.
+    Given a running tournament "HU-Final" in heads-up between "Alice" and "Bob"
+    And player "Bob" has been absent from the table for 5 minutes
+    When 2 minutes elapses with player "Bob" still absent
+    Then a angzarr_client.proto.examples.AbsentBlindAdvanced event is emitted
+    And the dealer button advances by 1 position
+    And player "Alice" stack is increased by SB + BB
+    And player "Bob" stack is decreased by SB + BB
+
+  # ==========================================================================
+  # Re-Draws at Table Thresholds — WSOP Rule 67c
+  # ==========================================================================
+  # Real poker (WSOP Rule 67c): "There will be a re-draw for seat
+  # assignments when play reaches three tables, again at two tables, and
+  # for the final table seat assignments for Events that have 100 or more
+  # Participants."
+
+  @EU-1316 @wip
+  Scenario Outline: Seat redraw is triggered at 3 tables, 2 tables, and final table for 100+ events
+    # Rule: WSOP Rule 67c (2025) — redraw thresholds.
+    Given a running tournament "Worlds" with original_field 250 and <tables_remaining> tables remaining
+    When the field collapses to <tables_remaining> table(s)
+    Then a angzarr_client.proto.examples.SeatRedrawTriggered event is emitted
+    And the redraw event has trigger "<trigger>"
+
+    Examples:
+      | tables_remaining | trigger              |
+      | 3                | THREE_TABLES         |
+      | 2                | TWO_TABLES           |
+      | 1                | FINAL_TABLE          |
+
+  # ==========================================================================
+  # Same-Hand Multi-Bust at Same Table — WSOP Rule 126b
+  # ==========================================================================
+  # Real poker (WSOP Rule 126b): "If two or more Participants are eliminated
+  # during the same hand at the same table, the Participant(s) who began
+  # the hand with the highest chip count will receive the higher place
+  # finish." TDA RP-8A handles the simultaneous-bust-at-different-tables
+  # case (EU-1190); this scenario pins the same-table case.
+
+  @EU-1317 @wip
+  Scenario: Two players bust at the same table on the same hand — higher pre-hand stack gets higher place
+    # Rule: WSOP Rule 126b (2025) — same-table tiebreak by pre-hand chip count.
+    # 4-player tournament paying top 3 (50/30/20). Hand-for-hand active.
+    # Carol started the hand with 800 chips. Dave started with 600. Both
+    # bust on the same hand. By WSOP-126b, Carol > Dave: Carol gets 3rd
+    # place (the paid bubble) and Dave gets 4th (no payout).
+    Given a running tournament "Bubble" with total_prize_pool 1000 and 4 enrolled players
+    And a payout_structure paying positions 1,2,3 at percentages 50,30,20
+    And hand-for-hand is active
+    And the current hand started with stacks: Alice 2000, Bob 1600, Carol 800, Dave 600
+    When players "Carol,Dave" both bust on the same hand at the same table
+    And I handle a CompleteTournament command with winner "Alice"
+    Then the result is a angzarr_client.proto.examples.TournamentCompleted event
+    And TournamentResult 2 has position 3 player_root "Carol" payout 200
+    And no TournamentResult has player_root "Dave" with non-zero payout
+    # Carol's higher pre-hand stack (800 > 600) earns her the higher finish
+    And TournamentResult tiebreak_reason for position 3 is "PRE_HAND_STACK"

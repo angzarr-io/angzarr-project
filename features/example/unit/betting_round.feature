@@ -4,6 +4,20 @@ Feature: Betting round iteration logic
   intervening raise, regardless of earlier folds, and must terminate once
   all active bets are matched or the last aggressor has gone all-in.
 
+  # ==========================================================================
+  # Rule references (cited via "# Rule:" comments throughout this file)
+  # ==========================================================================
+  # Every scenario in this file expresses one or both of:
+  #   TDA Rule 50 (2024) — "Players must act in turn verbally and/or by
+  #     pushing out chips. Action in turn is binding and commits chips to
+  #     the pot that stay in the pot."
+  #   TDA Rule 47A (2024) — round termination: "an all-in wager … will not
+  #     reopen betting for players who have already acted and are not
+  #     facing at least a full bet or raise when the action returns to
+  #     them." When the last aggressor is all-in, the round terminates
+  #     once remaining active players have called.
+  # See features/example/RULES.md for the full rule cross-reference.
+
   Why this matters:
   - A skipped player is a silent correctness bug: they lose the right to act
     mid-hand, which can cascade into incorrect pot settlement.
@@ -14,11 +28,12 @@ Feature: Betting round iteration logic
   that mirror the real ``betting_round()`` driver from ``run_game.py``.
 
   # ==========================================================================
-  # Correct Iteration After a Raise
+  # Correct Iteration After a Raise — TDA Rule 50
   # ==========================================================================
-  # A raise mid-round reopens action for every un-folded player behind it.
-  # The iteration must return to seats that have not yet matched the new bet
-  # (including seats that acted earlier, like the blinds).
+  # Rule: TDA Rule 50 (2024) — "Players must act in turn." A raise mid-round
+  # reopens action for every un-folded player behind it. The iteration must
+  # return to seats that have not yet matched the new bet (including seats
+  # that acted earlier, like the blinds).
 
   @EU-0900
   Scenario: Every seat acts after a preflop raise
@@ -75,11 +90,13 @@ Feature: Betting round iteration logic
     Then seat 5 is asked to act exactly 1 time
 
   # ==========================================================================
-  # All-In Aggressor Termination
+  # All-In Aggressor Termination — TDA Rule 47A
   # ==========================================================================
-  # When the last raiser's raise is an all-in, they leave the active set.
-  # The termination check must treat the aggressor as absent so the round
-  # ends once the remaining players have called.
+  # Rule: TDA Rule 47A (2024) — "an all-in wager … will not reopen betting
+  # for players who have already acted." When the last raiser's raise is an
+  # all-in, they leave the active set. The termination check must treat the
+  # aggressor as absent so the round ends once the remaining players have
+  # called.
 
   @EU-0903
   Scenario: Round terminates after calls against an all-in aggressor
