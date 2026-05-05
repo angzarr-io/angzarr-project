@@ -1673,7 +1673,7 @@ Feature: Hand aggregate logic
   # bet or raise of the round. EU-1007 covers the single-short case; these
   # scenarios cover the cumulative case.
 
-  @EU-1140 @wip
+  @EU-1140
   Scenario: Two cumulative short all-ins that together meet a full raise reopen the bet
     # Rule: TDA Rule 47A (2024), second sentence — "If multiple short all-ins
     #       re-open the betting, the minimum raise is always the last full
@@ -1689,7 +1689,7 @@ Feature: Hand aggregate logic
     And last_raise_increment is 60
     And current_bet is 160
 
-  @EU-1141 @wip
+  @EU-1141
   Scenario: Two cumulative short all-ins that together do not meet a full raise do not reopen
     # Rule: TDA Rule 47A (2024), first sentence — "An all-in wager (or
     #       cumulative multiple short all-ins) totaling less than a full bet
