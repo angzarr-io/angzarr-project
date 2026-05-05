@@ -16,9 +16,9 @@ Feature: Minimum raise tracking arithmetic
   #     prior bet/raise on THAT street.
   # See features/example/RULES.md for the full rule cross-reference.
 
-  These scenarios exercise the raise-tracking arithmetic in isolation:
-  pure math with no handlers, no state machine, no protocol. Think of
-  this as a spec document for the client's raise-computation helpers.
+  # These scenarios exercise the raise-tracking arithmetic in isolation:
+  # pure math with no handlers, no state machine, no protocol. Think of
+  # this as a spec document for the client's raise-computation helpers.
 
   # ==========================================================================
   # Initial State — After Blinds Are Posted — TDA Rule 43

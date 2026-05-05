@@ -4,33 +4,33 @@ Feature: Projector logic
   It's a read-model builder that enables observability without coupling
   the game logic to any specific output format.
 
-  Why projectors matter:
-  - Aggregates focus on business rules, not presentation
-  - The same events can drive multiple projectors (text, JSON, WebSocket)
-  - Projectors can be deployed/updated independently of aggregates
+  # Why projectors matter:
+  # - Aggregates focus on business rules, not presentation
+  # - The same events can drive multiple projectors (text, JSON, WebSocket)
+  # - Projectors can be deployed/updated independently of aggregates
 
-  Patterns enabled by projectors:
-  - Read model denormalization: Combine data from multiple event types into
-    query-optimized views. Same pattern applies to search indexes, dashboards.
-  - Event stream formatting: Transform events for external systems (logs, APIs,
-    WebSockets). Same pattern applies to audit logs, analytics pipelines.
-  - Stateful context building: Track cross-event state (player names) for
-    enriched output. Same pattern applies to session tracking, entity resolution.
-  - Multi-domain subscription: Single projector consumes player, table, AND hand
-    events. Same pattern applies to unified dashboards, cross-cutting analytics.
+  # Patterns enabled by projectors:
+  # - Read model denormalization: Combine data from multiple event types into
+    # query-optimized views. Same pattern applies to search indexes, dashboards.
+  # - Event stream formatting: Transform events for external systems (logs, APIs,
+    # WebSockets). Same pattern applies to audit logs, analytics pipelines.
+  # - Stateful context building: Track cross-event state (player names) for
+    # enriched output. Same pattern applies to session tracking, entity resolution.
+  # - Multi-domain subscription: Single projector consumes player, table, AND hand
+    # events. Same pattern applies to unified dashboards, cross-cutting analytics.
 
-  Why poker exercises projector patterns well:
-  - Multiple event types: PlayerRegistered, TableCreated, CardsDealt, ActionTaken,
-    CommunityCardsDealt, PotAwarded - each needs different formatting
-  - Cross-event context: Player names from registration used when formatting
-    ActionTaken events - requires stateful tracking
-  - High-frequency updates: 20+ events per hand means projector sees rapid flow
-  - Domain variety: Events from player, table, and hand domains all flow through
+  # Why poker exercises projector patterns well:
+  # - Multiple event types: PlayerRegistered, TableCreated, CardsDealt, ActionTaken,
+    # CommunityCardsDealt, PotAwarded - each needs different formatting
+  # - Cross-event context: Player names from registration used when formatting
+    # ActionTaken events - requires stateful tracking
+  # - High-frequency updates: 20+ events per hand means projector sees rapid flow
+  # - Domain variety: Events from player, table, and hand domains all flow through
 
-  What this projector demonstrates:
-  - Stateful context (player names) built from registration events
-  - Event-specific formatting (cards, blinds, actions)
-  - Graceful handling of unknown events
+  # What this projector demonstrates:
+  # - Stateful context (player names) built from registration events
+  # - Event-specific formatting (cards, blinds, actions)
+  # - Graceful handling of unknown events
 
   # ==========================================================================
   # Player Event Rendering

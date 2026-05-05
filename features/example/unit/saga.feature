@@ -4,30 +4,30 @@ Feature: Saga logic
   stateless domain bridges that enable loose coupling between aggregates.
   Each saga handles one direction: table→hand or hand→player.
 
-  Why sagas exist:
-  - Aggregates shouldn't know about each other directly
-  - Domain translation logic has a clear home
-  - Saga failures can be compensated independently
-  - Adding new sagas extends functionality without changing aggregates
+  # Why sagas exist:
+  # - Aggregates shouldn't know about each other directly
+  # - Domain translation logic has a clear home
+  # - Saga failures can be compensated independently
+  # - Adding new sagas extends functionality without changing aggregates
 
-  Patterns enabled by sagas:
-  - Domain decoupling: Table doesn't import Hand types; saga translates. Same
-    pattern applies to order→fulfillment, payment→ledger, user→notification.
-  - Event-driven choreography: Events trigger sagas; sagas emit commands. No
-    central orchestrator needed. Same pattern applies to microservice integration.
-  - Fan-out reactions: One event can trigger multiple sagas targeting different
-    domains. PotAwarded triggers both player balance updates AND table state updates.
+  # Patterns enabled by sagas:
+  # - Domain decoupling: Table doesn't import Hand types; saga translates. Same
+    # pattern applies to order→fulfillment, payment→ledger, user→notification.
+  # - Event-driven choreography: Events trigger sagas; sagas emit commands. No
+    # central orchestrator needed. Same pattern applies to microservice integration.
+  # - Fan-out reactions: One event can trigger multiple sagas targeting different
+    # domains. PotAwarded triggers both player balance updates AND table state updates.
 
-  Why poker exercises saga patterns well:
-  - Clear domain boundaries: player (money), table (seating), hand (gameplay)
-  - Obvious translations: HandStarted→DealCards, PotAwarded→DepositFunds
-  - Multi-target fan-out: HandComplete triggers hand-player-saga AND hand-table-saga
-  - Compensation scenarios: JoinTable rejection requires FundsReleased via saga
+  # Why poker exercises saga patterns well:
+  # - Clear domain boundaries: player (money), table (seating), hand (gameplay)
+  # - Obvious translations: HandStarted→DealCards, PotAwarded→DepositFunds
+  # - Multi-target fan-out: HandComplete triggers hand-player-saga AND hand-table-saga
+  # - Compensation scenarios: JoinTable rejection requires FundsReleased via saga
 
-  The poker example sagas:
-  - table-hand-saga: table events → hand commands (HandStarted → DealCards)
-  - hand-player-saga: hand events → player commands (PotAwarded → DepositFunds)
-  - hand-table-saga: hand events → table commands (HandComplete → EndHand)
+  # The poker example sagas:
+  # - table-hand-saga: table events → hand commands (HandStarted → DealCards)
+  # - hand-player-saga: hand events → player commands (PotAwarded → DepositFunds)
+  # - hand-table-saga: hand events → table commands (HandComplete → EndHand)
 
   # ==========================================================================
   # TableSyncSaga - Table to Hand Bridge

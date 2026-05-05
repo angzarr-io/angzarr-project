@@ -16,30 +16,30 @@ Feature: Table aggregate logic
   # See angzarr docs site or features/example/RULES.md for the full
   # cross-reference between scenarios and rule sources.
 
-  Why this aggregate exists:
-  - Tables have configuration (blinds, limits) that hands inherit
-  - Player seating is table-scoped, not hand-scoped
-  - Dealer button and hand numbering track across multiple hands
-  - Players join/leave tables, not individual hands
+  # Why this aggregate exists:
+  # - Tables have configuration (blinds, limits) that hands inherit
+  # - Player seating is table-scoped, not hand-scoped
+  # - Dealer button and hand numbering track across multiple hands
+  # - Players join/leave tables, not individual hands
 
-  What breaks if this is wrong:
-  - Players could be double-seated at the same table
-  - Hands could start with insufficient players
-  - Dealer button wouldn't advance correctly
+  # What breaks if this is wrong:
+  # - Players could be double-seated at the same table
+  # - Hands could start with insufficient players
+  # - Dealer button wouldn't advance correctly
 
-  Patterns enabled by this aggregate:
-  - Cross-aggregate coordination: Table emits HandStarted, triggering saga to
-    create Hand aggregate. Same pattern applies to order→fulfillment, auction→bid.
-  - Slot/capacity management: Seats are exclusive resources with validation.
-    Same pattern applies to parking spots, meeting room bookings, flight seats.
-  - Child aggregate lifecycle: Table spawns hands, tracks their completion,
-    updates state. Same pattern applies to project→tasks, tournament→matches.
+  # Patterns enabled by this aggregate:
+  # - Cross-aggregate coordination: Table emits HandStarted, triggering saga to
+    # create Hand aggregate. Same pattern applies to order→fulfillment, auction→bid.
+  # - Slot/capacity management: Seats are exclusive resources with validation.
+    # Same pattern applies to parking spots, meeting room bookings, flight seats.
+  # - Child aggregate lifecycle: Table spawns hands, tracks their completion,
+    # updates state. Same pattern applies to project→tasks, tournament→matches.
 
-  Why poker exercises these patterns well:
-  - Seat occupancy is binary and obvious: seat 3 either has a player or doesn't
-  - Hand lifecycle has clear start/end: HandStarted→HandEnded, easy to verify
-  - Configuration inheritance is explicit: blinds flow from table to hand
-  - Concurrent state is visible: 2 players at seats 0,3 while seats 1,2 empty
+  # Why poker exercises these patterns well:
+  # - Seat occupancy is binary and obvious: seat 3 either has a player or doesn't
+  # - Hand lifecycle has clear start/end: HandStarted→HandEnded, easy to verify
+  # - Configuration inheritance is explicit: blinds flow from table to hand
+  # - Concurrent state is visible: 2 players at seats 0,3 while seats 1,2 empty
 
   # ==========================================================================
   # Table Creation

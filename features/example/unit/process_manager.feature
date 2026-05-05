@@ -5,34 +5,34 @@ Feature: Process manager logic
   process managers are STATEFUL - they maintain their own event stream to
   track workflow progress.
 
-  Why a process manager (not just sagas):
-  - Hand flow requires sequencing: blinds before betting, flop before turn
-  - State machine transitions need memory (current phase, who has acted)
-  - Timeouts require knowing the current action player
-  - Multiple events across domains must be correlated
+  # Why a process manager (not just sagas):
+  # - Hand flow requires sequencing: blinds before betting, flop before turn
+  # - State machine transitions need memory (current phase, who has acted)
+  # - Timeouts require knowing the current action player
+  # - Multiple events across domains must be correlated
 
-  Patterns enabled by process managers:
-  - Cross-domain correlation: Events from table AND hand domains drive one
-    workflow. Same pattern applies to order+payment+shipping coordination.
-  - Long-running workflows: A hand may last minutes with many events. PM state
-    survives restarts. Same pattern applies to approval chains, onboarding flows.
-  - Timeout orchestration: PM schedules timeouts, handles expiration. Same
-    pattern applies to payment timeouts, SLA enforcement, auction endings.
-  - Compensation coordination: When downstream fails, PM updates workflow state
-    before source aggregate compensates. Same pattern for distributed sagas.
+  # Patterns enabled by process managers:
+  # - Cross-domain correlation: Events from table AND hand domains drive one
+    # workflow. Same pattern applies to order+payment+shipping coordination.
+  # - Long-running workflows: A hand may last minutes with many events. PM state
+    # survives restarts. Same pattern applies to approval chains, onboarding flows.
+  # - Timeout orchestration: PM schedules timeouts, handles expiration. Same
+    # pattern applies to payment timeouts, SLA enforcement, auction endings.
+  # - Compensation coordination: When downstream fails, PM updates workflow state
+    # before source aggregate compensates. Same pattern for distributed sagas.
 
-  Why poker exercises PM patterns well:
-  - Multi-domain events: HandStarted (table) + CardsDealt (hand) + actions (hand)
-  - Complex state machine: DEALING→BLINDS→BETTING→FLOP→BETTING→TURN→... with
-    clear phase transitions and invalid paths
-  - Timeouts are critical: players have N seconds to act or auto-fold/check
-  - Action tracking: who has acted, who needs to act, who has folded
+  # Why poker exercises PM patterns well:
+  # - Multi-domain events: HandStarted (table) + CardsDealt (hand) + actions (hand)
+  # - Complex state machine: DEALING→BLINDS→BETTING→FLOP→BETTING→TURN→... with
+    # clear phase transitions and invalid paths
+  # - Timeouts are critical: players have N seconds to act or auto-fold/check
+  # - Action tracking: who has acted, who needs to act, who has folded
 
-  The HandFlowPM:
-  - Receives events from table and hand domains
-  - Maintains workflow state (phase, betting state, player status)
-  - Emits commands to advance the hand (PostBlind, DealCommunityCards, AwardPot)
-  - Handles timeouts with sensible defaults (auto-fold/check)
+  # The HandFlowPM:
+  # - Receives events from table and hand domains
+  # - Maintains workflow state (phase, betting state, player status)
+  # - Emits commands to advance the hand (PostBlind, DealCommunityCards, AwardPot)
+  # - Handles timeouts with sensible defaults (auto-fold/check)
 
   # ==========================================================================
   # Hand Initialization

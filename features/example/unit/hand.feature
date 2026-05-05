@@ -25,34 +25,34 @@ Feature: Hand aggregate logic
   # See angzarr docs site or features/example/RULES.md for the full
   # cross-reference between scenarios and rule sources.
 
-  Why this aggregate exists:
-  - Hands have complex, well-defined state machines (phases, betting rounds)
-  - Hand-level events (ActionTaken, CardsDealt) are high-frequency
-  - Hand logic is game-variant-specific (Hold'em vs Omaha vs Draw)
-  - Separating from table enables parallel hand processing (multi-table)
+  # Why this aggregate exists:
+  # - Hands have complex, well-defined state machines (phases, betting rounds)
+  # - Hand-level events (ActionTaken, CardsDealt) are high-frequency
+  # - Hand logic is game-variant-specific (Hold'em vs Omaha vs Draw)
+  # - Separating from table enables parallel hand processing (multi-table)
 
-  What breaks if this is wrong:
-  - Players could act out of turn
-  - Betting amounts could violate minimum raise rules
-  - Community cards could be dealt in wrong phases
-  - Showdown could award pots incorrectly
+  # What breaks if this is wrong:
+  # - Players could act out of turn
+  # - Betting amounts could violate minimum raise rules
+  # - Community cards could be dealt in wrong phases
+  # - Showdown could award pots incorrectly
 
-  Patterns enabled by this aggregate:
-  - State machine enforcement: DEALING→BLINDS→BETTING→FLOP→... Each phase has
-    valid transitions; invalid actions rejected. Same pattern applies to
-    order fulfillment, insurance claims, approval workflows.
-  - Turn-based action tracking: Only one player can act at a time. Same pattern
-    applies to board games, auction rounds, approval chains.
-  - High-frequency event streams: 20+ events per hand exercises snapshot
-    optimization. Same pattern applies to IoT sensors, trading systems.
-  - Variant polymorphism: Same aggregate handles Hold'em/Omaha/Draw with
-    different rules. Same pattern applies to payment methods, shipping carriers.
+  # Patterns enabled by this aggregate:
+  # - State machine enforcement: DEALING→BLINDS→BETTING→FLOP→... Each phase has
+    # valid transitions; invalid actions rejected. Same pattern applies to
+    # order fulfillment, insurance claims, approval workflows.
+  # - Turn-based action tracking: Only one player can act at a time. Same pattern
+    # applies to board games, auction rounds, approval chains.
+  # - High-frequency event streams: 20+ events per hand exercises snapshot
+    # optimization. Same pattern applies to IoT sensors, trading systems.
+  # - Variant polymorphism: Same aggregate handles Hold'em/Omaha/Draw with
+    # different rules. Same pattern applies to payment methods, shipping carriers.
 
-  Why poker exercises these patterns well:
-  - State transitions are unambiguous: can't deal turn before flop
-  - Turn order is strictly enforced: only position 2 can act when action_on=2
-  - Event frequency is high: BlindPosted, ActionTaken×N, CommunityCardsDealt×3
-  - Rules vary by variant: 2 hole cards (Hold'em) vs 4 (Omaha) vs 5 (Draw)
+  # Why poker exercises these patterns well:
+  # - State transitions are unambiguous: can't deal turn before flop
+  # - Turn order is strictly enforced: only position 2 can act when action_on=2
+  # - Event frequency is high: BlindPosted, ActionTaken×N, CommunityCardsDealt×3
+  # - Rules vary by variant: 2 hole cards (Hold'em) vs 4 (Omaha) vs 5 (Draw)
 
   # ==========================================================================
   # Card Dealing
