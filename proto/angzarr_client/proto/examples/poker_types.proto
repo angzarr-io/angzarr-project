@@ -63,13 +63,19 @@ enum HandRankType {
   ROYAL_FLUSH = 10;
 }
 
-// Game variant configuration
+// Game variant configuration. SEVEN_CARD_STUD is the high-only stud
+// variant; RAZZ is ace-to-five low (wheel A-2-3-4-5 = best); STUD_HI_LO
+// requires an 8-or-better qualifier to claim half. OMAHA_HI_LO splits
+// pots high/low with the same 8-or-better qualifier as Stud Hi/Lo.
 enum GameVariant {
   GAME_VARIANT_UNSPECIFIED = 0;
   TEXAS_HOLDEM = 1;
   OMAHA = 2;
   FIVE_CARD_DRAW = 3;
   SEVEN_CARD_STUD = 4;
+  RAZZ = 5;
+  STUD_HI_LO_8B = 6;
+  OMAHA_HI_LO_8B = 7;
 }
 
 // Betting round phase
@@ -92,6 +98,79 @@ enum ActionType {
   BET = 4;
   RAISE = 5;
   ALL_IN = 6;
+  // Stud-specific (TDA / WSOP §Seven Card Games): bringing the bring-in
+  // up to a full small-bet is a "completion", not a raise. It does not
+  // count against the limit raise-cap (Rule 48) — up to 4 raises are
+  // still allowed afterward.
+  BET_COMPLETION = 7;
+}
+
+// How an action was conveyed at the table — relevant to TDA Rules 40-46
+// (verbal vs chip-only methods of betting). The aggregate uses this to
+// disambiguate "silent multi-chip push" (which goes through the 50%
+// rule and oversized-chip-is-call rules) from "verbal in turn" (which
+// is binding regardless of chips).
+enum BetMethod {
+  BET_METHOD_UNSPECIFIED = 0;
+  // Verbal declaration came first or was the only signal. Per TDA
+  // Rule 40 / 51, in-turn verbal is binding even before chips move.
+  BET_METHOD_VERBAL_FIRST = 1;
+  // Only chips were pushed; no verbal qualifier was given. Subject to
+  // Rule 41 (multi-chip = call when needed), Rule 44 (oversized chip
+  // = call), Rule 45 (50% threshold for promote-to-raise).
+  BET_METHOD_CHIP_ONLY = 2;
+  // Both verbal and chips arrived in the same in-turn action. Verbal
+  // qualifier governs interpretation when unambiguous; otherwise the
+  // floor decides (Rule 57).
+  BET_METHOD_MIXED = 3;
+}
+
+// String-bet detection — TDA Rule 56 / WSOP Rule 103. Chips beyond the
+// first forward motion are returned and the bet stands at the
+// first-motion amount. The aggregate exposes this as a sub-state of
+// BetMethod when chip motion is observed in multiple distinct pushes.
+enum ChipMotion {
+  CHIP_MOTION_UNSPECIFIED = 0;
+  SINGLE_FORWARD = 1; // Legal — single distinct forward push.
+  MULTIPLE_FORWARD = 2; // String bet — second push returned.
+}
+
+// Betting format for a hand or tournament — TDA defaults to no-limit
+// but the rule set covers limit (Rules 47B, 48) and pot-limit (Rules
+// 52B, 54B, 54D) variants explicitly. MIXED signals a HORSE-style
+// rotation where the format follows the active variant.
+enum BettingFormat {
+  BETTING_FORMAT_UNSPECIFIED = 0;
+  BETTING_FORMAT_NO_LIMIT = 1;
+  BETTING_FORMAT_POT_LIMIT = 2;
+  BETTING_FORMAT_FIXED_LIMIT = 3;
+  // For HORSE / 8-game etc. — derived from current variant.
+  BETTING_FORMAT_MIXED = 4;
+}
+
+// Penalty severity ladder — TDA Rule 71 / WSOP Rule 113. Ordered
+// least-to-most-severe. The aggregate emits PenaltyAssessed events
+// citing one of these levels; downstream sagas translate into table
+// behavior (cards killed, blinds posted in absentia, etc.).
+enum PenaltySeverity {
+  PENALTY_SEVERITY_UNSPECIFIED = 0;
+  VERBAL_WARNING = 1;
+  MISSED_HAND = 2;
+  MISSED_ROUND = 3; // ~30 min depending on level pace
+  DISQUALIFICATION = 4;
+}
+
+// Stud-specific street enumeration — Stud uses an explicit street
+// machine (3rd → 7th) rather than the FLOP/TURN/RIVER triad. The
+// existing BettingPhase enum stays for Hold'em/Omaha/Draw; this enum
+// is only populated for stud variants.
+enum StudStreet {
+  STUD_STREET_UNSPECIFIED = 0;
+  THIRD_STREET = 3;
+  FOURTH_STREET = 4;
+  FIFTH_STREET = 5;
+  SIXTH_STREET = 6;
+  SEVENTH_STREET = 7;
 }
 
 // Player type - abstraction for human vs AI

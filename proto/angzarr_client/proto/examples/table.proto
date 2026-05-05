@@ -42,8 +42,16 @@ message LeaveTable {
 // Table receives PlayerSatOut/PlayerSatIn as facts via saga
 
 message StartHand {
-  // No parameters - uses current table state
-  // Dealer button advances automatically
+  // Dealer button advances automatically; no positional parameters.
+  // ``players_on_penalty`` (TDA Rule 71C): players on a missed-hand or
+  // missed-round penalty whose seats receive cards but whose hands are
+  // immediately killed after the deal. Their blinds and antes are still
+  // posted from their stacks.
+  repeated bytes players_on_penalty = 1;
+  // TDA Rule 23 — the saga passes the tournament's current blind
+  // level so HandStarted records it; level changes mid-hand only take
+  // effect on the next StartHand.
+  int32 blind_level = 2;
 }
 
 message EndHand {
@@ -113,6 +121,10 @@ message HandStarted {
   int64 small_blind = 8;
   int64 big_blind = 9;
   google.protobuf.Timestamp started_at = 10;
+  // TDA Rule 23 — blind level under which this hand is being played.
+  // Captures the level at deal-time; mid-hand BlindLevelAdvanced events
+  // do not change this value (the new level applies to the next hand).
+  int32 blind_level = 11;
 }
 
 message SeatSnapshot {
@@ -133,6 +145,72 @@ message ChipsAdded {
   int64 amount = 2;
   int64 new_stack = 3; // Absolute stack after add
   google.protobuf.Timestamp added_at = 4;
+}
+
+// TDA Rule 71C — a player on penalty had cards dealt to their seat
+// then immediately killed; their posted blinds/antes are recorded as
+// ``stack_charged`` so downstream stack accounting matches the kill.
+message PlayerHandKilledByPenalty {
+  bytes player_root = 1;
+  bytes hand_root = 2;
+  int32 seat_position = 3;
+  int64 stack_charged = 4; // SB+BB+ante posted from the killed seat
+  google.protobuf.Timestamp killed_at = 5;
+}
+
+// TDA Rule 11A — coordinator command to balance two tables. Source is
+// the table with more players; destination is the shorter table. The
+// player to be BB-next on the source table is moved to the worst
+// position (never SB) on the destination table.
+message BalanceTables {
+  string source_table_name = 1;
+  string destination_table_name = 2;
+}
+
+// TDA RP-9 / WSOP Rule 68 — coordinator command to combine multiple
+// tables into a single final table. ``source_table_names`` is the
+// CSV list of tables being broken; ``final_table_name`` is the new
+// final-table aggregate.
+message CombineFinalTable {
+  string final_table_name = 1;
+  repeated string source_table_names = 2;
+  int32 max_handed = 3; // 9 / 8 / 7 / 6
+}
+
+// TDA Rule 11A emit — a balancing move emitted at the source table.
+message BalancingMoveDecided {
+  bytes player_root = 1;
+  bytes source_table_root = 2;
+  bytes destination_table_root = 3;
+  int32 destination_seat = 4;
+  google.protobuf.Timestamp moved_at = 5;
+}
+
+// TDA RP-9 / WSOP Rule 68 emit — final table combined.
+message FinalTableCombined {
+  bytes final_table_root = 1;
+  repeated bytes source_table_roots = 2;
+  repeated SeatSnapshot active_players = 3;
+  int32 max_handed = 4;
+  google.protobuf.Timestamp combined_at = 5;
+}
+
+// TDA Rule 11D emit — table halted because it is 3+ players short of
+// the largest table and the BB on the next hand would land on an
+// empty seat.
+message TableHaltedForBalancing {
+  bytes table_root = 1;
+  int32 deficit = 2; // players-short relative to the largest table
+  google.protobuf.Timestamp halted_at = 3;
+}
+
+// TDA Rule 33 / WSOP Rule 86 emit — a player who skipped a blind by
+// moving forfeits both blinds and earns a missed-round penalty.
+message BlindDodgePenalty {
+  bytes player_root = 1;
+  int64 chips_forfeited = 2;
+  int32 missed_round_count = 3;
+  google.protobuf.Timestamp assessed_at = 4;
 }
 
 // State (for snapshots)

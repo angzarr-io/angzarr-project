@@ -48,6 +48,11 @@ message SeatPlayer {
   bytes reservation_id = 2; // Links to buy-in flow
   int32 seat = 3; // Preferred seat (-1 for any)
   int64 amount = 4; // Buy-in amount
+  // TDA Rule 7 / WSOP Rule 34 — when set, the table is in tournament
+  // mode and seat assignment must be RNG-driven; the rng_seed is
+  // recorded on the resulting PlayerSeated event for replay.
+  bool tournament_mode = 5;
+  bytes rng_seed = 6; // Optional explicit seed; auto-derived if empty.
 }
 
 // -----------------------------------------------------------------------------
@@ -95,6 +100,10 @@ message PlayerSeated {
   int32 seat_position = 3;
   int64 stack = 4;
   google.protobuf.Timestamp seated_at = 5;
+  // TDA Rule 7 / WSOP Rule 34 — RNG seed used to pick the seat (when
+  // ``tournament_mode`` was set on the SeatPlayer command). Empty in
+  // cash-game flows.
+  bytes rng_seed = 6;
 }
 
 // Emitted when seating is rejected

@@ -24,6 +24,13 @@ enum TournamentStatus {
   TOURNAMENT_PAUSED = 4; // On break
   TOURNAMENT_COMPLETED = 5; // Finished
   TOURNAMENT_CANCELLED = 6; // Cancelled
+  // WSOP Rule 125 — new hands halted after current hand; awaiting
+  // BagAndTag command to take per-player snapshot.
+  TOURNAMENT_HALTING = 7;
+  // WSOP Rule 122 — bag-and-tag complete; awaiting ResumeTournament
+  // on the subsequent day. Distinct from PAUSED (which is a within-day
+  // break) in that the level clock is fully suspended.
+  TOURNAMENT_BAGGED = 8;
 }
 
 // Rebuy configuration
@@ -135,6 +142,59 @@ message RebalanceTables {
 // money bubble.
 message EnterHandForHand {}
 
+// Coordinator/saga command emitted when a hand-for-hand hand completes.
+// ``real_seconds`` is the wall-clock duration of the just-completed
+// hand. The clock-deduction algorithm (TDA RP-8B/8C) caps the
+// deduction at 3 minutes per hand; absent ``real_seconds`` it defaults
+// to 2 minutes per hand ("whenever possible the clock should be
+// reduced by 2-minutes each hand").
+message RecordHandForHandHand {
+  int32 real_seconds = 1;
+}
+
+// Coordinator/saga command emitted when a hand-for-hand hand produces
+// multiple eliminations on the same hand. Per RP-8A the listed players
+// share the next paid position(s); CompleteTournament reads recorded
+// groups and splits the payout(s) accordingly. When ``same_table`` is
+// true the WSOP Rule 126b tiebreak applies: the player with the
+// higher ``pre_hand_stacks`` value wins the higher finishing position
+// and the lower-stack busters are demoted (no payout split).
+message RecordSimultaneousBusts {
+  repeated bytes player_roots = 1;
+  bytes hand_root = 2;
+  bool same_table = 3;
+  map<string, int64> pre_hand_stacks = 4; // player_root_hex -> chip count
+}
+
+// WSOP Rule 67c — operator-triggered seat redraw at a table-count
+// threshold. The trigger label captures which threshold tripped:
+// THREE_TABLES, TWO_TABLES, FINAL_TABLE.
+message TriggerSeatRedraw {
+  int32 tables_remaining = 1;
+  int32 original_field = 2;
+}
+
+// TDA RP-16 — coordinator command to reseat an absent player from a
+// breaking table to a new table; missed-blinds clock continues.
+message ReseatAbsentPlayer {
+  bytes player_root = 1;
+  bytes from_table_root = 2;
+  bytes to_table_root = 3;
+  int32 to_seat = 4;
+  int64 stack = 5;
+}
+
+// WSOP Rule 36 — saga ticks the absent-blind clock for a heads-up
+// table where one player is absent. Emits AbsentBlindAdvanced; the
+// button advances and the lone player banks SB+BB.
+message AdvanceAbsentBlind {
+  bytes table_root = 1;
+  bytes absent_player_root = 2;
+  bytes lone_player_root = 3;
+  int64 small_blind = 4;
+  int64 big_blind = 5;
+}
+
 // Tables signal the tournament after each synchronised hand completes.
 message NotifyHandComplete {
   bytes table_root = 1;
@@ -154,7 +214,16 @@ message ProcessAddon {
 
 // Advance to next blind level
 message AdvanceBlindLevel {
-  // No parameters - advances to next level in structure
+  // Optional chip-race fields (TDA Rule 24A). When ``retire_denomination``
+  // is non-zero, the level advance includes a color-up: the named
+  // denomination is removed from play and players' residual chips below
+  // the chip cutoff are raced for ``new_denomination`` chips. Emits a
+  // ``ColorUpCompleted`` event in addition to ``BlindLevelAdvanced``.
+  int64 retire_denomination = 1;
+  int64 new_denomination = 2;
+  // Optional deterministic seed for the race (RP-14). Empty → use
+  // crypto-random; tests pass an explicit seed for reproducibility.
+  bytes race_seed = 3;
 }
 
 // Eliminate a player (from table event via saga)
@@ -171,6 +240,93 @@ message PauseTournament {
 // Resume the tournament
 message ResumeTournament {
   // No parameters
+}
+
+// TDA Rule 71 / WSOP Rule 113 — operator-issued penalty against a
+// player. Severity translates to downstream behavior via sagas:
+// VERBAL_WARNING is recorded only; MISSED_HAND/MISSED_ROUND result in
+// PlayerOnPenalty events at the table; DISQUALIFICATION removes the
+// player and their chips from total_chips_in_play (Rule 71D).
+message AssessPenalty {
+  bytes player_root = 1;
+  PenaltySeverity severity = 2;
+  string reason = 3; // free-form, e.g. "DISCLOSURE_VIOLATION"
+}
+
+// TDA Rule 71A — operator-issued penalty with type + rounds parameter.
+// Sibling to AssessPenalty using string types and explicit rounds for
+// MISSED_ROUND penalties (Rule 71's "one hand per player at the table
+// times rounds" calculation).
+message IssuePenalty {
+  bytes player_root = 1;
+  string type = 2; // "VERBAL_WARNING" / "MISSED_HAND" / "MISSED_ROUND" / "DISQUALIFIED"
+  int32 rounds = 3; // For MISSED_ROUND, the number of round-cycles.
+  int32 table_size = 4; // For MISSED_ROUND, players at the table when issued.
+}
+
+// TDA Rule 71D / WSOP Rule 114 — disqualification removes the player
+// and their chips. Distinct from elimination (which keeps chips on the
+// table for redistribution); DQ chips are removed from
+// total_chips_in_play entirely.
+message DisqualifyPlayer {
+  bytes player_root = 1;
+  string reason = 2;
+}
+
+// TDA Rule 71 — saga decrements a player's penalty round-counter
+// after a hand in which their seat was charged blinds and the hand
+// was killed. Emits ``PenaltyRoundsDecremented``.
+message DecrementPenalty {
+  bytes player_root = 1;
+}
+
+// TDA Rule 8B — a busted player re-enters the event. The chips they
+// forfeited (their last remaining stack at bust time) are removed from
+// total_chips_in_play and a fresh starting stack is added.
+message ReEntryPlayer {
+  bytes player_root = 1;
+  int64 chips_forfeited = 2;
+}
+
+// TDA RP-22 / WSOP Rule 39 — bounty payout when a player is knocked
+// out by another. Coordinator emits BountyAwarded; downstream player
+// aggregates receive funds.
+message AwardBounty {
+  bytes eliminator_root = 1;
+  bytes knocked_out_root = 2;
+  int64 amount = 3;
+  // Tiebreak metadata when last-two simultaneous bust resolved by
+  // pre-hand stack. Empty otherwise.
+  string tiebreak_reason = 4;
+}
+
+// WSOP Rule 16 — operator-issued no-show detection after the first-break
+// deadline. The aggregate emits NoShowDetected and removes the player's
+// chips from total_chips_in_play; the player remains marked for refund
+// processing via the buy_in_held_amount field.
+message DetectNoShow {
+  bytes player_root = 1;
+}
+
+// WSOP Rule 125 — operator-issued end-of-day stop. New hands halted
+// after the in-progress hand completes; bag-and-tag begins afterward.
+message StopNewHands {
+  string reason = 1; // e.g. "END_OF_DAY"
+}
+
+// WSOP Rule 122 — bag-and-tag completed; tournament ready to resume
+// the following day.
+message BagAndTag {
+  // No parameters — the aggregate snapshots stacks/seats from current
+  // state.
+}
+
+// TDA RP-18 — operator/saga rotation tick for a HORSE event. Each
+// completed orbit triggers the next variant in the fixed cycle:
+// H(old'em) → O(maha Hi/Lo) → R(azz) → S(even Card Stud) →
+// E(even Card Stud Hi/Lo 8 or Better) → repeat.
+message RotateMixedGameVariant {
+  // No parameters — the aggregate cycles based on its current state.
 }
 
 // -----------------------------------------------------------------------------
@@ -288,11 +444,34 @@ message TournamentCompleted {
 }
 
 // Color-up event: low-denomination chips retired, replaced with
-// higher-denomination chips on every active stack.
+// higher-denomination chips on every active stack. When a chip race
+// occurs (TDA Rule 24A) the ``per_player_awards`` capture how many
+// chips each player received; ``chips_added_by_rescue`` and
+// ``chips_removed_by_race`` give the auditable conservation deltas.
 message ColorUpCompleted {
   int64 retired_denomination = 1;
   int64 new_denomination = 2;
   google.protobuf.Timestamp completed_at = 3;
+  // Per-player race awards. ``chips_won`` is the count of chips of the
+  // new denomination awarded by the race; ``rescued`` is true when the
+  // award came from the single-chip rescue clause rather than the race.
+  repeated ChipRaceAward per_player_awards = 4;
+  // Total value (in stake units) added to the chip economy by the
+  // single-chip rescue clause. Conservation invariant: post_total ==
+  // pre_total + chips_added_by_rescue - chips_removed_by_race.
+  int64 chips_added_by_rescue = 5;
+  // Total value removed from the chip economy by retired denominations
+  // that did not earn a new-denomination chip in the race.
+  int64 chips_removed_by_race = 6;
+}
+
+// Per-player record of a chip-race award.
+message ChipRaceAward {
+  bytes player_root = 1;
+  int32 chips_won = 2;
+  // True iff the award was the single-chip rescue (Rule 24A) rather
+  // than a race award.
+  bool rescued = 3;
 }
 
 // Player moved between tables for rebalancing (TDA Rule 14).
@@ -318,15 +497,186 @@ message HandForHandRoundComplete {
   google.protobuf.Timestamp completed_at = 2;
 }
 
+// TDA RP-8B/8C emit — a single hand-for-hand hand finished.
+// ``clock_seconds_deducted`` records the per-hand level-clock charge
+// (capped at 180 = 3 min, defaults to 120 = 2 min per RP-8C).
+message HandForHandHandRecorded {
+  int32 real_seconds = 1;
+  int32 clock_seconds_deducted = 2;
+  google.protobuf.Timestamp recorded_at = 3;
+}
+
+// TDA RP-8A emit — multiple players bust on the same hand-for-hand
+// hand. They share the next paid position(s); the split is computed by
+// CompleteTournament when payouts are paid out. ``same_table`` carries
+// the WSOP-126b tiebreak indicator; ``pre_hand_stacks`` captures the
+// pre-hand chip counts used to break the tie.
+message SimultaneousBustsRecorded {
+  repeated bytes player_roots = 1;
+  bytes hand_root = 2;
+  bool same_table = 3;
+  map<string, int64> pre_hand_stacks = 4;
+  google.protobuf.Timestamp recorded_at = 5;
+}
+
+// WSOP Rule 67c emit — seat redraw triggered by the field collapsing
+// to one of the redraw thresholds.
+message SeatRedrawTriggered {
+  string trigger = 1; // THREE_TABLES / TWO_TABLES / FINAL_TABLE
+  int32 tables_remaining = 2;
+  int32 original_field = 3;
+  google.protobuf.Timestamp triggered_at = 4;
+}
+
+// WSOP Rule 36 emit — heads-up absent-blind tick. The dealer button
+// advances and the lone player's stack is increased by SB+BB while the
+// absent player's stack is decreased by the same amount.
+message AbsentBlindAdvanced {
+  bytes table_root = 1;
+  bytes absent_player_root = 2;
+  bytes lone_player_root = 3;
+  int64 stack_delta = 4; // signed transfer (SB + BB)
+  google.protobuf.Timestamp advanced_at = 5;
+}
+
 // An elimination occurred — bubble has burst, hand-for-hand ends.
 message HandForHandEnded {
   google.protobuf.Timestamp ended_at = 1;
+}
+
+// TDA Rule 71 / WSOP Rule 113 emit — penalty assessed against a player.
+// Companion event to AssessPenalty command.
+message PlayerPenalized {
+  bytes player_root = 1;
+  PenaltySeverity severity = 2;
+  string reason = 3;
+  google.protobuf.Timestamp assessed_at = 4;
+}
+
+// TDA Rule 71 emit — operator-issued penalty with a specific type and
+// rounds parameter. ``missed_hands`` is computed: 0 for VERBAL_WARNING
+// and DISQUALIFIED, 1 for MISSED_HAND, ``rounds * table_size`` for
+// MISSED_ROUND. Companion event to IssuePenalty command.
+message PenaltyIssued {
+  bytes player_root = 1;
+  string type = 2; // "VERBAL_WARNING" / "MISSED_HAND" / "MISSED_ROUND" / "DISQUALIFIED"
+  int32 rounds = 3;
+  int32 missed_hands = 4;
+  google.protobuf.Timestamp issued_at = 5;
+}
+
+// TDA Rule 8B emit — a busted player re-entered the event. Forfeited
+// chips removed; fresh starting stack added.
+message PlayerReEntered {
+  bytes player_root = 1;
+  int64 chips_forfeited = 2;
+  int64 chips_added = 3;
+  google.protobuf.Timestamp re_entered_at = 4;
+}
+
+// TDA Rule 71 — penalty round-counter decremented after one round of
+// missed hands has been served.
+message PenaltyRoundsDecremented {
+  bytes player_root = 1;
+  int32 rounds_remaining = 2;
+  google.protobuf.Timestamp decremented_at = 3;
+}
+
+// TDA Rule 71D / WSOP Rule 114 emit — player disqualified, chips
+// removed from total_chips_in_play.
+message PlayerDisqualified {
+  bytes player_root = 1;
+  string reason = 2;
+  int64 chips_removed = 3;
+  google.protobuf.Timestamp disqualified_at = 4;
+}
+
+// TDA RP-22 / WSOP Rule 39 emit — bounty awarded to the player who
+// knocked an opponent out.
+message BountyAwarded {
+  bytes eliminator_root = 1;
+  bytes knocked_out_root = 2;
+  int64 amount = 3;
+  // Tiebreak metadata when last-two simultaneous bust resolved by
+  // pre-hand stack (TDA RP-22 + WSOP Rule 39). Empty otherwise.
+  string tiebreak_reason = 4;
+  google.protobuf.Timestamp awarded_at = 5;
+}
+
+// WSOP Rule 16 emit — no-show detected after the first-break deadline.
+// Player's chips are removed from total_chips_in_play; their buy-in
+// is held in safekeeping (refund processing happens externally).
+message NoShowDetected {
+  bytes player_root = 1;
+  int64 chips_removed = 2;
+  int64 buy_in_held = 3;
+  google.protobuf.Timestamp detected_at = 4;
+}
+
+// WSOP Rule 125 emit — new hands halted; in-progress hand allowed to
+// complete before bagging begins.
+message NewHandsHalted {
+  string effective_at = 1; // "AFTER_CURRENT_HAND" / "IMMEDIATELY"
+  string reason = 2;
+  google.protobuf.Timestamp halted_at = 3;
+}
+
+// WSOP Rule 122 emit — bag-and-tag completed; per-player snapshot
+// captured for resume on subsequent day.
+message BagAndTagComplete {
+  repeated PlayerBagSnapshot snapshots = 1;
+  google.protobuf.Timestamp completed_at = 2;
+}
+
+// TDA RP-18 emit — HORSE rotation advanced to the next variant in the
+// fixed cycle.
+message MixedGameVariantRotated {
+  GameVariant from_variant = 1;
+  GameVariant to_variant = 2;
+  google.protobuf.Timestamp rotated_at = 3;
+}
+
+// Per-player bag-and-tag snapshot. Used to restore stacks and seats
+// when the tournament resumes after a day break (WSOP Rule 122).
+message PlayerBagSnapshot {
+  bytes player_root = 1;
+  int64 stack = 2;
+  bytes table_root = 3;
+  int32 seat = 4;
+}
+
+// TDA RP-16 emit — a player on a breaking table moved to a new table
+// while absent. Distinct from PlayerMovedBetweenTables in that the
+// missed-blinds clock continues at the new table.
+message PlayerMovedTables {
+  bytes player_root = 1;
+  bytes from_table_root = 2;
+  bytes to_table_root = 3;
+  int32 to_seat = 4;
+  int64 stack = 5;
+  bool absent_at_move = 6;
+  google.protobuf.Timestamp moved_at = 7;
+}
+
+// TDA RP-14 — deterministic random tiebreak applied to a special
+// situation (tied late-reg seats, tied stack draws). Reproducible via
+// the seed for replay/audit.
+message SeatTiebreakResolved {
+  bytes seed = 1;
+  repeated bytes contenders = 2;
+  bytes winner = 3; // The contender selected by the tiebreak.
+  string situation = 4; // e.g. "LATE_REG_TIE" / "STACK_DRAW_TIE"
+  google.protobuf.Timestamp resolved_at = 5;
 }
 
 message TournamentResult {
   int32 position = 1;
   bytes player_root = 2;
   int64 payout = 3;
+  // WSOP Rule 126b — when same-table simultaneous busts are tiebroken
+  // by pre-hand stack, the loser of the tiebreak inherits a worse
+  // finishing position. Recorded so audits can trace tiebreak outcomes.
+  string tiebreak_reason = 4;
 }
 
 // -----------------------------------------------------------------------------
@@ -362,4 +712,17 @@ message TournamentState {
   map<string, PlayerRegistration> registered_players = 14; // player_root_hex -> registration
   int32 players_remaining = 15;
   int64 total_prize_pool = 16;
+
+  // Bounty configuration (TDA RP-22 / WSOP Rule 39). Zero means no
+  // bounty; non-zero is the per-knockout payout.
+  int64 bounty_per_knockout = 17;
+  // Per-player bounty totals (eliminator -> total chips won as bounty).
+  map<string, int64> bounty_totals = 18;
+  // Penalty register — players currently serving missed-hand /
+  // missed-round penalties (TDA Rule 71). Cleared when the penalty
+  // expires.
+  map<string, PenaltySeverity> active_penalties = 19;
+  // Bag-and-tag snapshots from the most recent end-of-day stop, keyed
+  // by player_root_hex. Empty unless status == TOURNAMENT_BAGGED.
+  map<string, PlayerBagSnapshot> bag_snapshots = 20;
 }

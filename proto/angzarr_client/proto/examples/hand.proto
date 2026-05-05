@@ -26,12 +26,34 @@ message DealCards {
   int64 small_blind = 6;
   int64 big_blind = 7;
   bytes deck_seed = 8; // For deterministic shuffle (testing)
+  // Betting format. Defaults to NO_LIMIT when unspecified for backward
+  // compatibility with existing hand.feature scenarios that pre-date
+  // the BettingFormat enum.
+  BettingFormat betting_format = 9;
+  // Fixed-limit only: small_bet is used pre-flop and on the flop;
+  // big_bet is used on the turn and river. Ignored for NO_LIMIT/POT_LIMIT.
+  int64 small_bet = 10;
+  int64 big_bet = 11;
+  // Fixed-limit raise cap per round (default 4). 0 means "use house
+  // default" (1 bet + 4 raises). Negative means uncapped (heads-up).
+  int32 raise_cap_per_round = 12;
+  // Stud variants only: ante per player at deal time. Ignored otherwise.
+  int64 ante = 13;
 }
 
 message PlayerInHand {
   bytes player_root = 1;
   int32 position = 2;
   int64 stack = 3;
+  // TDA Rule 30 — players not at their seats at the initial deal have
+  // their cards killed immediately and may not act on the hand even if
+  // they return. Posted blinds/antes still forfeit to the pot.
+  bool absent_at_deal = 4;
+  // TDA Rule 27 — declared rebuy amount. The player is dealt in even
+  // when ``stack`` is 0; the rebuy amount becomes part of their
+  // effective stack for this hand and a RebuyObligation event is
+  // emitted alongside CardsDealt.
+  int64 declared_rebuy_amount = 5;
 }
 
 message PostBlind {
@@ -44,6 +66,97 @@ message PlayerAction {
   bytes player_root = 1;
   ActionType action = 2;
   int64 amount = 3; // For bet/raise/call
+  // How the action was conveyed at the table (TDA Rules 40-46). Defaults
+  // to BET_METHOD_UNSPECIFIED for legacy callers; the handler treats that
+  // as VERBAL_FIRST (binding declaration) for backward compatibility.
+  BetMethod bet_method = 4;
+  // Chip-only motion qualifier — TDA Rule 56 string-bet detection.
+  // Only meaningful when bet_method == CHIP_ONLY. Defaults to
+  // SINGLE_FORWARD; MULTIPLE_FORWARD triggers string-bet handling.
+  ChipMotion chip_motion = 5;
+  // Conditional / non-standard verbal context for Rules 57, 59. When
+  // non-empty, the handler may emit FloorDecisionRequired instead of a
+  // direct ActionTaken.
+  string verbal_context = 6;
+  // Number of distinct chips pushed (TDA Rule 44 — a single oversized
+  // chip is always a call regardless of value). 1 means single chip;
+  // 2+ engages Rule 45 multi-chip semantics. 0 (default) defers to the
+  // amount alone for back-compat.
+  uint32 chip_count = 7;
+}
+
+// Verbal-only action with no chips on the table — TDA Rule 40/47.
+// In-turn verbal "raise" / "all-in" / "call" is binding even before
+// chips move. The handler resolves the chip amount (min legal raise,
+// full stack, current bet) and emits an ActionTaken event as if the
+// chips had been pushed.
+message DeclareAction {
+  bytes player_root = 1;
+  ActionType action = 2;
+  // Optional explicit amount when the player declared "raise to N".
+  // If 0 with action == RAISE, handler uses the minimum legal raise
+  // (TDA Rule 42). If 0 with action == ALL_IN, handler uses the player's
+  // remaining stack.
+  int64 amount = 3;
+  // Free-form verbal context (e.g. "raise" / "all-in" / "call thirty").
+  string verbal = 4;
+}
+
+// TDA Rule 18 — request to see a called hand at showdown. The
+// requesting player must still hold their cards; if they mucked
+// face-down, the request is rejected with code MUCKED_WITHOUT_TABLING.
+// The target must be the last aggressor on the river per Rule 18B.
+message RequestShowHand {
+  bytes requester_root = 1;
+  bytes target_root = 2;
+}
+
+// TDA Rule 60 / WSOP Rule 62 — entitlement to a reasonable estimation
+// of an opponent's chip stack. Emits OpponentStackDisclosed.
+message RequestStackCount {
+  bytes requester_root = 1;
+  bytes target_root = 2;
+}
+
+// TDA Rule 25 / WSOP Rule 106 — operator-issued discretionary color-up
+// outside the scheduled chip race. Effect is deferred to the next
+// hand boundary; mid-hand stacks are not retroactively converted.
+message DiscretionaryColorUp {
+  int64 retire_denomination = 1;
+}
+
+// TDA Rule 22 / WSOP Rule 76 — explicit dispute against a prior pot
+// distribution. Rejected with code DISPUTE_WINDOW_CLOSED if the next
+// hand has already begun shuffling.
+message DisputePotDistribution {
+  bytes disputer_root = 1;
+  int64 disputed_hand_number = 2;
+  string reason = 3;
+}
+
+// TDA Rule 52B — operator-issued correction of an illegal pot-limit
+// overbet. Reduces every caller's contribution on the current street
+// to ``corrected_amount`` and emits UnderbetCorrected.
+message CorrectIllegalBet {
+  string reason = 1; // "PL_ILLEGAL_OVERBET" / "NL_UNDERRAISE_LATE_CORRECTION"
+  int64 corrected_amount = 2;
+}
+
+// TDA Rule 46B — pulling back a prior chip while facing a raise binds
+// the player to call or raise. The handler records the pull-back on
+// the player state; subsequent fold attempts within the same hand
+// are rejected with code BOUND_TO_CALL_OR_RAISE.
+message PullBackPriorChip {
+  bytes player_root = 1;
+  int64 chips_pulled = 2;
+}
+
+// Emitted on PullBackPriorChip when the pull-back binds the player to
+// call or raise. Recorded on player state via apply_prior_chip_pulled.
+message PriorChipPulledBack {
+  bytes player_root = 1;
+  int64 chips_pulled = 2;
+  google.protobuf.Timestamp pulled_at = 3;
 }
 
 message DealCommunityCards {
@@ -58,10 +171,25 @@ message RequestDraw {
 message RevealCards {
   bytes player_root = 1;
   bool muck = 2; // True to hide cards (fold at showdown)
+  // TDA Rule 13A — proper tabling shows ALL hole cards. When non-empty,
+  // a length less than the variant's hole-card count signals a partial
+  // reveal which the handler rejects with code INCOMPLETE_REVEAL. Empty
+  // (the legacy default) means "table all" so existing callers keep
+  // working without change.
+  repeated int32 tabled_indices = 3;
 }
 
 message AwardPot {
   repeated PotAward awards = 1;
+}
+
+// TDA Rule 29: action-clock command. Caller (floor / opponent / idle-detect)
+// nominates the seat currently to act and a duration (TDA spec is 25s + 5s).
+// Rejected with FAILED_PRECONDITION when the named player is not the seat
+// currently to act — a clock can only run on the player whose turn it is.
+message StartActionClock {
+  bytes player_root = 1;
+  uint32 seconds = 2;
 }
 
 message PotAward {
@@ -81,6 +209,24 @@ message CardsDealt {
   repeated PlayerInHand players = 6;
   google.protobuf.Timestamp dealt_at = 7;
   repeated Card remaining_deck = 8; // Cards left after dealing hole cards
+  // Mirrors the corresponding fields on DealCards. Defaults to NO_LIMIT.
+  BettingFormat betting_format = 9;
+  int64 small_bet = 10;
+  int64 big_bet = 11;
+  int32 raise_cap_per_round = 12;
+  int64 ante = 13;
+  // Stud variants: per-player upcards visible to the table after the
+  // initial deal (typically 1 for SC Stud, 1 for Razz). Empty for
+  // Hold'em / Omaha / Draw.
+  repeated PlayerUpCards initial_up_cards = 14;
+}
+
+// Stud variant up-card snapshot. The hole_cards in PlayerHoleCards
+// remain private; this lets observers (other players, projector) see
+// the visible portion of each stud hand.
+message PlayerUpCards {
+  bytes player_root = 1;
+  repeated Card up_cards = 2;
 }
 
 message PlayerHoleCards {
@@ -141,6 +287,10 @@ message CardsRevealed {
   repeated Card cards = 2;
   HandRanking ranking = 3;
   google.protobuf.Timestamp revealed_at = 4;
+  // TDA Rule 19 — set true when the player's best 5-card hand is the
+  // community board (no hole cards used). The aggregate computes this
+  // from rules.evaluate_hand and emits it for transparency.
+  bool plays_the_board = 5;
 }
 
 message CardsMucked {
@@ -151,6 +301,10 @@ message CardsMucked {
 message ShowdownStarted {
   repeated bytes players_to_show = 1; // Order of revelation
   google.protobuf.Timestamp started_at = 2;
+  // TDA Rule 16 — when at least one player is all-in and betting action
+  // is complete, every remaining hand MUST be tabled. Mucking is rejected
+  // with FACE_UP_REQUIRED. Defaults to false (Rule 17B uncontested cases).
+  bool face_up_required = 3;
 }
 
 message PotAwarded {
@@ -173,10 +327,307 @@ message HandComplete {
   google.protobuf.Timestamp completed_at = 5;
 }
 
+// TDA Rule 27 — a declared rebuy was committed at deal-time. The
+// player is dealt in immediately and the obligation must be paid
+// post-hand (a downstream saga settles it against the rebuy domain).
+message RebuyObligation {
+  bytes player_root = 1;
+  int64 amount = 2;
+  bytes hand_root = 3;
+  google.protobuf.Timestamp obligated_at = 4;
+}
+
 message PlayerTimedOut {
   bytes player_root = 1;
   ActionType default_action = 2; // Usually FOLD or CHECK
   google.protobuf.Timestamp timed_out_at = 3;
+}
+
+// Emitted by handle_start_action_clock once the precondition (player is
+// the seat to act) has been validated. Pins ``state.action_on_position``
+// for the duration of the clock so subsequent commands have an explicit
+// "whose turn it is" record. Expiry is modelled as the test driver
+// calling handle_player_action with the auto-action (FOLD if facing a
+// bet, CHECK otherwise) per TDA Rule 29.
+message ActionClockStarted {
+  bytes player_root = 1;
+  uint32 seconds = 2;
+  google.protobuf.Timestamp started_at = 3;
+}
+
+// Stud bring-in posted on 3rd street — TDA RP-10E. The bring-in player
+// is the low up-card by rank-then-suit in Stud Hi (Razz: the high up-card).
+// Bring-in amount is the bring-in_amount on the BlindLevel; the bring-in
+// player may also complete to the small bet at their option.
+message BringInPosted {
+  bytes player_root = 1;
+  int64 amount = 2;
+  int64 player_stack = 3;
+  int64 pot_total = 4;
+  google.protobuf.Timestamp posted_at = 5;
+}
+
+// Stud street advance — emits the per-player upcard for each remaining
+// player when 4th-7th street is dealt. The 7th street card is dealt
+// face-down (down_card on the actor's PlayerHandState); only 4th-6th
+// emit visible up_cards.
+message StudStreetDealt {
+  StudStreet street = 1;
+  repeated PlayerUpCards up_cards = 2;
+  // 7th street — face-down card emitted as part of CardsRevealed at
+  // showdown rather than visible here. Empty for 7th street events.
+  google.protobuf.Timestamp dealt_at = 3;
+}
+
+// TDA Rule 18B emit — caller has invoked their Rule 18 right to see
+// the last-aggressor's hand. The aggregate downstream rejects any
+// MuckCards from the target until a CardsRevealed has been emitted
+// for them.
+message HandTablingRequired {
+  bytes target_root = 1;
+  bytes requester_root = 2;
+  google.protobuf.Timestamp required_at = 3;
+}
+
+// TDA Rule 60 emit — opponent stack count disclosed in response to
+// RequestStackCount.
+message OpponentStackDisclosed {
+  bytes target_root = 1;
+  int64 stack = 2;
+  google.protobuf.Timestamp disclosed_at = 3;
+}
+
+// TDA Rule 25 emit — discretionary color-up scheduled. The aggregate
+// applies the chip conversion at the next hand boundary (or
+// equivalent break point); mid-hand stacks unchanged.
+message ColorUpScheduled {
+  int64 retire_denomination = 1;
+  // Where the conversion will be applied. "NEXT_HAND_BOUNDARY" is the
+  // common case; "NEXT_BREAK" for between-level color-ups.
+  string apply_at = 2;
+  google.protobuf.Timestamp scheduled_at = 3;
+}
+
+// TDA Rule 65A / Rule 15B emit — uncalled portion of a player's bet
+// returned when their hand was killed before contention reached them.
+message ChipsRefunded {
+  bytes player_root = 1;
+  int64 amount = 2;
+  string reason = 3; // "ACCIDENTALLY_KILLED" / "MUCKED_WHILE_CLAIMING"
+  google.protobuf.Timestamp refunded_at = 4;
+}
+
+// TDA Rule 57 / Rule 59 — non-standard or conditional declaration that
+// requires a floor decision before the action is interpreted. Emitted
+// instead of ActionTaken when the verbal context is ambiguous.
+message FloorDecisionRequired {
+  bytes player_root = 1;
+  string reason = 2; // "NON_STANDARD_DECLARATION" / "CONDITIONAL" / "MISSING_SEVENTH_CARD"
+  string verbal = 3;
+  google.protobuf.Timestamp requested_at = 4;
+}
+
+// TDA Rule 56 / WSOP Rule 103 — string bet detected; chips beyond the
+// first forward motion were returned to the player.
+message StringBetReturned {
+  bytes player_root = 1;
+  int64 returned_amount = 2;
+  google.protobuf.Timestamp returned_at = 3;
+}
+
+// TDA RP-4 — disordered stub detected mid-deal; the remaining stub
+// plus prior burns are reshuffled before the deal continues.
+message StubReshuffleRequired {
+  string reason = 1; // "DISORDERED" / "INSUFFICIENT" / "PREMATURE_CARD"
+  google.protobuf.Timestamp detected_at = 2;
+}
+
+// TDA Rule 67 / Rule 68 / WSOP Rule 113-117 — penalty assessed against
+// a player. The actual application (cards-killed, missed-blind, etc.)
+// is governed by downstream sagas based on the severity.
+message PenaltyAssessed {
+  bytes player_root = 1;
+  PenaltySeverity severity = 2;
+  string reason = 3; // "DISCLOSURE_VIOLATION" / "EXPOSED_CARDS" / "SOFT_PLAY" / etc.
+  // True when the penalty's application is delayed until the current
+  // hand completes (TDA Rule 68 — exposing cards mid-hand keeps the
+  // hand live and applies the penalty afterward).
+  bool starts_after_current_hand = 4;
+  google.protobuf.Timestamp assessed_at = 5;
+}
+
+// TDA Rule 22 / WSOP Rule 76 — distribution dispute window has closed
+// (next hand has begun shuffling); the dispute command is rejected.
+// This event records the rejection for audit trail.
+message DistributionDisputeClosed {
+  bytes disputer_root = 1;
+  int64 disputed_hand_number = 2;
+  google.protobuf.Timestamp closed_at = 3;
+}
+
+// TDA Rule 35A / WSOP Rule 88 — misdeal declared. Pre-SA misdeal causes
+// a redeal of the hand on the same button; post-SA misdeal is generally
+// not allowed (the hand stands).
+message MisdealDeclared {
+  string reason = 1;  // "EXPOSED_STUD_DOWNCARD" / "BUTTON_CARD_EXPOSED" / etc.
+  bool dealer_button_preserved = 2;
+  google.protobuf.Timestamp declared_at = 3;
+}
+
+// TDA RP-10A — a downcard exposed on the initial deal becomes the
+// player's upcard; the next dealt card to that player (the door card)
+// is dealt face down to compensate.
+message StudDownCardConverted {
+  bytes player_root = 1;
+  Card exposed_card = 2;  // Card that was meant to be down but is now up
+  google.protobuf.Timestamp converted_at = 3;
+}
+
+// TDA RP-10B — 7th-street card exposed by dealer with action remaining;
+// the original is removed and a new card dealt face down. If no betting
+// action remains, the (still-down) 7th-street card stands as-is.
+message SeventhStreetCardReplaced {
+  bytes player_root = 1;
+  Card original_card = 2;       // Removed from play
+  Card replacement_card = 3;     // Dealt face down to the player
+  google.protobuf.Timestamp replaced_at = 4;
+}
+
+// TDA RP-10H — short-stub fallback. When 7th-street can't be dealt
+// individually (sub-B: stub + burns insufficient; sub-C: stub < 3),
+// a single community card is dealt face up in the center and shared
+// by all active players. The first-to-act on 7th street is the player
+// who acted first on 6th street (sub-D).
+message StudCommunityCardDealt {
+  Card card = 1;
+  StudStreet street = 2;        // Always SEVENTH_STREET in current rules
+  repeated bytes shared_with = 3;
+  google.protobuf.Timestamp dealt_at = 4;
+}
+
+// WSOP §Seven Card Games — when all 3 of a Participant's first cards
+// are dealt down by mistake, the floor scrambles them and randomly
+// selects one to turn face up as the door card. ``rng_seed`` carries
+// the supervisor-provided randomness so the selection is replayable.
+message StudDoorCardSelected {
+  bytes player_root = 1;
+  Card door_card = 2;
+  bytes rng_seed = 3;
+  google.protobuf.Timestamp selected_at = 4;
+}
+
+// WSOP §Seven Card Games / Robert's §SC Stud #5 — the wrong player was
+// designated as the bring-in and posted; the next player has not yet
+// acted, so the wager is returned and the real low card is obligated
+// to post. Emitted ONLY when the correction window is still open.
+message BringInCorrected {
+  bytes incorrect_root = 1;
+  bytes correct_root = 2;
+  int64 returned_amount = 3;
+  google.protobuf.Timestamp corrected_at = 4;
+}
+
+// TDA RP-10G / RP-5D — premature stud card detected. The card is
+// returned to the stub, the stub is reshuffled, and the next street
+// is dealt without an additional burn.
+message PrematureStudCardDetected {
+  StudStreet attempted_street = 1;
+  google.protobuf.Timestamp detected_at = 2;
+}
+
+// TDA Rule 35E — fouled deck detected. Two cards of the same rank+suit
+// were found, regardless of substantial action. Play stops, all bets
+// are returned, the hand is voided.
+message FouledDeckDetected {
+  string duplicate_card = 1;  // Human-readable form: "Ah", "Ks", etc.
+  google.protobuf.Timestamp detected_at = 2;
+}
+
+// TDA Rule 35C — pre-SA misdeal triggered a redeal. Same button, same
+// blind level, same player roster. The new hand_number is the same
+// (re-deal IS the same hand attempt) and the dealt cards are fresh.
+message HandRedealt {
+  bytes table_root = 1;
+  int64 hand_number = 2;
+  int32 dealer_position = 3;
+  int64 small_blind = 4;
+  int64 big_blind = 5;
+  int64 level = 6;
+  google.protobuf.Timestamp redealt_at = 7;
+}
+
+// TDA Rule 37 — button-position card replaced when announced before the
+// button has acted. A short-dealt button hand can be made whole.
+message ButtonCardReplaced {
+  bytes player_root = 1;
+  Card replacement_card = 2;
+  google.protobuf.Timestamp replaced_at = 3;
+}
+
+// TDA RP-5A — premature flop detected. The original burn is preserved,
+// the 3 premature cards are returned to the stub, the stub is
+// reshuffled, and the next flop deal does NOT add another burn.
+message PrematureFlopDetected {
+  google.protobuf.Timestamp detected_at = 1;
+}
+
+// TDA RP-5B — premature turn detected. Same procedure as flop.
+message PrematureTurnDetected {
+  google.protobuf.Timestamp detected_at = 1;
+}
+
+// TDA RP-5C — premature river detected. Same procedure as flop / turn.
+message PrematureRiverDetected {
+  google.protobuf.Timestamp detected_at = 1;
+}
+
+// TDA Rule 53B — a skipped player who didn't speak up before
+// substantial out-of-turn action loses their right to act. The OOT
+// actions stand. Downstream a saga / floor decision determines how
+// to seat the skipped hand for the remainder of the street.
+message SkippedPlayerLostRightToAct {
+  bytes player_root = 1;
+  google.protobuf.Timestamp lost_at = 2;
+}
+
+// TDA Rule 65A — dealer accidentally mucks a player's hand. The
+// player's called bets are forfeit; any uncalled portion is returned
+// (see UncalledBetReturned).
+message HandKilledByDealer {
+  bytes player_root = 1;
+  string reason = 2;  // "ACCIDENTAL_MUCK" / "FOULED_HAND" / etc.
+  int64 returned_to_stack = 3;
+  google.protobuf.Timestamp killed_at = 4;
+}
+
+// TDA Rule 15B — uncalled bet/raise refunded when no opponent has
+// called. Used both for mucked-while-claiming (Rule 15B) and for the
+// last-aggressor-wins-uncontested case.
+message UncalledBetReturned {
+  bytes player_root = 1;
+  int64 amount = 2;
+  string reason = 3;  // "MUCKED_WHILE_CLAIMING" / "NO_CALLER" / etc.
+  google.protobuf.Timestamp returned_at = 4;
+}
+
+// TDA Rule 52A/52B — declared underraise / pot-limit underbet correction.
+// Emitted when the original bet was illegal (high count in PL, or below
+// minimum in NL/limit) and is corrected anywhere on the street.
+message UnderbetCorrected {
+  string reason = 1; // "NL_DECLARED_UNDERRAISE" / "PL_ILLEGAL_OVERBET" / etc.
+  int64 corrected_amount = 2;
+  // Per-player contribution adjustments. For PL_ILLEGAL_OVERBET each
+  // caller's total street contribution is reduced to corrected_amount.
+  repeated UnderbetAdjustment adjustments = 3;
+  google.protobuf.Timestamp corrected_at = 4;
+}
+
+// One row of a UnderbetCorrected event — refund / debit for a player.
+message UnderbetAdjustment {
+  bytes player_root = 1;
+  int64 prior_contribution = 2;
+  int64 new_contribution = 3;
+  int64 refund_to_stack = 4;
 }
 
 // State (for snapshots)
@@ -208,6 +659,43 @@ message HandState {
   int32 big_blind_position = 15;
 
   string status = 16; // "dealing", "betting", "showdown", "complete"
+
+  // Betting-format fields (TDA Rules 47B, 48, 52B, 54B/D). Default
+  // NO_LIMIT when unset.
+  BettingFormat betting_format = 17;
+  int64 small_bet = 18;
+  int64 big_bet = 19;
+  int32 raise_cap_per_round = 20;
+  int32 raises_this_round = 21; // For limit raise-cap enforcement.
+
+  // Stud-only state. Populated when game_variant ∈ {SEVEN_CARD_STUD,
+  // RAZZ, STUD_HI_LO_8B}. Empty otherwise.
+  StudStreet current_stud_street = 22;
+  bytes bring_in_player = 23;
+  // True once the bring-in has been posted (or completed to small bet).
+  bool bring_in_resolved = 24;
+  // True if any player on the current street is showing an open pair —
+  // affects the limit cap (RP-10F locks lower limit for SC Stud Hi).
+  bool open_pair_on_current_street = 25;
+
+  // Last-aggressor tracking for TDA Rule 17A showdown order and
+  // Rule 18B "hand they paid to see" entitlement.
+  bytes last_aggressor = 26;
+  BettingPhase last_aggression_phase = 27;
+
+  // Color-up scheduled but not yet applied (TDA Rule 25).
+  int64 pending_color_up_denomination = 28;
+
+  // Penalty queue — penalties assessed during this hand whose
+  // application is delayed until the hand completes (TDA Rule 68).
+  repeated PendingPenalty pending_penalties = 29;
+}
+
+// Penalty queued for post-hand application.
+message PendingPenalty {
+  bytes player_root = 1;
+  PenaltySeverity severity = 2;
+  string reason = 3;
 }
 
 message PlayerHandState {
@@ -220,4 +708,25 @@ message PlayerHandState {
   bool has_acted = 7;
   bool has_folded = 8;
   bool is_all_in = 9;
+
+  // Stud variants only. up_cards is the cumulative visible board for
+  // this player across 3rd-6th street; down_cards is the hidden portion
+  // (3rd street downcards plus 7th street). Empty for non-stud variants.
+  repeated Card up_cards = 10;
+  repeated Card down_cards = 11;
+  // True if this player has been ruled "missing 7th card" pending floor
+  // resolution (Robert's §SC Stud #18). The aggregate emits
+  // FloorDecisionRequired and waits for a FloorRuling command.
+  bool missing_seventh_card_pending = 12;
+
+  // Set when the player's prior bet on this street remains on the
+  // table after a raise, used by TDA Rule 46 to interpret silent
+  // top-ups vs pull-backs. Resets to 0 when the action returns or the
+  // street ends.
+  int64 prior_bet_on_street = 13;
+
+  // Set true while the player is bound to call-or-raise after pulling
+  // back a prior chip while facing a raise (TDA Rule 46B). Folds are
+  // rejected with code BOUND_TO_CALL_OR_RAISE.
+  bool bound_to_call_or_raise = 14;
 }
