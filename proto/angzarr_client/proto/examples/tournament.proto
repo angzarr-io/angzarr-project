@@ -159,6 +159,13 @@ message RebalanceTables {
 // money bubble.
 message EnterHandForHand {}
 
+// Operator/saga command — every active H4H table has finished its
+// synchronised hand. Tournament emits ``HandForHandRoundComplete``
+// (with auto-incremented ``round_number``) so the operator/saga can
+// then re-arm each table for the next round via
+// ``EndTableHandForHand`` + ``EnterTableHandForHand``.
+message RecordHandForHandRoundComplete {}
+
 // Coordinator/saga command emitted when a hand-for-hand hand completes.
 // ``real_seconds`` is the wall-clock duration of the just-completed
 // hand. The clock-deduction algorithm (TDA RP-8B/8C) caps the

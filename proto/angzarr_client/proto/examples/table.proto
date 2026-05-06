@@ -213,6 +213,49 @@ message BlindDodgePenalty {
   google.protobuf.Timestamp assessed_at = 4;
 }
 
+// =============================================================================
+// Hand-for-hand at the bubble (TDA Rule 12, EA-0013)
+// =============================================================================
+//
+// Each active table tracks its own H4H status. The lifecycle:
+//
+//   "" (default)
+//      │
+//      │ EnterTableHandForHand → TableHandForHandWaiting
+//      ▼
+//   "WAITING"
+//      │
+//      │ HandEnded (existing applier flips status)
+//      ▼
+//   "COMPLETE"   ← StartHand rejected here ("table waiting for round")
+//      │
+//      │ EndTableHandForHand → TableHandForHandEnded (cleared back to "")
+//      │   (issued either between rounds to reset for the next H4H hand,
+//      │    or once after PlayerEliminated breaks the bubble entirely)
+//      ▼
+//   "" (cleared)
+//
+// Cross-coordinator coordination — the saga or operator that drives
+// these per-table commands also issues ``RecordHandForHandRoundComplete``
+// on the tournament once every active H4H table reaches "COMPLETE".
+
+message EnterTableHandForHand {}
+
+message EndTableHandForHand {}
+
+message TableHandForHandWaiting {
+  google.protobuf.Timestamp entered_at = 1;
+}
+
+message TableHandForHandRoundComplete {
+  bytes hand_root = 1;
+  google.protobuf.Timestamp completed_at = 2;
+}
+
+message TableHandForHandEnded {
+  google.protobuf.Timestamp ended_at = 1;
+}
+
 // State (for snapshots)
 message TableState {
   string table_id = 1;
