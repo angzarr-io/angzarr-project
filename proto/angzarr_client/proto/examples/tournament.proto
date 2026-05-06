@@ -156,8 +156,14 @@ message RebalanceTables {
 }
 
 // Operator/coordinator command to enter hand-for-hand play at the
-// money bubble.
-message EnterHandForHand {}
+// money bubble. ``active_table_roots`` lists every table currently
+// participating in the tournament — the saga consumes this list to
+// fan ``EnterTableHandForHand`` out to each table, and the tournament
+// uses it to seed the per-round pending-tables set so it knows when
+// every table has finished its synchronised hand.
+message EnterHandForHand {
+  repeated bytes active_table_roots = 1;
+}
 
 // Operator/saga command — every active H4H table has finished its
 // synchronised hand. Tournament emits ``HandForHandRoundComplete``
@@ -165,6 +171,16 @@ message EnterHandForHand {}
 // then re-arm each table for the next round via
 // ``EndTableHandForHand`` + ``EnterTableHandForHand``.
 message RecordHandForHandRoundComplete {}
+
+// Saga signal — one specific table just finished its synchronised
+// H4H hand. Tournament removes ``table_root`` from the per-round
+// pending set; once the set empties (every active H4H table has
+// reported in) the tournament emits ``HandForHandRoundComplete`` and
+// reseeds the pending set with the same active_table_roots ready for
+// the next synchronised round.
+message RecordTableHandComplete {
+  bytes table_root = 1;
+}
 
 // Coordinator/saga command emitted when a hand-for-hand hand completes.
 // ``real_seconds`` is the wall-clock duration of the just-completed
@@ -511,8 +527,12 @@ message PlayerMovedBetweenTables {
 
 // Hand-for-hand bubble play started (TDA Rule 12). Tables must
 // complete each hand simultaneously until the next elimination.
+// ``active_table_roots`` is the list of tables expected to play the
+// synchronised round; saga-tournament-table-h4h reads this to know
+// which tables to drive.
 message HandForHandStarted {
   google.protobuf.Timestamp started_at = 1;
+  repeated bytes active_table_roots = 2;
 }
 
 // All tables finished their synchronised hand. The next round can begin.
