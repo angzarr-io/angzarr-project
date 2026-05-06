@@ -134,8 +134,25 @@ message ColorUp {
 }
 
 // Operator command to rebalance players across tables.
+//
+// The pre-decided move (computed by the operator or a counts-tracking
+// projector against the current per-table active-player counts) is
+// passed in explicitly. The aggregate echoes the fields onto the
+// emitted ``PlayerMovedBetweenTables`` event, which the
+// ``saga-tournament-table`` consumes to fan out the actual reseat —
+// ``LeaveTable`` on the source and ``SeatPlayer`` on the destination,
+// preserving the moved player's stack.
+//
+// All fields are optional for backward compatibility; when omitted the
+// aggregate emits an empty-rooted ``PlayerMovedBetweenTables`` (the
+// pre-batch-16 behavior, retained for unit tests that don't model
+// the cross-coordinator move).
 message RebalanceTables {
-  // Source/destination derived from current table sizes.
+  bytes source_table_root = 1;
+  bytes destination_table_root = 2;
+  bytes player_root = 3;
+  int32 destination_seat = 4;
+  int64 stack = 5;
 }
 
 // Operator/coordinator command to enter hand-for-hand play at the
