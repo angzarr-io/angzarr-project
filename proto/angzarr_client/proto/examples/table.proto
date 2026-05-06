@@ -243,6 +243,17 @@ message EnterTableHandForHand {}
 
 message EndTableHandForHand {}
 
+// Operator/saga signal that the table's synchronised H4H hand has
+// completed. Independent of the real-hand HandEnded path so an
+// operator/saga can drive the round-complete arithmetic against a
+// table that didn't play a betting-detail hand (e.g. the cluster-tier
+// EA-0013 scenario where the test fast-forwards through bubble play
+// without scripting every action). Emits ``TableHandForHandRoundComplete``;
+// the apply transitions ``hand_for_hand_status`` from WAITING → COMPLETE.
+message MarkTableHandForHandHandComplete {
+  bytes hand_root = 1;
+}
+
 message TableHandForHandWaiting {
   google.protobuf.Timestamp entered_at = 1;
 }
