@@ -16,13 +16,18 @@
 #    SeatPlayer on destination, preserving the moved player's stack.
 #    The test runs in SYNC_MODE_CASCADE so the per-table commands
 #    commit before the response returns.
-#  * EA-0013 covers the H4H bubble lifecycle: EnterHandForHand →
-#    HandForHandStarted; on the next PlayerEliminated the tournament
-#    aggregate emits HandForHandEnded alongside (TDA Rule 12 — bubble
-#    break ends H4H). Per-table hand_for_hand_waiting / _complete
-#    status transitions and the saga-emitted
-#    HandForHandRoundComplete remain structural until saga-hand-for-
-#    hand-coordinator + table-side H4H state land.
+#  * EA-0013 covers the H4H bubble lifecycle end-to-end. The test
+#    drives the cross-coordinator coordination directly:
+#    EnterHandForHand → HandForHandStarted on the tournament,
+#    EnterTableHandForHand on each table (status "" → WAITING),
+#    MarkTableHandForHandHandComplete to transition WAITING → COMPLETE,
+#    StartHand rejected with TABLE_HAND_FOR_HAND_ROUND_COMPLETE while
+#    the table is parked, RecordHandForHandRoundComplete on the
+#    tournament emits HandForHandRoundComplete with auto-incremented
+#    round_number, EndTableHandForHand + EnterTableHandForHand re-arms
+#    for the next round, and on the next PlayerEliminated the
+#    tournament aggregate emits HandForHandEnded alongside
+#    (TDA Rule 12 — bubble break ends H4H).
 Feature: Cluster Tournament Acceptance
   Tournament-scoped cluster-tier acceptance scenarios. These exercise
   the tournament aggregate end-to-end against a deployed angzarr
