@@ -16,18 +16,26 @@
 #    SeatPlayer on destination, preserving the moved player's stack.
 #    The test runs in SYNC_MODE_CASCADE so the per-table commands
 #    commit before the response returns.
-#  * EA-0013 covers the H4H bubble lifecycle end-to-end. The test
-#    drives the cross-coordinator coordination directly:
-#    EnterHandForHand → HandForHandStarted on the tournament,
-#    EnterTableHandForHand on each table (status "" → WAITING),
-#    MarkTableHandForHandHandComplete to transition WAITING → COMPLETE,
-#    StartHand rejected with TABLE_HAND_FOR_HAND_ROUND_COMPLETE while
-#    the table is parked, RecordHandForHandRoundComplete on the
-#    tournament emits HandForHandRoundComplete with auto-incremented
-#    round_number, EndTableHandForHand + EnterTableHandForHand re-arms
-#    for the next round, and on the next PlayerEliminated the
-#    tournament aggregate emits HandForHandEnded alongside
-#    (TDA Rule 12 — bubble break ends H4H).
+#  * EA-0013 covers the H4H bubble lifecycle end-to-end. Deployed
+#    saga-h4h-fanout (source=tournament) consumes HandForHandStarted
+#    and emits EnterTableHandForHand to each table in
+#    event.active_table_roots; saga-tournament-h4h (source=table)
+#    consumes TableHandForHandRoundComplete and emits
+#    RecordTableHandComplete on event.tournament_root. The
+#    tournament aggregate's pending_tables set is seeded from
+#    HandForHandStarted's active_table_roots and emits
+#    HandForHandRoundComplete (auto-incremented round_number) once
+#    every active table reports in. Per-table state machine: ""
+#    → WAITING (EnterTableHandForHand) → COMPLETE
+#    (MarkTableHandForHandHandComplete or HandEnded) → "" again
+#    (EndTableHandForHand). StartHand rejected with
+#    TABLE_HAND_FOR_HAND_ROUND_COMPLETE while parked at COMPLETE.
+#    On the next PlayerEliminated the tournament aggregate emits
+#    HandForHandEnded alongside (TDA Rule 12 — bubble break ends
+#    H4H). The acceptance test additionally orchestrates per-table
+#    fan-out directly (alongside the saga path) to make per-aggregate
+#    sequence tracking deterministic; Sequence-mismatch retries in
+#    _send_table_command absorb the saga's concurrent commits.
 Feature: Cluster Tournament Acceptance
   Tournament-scoped cluster-tier acceptance scenarios. These exercise
   the tournament aggregate end-to-end against a deployed angzarr
