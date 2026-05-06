@@ -1,11 +1,28 @@
 # Allocated: EA-0006 .. EA-0013
 #
-# EA-0011..EA-0013 are tagged @wip. Their tournament-level command
-# handlers (ColorUp, RebalanceTables, EnterHandForHand) are implemented
-# and unit-tested via the per-domain code; the cluster-level e2e
-# requires additional sagas (saga-color-up, saga-table-balancing,
-# saga-hand-for-hand) plus helm/manifest entries to drive multi-table
-# coordination — out of scope for this PR. Remove @wip when those land.
+# EA-0011..EA-0013 (color-up, balancing, hand-for-hand) are end-to-end
+# against the deployed cluster:
+#
+#  * EA-0011 verifies the tournament aggregate's chip-race math:
+#    AdvanceBlindLevel(retire/new denom) → ColorUpCompleted with
+#    conservation deltas (chips_added_by_rescue - chips_removed_by_race
+#    nets to zero when starting stacks divide evenly into the new
+#    denomination, per TDA Rule 24A). The aggregate populates
+#    per-player chip inventories on TournamentPlayerEnrolled so the
+#    chip race has real chips to convert.
+#  * EA-0012 wires the rebalance via saga-tournament-table:
+#    RebalanceTables(source/destination/player/seat/stack) →
+#    PlayerMovedBetweenTables → saga emits LeaveTable on source +
+#    SeatPlayer on destination, preserving the moved player's stack.
+#    The test runs in SYNC_MODE_CASCADE so the per-table commands
+#    commit before the response returns.
+#  * EA-0013 covers the H4H bubble lifecycle: EnterHandForHand →
+#    HandForHandStarted; on the next PlayerEliminated the tournament
+#    aggregate emits HandForHandEnded alongside (TDA Rule 12 — bubble
+#    break ends H4H). Per-table hand_for_hand_waiting / _complete
+#    status transitions and the saga-emitted
+#    HandForHandRoundComplete remain structural until saga-hand-for-
+#    hand-coordinator + table-side H4H state land.
 Feature: Cluster Tournament Acceptance
   Tournament-scoped cluster-tier acceptance scenarios. These exercise
   the tournament aggregate end-to-end against a deployed angzarr
@@ -290,7 +307,7 @@ Feature: Cluster Tournament Acceptance
   # via a randomised "race" for any odd chips that don't divide evenly.
   # ===========================================================================
 
-  @tournament @color-up @cluster @wip
+  @tournament @color-up @cluster
   @EA-0011
   Scenario: Color-up at level transition removes low-denom chips from every stack
     Given registered players with bankroll:
@@ -327,7 +344,7 @@ Feature: Cluster Tournament Acceptance
   # table to the smaller. The moved player's stack travels with them.
   # ===========================================================================
 
-  @tournament @balancing @cluster @wip
+  @tournament @balancing @cluster
   @EA-0012
   Scenario: Table balancing moves a player when one table is short
     Given registered players with bankroll:
@@ -365,7 +382,7 @@ Feature: Cluster Tournament Acceptance
   # cannot stall to pass the bubble onto another table.
   # ===========================================================================
 
-  @tournament @bubble @cluster @wip
+  @tournament @bubble @cluster
   @EA-0013
   Scenario: Bubble triggers hand-for-hand play across all active tables
     Given registered players with bankroll:

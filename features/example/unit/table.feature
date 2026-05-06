@@ -878,7 +878,7 @@ Feature: Table aggregate logic
   # player to be big blind next moves to the worst position, including
   # single big blind if available, even if that means the seat is big
   # blind twice. Worst position is never the small blind." The cluster-
-  # tier @wip EA-0012 covers the multi-table cluster integration; this
+  # tier EA-0012 covers the multi-table cluster integration; this
   # unit scenario pins the deterministic per-table algorithm.
 
   @EU-1180
