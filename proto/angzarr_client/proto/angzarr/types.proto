@@ -7,6 +7,10 @@ package angzarr_client.proto.angzarr;
 
 import "google/protobuf/any.proto";
 import "google/protobuf/timestamp.proto";
+// Sentry-compat structured stack-trace + error-chain capture lives in
+// the sererr project (sererr.fyi). Build chains include sererr's
+// proto root via -I so this import resolves.
+import "sererr/sererr.proto";
 
 option csharp_namespace = "Angzarr";
 option go_package = "github.com/angzarr/angzarr/proto/angzarr";
@@ -441,6 +445,13 @@ message EventProcessingFailedDetails {
   string error = 1; // Error message from the handler
   uint32 retry_count = 2; // Number of retry attempts before DLQ routing
   bool is_transient = 3; // Whether the failure is considered transient
+  // Flat array of captured errors representing the cause chain
+  // (most-causal-first; the originating caught error is the LAST
+  // element). Matches Sentry's `exception.values` shape; linkage via
+  // each entry's `mechanism.exception_id` / `mechanism.parent_id`.
+  // Empty when no capture was attempted. See sererr.fyi/spec/proto
+  // for the schema rationale.
+  repeated sererr.v1.CapturedError stack_trace = 4;
 }
 
 // Payload retrieval failure details for DLQ entries.
