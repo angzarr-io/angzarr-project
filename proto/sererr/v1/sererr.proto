@@ -1,0 +1,177 @@
+// Canonical Sentry-compat structured stack-trace + error-chain proto.
+//
+// Sererr defines a portable, structured representation of a captured
+// error: per-frame `function` / `file` / `line` (plus optional source
+// context), an `ExceptionMechanism` describing how the error was
+// caught, and chain linkage via `exception_id` / `parent_id`.
+//
+// **Sentry-naming-compatible.** Field names and numbers mirror Sentry's
+// Exception and StackFrame interfaces 1:1 where they appear. Fields
+// that Sentry defines but most producers cannot populate today (native
+// debugger addresses, locals introspection, lock instrumentation) are
+// listed in `reserved` blocks with their Sentry names so they can be
+// re-added later without renaming or renumbering. A thin proto→JSON
+// adapter with snake_case field names produces a payload Sentry can
+// ingest.
+//
+// See https://develop.sentry.dev/sdk/data-model/event-payloads/ for
+// the upstream Sentry schemas.
+//
+// Prior art surveyed before defining this shape:
+//   - google.rpc.DebugInfo (gRPC error_details / AIP-193): standardized
+//     but unstructured (`repeated string stack_entries`). Insufficient
+//     for a UI that wants to render frames, link to source, or collapse
+//     framework noise.
+//   - OpenTelemetry exception semantic conventions:
+//     `exception.stacktrace` is a single language-formatted string by
+//     design (cross-language compromise). Not structured.
+//   - Sentry SDK frame/exception schemas: industry gold standard for
+//     structured exception reporting. Adopted here.
+//
+// Conventions:
+//   - Frame ordering: most-recent-call-first (matches Python's
+//     `traceback.format_exception`; OPPOSITE of Rust `Backtrace`'s
+//     default `Display`). Producers normalize on encode.
+//   - Cause chains are a **flat array** carried by the enclosing
+//     message (most-causal-first; the originating caught error is the
+//     LAST element). Matches Sentry's `exception.values`. Linkage via
+//     `mechanism.exception_id` / `mechanism.parent_id`.
+//   - Producers MUST populate `frames` for every capture. There is no
+//     pre-rendered text fallback — if structuring fails, that's a
+//     producer bug, not a degraded path.
+//   - Source-context fields are populated either at capture time by a
+//     producer that embeds its source tree, OR at read time by a
+//     consumer that resolves the `release` SHA against a source repo.
+//   - All fields are optional in the proto3 sense. Zero values mean
+//     "unknown." Consumers tolerate missing data.
+
+syntax = "proto3";
+package sererr.v1;
+
+option csharp_namespace = "Sererr";
+option go_package = "sererr.fyi/sererr/packages/go;sererr";
+option java_multiple_files = true;
+option java_package = "fyi.sererr";
+
+// A single frame in a stack trace.
+//
+// Numbers and names mirror Sentry's frame interface where included.
+message StackFrame {
+  // --- Identification (Sentry-equivalent) ------------------------------
+  // Demangled function/method name (Sentry: `function`).
+  string function = 1;
+  // Containing module / class / namespace (Sentry: `module`).
+  string module = 4;
+  // Native library / crate / package name (Sentry: `package`).
+  string package = 5;
+
+  // --- Location (Sentry-equivalent) ------------------------------------
+  // Source file (Sentry: `filename`; field name kept as `file` for
+  // brevity. A proto→JSON adapter renames on the wire).
+  string file = 6;
+  // Absolute path on the build machine (Sentry: `abs_path`).
+  string abs_path = 7;
+  // 1-based line number; 0 = unknown (Sentry: `lineno`).
+  uint32 line = 8;
+
+  // --- Source context (Sentry-equivalent) ------------------------------
+  // Populated at capture by producers that embed their own source, or
+  // resolved at read time from the capture's `release` SHA.
+  // The exact source line at `line` (Sentry: `context_line`).
+  string context_line = 10;
+  // Source lines preceding `line` (Sentry: `pre_context`).
+  repeated string pre_context = 11;
+  // Source lines following `line` (Sentry: `post_context`).
+  repeated string post_context = 12;
+  // Deep link to a source viewer for this frame (Sentry: `source_link`).
+  string source_link = 13;
+
+  // --- Frame flags / hints --------------------------------------------
+  // False for framework/stdlib frames the operator can usually skip
+  // (Sentry: `in_app`).
+  bool in_app = 14;
+
+  // --- Reserved Sentry-equivalent fields ------------------------------
+  // Numbers and names pinned so re-adding never requires a rename.
+  //   2  raw_function    — std backtrace usually demangles
+  //   3  symbol          — same as raw_function
+  //   9  colno           — most languages' stdlib doesn't expose
+  //   15 stack_start     — Sentry's Android thread-marker
+  //   16 vars            — locals introspection rare across runtimes
+  //   17-20 native-debugging addresses — relevant for minidumps
+  //   21 platform        — per-frame platform marker (mixed stacks)
+  //   22 lock            — Sentry's LockReason; needs instrumentation
+  reserved 2, 3, 9, 15, 16, 17, 18, 19, 20, 21, 22;
+  reserved "raw_function", "symbol", "colno", "stack_start", "vars",
+           "instruction_addr", "addr_mode", "symbol_addr", "image_addr",
+           "platform", "lock";
+}
+
+// Describes how an exception was captured / handled. Mirrors Sentry's
+// `mechanism` object on the exception interface.
+//
+// Carries chain linkage Sentry uses for flat `exception.values` arrays
+// — `exception_id` and `parent_id` let consumers reconstruct the tree.
+message ExceptionMechanism {
+  // Required: mechanism category — e.g. `"generic"`, `"panic"`,
+  // `"signal"`, `"timeout"`, `"poisoned-mutex"`, `"chained"`.
+  string type = 1;
+  string description = 2;
+  // True when the exception was caught by user code.
+  bool handled = 3;
+  // True if synthesized for context rather than raised by a real failure.
+  bool synthetic = 4;
+  string help_link = 5;
+  string source = 6;
+  // Identifier within the enclosing exception array.
+  uint32 exception_id = 7;
+  // Identifier of the causal parent. 0 = root cause.
+  uint32 parent_id = 8;
+  bool is_exception_group = 9;
+  // Mechanism-specific metadata. Producers stringify complex values.
+  map<string, string> data = 10;
+
+  // Reserved:
+  //   11 meta — Sentry's nested native-OS sub-object (signal,
+  //             mach_exception, errno). Not modeled today.
+  reserved 11;
+  reserved "meta";
+}
+
+// A captured error: type, message, frames, mechanism, and inlined
+// event-level metadata. Cause chains live as a flat repeated
+// CapturedError on the enclosing message; this message has no
+// recursive field.
+message CapturedError {
+  // --- Sentry exception interface --------------------------------------
+  // Error class/type name, e.g. `"sqlx::Error::PoolTimedOut"`
+  // (Sentry: `type`).
+  string type = 1;
+  // Short rendering of the error itself, NOT including the chain
+  // (Sentry: `value`).
+  string message = 2;
+  // Frames, most-recent-call-first. REQUIRED.
+  repeated StackFrame frames = 5;
+  // Mechanism describing how the exception was captured. Carries the
+  // chain linkage.
+  ExceptionMechanism mechanism = 6;
+
+  // --- Sentry event-level fields inlined for self-containment ---------
+  // Build identifier (Sentry: `release`). git SHA or `name@semver`.
+  // When this is a SHA, consumers MAY resolve source context lazily.
+  // Inherited by chain siblings when empty.
+  string release = 9;
+  // Producing host / pod name (Sentry: `server_name`).
+  string server_name = 10;
+
+  // Reserved Sentry-equivalent fields:
+  //   3  module       — redundant with `type` (extractable on read)
+  //   4  thread_id    — rarely meaningful for DLQ triage
+  //   7  text         — `frames` is required; no rendered fallback
+  //   8  caused_by    — chains are flat at the enclosing message
+  //   11 environment  — belongs to deploy-config / topology
+  //   12 platform     — reserved for future non-default producers
+  reserved 3, 4, 7, 8, 11, 12;
+  reserved "module", "thread_id", "text", "caused_by", "environment",
+           "platform";
+}

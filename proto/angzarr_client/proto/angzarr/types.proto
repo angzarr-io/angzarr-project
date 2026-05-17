@@ -10,7 +10,7 @@ import "google/protobuf/timestamp.proto";
 // Sentry-compat structured stack-trace + error-chain capture lives in
 // the sererr project (sererr.fyi). Build chains include sererr's
 // proto root via -I so this import resolves.
-import "sererr/sererr.proto";
+import "sererr/v1/sererr.proto";
 
 option csharp_namespace = "Angzarr";
 option go_package = "github.com/angzarr/angzarr/proto/angzarr";
