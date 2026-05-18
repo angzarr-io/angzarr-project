@@ -71,6 +71,17 @@ message AddChips {
   int64 amount = 2;
 }
 
+// TDA Rule 33 / WSOP Rule 86 — voluntary seat change. The player
+// requests to move from ``current_seat`` to ``requested_seat`` between
+// hands. If the move skips a blind position the player forfeits both
+// blinds and earns a missed-round penalty (emits BlindDodgePenalty);
+// the handler also re-anchors seating per the new position.
+message ChangeSeats {
+  bytes player_root = 1;
+  int32 current_seat = 2;
+  int32 requested_seat = 3;
+}
+
 // Events
 
 message TableCreated {

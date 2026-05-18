@@ -198,6 +198,124 @@ message PotAward {
   string pot_type = 3;
 }
 
+// TDA Rule 35A / WSOP Rule 88 — floor-issued misdeal declaration. Pre-SA
+// only; post-SA misdeals are rejected by the handler. Emits
+// MisdealDeclared; downstream a redeal is triggered via RedealHand when
+// ``dealer_button_preserved`` is true.
+message DeclareMisdeal {
+  string reason = 1; // "EXPOSED_STUD_DOWNCARD" / "BUTTON_CARD_EXPOSED" / etc.
+  bool dealer_button_preserved = 2;
+}
+
+// TDA Rule 35E — dealer or floor reports a fouled deck (two cards of the
+// same rank+suit). Play stops, all bets are returned, the hand is voided.
+// Emits FouledDeckDetected.
+message ReportFouledDeck {
+  string duplicate_card = 1; // Human-readable form: "Ah", "Ks", etc.
+}
+
+// TDA Rule 35C — redeal triggered after a pre-SA misdeal. Same button,
+// same blind level, same player roster, same hand_number. Emits
+// HandRedealt followed by a fresh CardsDealt sequence.
+message RedealHand {
+  bytes table_root = 1;
+  int64 hand_number = 2;
+  int32 dealer_position = 3;
+  int64 small_blind = 4;
+  int64 big_blind = 5;
+  int64 level = 6;
+}
+
+// TDA Rule 37 — button-position card replaced when announced before the
+// button has acted. The original card is returned to the stub and a
+// replacement is dealt. Emits ButtonCardReplaced.
+message ReplaceButtonCard {
+  bytes player_root = 1;
+  Card replacement_card = 2;
+}
+
+// TDA RP-5A — premature flop. Floor reports that the flop was dealt
+// before betting on the prior street completed. The 3 premature cards
+// are returned to the stub, the stub is reshuffled, the next flop deal
+// does NOT add another burn. Emits PrematureFlopDetected.
+message ReportPrematureFlop {}
+
+// TDA RP-5B — premature turn detected. Same procedure as flop. Emits
+// PrematureTurnDetected.
+message ReportPrematureTurn {}
+
+// TDA RP-5C — premature river detected. Same procedure as flop / turn.
+// Emits PrematureRiverDetected.
+message ReportPrematureRiver {}
+
+// Stud street advance — dealer deals 4th/5th/6th street up-cards for
+// every active player. The street's first-to-act is determined from
+// the resulting board (high open-card combo per TDA RP-10E). Emits
+// StudStreetDealt with the per-player upcards. 7th street is dealt
+// face-down and recorded under PlayerHandState.down_cards via the
+// existing CardsRevealed path at showdown.
+message DealStudStreet {
+  StudStreet street = 1;
+  repeated PlayerUpCards up_cards = 2;
+}
+
+// TDA RP-10H — short-stub fallback on 7th street. When the stub plus
+// remaining burns cannot service individual deals, a single face-up
+// community card is dealt and shared by all active players. Emits
+// StudCommunityCardDealt. ``street`` is always SEVENTH_STREET in the
+// current rules; ``shared_with`` enumerates every active player_root.
+message DealStudCommunityCard {
+  StudStreet street = 1;
+  repeated bytes shared_with = 2;
+}
+
+// WSOP §Seven Card Games — when all 3 of a Participant's first cards
+// are dealt down by mistake, the floor scrambles them and randomly
+// selects one to turn face up as the door card. The supervisor supplies
+// ``rng_seed`` so the selection is replayable. Emits StudDoorCardSelected.
+message ScrambleAllDownCards {
+  bytes player_root = 1;
+  bytes rng_seed = 2;
+}
+
+// TDA RP-10A — dealer or floor reports that a card meant to be dealt
+// face-down on the initial deal was exposed. The exposed card becomes
+// the player's upcard and the next dealt card (the door card) is dealt
+// face down to compensate. Emits StudDownCardConverted.
+message ReportExposedStudDowncard {
+  bytes player_root = 1;
+  Card exposed_card = 2;
+}
+
+// TDA RP-10B — 7th-street card exposed by dealer with action remaining.
+// The original is removed from play and a replacement is dealt face down.
+// If no betting action remains, the original (still-down) card stands
+// and this command is rejected with FAILED_PRECONDITION. Emits
+// SeventhStreetCardReplaced.
+message ReplaceSeventhStreetCard {
+  bytes player_root = 1;
+  Card original_card = 2;
+  Card replacement_card = 3;
+}
+
+// WSOP §Seven Card Games / Robert's §SC Stud #5 — bring-in posted by
+// the wrong player on 3rd street; the floor reassigns to the correct
+// low-up-card player and refunds the wager. Rejected with
+// CORRECTION_WINDOW_CLOSED if the next player has already acted.
+// Emits BringInCorrected.
+message CorrectBringIn {
+  bytes incorrect_root = 1;
+  bytes correct_root = 2;
+  int64 returned_amount = 3;
+}
+
+// TDA RP-10G / RP-5D — premature stud card detected. The card is
+// returned to the stub, the stub is reshuffled, and the next street
+// is dealt without an additional burn. Emits PrematureStudCardDetected.
+message ReportPrematureStudCard {
+  StudStreet attempted_street = 1;
+}
+
 // Events
 
 message CardsDealt {
