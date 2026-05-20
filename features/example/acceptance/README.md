@@ -5,9 +5,11 @@ angzarr cluster (standalone docker-compose or Kubernetes) — they exercise
 network serialization, pod lifecycle, inter-coordinator routing, and
 observable read-model lag.
 
-In-process integration scenarios (single-process sagas, PMs, projectors) live
-in [`../unit/`](../unit/) (see `poker_game.feature` and `sync_modes.feature`).
-They are NOT duplicated here.
+In-process integration scenarios — single-process sagas, PMs, projectors,
+poker rules — live in [`../poker/`](../poker/) (rules) and
+[`../framework/`](../framework/) (framework internals). Poker scenarios
+ALSO run at the cluster tier from this directory's runner via the
+acceptance step dir; framework scenarios are in-process-only.
 
 ## What lives here
 
@@ -57,7 +59,8 @@ Each runner reads feature files from
 
 1. Does the scenario ONLY make sense against a deployed cluster? (network
    latency assertions, pod restart, inter-coordinator routing, real-wire
-   projector lag) → here. Otherwise → `../unit/`.
+   projector lag) → here. Otherwise: poker rule → `../poker/`; framework
+   concept demonstrated through poker → `../framework/`.
 2. Each scenario (or logical group) should carry a `# CLUSTER-ONLY:` comment
    noting which deployment it was validated against.
 3. Pick the next `@EA-NNNN` ID.
