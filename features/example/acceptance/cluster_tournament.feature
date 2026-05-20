@@ -47,7 +47,7 @@ Feature: Cluster Tournament Acceptance
   Hand completion is fast-forwarded via AwardPot rather than scripted
   through every betting action: the tournament lifecycle is what
   these scenarios are pinning, and the betting-round correctness is
-  already covered by features/example/unit/hand.feature.
+  already covered by features/example/poker/hand.feature.
 
   How to run:
   - Start a cluster (kind bootstrap) and export PLAYER_URL /

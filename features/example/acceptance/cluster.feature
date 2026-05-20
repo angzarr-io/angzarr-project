@@ -5,8 +5,10 @@ Feature: Cluster Acceptance
   they exercise network serialization, pod lifecycle, inter-coordinator
   routing, and observable read-model lag.
 
-  In-process integration scenarios (single-process sagas, PMs, projectors)
-  live in features/example/unit/ and are NOT duplicated here.
+  Framework-concept scenarios (single-process sagas, PMs, projectors)
+  live in features/example/framework/ and are NOT duplicated here.
+  Poker-rule scenarios run at BOTH this tier and in-process via
+  features/example/poker/.
 
   How to run:
   - Start a cluster (standalone.yaml or kind bootstrap) and export

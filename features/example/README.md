@@ -4,16 +4,20 @@ Cucumber specs for the canonical angzarr example — a poker domain spanning
 player, table, and hand aggregates with cross-domain sagas and process
 managers.
 
-Two sub-tiers, different granularities:
+Three sibling directories:
 
-- **[`unit/`](unit/)** — handler-level and in-process integration tests.
-  Single-process invocation (direct handler or `InProcessClient`), no
-  deployed cluster. Covers hand ranking, betting rules, saga translation,
-  cross-aggregate flow, and sync-mode semantics.
-- **[`acceptance/`](acceptance/)** — cluster-tier, gRPC-only. Scenarios that
-  ONLY make sense against a deployed cluster: wire-latency assertions,
-  coordinator-restart durability, inter-coordinator routing, observable
-  projector lag.
+- **[`poker/`](poker/)** — TDA / WSOP / Robert's rule scenarios.
+  **Run at both tiers** (in-process via aggregate handlers AND cluster via
+  gRPC). Cluster-only assertions no-op on the in-process tier so the same
+  `.feature` files exercise both stacks.
+- **[`framework/`](framework/)** — framework-concept scenarios (saga
+  dispatch, PM state machine, projector rendering, orchestrator decision
+  coupling) demonstrated *through* concrete poker handlers. In-process tier
+  only — asserts on internals the cluster doesn't expose.
+- **[`acceptance/`](acceptance/)** — cluster-tier-only scenarios that ONLY
+  make sense against a deployed cluster: coordinator-restart durability,
+  inter-coordinator routing, observable projector lag. Not duplicated by
+  the in-process tier.
 
 ## Why poker
 
@@ -23,23 +27,19 @@ Two sub-tiers, different granularities:
 - **Rich edge cases** — all-in, side pots, split pots, elimination — real complexity
 - **Visible side effects** — player balance changes reflect cross-domain saga execution
 
-## Why two sub-tiers, not one
+## Why the split
 
-The two sub-tiers look like they overlap — same domain, same entities, often
-similar-looking scenario titles. They do not share feature files.
+The previous layout (`unit/` + `acceptance/`) mixed concerns. Three
+distinct things live here:
 
-| Dimension | `unit/` | `acceptance/` |
-|-----------|---------|---------------|
-| Granularity | Single handler OR full in-process chain | Full chain across deployed coordinators |
-| Assertion | `emits DealCards command` / `within 3s, hand domain has CardsDealt event` | `within 5s, hand domain has CardsDealt event` over the wire; pod restart; projector lag |
-| Setup | State struct / `InProcessClient` | Live gRPC sidecars, bootstrap or external URLs |
-| Step vocabulary | `a TableSyncSaga` / `I start a hand at table "Main"` | `the poker cluster is reachable via gRPC` / `the player coordinator is restarted` |
-| Failure surface | Handler validation rejections, logical saga failures | Wire errors, timeouts, pod lifecycle, real-network latency |
-| Temporal model | Synchronous or in-process async | Network-async with realistic margins |
+| | What it asserts | When it runs |
+|--|---|---|
+| Poker rules | Domain outcomes per TDA/WSOP/Robert's | Both tiers — same `.feature`, two harness backends |
+| Framework concepts | Saga/PM/projector/orchestrator internals (replay state, in-memory propagation order, stateful progress) | In-process only |
+| Cluster orchestration | Wire latency, pod restart, multi-coordinator routing | Cluster only |
 
-A scenario that happens to have the same English title in both tiers asserts
-different things — that's healthy defense-in-depth, not duplication. See the
-root [STEP_VOCABULARY.md](../STEP_VOCABULARY.md).
+Splitting them three ways means each scenario sits where its assertions
+actually make sense.
 
 ## Domain vocabulary
 
@@ -57,10 +57,11 @@ for invocation details.
 
 Pick the right sub-tier first:
 
-- Does the assertion only make sense against a deployed cluster — wire
-  latency, pod restart, coordinator routing, observable projector lag? →
-  `acceptance/`
-- Everything else (single handler, full in-process flow, sync-mode
-  semantics, saga translation) → `unit/`
+- Codifies a TDA / WSOP / Robert's rule? → `poker/`. Cite the rule via
+  `# Rule:` comment and update [`RULES.md`](RULES.md).
+- Asserts on a framework concept's internals (saga dispatch order, PM
+  state-machine progress, projector idempotence on replay)? → `framework/`.
+- Asserts on cluster orchestration (coordinator restart, pod state, sync
+  mode propagation timing)? → `acceptance/`.
 
 Then follow the sub-tier README's process.
