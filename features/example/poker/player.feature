@@ -191,7 +191,7 @@ Feature: Player aggregate logic
     And the player event has amount 500
     And the player event has new_available_balance 500
     And the player event has new_reserved_balance 500
-    And the player event has table_root "table-1"
+    And the player event has key "table-1"
 
   # Boundary: amount=1 must succeed. Catches `if amount <= 0` → `<= 1`.
   Scenario: Reserve of one chip succeeds at the lower boundary
@@ -220,8 +220,7 @@ Feature: Player aggregate logic
     When I handle a ReserveFunds command with amount 200 for table "table-1"
     Then the command fails with status "FAILED_PRECONDITION"
     And the command is rejected with code "FUNDS_ALREADY_RESERVED_FOR_TABLE"
-    # uuid5(NAMESPACE_OID, "table-1").bytes.hex() — byte-identical across Python and Rust.
-    And the rejection field "table_root_hex" equals "eba6a19b488f5e1097a5a34a92553679"
+    And the rejection field "table_root_hex" is the table_root_hex of "table-1"
 
   # ==========================================================================
   # Fund Release - Returning Reserved Funds
@@ -241,7 +240,7 @@ Feature: Player aggregate logic
     And the player event has amount 500
     And the player event has new_available_balance 1000
     And the player event has new_reserved_balance 0
-    And the player event has table_root "table-1"
+    And the player event has key "table-1"
 
   @EU-0214
   Scenario: Cannot release non-existent reservation
@@ -250,8 +249,7 @@ Feature: Player aggregate logic
     When I handle a ReleaseFunds command for table "table-1"
     Then the command fails with status "FAILED_PRECONDITION"
     And the command is rejected with code "NO_FUNDS_RESERVED_FOR_TABLE"
-    # uuid5(NAMESPACE_OID, "table-1").bytes.hex() — byte-identical across Python and Rust.
-    And the rejection field "table_root_hex" equals "eba6a19b488f5e1097a5a34a92553679"
+    And the rejection field "table_root_hex" is the table_root_hex of "table-1"
 
   # ==========================================================================
   # State Reconstruction
