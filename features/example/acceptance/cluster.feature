@@ -5,10 +5,8 @@ Feature: Cluster Acceptance
   they exercise network serialization, pod lifecycle, inter-coordinator
   routing, and observable read-model lag.
 
-  Framework-concept scenarios (single-process sagas, PMs, projectors)
-  live in features/example/framework/ and are NOT duplicated here.
-  Poker-rule scenarios run at BOTH this tier and in-process via
-  features/example/poker/.
+  In-process integration scenarios (single-process sagas, PMs, projectors)
+  live in features/example/unit/ and are NOT duplicated here.
 
   How to run:
   - Start a cluster (standalone.yaml or kind bootstrap) and export
@@ -73,7 +71,11 @@ Feature: Cluster Acceptance
   # ===========================================================================
 
   # CLUSTER-ONLY: validated against deployed standalone.yaml
-  @projector @consistency @cluster
+  # Tagged @wip until a ProjectorQuery surface exists. The previous
+  # impl polled the in-test bookkeeping mirror (which the When step had
+  # already set), so the assertion never observed the actual projector
+  # — see ACCEPTANCE_REMEDIATION_PLAN.md Pattern J.
+  @projector @consistency @cluster @wip
   @EA-0004
   Scenario: Projector reflects state-changing command within bound
     Given a registered player "Alice" with bankroll 0
