@@ -541,6 +541,22 @@ message HandForHandRoundComplete {
   google.protobuf.Timestamp completed_at = 2;
 }
 
+// Per-table progress receipt for ``RecordTableHandComplete`` while the
+// pending-tables set still has unreported entries. Without this event
+// the handler had no way to persist "table T already reported in" —
+// each command rebuilds state from prior events and the original apply
+// for ``HandForHandStarted`` reseeded the pending set to the full
+// ``active_table_roots``, so the second-and-subsequent
+// ``RecordTableHandComplete`` saw the original membership and only
+// removed one entry per call. The progressive emit lets state replay
+// converge: by the time the last table reports, the rebuilt state has
+// the prior table's removal applied and the empty-set transition fires
+// the ``HandForHandRoundComplete`` event.
+message TableHandCompleteRecorded {
+  bytes table_root = 1;
+  google.protobuf.Timestamp recorded_at = 2;
+}
+
 // TDA RP-8B/8C emit — a single hand-for-hand hand finished.
 // ``clock_seconds_deducted`` records the per-hand level-clock charge
 // (capped at 180 = 3 min, defaults to 120 = 2 min per RP-8C).
