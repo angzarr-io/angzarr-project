@@ -3289,12 +3289,18 @@ Feature: Hand aggregate logic
     # Rule: TDA Rule 62 (2024) — chips found behind after a call do not
     #       retroactively join the all-in.
     # Rule: WSOP Rule 105 (2025) — same.
+    # The "effective stack for the next hand" effect is not yet
+    # cluster-observable — adding it requires a ReportHiddenChip
+    # command + HiddenChipReported event + per-player
+    # ``hidden_chips_for_next_hand`` state field. The pot-not-added
+    # assertion below is the cluster-observable half of the rule;
+    # the next-hand effect would need a real handler before its
+    # assertion is anything other than a fixture echo.
     Given a CardsDealt event for TEXAS_HOLDEM with 2 players "Alice,Bob" at stacks 200
     And player "Alice" went all-in for 200
     And player "Bob" called the 200 all-in
     When a hidden 25 chip is discovered behind player "Alice" after the call
     Then the hidden 25 is not added to the current pot
-    And player "Alice" effective stack for the next hand is 25
 
   # ==========================================================================
   # No Disclosure & Exposing Cards — TDA Rules 67, 68
