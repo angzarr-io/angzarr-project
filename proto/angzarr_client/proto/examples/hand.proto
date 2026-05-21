@@ -341,9 +341,24 @@ message ReportPrematureStudCard {
 // Events
 
 // Emitted by handle_shuffle. The full ordered deck (52 cards) the hand
-// will deal from — public testimony for audit/replay. Production saga
-// emits Shuffle(seed=hand_root); the resulting DeckShuffled.deck is
-// the SplitMix64 shuffle output. Test scenarios that pin a deck emit
+// will deal from — public testimony for audit/replay.
+//
+// SECURITY NOTE — DELIBERATE INFORMATION LEAK
+// Publishing the full deck order on the bus reveals every future card
+// before it is dealt. Any subscriber can compute every player's hole
+// cards and the entire community board the moment DeckShuffled
+// arrives. This is unacceptable for a real-money or competitive
+// gaming system. This codebase is an example / reference
+// implementation, NOT a gambling product; the leak is intentional so
+// the cluster's behaviour is fully observable and replayable for
+// teaching purposes. A production system would either (a) not emit
+// DeckShuffled at all and accept replay loss, (b) emit only a
+// commitment (hash) and reveal cards as they're physically dealt, or
+// (c) split the deck into seat-keyed encrypted shares the player
+// owners can decrypt for their hole cards.
+//
+// Production saga emits Shuffle(seed=hand_root); DeckShuffled.deck is
+// the SplitMix64 shuffle output. Tests that pin a deck emit
 // Shuffle(deck=...); the field mirrors verbatim.
 message DeckShuffled {
   repeated Card deck = 1;
