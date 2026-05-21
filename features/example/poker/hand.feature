@@ -3345,12 +3345,9 @@ Feature: Hand aggregate logic
     And the burn for the next street is taken from the reshuffled stub
     And no community cards already exposed are altered
 
-  @EU-1365
-  Scenario: Tied late-reg seat picks resolved by deterministic randomness
-    # Rule: TDA RP-14 (2024) — randomness for special situations.
-    Given two late-registering players "Eve" and "Frank" assigned to the same hand_no
-    And the same arrival timestamp
-    When the seating coordinator handles the tie
-    Then a SeatTiebreakResolved event is emitted using a deterministic random
-    And the tiebreak seed is derived from (hand_no, both player_roots) so it is reproducible
-    And exactly one of "Eve" or "Frank" is seated first
+  # EU-1365 — TDA RP-14 deterministic randomness for tied late-reg seat
+  # picks is covered by ``tests/unit/test_seat_tiebreak.py`` in examples-python.
+  # The rule is a pure function (seed = SHA-256(hand_no || sorted contenders),
+  # winner = sorted[seed_int % len]); pytest is the authoritative spec.
+  # Cucumber here would be a tautology — the fixture would re-derive the
+  # same hash and check it matched, with no cluster handler in the chain.
