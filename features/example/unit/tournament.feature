@@ -67,7 +67,7 @@ Feature: Tournament aggregate logic
   Scenario: Create a tournament successfully
     Given no prior events for the tournament aggregate
     When I handle a CreateTournament command with name "Test Tournament" buy_in 100 starting_stack 1000 max_players 100 min_players 10
-    Then the result is a angzarr_client.proto.examples.TournamentCreated event
+    Then the result is a angzarr_client.proto.examples.v1.TournamentCreated event
     And the tournament event has name "Test Tournament"
     And the tournament event has buy_in 100
     And the tournament event has starting_stack 1000
@@ -132,7 +132,7 @@ Feature: Tournament aggregate logic
   Scenario: Open registration successfully
     Given a TournamentCreated event with name "Test Tournament" buy_in 100 starting_stack 1000 max_players 100 min_players 10
     When I handle an OpenRegistration command
-    Then the result is a angzarr_client.proto.examples.RegistrationOpened event
+    Then the result is a angzarr_client.proto.examples.v1.RegistrationOpened event
 
   @EU-0808
   Scenario: Cannot open registration for nonexistent tournament
@@ -152,7 +152,7 @@ Feature: Tournament aggregate logic
   Scenario: Close registration successfully
     Given a tournament with registration open
     When I handle a CloseRegistration command
-    Then the result is a angzarr_client.proto.examples.RegistrationClosed event
+    Then the result is a angzarr_client.proto.examples.v1.RegistrationClosed event
 
   @EU-0811
   Scenario: Cannot close registration that is not open
@@ -177,7 +177,7 @@ Feature: Tournament aggregate logic
   Scenario: Enroll a player successfully
     Given a tournament with registration open
     When I handle an EnrollPlayer command for player "player1" reservation "res1"
-    Then the result is a angzarr_client.proto.examples.TournamentPlayerEnrolled event
+    Then the result is a angzarr_client.proto.examples.v1.TournamentPlayerEnrolled event
     And the tournament event has player_root "player1"
     And the tournament event has fee_paid 100
 
@@ -185,14 +185,14 @@ Feature: Tournament aggregate logic
   Scenario: Enrollment rejected with empty player_root
     Given a tournament with registration open
     When I handle an EnrollPlayer command for player "" reservation ""
-    Then the result is a angzarr_client.proto.examples.TournamentEnrollmentRejected event
+    Then the result is a angzarr_client.proto.examples.v1.TournamentEnrollmentRejected event
     And the tournament event has reason containing "player_root"
 
   @EU-0814
   Scenario: Enrollment rejected when registration is not open
     Given a TournamentCreated event with name "Test Tournament" buy_in 100 starting_stack 1000 max_players 100 min_players 10
     When I handle an EnrollPlayer command for player "player1" reservation ""
-    Then the result is a angzarr_client.proto.examples.TournamentEnrollmentRejected event
+    Then the result is a angzarr_client.proto.examples.v1.TournamentEnrollmentRejected event
     And the tournament event has reason containing "not open"
 
   @EU-0815
@@ -201,7 +201,7 @@ Feature: Tournament aggregate logic
     And a player "p1" enrolled
     And a player "p2" enrolled
     When I handle an EnrollPlayer command for player "p3" reservation ""
-    Then the result is a angzarr_client.proto.examples.TournamentEnrollmentRejected event
+    Then the result is a angzarr_client.proto.examples.v1.TournamentEnrollmentRejected event
     And the tournament event has reason containing "full"
 
   @EU-0816
@@ -209,7 +209,7 @@ Feature: Tournament aggregate logic
     Given a tournament with registration open
     And a player "player1" enrolled
     When I handle an EnrollPlayer command for player "player1" reservation ""
-    Then the result is a angzarr_client.proto.examples.TournamentEnrollmentRejected event
+    Then the result is a angzarr_client.proto.examples.v1.TournamentEnrollmentRejected event
     And the tournament event has reason containing "already registered"
 
   # ==========================================================================
@@ -233,7 +233,7 @@ Feature: Tournament aggregate logic
   Scenario: Rebuy denied for unregistered player
     Given a running tournament with min_players 2 and max_players 10 and 10 enrolled players
     When I handle a ProcessRebuy command for player "unknown"
-    Then the result is a angzarr_client.proto.examples.RebuyDenied event
+    Then the result is a angzarr_client.proto.examples.v1.RebuyDenied event
     And the tournament event has reason containing "not registered"
 
   # ==========================================================================
@@ -289,7 +289,7 @@ Feature: Tournament aggregate logic
     And a player "p1" enrolled
     And a player "p2" enrolled
     When I handle a StartTournament command
-    Then the result is a angzarr_client.proto.examples.TournamentStarted event
+    Then the result is a angzarr_client.proto.examples.v1.TournamentStarted event
     And the tournament event has total_players 2
 
   @EU-0823
@@ -324,7 +324,7 @@ Feature: Tournament aggregate logic
   Scenario: AdvanceBlindLevel on a running tournament emits BlindLevelAdvanced
     Given a running tournament with a two-level blind structure
     When I handle an AdvanceBlindLevel command
-    Then the result is a angzarr_client.proto.examples.BlindLevelAdvanced event
+    Then the result is a angzarr_client.proto.examples.v1.BlindLevelAdvanced event
     And the tournament event has blind level 2
     And the tournament event has small_blind 50
     And the tournament event has ante 10
@@ -372,7 +372,7 @@ Feature: Tournament aggregate logic
   Scenario: EliminatePlayer emits PlayerEliminated with the supplied hand_root
     Given a running tournament with min_players 2 and max_players 10 and 2 enrolled players
     When I handle an EliminatePlayer command for player "p0" with hand_root "hand-01"
-    Then the result is a angzarr_client.proto.examples.PlayerEliminated event
+    Then the result is a angzarr_client.proto.examples.v1.PlayerEliminated event
     And the tournament event has hand_root "hand-01"
 
   @EU-0828
@@ -392,7 +392,7 @@ Feature: Tournament aggregate logic
   Scenario: PauseTournament on a running tournament emits TournamentPaused
     Given a running tournament with min_players 2 and max_players 10 and 2 enrolled players
     When I handle a PauseTournament command with reason "dinner break"
-    Then the result is a angzarr_client.proto.examples.TournamentPaused event
+    Then the result is a angzarr_client.proto.examples.v1.TournamentPaused event
     And the tournament event has reason "dinner break"
 
   @EU-0830
@@ -411,7 +411,7 @@ Feature: Tournament aggregate logic
   Scenario: ResumeTournament on a paused tournament emits TournamentResumed
     Given a paused tournament
     When I handle a ResumeTournament command
-    Then the result is a angzarr_client.proto.examples.TournamentResumed event
+    Then the result is a angzarr_client.proto.examples.v1.TournamentResumed event
 
   # ==========================================================================
   # OpenRegistration — Running-Tournament Rejection
@@ -436,7 +436,7 @@ Feature: Tournament aggregate logic
     Given a tournament with registration open
     And a player "p1" enrolled
     When I handle a CloseRegistration command
-    Then the result is a angzarr_client.proto.examples.RegistrationClosed event
+    Then the result is a angzarr_client.proto.examples.v1.RegistrationClosed event
     And the tournament event has total_registrations 1
 
   # ==========================================================================
@@ -450,7 +450,7 @@ Feature: Tournament aggregate logic
   Scenario: ProcessRebuy emits RebuyProcessed for an enrolled player with rebuys enabled
     Given a running tournament with rebuys enabled and 1 enrolled player
     When I handle a ProcessRebuy command for player "p0"
-    Then the result is a angzarr_client.proto.examples.RebuyProcessed event
+    Then the result is a angzarr_client.proto.examples.v1.RebuyProcessed event
     And the tournament event has rebuy_cost 100
     And the tournament event has chips_added 1000
     And the tournament event has rebuy_count 1
@@ -466,7 +466,7 @@ Feature: Tournament aggregate logic
   Scenario: ProcessRebuy emits RebuyDenied when rebuys are not enabled
     Given a running tournament with min_players 2 and max_players 10 and 2 enrolled players
     When I handle a ProcessRebuy command for player "p0"
-    Then the result is a angzarr_client.proto.examples.RebuyDenied event
+    Then the result is a angzarr_client.proto.examples.v1.RebuyDenied event
     And the tournament event has reason containing "not enabled"
 
   # ==========================================================================
@@ -482,35 +482,35 @@ Feature: Tournament aggregate logic
   Scenario: ProcessRebuy emits RebuyDenied when rebuys are disabled in config
     Given a running tournament with rebuys disabled and 1 enrolled player
     When I handle a ProcessRebuy command for player "p0"
-    Then the result is a angzarr_client.proto.examples.RebuyDenied event
+    Then the result is a angzarr_client.proto.examples.v1.RebuyDenied event
     And the tournament event has reason containing "not enabled"
 
   @EU-0838
   Scenario: ProcessRebuy emits RebuyDenied when current level is past the cutoff
     Given a running tournament with rebuy cutoff 2 and 1 enrolled player at level 5
     When I handle a ProcessRebuy command for player "p0"
-    Then the result is a angzarr_client.proto.examples.RebuyDenied event
+    Then the result is a angzarr_client.proto.examples.v1.RebuyDenied event
     And the tournament event has reason containing "closed"
 
   @EU-0839
   Scenario: ProcessRebuy emits RebuyDenied when player has reached max rebuys
     Given a running tournament with max_rebuys 2 and player "p0" who has used 2 rebuys
     When I handle a ProcessRebuy command for player "p0"
-    Then the result is a angzarr_client.proto.examples.RebuyDenied event
+    Then the result is a angzarr_client.proto.examples.v1.RebuyDenied event
     And the tournament event has reason containing "Maximum"
 
   @EU-0840
   Scenario: ProcessRebuy succeeds when rebuy_level_cutoff is 0 (cutoff check disabled)
     Given a running tournament with rebuy cutoff 0 and 1 enrolled player at level 99
     When I handle a ProcessRebuy command for player "p0"
-    Then the result is a angzarr_client.proto.examples.RebuyProcessed event
+    Then the result is a angzarr_client.proto.examples.v1.RebuyProcessed event
     And the tournament event has rebuy_count 1
 
   @EU-0841
   Scenario: ProcessRebuy succeeds when max_rebuys is 0 (unlimited rebuys)
     Given a running tournament with max_rebuys 0 and player "p0" who has used 100 rebuys
     When I handle a ProcessRebuy command for player "p0"
-    Then the result is a angzarr_client.proto.examples.RebuyProcessed event
+    Then the result is a angzarr_client.proto.examples.v1.RebuyProcessed event
 
   # ==========================================================================
   # State Reconstruction
@@ -673,7 +673,7 @@ Feature: Tournament aggregate logic
     # added to the prize pool.
     Given a running tournament with registration open and 2 enrolled players
     When I handle an EnrollPlayer command for player "p3" reservation "res-3"
-    Then the result is a angzarr_client.proto.examples.TournamentPlayerEnrolled event
+    Then the result is a angzarr_client.proto.examples.v1.TournamentPlayerEnrolled event
     And the tournament event has player_root "p3"
     And the tournament event has fee_paid 100
     And the tournament state has registered_players count 3
@@ -686,7 +686,7 @@ Feature: Tournament aggregate logic
     # discounted stack). Pin starting_stack on enrollment.
     Given a running tournament with starting_stack 1500, registration open, and 2 enrolled players
     When I handle an EnrollPlayer command for player "p3" reservation "res-3"
-    Then the result is a angzarr_client.proto.examples.TournamentPlayerEnrolled event
+    Then the result is a angzarr_client.proto.examples.v1.TournamentPlayerEnrolled event
     And the tournament event has starting_stack 1500
 
   @EU-0859
@@ -697,7 +697,7 @@ Feature: Tournament aggregate logic
     # rejection path as an explicit CloseRegistration.
     Given a running tournament with registration_cutoff_level 3 at level 4 and 2 enrolled players
     When I handle an EnrollPlayer command for player "p3" reservation "res-3"
-    Then the result is a angzarr_client.proto.examples.TournamentEnrollmentRejected event
+    Then the result is a angzarr_client.proto.examples.v1.TournamentEnrollmentRejected event
     And the tournament event has reason containing "not open"
 
   @EU-0860
@@ -708,7 +708,7 @@ Feature: Tournament aggregate logic
     Given a running tournament with 2 enrolled players
     When I handle a CloseRegistration command
     And I handle an EnrollPlayer command for player "p3" reservation "res-3"
-    Then the result is a angzarr_client.proto.examples.TournamentEnrollmentRejected event
+    Then the result is a angzarr_client.proto.examples.v1.TournamentEnrollmentRejected event
     And the tournament event has reason containing "not open"
 
   # ==========================================================================
@@ -730,7 +730,7 @@ Feature: Tournament aggregate logic
     And a payout_structure paying positions 1,2,3 at percentages 50,30,20
     And finishing order "p1,p2,p3,p4,p5,p6,p7,p8,p9"
     When I handle a CompleteTournament command with winner "p1"
-    Then the result is a angzarr_client.proto.examples.TournamentCompleted event
+    Then the result is a angzarr_client.proto.examples.v1.TournamentCompleted event
     And the tournament event has winner_root "p1"
     And the tournament event has 3 results
     And TournamentResult 0 has position 1 player_root "p1" payout 2250
@@ -759,7 +759,7 @@ Feature: Tournament aggregate logic
     And a payout_structure paying positions 1,2,3 at percentages 50,30,20
     And finishing order "p1,p2,p3,p4,p5,p6,p7,p8,p9,p10"
     When I handle a CompleteTournament command with winner "p1"
-    Then the result is a angzarr_client.proto.examples.TournamentCompleted event
+    Then the result is a angzarr_client.proto.examples.v1.TournamentCompleted event
     And the tournament event has 3 results
     And no TournamentResult has player_root "p4"
 
@@ -772,7 +772,7 @@ Feature: Tournament aggregate logic
     And a payout_structure paying positions 1,2 at percentages 50,50
     And finishing order "p1,p2"
     When I handle a CompleteTournament command with winner "p1"
-    Then the result is a angzarr_client.proto.examples.TournamentCompleted event
+    Then the result is a angzarr_client.proto.examples.v1.TournamentCompleted event
     And the tournament event has 2 results
     And TournamentResult 0 has position 1 player_root "p1" payout 500
     And TournamentResult 1 has position 2 player_root "p2" payout 500
@@ -813,7 +813,7 @@ Feature: Tournament aggregate logic
     And total_chips_in_play is 6000
     And player "Alice" has 200 chips remaining and elects to re-enter
     When I handle a ReEntryPlayer command for player "Alice" forfeiting 200 chips
-    Then the result is a angzarr_client.proto.examples.PlayerReEntered event
+    Then the result is a angzarr_client.proto.examples.v1.PlayerReEntered event
     And the tournament event has chips_forfeited 200
     And the tournament event has chips_added 1500
     And total_chips_in_play is 7300
@@ -839,7 +839,7 @@ Feature: Tournament aggregate logic
     Given a running tournament "Race" with 3 active players
     And every active player has exactly 75 chips of denomination 25
     When I handle an AdvanceBlindLevel command with chip-race retiring 25 to 100
-    Then the result is a angzarr_client.proto.examples.ColorUpCompleted event
+    Then the result is a angzarr_client.proto.examples.v1.ColorUpCompleted event
     And no player received more than 1 chip from the race
 
   @EU-1161
@@ -853,7 +853,7 @@ Feature: Tournament aggregate logic
     Given a running tournament "Race" with 3 active players
     And player "Alice" has exactly 25 chips of denomination 25 and nothing else
     When I handle an AdvanceBlindLevel command with chip-race retiring 25 to 100
-    Then the result is a angzarr_client.proto.examples.ColorUpCompleted event
+    Then the result is a angzarr_client.proto.examples.v1.ColorUpCompleted event
     And player "Alice" stack is at least 100
 
   @EU-1162
@@ -868,7 +868,7 @@ Feature: Tournament aggregate logic
     # didn't qualify; the difference must be auditable.
     Given a running tournament "Race" with total_chips_in_play 6000
     When I handle an AdvanceBlindLevel command with chip-race retiring 25 to 100
-    Then the result is a angzarr_client.proto.examples.ColorUpCompleted event
+    Then the result is a angzarr_client.proto.examples.v1.ColorUpCompleted event
     And the event has chips_added_by_rescue and chips_removed_by_race
     And total_chips_in_play after race equals 6000 + chips_added_by_rescue - chips_removed_by_race
 
@@ -898,7 +898,7 @@ Feature: Tournament aggregate logic
     And finishing order "Alice,Bob,Carol,Dave"
     When players "Carol,Dave" both bust on the same hand-for-hand hand
     And I handle a CompleteTournament command with winner "Alice"
-    Then the result is a angzarr_client.proto.examples.TournamentCompleted event
+    Then the result is a angzarr_client.proto.examples.v1.TournamentCompleted event
     And the tournament event has 4 results
     And TournamentResult 0 has position 1 player_root "Alice" payout 500
     And TournamentResult 1 has position 2 player_root "Bob" payout 300
@@ -948,7 +948,7 @@ Feature: Tournament aggregate logic
     Given a running tournament "Spring" with min_players 6, max_players 9, and 6 enrolled players
     And player "Alice" is at a table with 6 active players
     When I handle an IssuePenalty command for player "Alice" with type "<type>" rounds <rounds>
-    Then the result is a angzarr_client.proto.examples.PenaltyIssued event
+    Then the result is a angzarr_client.proto.examples.v1.PenaltyIssued event
     And the penalty event has type "<type>"
     And the penalty event has missed_hands <missed>
 
@@ -969,7 +969,7 @@ Feature: Tournament aggregate logic
     And player "Alice" is on a 1-round MISSED_ROUND penalty
     And the next hand at Alice's table has SB at Alice's seat
     When I handle a StartHand command at Alice's table
-    Then the result is a angzarr_client.proto.examples.HandStarted event
+    Then the result is a angzarr_client.proto.examples.v1.HandStarted event
     And player "Alice" had her SB posted from her stack
     And player "Alice" hand is killed after the initial deal
     And player "Alice" remains on penalty with rounds_remaining decremented by 1
@@ -982,7 +982,7 @@ Feature: Tournament aggregate logic
     Given a running tournament "Spring" with min_players 2 and max_players 9 and 4 enrolled players
     And player "Alice" has stack 1500 and tournament total_chips_in_play is 6000
     When I handle a DisqualifyPlayer command for player "Alice" with reason "collusion"
-    Then the result is a angzarr_client.proto.examples.PlayerDisqualified event
+    Then the result is a angzarr_client.proto.examples.v1.PlayerDisqualified event
     And the disqualification event has chips_forfeited 1500
     And total_chips_in_play is 4500
     And player "Alice" is no longer in registered_players
@@ -1005,9 +1005,9 @@ Feature: Tournament aggregate logic
     Given a running tournament "Spring" with registration open and 8 enrolled players
     And the dealer button at "Spring-1" is about to advance to a vacated seat 5
     When player "Alice" late-registers and is seated at "Spring-1" seat 5
-    Then the result is a angzarr_client.proto.examples.TournamentPlayerEnrolled event
+    Then the result is a angzarr_client.proto.examples.v1.TournamentPlayerEnrolled event
     When I handle a StartHand command at "Spring-1"
-    Then the result is a angzarr_client.proto.examples.HandStarted event
+    Then the result is a angzarr_client.proto.examples.v1.HandStarted event
     And the dealer_position is seat 5
     And player "Alice" is dealt in for that hand
 
@@ -1026,7 +1026,7 @@ Feature: Tournament aggregate logic
     And player "Alice" enrolled but never took a hand before the first break ended
     And the new level after the first break has begun
     When the no-show deadline for "Spring" expires
-    Then a angzarr_client.proto.examples.NoShowDetected event is emitted for player "Alice"
+    Then a angzarr_client.proto.examples.v1.NoShowDetected event is emitted for player "Alice"
     And player "Alice" chips are removed from total_chips_in_play
     And player "Alice" buy-in 500 is held in safekeeping
     And player "Alice" is not in players_remaining
@@ -1045,7 +1045,7 @@ Feature: Tournament aggregate logic
     Given a running tournament "HU-Final" in heads-up between "Alice" and "Bob"
     And player "Bob" has been absent from the table for 5 minutes
     When 2 minutes elapses with player "Bob" still absent
-    Then a angzarr_client.proto.examples.AbsentBlindAdvanced event is emitted
+    Then a angzarr_client.proto.examples.v1.AbsentBlindAdvanced event is emitted
     And the dealer button advances by 1 position
     And player "Alice" stack is increased by SB + BB
     And player "Bob" stack is decreased by SB + BB
@@ -1063,7 +1063,7 @@ Feature: Tournament aggregate logic
     # Rule: WSOP Rule 67c (2025) — redraw thresholds.
     Given a running tournament "Worlds" with original_field 250 and <tables_remaining> tables remaining
     When the field collapses to <tables_remaining> table(s)
-    Then a angzarr_client.proto.examples.SeatRedrawTriggered event is emitted
+    Then a angzarr_client.proto.examples.v1.SeatRedrawTriggered event is emitted
     And the redraw event has trigger "<trigger>"
 
     Examples:
@@ -1095,7 +1095,7 @@ Feature: Tournament aggregate logic
     And finishing order "Alice,Bob,Carol,Dave"
     When players "Carol,Dave" both bust on the same hand at the same table
     And I handle a CompleteTournament command with winner "Alice"
-    Then the result is a angzarr_client.proto.examples.TournamentCompleted event
+    Then the result is a angzarr_client.proto.examples.v1.TournamentCompleted event
     And TournamentResult 2 has position 3 player_root "Carol" payout 200
     And no TournamentResult has player_root "Dave" with non-zero payout
     # Carol's higher pre-hand stack (800 > 600) earns her the higher finish

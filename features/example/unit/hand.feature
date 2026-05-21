@@ -71,7 +71,7 @@ Feature: Hand aggregate logic
       | player_root | position | stack |
       | player-1    | 0        | 500   |
       | player-2    | 1        | 500   |
-    Then the result is a angzarr_client.proto.examples.CardsDealt event
+    Then the result is a angzarr_client.proto.examples.v1.CardsDealt event
     And each player has 2 hole cards
     And the remaining deck has 48 cards
 
@@ -83,7 +83,7 @@ Feature: Hand aggregate logic
       | player-1    | 0        | 500   |
       | player-2    | 1        | 500   |
       | player-3    | 2        | 500   |
-    Then the result is a angzarr_client.proto.examples.CardsDealt event
+    Then the result is a angzarr_client.proto.examples.v1.CardsDealt event
     And each player has 4 hole cards
     And the remaining deck has 40 cards
 
@@ -96,7 +96,7 @@ Feature: Hand aggregate logic
       | player-2    | 1        | 500   |
       | player-3    | 2        | 500   |
       | player-4    | 3        | 500   |
-    Then the result is a angzarr_client.proto.examples.CardsDealt event
+    Then the result is a angzarr_client.proto.examples.v1.CardsDealt event
     And each player has 5 hole cards
     And the remaining deck has 32 cards
 
@@ -107,7 +107,7 @@ Feature: Hand aggregate logic
       | player_root | position | stack |
       | player-1    | 0        | 500   |
       | player-2    | 1        | 500   |
-    Then the result is a angzarr_client.proto.examples.CardsDealt event
+    Then the result is a angzarr_client.proto.examples.v1.CardsDealt event
     And player "player-1" has specific hole cards for seed "test-seed-123"
 
   @EU-0005
@@ -143,7 +143,7 @@ Feature: Hand aggregate logic
   Scenario: Post small blind
     Given a CardsDealt event for TEXAS_HOLDEM with 2 players at stacks 500
     When I handle a PostBlind command for player "player-1" type "small" amount 5
-    Then the result is a angzarr_client.proto.examples.BlindPosted event
+    Then the result is a angzarr_client.proto.examples.v1.BlindPosted event
     And the blind event has blind_type "small"
     And the blind event has amount 5
     And the blind event has player_stack 495
@@ -154,7 +154,7 @@ Feature: Hand aggregate logic
     Given a CardsDealt event for TEXAS_HOLDEM with 2 players at stacks 500
     And a BlindPosted event for player "player-1" amount 5
     When I handle a PostBlind command for player "player-2" type "big" amount 10
-    Then the result is a angzarr_client.proto.examples.BlindPosted event
+    Then the result is a angzarr_client.proto.examples.v1.BlindPosted event
     And the blind event has blind_type "big"
     And the blind event has amount 10
     And the blind event has pot_total 15
@@ -170,7 +170,7 @@ Feature: Hand aggregate logic
       | player-1    | 0        | 3     |
       | player-2    | 1        | 500   |
     When I handle a PostBlind command for player "player-1" type "small" amount 5
-    Then the result is a angzarr_client.proto.examples.BlindPosted event
+    Then the result is a angzarr_client.proto.examples.v1.BlindPosted event
     And the blind event has amount 3
     And the blind event has player_stack 0
     And player "player-1" is all-in
@@ -193,7 +193,7 @@ Feature: Hand aggregate logic
     Given a CardsDealt event for TEXAS_HOLDEM with 2 players at stacks 500
     And blinds posted with pot 15
     When I handle a PlayerAction command for player "player-1" action FOLD
-    Then the result is an angzarr_client.proto.examples.ActionTaken event
+    Then the result is an angzarr_client.proto.examples.v1.ActionTaken event
     And the action event has action "FOLD"
 
   @EU-0011
@@ -203,7 +203,7 @@ Feature: Hand aggregate logic
     And a BettingRoundComplete event for preflop
     And a CommunityCardsDealt event for FLOP
     When I handle a PlayerAction command for player "player-1" action CHECK
-    Then the result is an angzarr_client.proto.examples.ActionTaken event
+    Then the result is an angzarr_client.proto.examples.v1.ActionTaken event
     And the action event has action "CHECK"
 
   @EU-0012
@@ -211,7 +211,7 @@ Feature: Hand aggregate logic
     Given a CardsDealt event for TEXAS_HOLDEM with 2 players at stacks 500
     And blinds posted with pot 15 and current_bet 10
     When I handle a PlayerAction command for player "player-1" action CALL amount 5
-    Then the result is an angzarr_client.proto.examples.ActionTaken event
+    Then the result is an angzarr_client.proto.examples.v1.ActionTaken event
     And the action event has action "CALL"
     And the action event has amount 5
     And the action event has pot_total 20
@@ -223,7 +223,7 @@ Feature: Hand aggregate logic
     And a BettingRoundComplete event for preflop
     And a CommunityCardsDealt event for FLOP
     When I handle a PlayerAction command for player "player-1" action BET amount 20
-    Then the result is an angzarr_client.proto.examples.ActionTaken event
+    Then the result is an angzarr_client.proto.examples.v1.ActionTaken event
     And the action event has action "BET"
     And the action event has amount 20
     And the action event has amount_to_call 20
@@ -233,7 +233,7 @@ Feature: Hand aggregate logic
     Given a CardsDealt event for TEXAS_HOLDEM with 2 players at stacks 500
     And blinds posted with pot 15 and current_bet 10
     When I handle a PlayerAction command for player "player-1" action RAISE amount 30
-    Then the result is an angzarr_client.proto.examples.ActionTaken event
+    Then the result is an angzarr_client.proto.examples.v1.ActionTaken event
     And the action event has action "RAISE"
     # amount on the event is chips_put_in: 30 total - 5 SB already posted = 25
     And the action event has amount 25
@@ -252,7 +252,7 @@ Feature: Hand aggregate logic
       | player-2    | 1        | 500   |
     And blinds posted with pot 15 and current_bet 10
     When I handle a PlayerAction command for player "player-1" action ALL_IN amount 50
-    Then the result is an angzarr_client.proto.examples.ActionTaken event
+    Then the result is an angzarr_client.proto.examples.v1.ActionTaken event
     And the action event has action "ALL_IN"
     And the action event has player_stack 0
 
@@ -290,7 +290,7 @@ Feature: Hand aggregate logic
     And blinds posted with pot 15
     And a BettingRoundComplete event for preflop
     When I handle a DealCommunityCards command with count 3
-    Then the result is a angzarr_client.proto.examples.CommunityCardsDealt event
+    Then the result is a angzarr_client.proto.examples.v1.CommunityCardsDealt event
     And the event has 3 cards dealt
     And the event has phase "FLOP"
     And the remaining deck decreases by 3
@@ -301,7 +301,7 @@ Feature: Hand aggregate logic
     And the flop has been dealt
     And a BettingRoundComplete event for flop
     When I handle a DealCommunityCards command with count 1
-    Then the result is a angzarr_client.proto.examples.CommunityCardsDealt event
+    Then the result is a angzarr_client.proto.examples.v1.CommunityCardsDealt event
     And the event has 1 card dealt
     And the event has phase "TURN"
     And all_community_cards has 4 cards
@@ -312,7 +312,7 @@ Feature: Hand aggregate logic
     And the flop and turn have been dealt
     And a BettingRoundComplete event for turn
     When I handle a DealCommunityCards command with count 1
-    Then the result is a angzarr_client.proto.examples.CommunityCardsDealt event
+    Then the result is a angzarr_client.proto.examples.v1.CommunityCardsDealt event
     And the event has phase "RIVER"
     And all_community_cards has 5 cards
 
@@ -340,7 +340,7 @@ Feature: Hand aggregate logic
     And a BettingRoundComplete event for preflop
     And I capture player "player-1" hole cards as "pre_draw"
     When I handle a RequestDraw command for player "player-1" discarding indices [0, 2, 4]
-    Then the result is a angzarr_client.proto.examples.DrawCompleted event
+    Then the result is a angzarr_client.proto.examples.v1.DrawCompleted event
     And the draw event has cards_discarded 3
     And the draw event has cards_drawn 3
     And player "player-1" has 5 hole cards
@@ -357,7 +357,7 @@ Feature: Hand aggregate logic
     And blinds posted with pot 15
     And a BettingRoundComplete event for preflop
     When I handle a RequestDraw command for player "player-1" discarding indices []
-    Then the result is a angzarr_client.proto.examples.DrawCompleted event
+    Then the result is a angzarr_client.proto.examples.v1.DrawCompleted event
     And the draw event has cards_discarded 0
     And the draw event has cards_drawn 0
 
@@ -384,7 +384,7 @@ Feature: Hand aggregate logic
     Given a completed betting for TEXAS_HOLDEM with 2 players
     And a ShowdownStarted event for the hand
     When I handle a RevealCards command for player "player-1" with muck false
-    Then the result is a angzarr_client.proto.examples.CardsRevealed event
+    Then the result is a angzarr_client.proto.examples.v1.CardsRevealed event
     And the reveal event has cards for player "player-1"
     And the reveal event has a hand ranking
 
@@ -393,7 +393,7 @@ Feature: Hand aggregate logic
     Given a completed betting for TEXAS_HOLDEM with 2 players
     And a ShowdownStarted event for the hand
     When I handle a RevealCards command for player "player-1" with muck true
-    Then the result is a angzarr_client.proto.examples.CardsMucked event
+    Then the result is a angzarr_client.proto.examples.v1.CardsMucked event
 
   # ==========================================================================
   # Pot Award
@@ -411,7 +411,7 @@ Feature: Hand aggregate logic
     And a CardsRevealed event for player "player-1" with ranking FLUSH
     And a CardsMucked event for player "player-2"
     When I handle an AwardPot command with winner "player-1" amount 15
-    Then the result is a angzarr_client.proto.examples.PotAwarded event
+    Then the result is a angzarr_client.proto.examples.v1.PotAwarded event
     And the award event has winner "player-1" with amount 15
 
   @EU-0028
@@ -476,77 +476,77 @@ Feature: Hand aggregate logic
   Scenario: Handler detects straight
     Given a hand at showdown with player "player-1" holding "Th 9c" and community "8d 7s 6h 2c 3d"
     When I handle a RevealCards command for player "player-1" with muck false
-    Then the result is a angzarr_client.proto.examples.CardsRevealed event
+    Then the result is a angzarr_client.proto.examples.v1.CardsRevealed event
     And the revealed ranking is "STRAIGHT"
 
   @EU-0033
   Scenario: Handler detects wheel straight (A-2-3-4-5)
     Given a hand at showdown with player "player-1" holding "Ah 2c" and community "3d 4s 5h Kc Qd"
     When I handle a RevealCards command for player "player-1" with muck false
-    Then the result is a angzarr_client.proto.examples.CardsRevealed event
+    Then the result is a angzarr_client.proto.examples.v1.CardsRevealed event
     And the revealed ranking is "STRAIGHT"
 
   @EU-0034
   Scenario: Handler detects straight flush
     Given a hand at showdown with player "player-1" holding "9h 8h" and community "7h 6h 5h 2c 3d"
     When I handle a RevealCards command for player "player-1" with muck false
-    Then the result is a angzarr_client.proto.examples.CardsRevealed event
+    Then the result is a angzarr_client.proto.examples.v1.CardsRevealed event
     And the revealed ranking is "STRAIGHT_FLUSH"
 
   @EU-0035
   Scenario: Handler detects royal flush
     Given a hand at showdown with player "player-1" holding "As Ks" and community "Qs Js Ts 2c 3d"
     When I handle a RevealCards command for player "player-1" with muck false
-    Then the result is a angzarr_client.proto.examples.CardsRevealed event
+    Then the result is a angzarr_client.proto.examples.v1.CardsRevealed event
     And the revealed ranking is "ROYAL_FLUSH"
 
   @EU-0036
   Scenario: Handler detects four of a kind
     Given a hand at showdown with player "player-1" holding "Kh Kd" and community "Ks Kc 2h 3d 4s"
     When I handle a RevealCards command for player "player-1" with muck false
-    Then the result is a angzarr_client.proto.examples.CardsRevealed event
+    Then the result is a angzarr_client.proto.examples.v1.CardsRevealed event
     And the revealed ranking is "FOUR_OF_A_KIND"
 
   @EU-0037
   Scenario: Handler detects full house
     Given a hand at showdown with player "player-1" holding "Ah Ad" and community "Ac 2d 2h 4s 6c"
     When I handle a RevealCards command for player "player-1" with muck false
-    Then the result is a angzarr_client.proto.examples.CardsRevealed event
+    Then the result is a angzarr_client.proto.examples.v1.CardsRevealed event
     And the revealed ranking is "FULL_HOUSE"
 
   @EU-0038
   Scenario: Handler detects flush
     Given a hand at showdown with player "player-1" holding "Ah 7h" and community "2h 4h 6h Kc Qd"
     When I handle a RevealCards command for player "player-1" with muck false
-    Then the result is a angzarr_client.proto.examples.CardsRevealed event
+    Then the result is a angzarr_client.proto.examples.v1.CardsRevealed event
     And the revealed ranking is "FLUSH"
 
   @EU-0039
   Scenario: Handler detects three of a kind
     Given a hand at showdown with player "player-1" holding "Jh Jd" and community "Js 2c 4d 6h 8s"
     When I handle a RevealCards command for player "player-1" with muck false
-    Then the result is a angzarr_client.proto.examples.CardsRevealed event
+    Then the result is a angzarr_client.proto.examples.v1.CardsRevealed event
     And the revealed ranking is "THREE_OF_A_KIND"
 
   @EU-0040
   Scenario: Handler detects two pair
     Given a hand at showdown with player "player-1" holding "Th Td" and community "5s 5c 2h 3d Ks"
     When I handle a RevealCards command for player "player-1" with muck false
-    Then the result is a angzarr_client.proto.examples.CardsRevealed event
+    Then the result is a angzarr_client.proto.examples.v1.CardsRevealed event
     And the revealed ranking is "TWO_PAIR"
 
   @EU-0041
   Scenario: Handler detects pair
     Given a hand at showdown with player "player-1" holding "Ah Ac" and community "Kd Js 9h 4c 2d"
     When I handle a RevealCards command for player "player-1" with muck false
-    Then the result is a angzarr_client.proto.examples.CardsRevealed event
+    Then the result is a angzarr_client.proto.examples.v1.CardsRevealed event
     And the revealed ranking is "PAIR"
 
   @EU-0042
   Scenario: Handler detects high card
     Given a hand at showdown with player "player-1" holding "Ah Qc" and community "Kd Js 9h 4c 2d"
     When I handle a RevealCards command for player "player-1" with muck false
-    Then the result is a angzarr_client.proto.examples.CardsRevealed event
+    Then the result is a angzarr_client.proto.examples.v1.CardsRevealed event
     And the revealed ranking is "HIGH_CARD"
 
   # ==========================================================================
@@ -824,7 +824,7 @@ Feature: Hand aggregate logic
     Given a CardsDealt event for TEXAS_HOLDEM with 2 players at stacks 1000
     And blinds posted with pot 15 and current_bet 10
     When I handle a PlayerAction command for player "player-1" action ALL_IN
-    Then the result is an angzarr_client.proto.examples.ActionTaken event
+    Then the result is an angzarr_client.proto.examples.v1.ActionTaken event
     And the action event has action "ALL_IN"
     And the action event has player_stack 0
 
@@ -840,7 +840,7 @@ Feature: Hand aggregate logic
     And a BettingRoundComplete event for preflop
     And a CommunityCardsDealt event for FLOP
     When I handle a PlayerAction command for player "player-1" action BET amount 95
-    Then the result is an angzarr_client.proto.examples.ActionTaken event
+    Then the result is an angzarr_client.proto.examples.v1.ActionTaken event
     And the action event has action "ALL_IN"
     And the action event has amount 95
     And the action event has player_stack 0
@@ -850,7 +850,7 @@ Feature: Hand aggregate logic
     Given a CardsDealt event for TEXAS_HOLDEM with 2 players at stacks 100
     And short-stacked blinds posted with small 5 big 10 and stack 100
     When I handle a PlayerAction command for player "player-1" action RAISE amount 100
-    Then the result is an angzarr_client.proto.examples.ActionTaken event
+    Then the result is an angzarr_client.proto.examples.v1.ActionTaken event
     And the action event has action "ALL_IN"
 
   @EU-0072
@@ -1006,7 +1006,7 @@ Feature: Hand aggregate logic
     Given a CardsDealt event for TEXAS_HOLDEM with 2 players at stacks 500
     And blinds posted with pot 15
     When I handle an AwardPot command with winner "player-1" amount 10
-    Then the result is a angzarr_client.proto.examples.PotAwarded event
+    Then the result is a angzarr_client.proto.examples.v1.PotAwarded event
     And the award event has winner "player-1" with amount 15
 
   @EU-1009
@@ -1022,7 +1022,7 @@ Feature: Hand aggregate logic
       | player_root | amount |
       | player-1    | 50     |
       | player-2    | 50     |
-    Then the result is a angzarr_client.proto.examples.PotAwarded event
+    Then the result is a angzarr_client.proto.examples.v1.PotAwarded event
     And the award event has 2 winners
     And the award event has winner "player-1" with amount 50
     And the award event has winner "player-2" with amount 50
@@ -1225,7 +1225,7 @@ Feature: Hand aggregate logic
       | player_root | amount | pot_type |
       | player-A    | 300    | main     |
       | player-C    | 200    | side_1   |
-    Then the result is a angzarr_client.proto.examples.PotAwarded event
+    Then the result is a angzarr_client.proto.examples.v1.PotAwarded event
     And the award event has 2 winners
     And the award event winner 0 has player_root "player-A" amount 300 pot_type "main"
     And the award event winner 1 has player_root "player-C" amount 200 pot_type "side_1"
@@ -1425,7 +1425,7 @@ Feature: Hand aggregate logic
     # 10 ante), other seats post no ante.
     Given a CardsDealt event for TEXAS_HOLDEM with 3 players at stacks 500
     When I handle a PostBlind command for player "player-2" type "bb_ante" amount 10
-    Then the result is a angzarr_client.proto.examples.BlindPosted event
+    Then the result is a angzarr_client.proto.examples.v1.BlindPosted event
     And the blind event has blind_type "bb_ante"
     And the blind event has amount 10
     And the blind event has player_stack 490
@@ -1441,7 +1441,7 @@ Feature: Hand aggregate logic
       | player-1    | 0        | 1     |
       | player-2    | 1        | 500   |
     When I handle a PostBlind command for player "player-1" type "ante" amount 5
-    Then the result is a angzarr_client.proto.examples.BlindPosted event
+    Then the result is a angzarr_client.proto.examples.v1.BlindPosted event
     And the blind event has blind_type "ante"
     And the blind event has amount 1
     And the blind event has player_stack 0
@@ -1453,7 +1453,7 @@ Feature: Hand aggregate logic
     # does). After ante and SB are posted, current_bet is the SB amount.
     Given a CardsDealt event for TEXAS_HOLDEM with 2 players at stacks 500
     When I handle a PostBlind command for player "player-1" type "ante" amount 2
-    Then the result is a angzarr_client.proto.examples.BlindPosted event
+    Then the result is a angzarr_client.proto.examples.v1.BlindPosted event
     And the hand state current_bet is 0
 
   @EU-1114
@@ -1556,7 +1556,7 @@ Feature: Hand aggregate logic
     # muck in turn.
     Given a hand at showdown with players_to_show order "player-A,player-B,player-C"
     When I handle a RevealCards command for player "player-A" with muck true
-    Then the result is a angzarr_client.proto.examples.CardsMucked event
+    Then the result is a angzarr_client.proto.examples.v1.CardsMucked event
     And the next showdown player is "player-B"
 
   # ==========================================================================
@@ -1578,7 +1578,7 @@ Feature: Hand aggregate logic
     And blinds posted with pot 15 and current_bet 10
     When I handle a StartActionClock command for player "Alice" with seconds 30
     And the action clock for player "Alice" expires
-    Then the result is an angzarr_client.proto.examples.ActionTaken event
+    Then the result is an angzarr_client.proto.examples.v1.ActionTaken event
     And the action event has action "FOLD"
     And the action event has player_root "Alice"
 
@@ -1591,7 +1591,7 @@ Feature: Hand aggregate logic
     And a CommunityCardsDealt event for FLOP
     When I handle a StartActionClock command for player "Alice" with seconds 30
     And the action clock for player "Alice" expires
-    Then the result is an angzarr_client.proto.examples.ActionTaken event
+    Then the result is an angzarr_client.proto.examples.v1.ActionTaken event
     And the action event has action "CHECK"
     And the action event has player_root "Alice"
 
@@ -1629,7 +1629,7 @@ Feature: Hand aggregate logic
     Given a CardsDealt event for TEXAS_HOLDEM with 2 players "Alice,Bob" at stacks 500
     And blinds posted with pot 15 and current_bet 10
     When I handle a PlayerAction command for player "Alice" with silent push amount 16
-    Then the result is an angzarr_client.proto.examples.ActionTaken event
+    Then the result is an angzarr_client.proto.examples.v1.ActionTaken event
     And the action event has action "RAISE"
     And the action event has amount_to_call 20
 
@@ -1644,7 +1644,7 @@ Feature: Hand aggregate logic
     Given a CardsDealt event for TEXAS_HOLDEM with 2 players "Alice,Bob" at stacks 500
     And blinds posted with pot 15 and current_bet 10
     When I handle a PlayerAction command for player "Alice" with silent push amount 12
-    Then the result is an angzarr_client.proto.examples.ActionTaken event
+    Then the result is an angzarr_client.proto.examples.v1.ActionTaken event
     And the action event has action "CALL"
     And the action event has amount 5
 
@@ -1661,7 +1661,7 @@ Feature: Hand aggregate logic
     Given a CardsDealt event for TEXAS_HOLDEM with 2 players "Alice,Bob" at stacks 500
     And blinds posted with pot 15 and current_bet 10
     When I handle a PlayerAction command for player "Alice" with declared RAISE amount 15
-    Then the result is an angzarr_client.proto.examples.ActionTaken event
+    Then the result is an angzarr_client.proto.examples.v1.ActionTaken event
     And the action event has action "RAISE"
     And the action event has amount_to_call 20
 
@@ -1730,7 +1730,7 @@ Feature: Hand aggregate logic
       | Bob         | 1        | 500   | true   |
       | Carol       | 2        | 500   | false  |
     And player "Bob" had posted SB 5 before the deal
-    Then the result is a angzarr_client.proto.examples.CardsDealt event
+    Then the result is a angzarr_client.proto.examples.v1.CardsDealt event
     And player "Bob" has_folded is true
     And the hand state pot_total is 5
 
@@ -1771,7 +1771,7 @@ Feature: Hand aggregate logic
       | player_root | position | stack |
       | Alice       | 0        | 0     |
       | Bob         | 1        | 500   |
-    Then the result is a angzarr_client.proto.examples.CardsDealt event
+    Then the result is a angzarr_client.proto.examples.v1.CardsDealt event
     And player "Alice" has effective stack 500
     And a RebuyObligation event is emitted for player "Alice" with amount 500
 
@@ -1799,7 +1799,7 @@ Feature: Hand aggregate logic
     And blinds posted with pot 101
     And the dealer button is at seat 0
     When I handle an AwardPot command for an even tie between "Alice" and "Bob"
-    Then the result is a angzarr_client.proto.examples.PotAwarded event
+    Then the result is a angzarr_client.proto.examples.v1.PotAwarded event
     And the award event has 2 winners
     And the award event has winner "Alice" with amount 51
     And the award event has winner "Bob" with amount 50
@@ -1855,7 +1855,7 @@ Feature: Hand aggregate logic
     # other un-folded player who also tabled.
     Given a hand at showdown with player "Alice" holding "2c 3d" and community "As Ks Qs Js Ts"
     When I handle a RevealCards command for player "Alice" with muck false
-    Then the result is a angzarr_client.proto.examples.CardsRevealed event
+    Then the result is a angzarr_client.proto.examples.v1.CardsRevealed event
     And the revealed ranking is "ROYAL_FLUSH"
     And the reveal event has plays_the_board true
 
@@ -1906,7 +1906,7 @@ Feature: Hand aggregate logic
     Given the prior hand at table "Main Table" was dealt at blind level 1
     And a BlindLevelAdvanced event to level 2 has been applied
     When I handle a StartHand command at table "Main Table"
-    Then the result is a angzarr_client.proto.examples.HandStarted event
+    Then the result is a angzarr_client.proto.examples.v1.HandStarted event
     And the table event has blind_level 2
 
   # ==========================================================================
@@ -2047,7 +2047,7 @@ Feature: Hand aggregate logic
     And a BettingRoundComplete event for preflop
     And the stub was reshuffled due to a premature flop
     When I handle a DealCommunityCards command with count 3
-    Then the result is a angzarr_client.proto.examples.CommunityCardsDealt event
+    Then the result is a angzarr_client.proto.examples.v1.CommunityCardsDealt event
     And the burn card count for this street is 1
 
   # ==========================================================================
@@ -2283,7 +2283,7 @@ Feature: Hand aggregate logic
     And blinds posted at level 1 (SB 5 / BB 10)
     When the dealer declares a misdeal pre-SA
     And the hand is re-dealt
-    Then the result is a angzarr_client.proto.examples.HandRedealt event
+    Then the result is a angzarr_client.proto.examples.v1.HandRedealt event
     And the dealer button is still at seat 0 (Alice)
     And the hand level is 1 (SB 5 / BB 10)
 
@@ -2297,7 +2297,7 @@ Feature: Hand aggregate logic
     And the dealer button is at seat 0 (Alice)
     And player "Alice" was dealt only 1 hole card
     When player "Alice" announces the missing card before acting
-    Then a angzarr_client.proto.examples.ButtonCardReplaced event is emitted
+    Then a angzarr_client.proto.examples.v1.ButtonCardReplaced event is emitted
     And player "Alice" has 2 hole cards
 
   # ==========================================================================
@@ -2315,7 +2315,7 @@ Feature: Hand aggregate logic
     And a BettingRoundComplete event for preflop
     When the dealer accidentally lays out 4 cards as the flop
     And the floor randomly selects one of the 4 as the burn card
-    Then a angzarr_client.proto.examples.CommunityCardsDealt event is emitted
+    Then a angzarr_client.proto.examples.v1.CommunityCardsDealt event is emitted
     And the event has 3 cards dealt
     And the burn card count for this street is 1
 
@@ -2330,7 +2330,7 @@ Feature: Hand aggregate logic
     And a BettingRoundComplete event for preflop
     When the dealer puts out a 3-card flop without burning
     And no action has occurred on the flop
-    Then a angzarr_client.proto.examples.CommunityCardsDealt event is emitted
+    Then a angzarr_client.proto.examples.v1.CommunityCardsDealt event is emitted
     And the event has 3 cards dealt
     And the burn card count for this street is 1
     And exactly 1 of the original 3 flop cards is now the burn
@@ -2346,7 +2346,7 @@ Feature: Hand aggregate logic
     And the dealer put out a 3-card flop without burning
     And player "Alice" checked on the flop
     When I handle a DealCommunityCards command with count 1
-    Then the result is a angzarr_client.proto.examples.CommunityCardsDealt event
+    Then the result is a angzarr_client.proto.examples.v1.CommunityCardsDealt event
     And the event has phase "TURN"
     And the burn card count for this street is 1
 
@@ -2366,13 +2366,13 @@ Feature: Hand aggregate logic
     And blinds posted with pot 15
     And the preflop betting round is incomplete
     When the dealer prematurely lays out a flop
-    Then a angzarr_client.proto.examples.PrematureFlopDetected event is emitted
+    Then a angzarr_client.proto.examples.v1.PrematureFlopDetected event is emitted
     And the original burn card is preserved
     And the 3 premature cards are returned to the stub
     And the stub is reshuffled
     When the preflop betting round completes
     And I handle a DealCommunityCards command with count 3
-    Then the result is a angzarr_client.proto.examples.CommunityCardsDealt event
+    Then the result is a angzarr_client.proto.examples.v1.CommunityCardsDealt event
     And the burn card count for this street is 0
 
   @EU-1281
@@ -2384,7 +2384,7 @@ Feature: Hand aggregate logic
     And a CommunityCardsDealt event for FLOP
     And the flop betting round is incomplete
     When the dealer prematurely deals a turn card
-    Then a angzarr_client.proto.examples.PrematureTurnDetected event is emitted
+    Then a angzarr_client.proto.examples.v1.PrematureTurnDetected event is emitted
     And the original turn burn card is preserved
     And the premature card is returned to the stub
     And the stub is reshuffled
@@ -2399,7 +2399,7 @@ Feature: Hand aggregate logic
     And blinds posted with pot 15
     And the turn betting round is incomplete
     When the dealer prematurely deals a river card
-    Then a angzarr_client.proto.examples.PrematureRiverDetected event is emitted
+    Then a angzarr_client.proto.examples.v1.PrematureRiverDetected event is emitted
     And the original river burn card is preserved
     And the premature card is returned to the stub
     And the stub is reshuffled
@@ -2494,7 +2494,7 @@ Feature: Hand aggregate logic
     And a BettingRoundComplete event for preflop
     And a CommunityCardsDealt event for FLOP
     When player "Alice" declares "bet the pot" on a no-limit table
-    Then a angzarr_client.proto.examples.ActionTaken event is emitted
+    Then a angzarr_client.proto.examples.v1.ActionTaken event is emitted
     And the action event has action "BET"
     And the action event has amount equal to the big blind (10)
 
@@ -2538,7 +2538,7 @@ Feature: Hand aggregate logic
     And a BettingRoundComplete event for preflop
     And a CommunityCardsDealt event for FLOP
     When player "Alice" folds with no bet to call
-    Then a angzarr_client.proto.examples.ActionTaken event is emitted
+    Then a angzarr_client.proto.examples.v1.ActionTaken event is emitted
     And the action event has action "FOLD"
     And player "Alice" has_folded is true
 
@@ -2664,7 +2664,7 @@ Feature: Hand aggregate logic
     # next-highest by suit is 8s (spades), Alice's next is Jh (hearts).
     # Jh > 8s by rank; Alice wins the odd chip.
     When the pot of 101 is split between "Alice" and "Bob"
-    Then a angzarr_client.proto.examples.PotAwarded event is emitted
+    Then a angzarr_client.proto.examples.v1.PotAwarded event is emitted
     And the award event has winner "Alice" with amount 51
     And the award event has winner "Bob" with amount 50
 
@@ -2680,7 +2680,7 @@ Feature: Hand aggregate logic
     Given a Seven Card Stud hand starting with 4 players "Alice,Bob,Carol,Dave"
     And no substantial action has occurred
     When the dealer accidentally exposes Alice's first downcard
-    Then a angzarr_client.proto.examples.MisdealDeclared event is emitted
+    Then a angzarr_client.proto.examples.v1.MisdealDeclared event is emitted
     And the misdeal reason is "EXPOSED_STUD_DOWNCARD"
     And the dealer button is preserved
     And no chips have been forfeited
@@ -2704,7 +2704,7 @@ Feature: Hand aggregate logic
     Given a Seven Card Stud hand starting with 3 players "Alice,Bob,Carol"
     And the deal is in progress
     When the dealer exposes Alice's intended second downcard
-    Then a angzarr_client.proto.examples.StudDownCardConverted event is emitted
+    Then a angzarr_client.proto.examples.v1.StudDownCardConverted event is emitted
     And player "Alice" has 1 down card and 1 up card after the conversion
     And the next dealt card to Alice (the door card) is dealt face down
     And player "Alice" remains eligible to be the bring-in based on her up card
@@ -2718,7 +2718,7 @@ Feature: Hand aggregate logic
     Given a Seven Card Stud hand on 7th street
     And player "Alice" still has betting action remaining
     When the dealer exposes Alice's 7th-street card
-    Then a angzarr_client.proto.examples.SeventhStreetCardReplaced event is emitted
+    Then a angzarr_client.proto.examples.v1.SeventhStreetCardReplaced event is emitted
     And the original card is removed from play
     And the replacement card is dealt face down to Alice
 
@@ -2731,7 +2731,7 @@ Feature: Hand aggregate logic
     And player "Bob" was absent for the initial deal
     Then player "Bob" hand is killed
     When I handle a DealStreet command for FOURTH_STREET
-    Then the result is a angzarr_client.proto.examples.StudStreetDealt event
+    Then the result is a angzarr_client.proto.examples.v1.StudStreetDealt event
     And the street event has 2 cards dealt
     And no card was dealt to player "Bob"
 
@@ -2787,7 +2787,7 @@ Feature: Hand aggregate logic
     And the stub has 2 cards remaining and the burn pile has 3 prior burns
     When the dealer scrambles the stub with the prior burns
     And one card is burned and the next is dealt as a community card
-    Then a angzarr_client.proto.examples.StudCommunityCardDealt event is emitted
+    Then a angzarr_client.proto.examples.v1.StudCommunityCardDealt event is emitted
     And the community card is shared by all 5 active players
     And the first-to-act on 7th street is the same player who acted first on 6th street
 
@@ -2802,12 +2802,12 @@ Feature: Hand aggregate logic
     Given a Seven Card Stud hand on 4th street betting in progress
     And the dealer has not yet completed 4th-street betting action
     When the dealer prematurely deals a 5th-street card
-    Then a angzarr_client.proto.examples.PrematureStudCardDetected event is emitted
+    Then a angzarr_client.proto.examples.v1.PrematureStudCardDetected event is emitted
     And the premature card is returned to the stub
     And the stub is reshuffled
     When 4th-street betting completes
     And I handle a DealStreet command for FIFTH_STREET
-    Then the result is a angzarr_client.proto.examples.StudStreetDealt event
+    Then the result is a angzarr_client.proto.examples.v1.StudStreetDealt event
     And the burn card count for this street is 0
 
   @EU-1333 @stud
@@ -2824,7 +2824,7 @@ Feature: Hand aggregate logic
     And the burn pile has 3 prior burns
     When the dealer scrambles the stub with the prior burns into a new stub
     And one card is burned from the new stub
-    Then a angzarr_client.proto.examples.StudStreetDealt event is emitted
+    Then a angzarr_client.proto.examples.v1.StudStreetDealt event is emitted
     And one card is dealt to each of the 5 active players
     And no community card is in play
 
@@ -2843,7 +2843,7 @@ Feature: Hand aggregate logic
     And the burn pile has 3 prior burns
     When the dealer burns the top card of the stub
     And the next card is dealt as a community card
-    Then a angzarr_client.proto.examples.StudCommunityCardDealt event is emitted
+    Then a angzarr_client.proto.examples.v1.StudCommunityCardDealt event is emitted
     And the community card is shared by all 6 active players
     And the first-to-act on 7th street is the same player who acted first on 6th street
 
@@ -2857,7 +2857,7 @@ Feature: Hand aggregate logic
     And the dealer accidentally dealt all 3 of Alice's first cards face down
     When the floor scrambles Alice's 3 cards face down
     And the floor randomly selects one card to turn face up as Alice's door card
-    Then a angzarr_client.proto.examples.StudDoorCardSelected event is emitted
+    Then a angzarr_client.proto.examples.v1.StudDoorCardSelected event is emitted
     And player "Alice" has 2 down cards and 1 up card
     And the up-card selection has rng_seed populated for replay determinism
 
@@ -2874,7 +2874,7 @@ Feature: Hand aggregate logic
     And player "Alice" was incorrectly designated as the bring-in
     And player "Alice" posted the bring-in
     When player "Bob" (the next to act) has not yet acted
-    Then a angzarr_client.proto.examples.BringInCorrected event is emitted
+    Then a angzarr_client.proto.examples.v1.BringInCorrected event is emitted
     And player "Alice" wager is returned
     And player "Carol" (the actual low card) is now obligated to post the bring-in
 
@@ -2888,7 +2888,7 @@ Feature: Hand aggregate logic
     Given a limit Seven Card Stud hand with bring-in 100 and small bet 400
     And player "Alice" posted the bring-in for 100
     When player "Bob" completes the bet to 400
-    Then a angzarr_client.proto.examples.ActionTaken event is emitted
+    Then a angzarr_client.proto.examples.v1.ActionTaken event is emitted
     And the action event has action "BET_COMPLETION"
     And the action event does NOT count toward the per-round raise cap
     And up to 4 subsequent raises are allowed
@@ -2957,7 +2957,7 @@ Feature: Hand aggregate logic
     Given a limit Razz hand with small bet 100 and big bet 200 on 5th street
     And player "Alice" has up cards "8h 8d 7c" on 5th street showing an open pair on 4th
     When player "Alice" bets at the upper limit (200) on 5th street
-    Then a angzarr_client.proto.examples.ActionTaken event is emitted
+    Then a angzarr_client.proto.examples.v1.ActionTaken event is emitted
     And the action event has action "BET"
     And the action event has amount 200
     And no rejection is raised based on the open pair
@@ -3045,7 +3045,7 @@ Feature: Hand aggregate logic
     And blinds posted with pot 15 and current_bet 10
     And player "Bob" has bet 50 (a 40 raise increment)
     When player "Carol" verbally declares "raise" without an amount
-    Then a angzarr_client.proto.examples.ActionTaken event is emitted
+    Then a angzarr_client.proto.examples.v1.ActionTaken event is emitted
     And the action event has action "RAISE"
     And the action event has amount 90 (50 + 40 minimum raise increment)
 
@@ -3060,7 +3060,7 @@ Feature: Hand aggregate logic
     Given a CardsDealt event for TEXAS_HOLDEM with 2 players "Alice,Bob" at stacks 500
     And blinds posted with pot 15 and current_bet 10
     When player "Alice" verbally declares "all-in" with no chips yet pushed
-    Then a angzarr_client.proto.examples.ActionTaken event is emitted
+    Then a angzarr_client.proto.examples.v1.ActionTaken event is emitted
     And the action event has action "ALL_IN"
     And the action event has amount 495
     And player "Alice" stack is 0
@@ -3084,7 +3084,7 @@ Feature: Hand aggregate logic
     Given a CardsDealt event for TEXAS_HOLDEM with 2 players "Alice,Bob" at stacks 1000
     And blinds posted with pot 15 and current_bet 200
     When player "Bob" silently pushes chips totaling 200 (two 100 chips, both required)
-    Then a angzarr_client.proto.examples.ActionTaken event is emitted
+    Then a angzarr_client.proto.examples.v1.ActionTaken event is emitted
     And the action event has action "CALL"
     And the action event has amount 200
 
@@ -3100,7 +3100,7 @@ Feature: Hand aggregate logic
     Given a CardsDealt event for TEXAS_HOLDEM with 2 players "Alice,Bob" at stacks 5000
     And blinds posted with pot 15 and current_bet 200
     When player "Bob" silently pushes a single 1000 chip
-    Then a angzarr_client.proto.examples.ActionTaken event is emitted
+    Then a angzarr_client.proto.examples.v1.ActionTaken event is emitted
     And the action event has action "CALL"
     And the action event has amount 200
 
@@ -3115,7 +3115,7 @@ Feature: Hand aggregate logic
     Given a CardsDealt event for TEXAS_HOLDEM with 2 players "Alice,Bob" at stacks 5000
     And blinds posted with pot 15 and current_bet 200
     When player "Bob" silently pushes 400 (two 200 chips, not all required)
-    Then a angzarr_client.proto.examples.ActionTaken event is emitted
+    Then a angzarr_client.proto.examples.v1.ActionTaken event is emitted
     And the action event has action "RAISE"
     And the action event has amount 400
 
@@ -3134,7 +3134,7 @@ Feature: Hand aggregate logic
     And player "Alice" has already bet 100 this street
     And player "Bob" raised to 300 (200 raise increment)
     When player "Alice" silently adds chips totaling 300 on top of her prior 100
-    Then a angzarr_client.proto.examples.ActionTaken event is emitted
+    Then a angzarr_client.proto.examples.v1.ActionTaken event is emitted
     And the action event has action "RAISE"
     And the action event has amount 400
     And the action event has amount_to_call 500
@@ -3171,7 +3171,7 @@ Feature: Hand aggregate logic
     When player "Bob" verbally declares "call 60" in turn (an undercall)
     And no substantial action has occurred since
     Then the undercall is corrected up to 100
-    And a angzarr_client.proto.examples.ActionTaken event is emitted
+    And a angzarr_client.proto.examples.v1.ActionTaken event is emitted
     And the action event has action "CALL"
     And the action event has amount 100
 
@@ -3209,7 +3209,7 @@ Feature: Hand aggregate logic
     And player "Alice" then reaches back and adds 70 in a second motion
     Then the dealer rules a string bet
     And the second-motion 70 is returned to "Alice"
-    And a angzarr_client.proto.examples.ActionTaken event is emitted
+    And a angzarr_client.proto.examples.v1.ActionTaken event is emitted
     And the action event has action "RAISE"
     And the action event has amount 25
     And the action event has amount_to_call 30
@@ -3265,7 +3265,7 @@ Feature: Hand aggregate logic
     Given a CardsDealt event for TEXAS_HOLDEM with 2 players "Alice,Bob" at stacks 1000
     And blinds posted with pot 15 and current_bet 0
     When player "Alice" pushes a single 500 chip declaring "bet 325"
-    Then a angzarr_client.proto.examples.ActionTaken event is emitted
+    Then a angzarr_client.proto.examples.v1.ActionTaken event is emitted
     And the action event has action "BET"
     And the action event has amount 500
     And no change is returned to "Alice"

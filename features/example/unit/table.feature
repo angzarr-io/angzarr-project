@@ -58,7 +58,7 @@ Feature: Table aggregate logic
     When I handle a CreateTable command with name "Main Table" and variant "TEXAS_HOLDEM":
       | small_blind | big_blind | min_buy_in | max_buy_in | max_players |
       | 5           | 10        | 200        | 1000       | 9           |
-    Then the result is a angzarr_client.proto.examples.TableCreated event
+    Then the result is a angzarr_client.proto.examples.v1.TableCreated event
     And the table event has table_name "Main Table"
     And the table event has game_variant "TEXAS_HOLDEM"
     And the table event has small_blind 5
@@ -70,7 +70,7 @@ Feature: Table aggregate logic
     When I handle a CreateTable command with name "Draw Table" and variant "FIVE_CARD_DRAW":
       | small_blind | big_blind | min_buy_in | max_buy_in | max_players |
       | 10          | 20        | 400        | 2000       | 6           |
-    Then the result is a angzarr_client.proto.examples.TableCreated event
+    Then the result is a angzarr_client.proto.examples.v1.TableCreated event
     And the table event has game_variant "FIVE_CARD_DRAW"
 
   @EU-0102
@@ -99,7 +99,7 @@ Feature: Table aggregate logic
   Scenario: Player joins table at preferred seat
     Given a TableCreated event for "Main Table"
     When I handle a JoinTable command for player "player-1" at seat 3 with buy-in 500
-    Then the result is a angzarr_client.proto.examples.PlayerJoined event
+    Then the result is a angzarr_client.proto.examples.v1.PlayerJoined event
     And the table event has seat_position 3
     And the table event has buy_in_amount 500
 
@@ -107,7 +107,7 @@ Feature: Table aggregate logic
   Scenario: Player joins table at any seat
     Given a TableCreated event for "Main Table"
     When I handle a JoinTable command for player "player-1" at seat -1 with buy-in 500
-    Then the result is a angzarr_client.proto.examples.PlayerJoined event
+    Then the result is a angzarr_client.proto.examples.v1.PlayerJoined event
     And the table event has seat_position 0
 
   @EU-0105
@@ -160,7 +160,7 @@ Feature: Table aggregate logic
     Given a TableCreated event for "Main Table"
     And a PlayerJoined event for player "player-1" at seat 3 with stack 500
     When I handle a LeaveTable command for player "player-1"
-    Then the result is a angzarr_client.proto.examples.PlayerLeft event
+    Then the result is a angzarr_client.proto.examples.v1.PlayerLeft event
     And the table event has chips_cashed_out 500
 
   @EU-0110
@@ -197,7 +197,7 @@ Feature: Table aggregate logic
     And a PlayerJoined event for player "player-1" at seat 0 with stack 500
     And a PlayerJoined event for player "player-2" at seat 1 with stack 500
     When I handle a StartHand command
-    Then the result is a angzarr_client.proto.examples.HandStarted event
+    Then the result is a angzarr_client.proto.examples.v1.HandStarted event
     And the table event has hand_number 1
     And the table event has 2 active_players
 
@@ -209,7 +209,7 @@ Feature: Table aggregate logic
     And a HandStarted event for hand 1 with dealer at seat 0
     And a HandEnded event for hand 1
     When I handle a StartHand command
-    Then the result is a angzarr_client.proto.examples.HandStarted event
+    Then the result is a angzarr_client.proto.examples.v1.HandStarted event
     And the table event has hand_number 2
     And the table event has dealer_position 1
 
@@ -249,7 +249,7 @@ Feature: Table aggregate logic
     And a PlayerJoined event for player "player-2" at seat 1 with stack 500
     And a HandStarted event for hand 1
     When I handle an EndHand command with winner "player-1" winning 50
-    Then the result is a angzarr_client.proto.examples.HandEnded event
+    Then the result is a angzarr_client.proto.examples.v1.HandEnded event
     And player "player-1" stack change is 50
 
   @EU-0117
@@ -271,7 +271,7 @@ Feature: Table aggregate logic
       | player   | change |
       | player-1 | 150    |
       | player-2 | -150   |
-    Then the result is a angzarr_client.proto.examples.HandEnded event
+    Then the result is a angzarr_client.proto.examples.v1.HandEnded event
     And player "player-1" stack change is 150
     And player "player-2" stack change is -150
 
@@ -506,7 +506,7 @@ Feature: Table aggregate logic
     And a PlayerJoined event for player "player-1" at seat 0
     And a PlayerJoined event for player "player-2" at seat 1
     When I handle a StartHand command
-    Then the result is a angzarr_client.proto.examples.HandStarted event
+    Then the result is a angzarr_client.proto.examples.v1.HandStarted event
     And the small_blind_position equals the dealer_position
 
   @EU-0544
@@ -516,7 +516,7 @@ Feature: Table aggregate logic
     And a PlayerJoined event for player "player-2" at seat 1
     And a PlayerJoined event for player "player-3" at seat 2
     When I handle a StartHand command
-    Then the result is a angzarr_client.proto.examples.HandStarted event
+    Then the result is a angzarr_client.proto.examples.v1.HandStarted event
     And the small_blind_position differs from the dealer_position
 
   # ==========================================================================
@@ -585,7 +585,7 @@ Feature: Table aggregate logic
   Scenario: Seat 0 is an explicit valid preferred seat
     Given a TableCreated event for "Main Table"
     When I handle a JoinTable command for player "player-1" at seat 0 with buy-in 500
-    Then the result is a angzarr_client.proto.examples.PlayerJoined event
+    Then the result is a angzarr_client.proto.examples.v1.PlayerJoined event
     And the table event has seat_position 0
 
   @EU-0551
@@ -593,7 +593,7 @@ Feature: Table aggregate logic
     Given a TableCreated event for "Main Table"
     And a PlayerJoined event for player "player-1" at seat 0
     When I handle a JoinTable command for player "player-2" at seat -1 with buy-in 500
-    Then the result is a angzarr_client.proto.examples.PlayerJoined event
+    Then the result is a angzarr_client.proto.examples.v1.PlayerJoined event
     And the table event has seat_position 1
 
   # ==========================================================================
@@ -628,7 +628,7 @@ Feature: Table aggregate logic
   Scenario: SeatPlayer emits PlayerSeated on success
     Given a TableCreated event for "Main Table"
     When I handle a SeatPlayer command for player "player-a" reservation "res-001" seat 0 amount 500
-    Then the result is a angzarr_client.proto.examples.PlayerSeated event
+    Then the result is a angzarr_client.proto.examples.v1.PlayerSeated event
     And the seating event has seat_position 0
     And the seating event has stack 500
 
@@ -636,14 +636,14 @@ Feature: Table aggregate logic
   Scenario: SeatPlayer emits SeatingRejected when amount is below minimum
     Given a TableCreated event for "Main Table"
     When I handle a SeatPlayer command for player "player-a" reservation "res-001" seat 0 amount 100
-    Then the result is a angzarr_client.proto.examples.SeatingRejected event
+    Then the result is a angzarr_client.proto.examples.v1.SeatingRejected event
     And the seating rejection reason contains "at least"
 
   @EU-0555
   Scenario: SeatPlayer emits SeatingRejected when amount exceeds maximum
     Given a TableCreated event for "Main Table"
     When I handle a SeatPlayer command for player "player-a" reservation "res-001" seat 0 amount 5000
-    Then the result is a angzarr_client.proto.examples.SeatingRejected event
+    Then the result is a angzarr_client.proto.examples.v1.SeatingRejected event
     And the seating rejection reason contains "above maximum"
 
   @EU-0556
@@ -651,7 +651,7 @@ Feature: Table aggregate logic
     Given a TableCreated event for "Main Table"
     And a PlayerJoined event for player "player-b" at seat 0
     When I handle a SeatPlayer command for player "player-a" reservation "res-001" seat 0 amount 500
-    Then the result is a angzarr_client.proto.examples.SeatingRejected event
+    Then the result is a angzarr_client.proto.examples.v1.SeatingRejected event
     And the seating rejection reason contains "occupied"
 
   @EU-0557
@@ -659,7 +659,7 @@ Feature: Table aggregate logic
     Given a TableCreated event for "Main Table"
     And a PlayerJoined event for player "player-a" at seat 1
     When I handle a SeatPlayer command for player "player-a" reservation "res-001" seat 2 amount 500
-    Then the result is a angzarr_client.proto.examples.SeatingRejected event
+    Then the result is a angzarr_client.proto.examples.v1.SeatingRejected event
     And the seating rejection reason contains "already seated"
 
   @EU-0558
@@ -667,7 +667,7 @@ Feature: Table aggregate logic
     Given a TableCreated event for "Main Table"
     And a PlayerJoined event for player "player-b" at seat 0
     When I handle a SeatPlayer command for player "player-a" reservation "res-001" seat -1 amount 500
-    Then the result is a angzarr_client.proto.examples.PlayerSeated event
+    Then the result is a angzarr_client.proto.examples.v1.PlayerSeated event
     And the seating event has seat_position 1
 
   @EU-0559
@@ -676,7 +676,7 @@ Feature: Table aggregate logic
     And a PlayerJoined event for player "player-b" at seat 0
     And a PlayerJoined event for player "player-c" at seat 1
     When I handle a SeatPlayer command for player "player-a" reservation "res-001" seat -1 amount 500
-    Then the result is a angzarr_client.proto.examples.SeatingRejected event
+    Then the result is a angzarr_client.proto.examples.v1.SeatingRejected event
     And the seating rejection reason contains "full"
 
   # ==========================================================================
@@ -696,7 +696,7 @@ Feature: Table aggregate logic
     Given a TableCreated event for "Main Table"
     And a PlayerJoined event for player "player-a" at seat 2 with stack 500
     When I handle an AddRebuyChips command for player "player-a" reservation "res-001" seat 2 amount 1000
-    Then the result is a angzarr_client.proto.examples.RebuyChipsAdded event
+    Then the result is a angzarr_client.proto.examples.v1.RebuyChipsAdded event
     And the rebuy event has amount 1000
     And the rebuy event has new_stack 1500
     And the rebuy event has seat 2
@@ -747,14 +747,14 @@ Feature: Table aggregate logic
   Scenario: SeatPlayer emits SeatingRejected when player_root is empty
     Given a TableCreated event for "Main Table"
     When I handle a SeatPlayer command for player "" reservation "res-001" seat 0 amount 500
-    Then the result is a angzarr_client.proto.examples.SeatingRejected event
+    Then the result is a angzarr_client.proto.examples.v1.SeatingRejected event
     And the seating rejection reason contains "player_root"
 
   @EU-0572
   Scenario: SeatPlayer emits SeatingRejected when seat is out of range
     Given a TableCreated event for "Main Table"
     When I handle a SeatPlayer command for player "player-a" reservation "res-001" seat -5 amount 500
-    Then the result is a angzarr_client.proto.examples.SeatingRejected event
+    Then the result is a angzarr_client.proto.examples.v1.SeatingRejected event
     And the seating rejection reason contains "Invalid seat"
 
   @EU-0573
@@ -808,7 +808,7 @@ Feature: Table aggregate logic
     And a HandEnded event for hand 1
     And player "player-C" busted at seat 2 during hand 1
     When I handle a StartHand command
-    Then the result is a angzarr_client.proto.examples.HandStarted event
+    Then the result is a angzarr_client.proto.examples.v1.HandStarted event
     And the table event has dealer_position 0
     And the small_blind_position is seat 3
     And the big_blind_position is seat 0
@@ -828,7 +828,7 @@ Feature: Table aggregate logic
     And a HandEnded event for hand 1
     And player "player-B" busted at seat 1 during hand 1
     When I handle a StartHand command
-    Then the result is a angzarr_client.proto.examples.HandStarted event
+    Then the result is a angzarr_client.proto.examples.v1.HandStarted event
     And the small_blind_position is seat 2
     And the big_blind_position is seat 3
 
@@ -849,7 +849,7 @@ Feature: Table aggregate logic
     And a HandEnded event for hand 1
     And player "player-B" busted at seat 1 during hand 1
     When I handle a StartHand command
-    Then the result is a angzarr_client.proto.examples.HandStarted event
+    Then the result is a angzarr_client.proto.examples.v1.HandStarted event
     And the small_blind_position equals the dealer_position
     And the dealer_position is seat 2
     And the big_blind_position is seat 0
@@ -868,7 +868,7 @@ Feature: Table aggregate logic
     And a HandEnded event for hand 1
     And player "player-C" busted at seat 2 during hand 1
     When I handle a StartHand command
-    Then the result is a angzarr_client.proto.examples.HandStarted event
+    Then the result is a angzarr_client.proto.examples.v1.HandStarted event
     And the player at the big_blind_position is not "player-D"
 
   # ==========================================================================
@@ -903,7 +903,7 @@ Feature: Table aggregate logic
     And a PlayerJoined event for player "Eve" at seat 0 of "Dest"
     And a PlayerJoined event for player "Frank" at seat 1 of "Dest"
     When I handle a BalanceTables command moving from "Source" to "Dest"
-    Then the result is a angzarr_client.proto.examples.PlayerMovedBetweenTables event
+    Then the result is a angzarr_client.proto.examples.v1.PlayerMovedBetweenTables event
     And the moved player is "Dave"
     And the moved player's destination seat at "Dest" is the BB position (not the SB position)
 
@@ -929,7 +929,7 @@ Feature: Table aggregate logic
     And a PlayerJoined event for player "Ivy"   at seat 3 of "Semi-2"
     And a PlayerJoined event for player "Jack"  at seat 4 of "Semi-2"
     When I handle a CombineFinalTable command for "Final" combining "Semi-1,Semi-2"
-    Then the result is a angzarr_client.proto.examples.FinalTableCombined event
+    Then the result is a angzarr_client.proto.examples.v1.FinalTableCombined event
     And the final table has 9 active_players
     And every original player has been reseated at "Final"
     And "Semi-1" status is "broken"
@@ -951,7 +951,7 @@ Feature: Table aggregate logic
     Given a TableCreated event for "Random-1" tagged for tournament play
     And seats 0, 2, 5, and 7 are unoccupied
     When I handle a SeatPlayer command for player "Alice" with seat -1 amount 1500 in tournament mode
-    Then the result is a angzarr_client.proto.examples.PlayerSeated event
+    Then the result is a angzarr_client.proto.examples.v1.PlayerSeated event
     And the seating event has seat_position drawn uniformly at random from {0, 2, 5, 7}
     And the seating event has rng_seed populated for replay determinism
 
@@ -982,7 +982,7 @@ Feature: Table aggregate logic
     And seats 4, 5, 6, 7 are open
     And a hand has been dealt at "Dest" with substantial action this orbit
     When I handle a SeatPlayer command for moved player "Eve" at seat 4 amount 1500
-    Then the result is a angzarr_client.proto.examples.PlayerSeated event
+    Then the result is a angzarr_client.proto.examples.v1.PlayerSeated event
     And player "Eve" is dealt out of the current hand
     And player "Eve" is dealt in starting the next hand
 
@@ -1002,7 +1002,7 @@ Feature: Table aggregate logic
     Given a TableCreated event for "Table-A" with 8 active players
     And a TableCreated event for "Table-B" with 5 active players
     When the next hand at "Table-B" would assign the BB to an empty seat
-    Then a angzarr_client.proto.examples.TableHaltedForBalancing event is emitted for "Table-B"
+    Then a angzarr_client.proto.examples.v1.TableHaltedForBalancing event is emitted for "Table-B"
     And "Table-B" status is "halted_for_balancing"
 
   # ==========================================================================
@@ -1020,7 +1020,7 @@ Feature: Table aggregate logic
     And a PlayerJoined event for player "Alice" at seat 1
     And the next hand would post Alice's BB
     When player "Alice" requests a seat change to seat 4 to skip her blind
-    Then a angzarr_client.proto.examples.BlindDodgePenalty event is emitted
+    Then a angzarr_client.proto.examples.v1.BlindDodgePenalty event is emitted
     And the penalty event has player_root "Alice"
     And the penalty event has chips_forfeited 15
     And the penalty event has missed_round_count 1
@@ -1045,7 +1045,7 @@ Feature: Table aggregate logic
     And a PlayerJoined event for player "Bob" at seat 3
     And a PlayerJoined event for player "Carol" at seat 5
     When I handle a StartHand command for the first hand
-    Then the result is a angzarr_client.proto.examples.HandStarted event
+    Then the result is a angzarr_client.proto.examples.v1.HandStarted event
     And the table event has hand_number 1
     And the table event has dealer_position 5
 
@@ -1066,7 +1066,7 @@ Feature: Table aggregate logic
     And "Semi-1" has 4 players "Alice,Bob,Carol,Dave"
     And "Semi-2" has 5 players "Eve,Frank,Grace,Henry,Ivy"
     When I handle a CombineFinalTable command for "Final" combining "Semi-1,Semi-2"
-    Then the result is a angzarr_client.proto.examples.FinalTableCombined event
+    Then the result is a angzarr_client.proto.examples.v1.FinalTableCombined event
     And the final table has 9 active_players
     And the final table is configured as 8-handed
 
@@ -1077,6 +1077,6 @@ Feature: Table aggregate logic
     And "Semi-1" has 4 players "Alice,Bob,Carol,Dave"
     And "Semi-2" has 3 players "Eve,Frank,Grace"
     When I handle a CombineFinalTable command for "Final" combining "Semi-1,Semi-2"
-    Then the result is a angzarr_client.proto.examples.FinalTableCombined event
+    Then the result is a angzarr_client.proto.examples.v1.FinalTableCombined event
     And the final table has 7 active_players
     And the final table is configured as 6-handed

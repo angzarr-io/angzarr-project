@@ -183,7 +183,7 @@ Feature: Saga logic
       | player-1    | 0        | 500   |
       | player-2    | 1        | 500   |
     When I dispatch the event via SagaHandleRequest with destination_sequences "hand=0"
-    Then the result is a angzarr_client.proto.examples.DealCards command to hand domain
+    Then the result is a angzarr_client.proto.examples.v1.DealCards command to hand domain
     And the command DealCards has hand_number 1 and 2 players
     And the command DealCards has game_variant TEXAS_HOLDEM
 
@@ -197,7 +197,7 @@ Feature: Saga logic
       | player_root | amount |
       | player-1    | 100    |
     When I dispatch the event via SagaHandleRequest with destination_sequences "table=0"
-    Then the result is a angzarr_client.proto.examples.EndHand command to table domain
+    Then the result is a angzarr_client.proto.examples.v1.EndHand command to table domain
     And the EndHand command has 1 result with winner "player-1" amount 100
 
   @EU-0311
@@ -212,7 +212,7 @@ Feature: Saga logic
       | player-2    | -50    |
     When I dispatch the event via SagaHandleRequest with destination_sequences "player=0"
     Then 2 commands are emitted to player domain
-    And each command is a angzarr_client.proto.examples.ReleaseFunds
+    And each command is a angzarr_client.proto.examples.v1.ReleaseFunds
 
   @EU-0312
   Scenario: HandPayoutSaga dispatched via Router emits DepositFunds per winner
@@ -226,7 +226,7 @@ Feature: Saga logic
       | player-2    | 40     |
     When I dispatch the event via SagaHandleRequest with destination_sequences "player=0"
     Then 2 commands are emitted to player domain
-    And each command is a angzarr_client.proto.examples.DepositFunds
+    And each command is a angzarr_client.proto.examples.v1.DepositFunds
     And DepositFunds 0 has amount 60 for "player-1"
     And DepositFunds 1 has amount 40 for "player-2"
 
@@ -265,7 +265,7 @@ Feature: Saga logic
       | player-2    | 0      |
     When I dispatch the event via SagaHandleRequest with destination_sequences "player=0"
     Then 2 commands are emitted to player domain
-    And each command is a angzarr_client.proto.examples.ReleaseFunds
+    And each command is a angzarr_client.proto.examples.v1.ReleaseFunds
 
   # ==========================================================================
   # Saga Edge Cases — Empty Inputs and Field Propagation
@@ -284,7 +284,7 @@ Feature: Saga logic
     And active players:
       | player_root | position | stack |
     When I dispatch the event via SagaHandleRequest with destination_sequences "hand=0"
-    Then the result is a angzarr_client.proto.examples.DealCards command to hand domain
+    Then the result is a angzarr_client.proto.examples.v1.DealCards command to hand domain
     And the command DealCards has hand_number 1 and 0 players
 
   @EU-0317
@@ -296,7 +296,7 @@ Feature: Saga logic
     And winners:
       | player_root | amount |
     When I dispatch the event via SagaHandleRequest with destination_sequences "table=0"
-    Then the result is a angzarr_client.proto.examples.EndHand command to table domain
+    Then the result is a angzarr_client.proto.examples.v1.EndHand command to table domain
     And the EndHand command has 0 results
 
   @EU-0318
@@ -309,7 +309,7 @@ Feature: Saga logic
       | player_root | amount |
       | player-1    | 999    |
     When I dispatch the event via SagaHandleRequest with destination_sequences "table=0"
-    Then the result is a angzarr_client.proto.examples.EndHand command to table domain
+    Then the result is a angzarr_client.proto.examples.v1.EndHand command to table domain
     And the EndHand command result 0 has winning_hand populated
 
   @EU-0319
@@ -334,5 +334,5 @@ Feature: Saga logic
       | player-1    | 500    |
     When I dispatch the event via SagaHandleRequest with destination_sequences "player=0"
     Then 1 commands are emitted to player domain
-    And each command is a angzarr_client.proto.examples.DepositFunds
+    And each command is a angzarr_client.proto.examples.v1.DepositFunds
     And DepositFunds 0 has amount 500 for "player-1"

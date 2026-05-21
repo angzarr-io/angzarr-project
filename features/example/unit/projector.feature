@@ -319,6 +319,6 @@ Feature: Projector logic
   @EU-0530
   Scenario: Handle unknown event type gracefully
     Given an OutputProjector
-    And an event with unknown type_url "type.poker/angzarr_client.proto.examples.UnknownEvent"
+    And an event with unknown type_url "type.poker/angzarr_client.proto.examples.v1.UnknownEvent"
     When the projector handles the event
     Then the output contains "[Unknown event type:"
