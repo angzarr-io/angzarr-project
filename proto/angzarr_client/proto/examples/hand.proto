@@ -17,6 +17,26 @@ option ruby_package = "Angzarr::Examples";
 
 // Commands
 
+// Establish the deck for a hand. Production saga emits this with
+// ``seed = hand_root`` for deterministic per-hand shuffling; tests can
+// emit it with explicit ``deck`` to pin a known layout for hand-
+// evaluation scenarios.
+//
+// Exactly one of ``deck`` / ``seed`` MUST be set. Empty Shuffle is
+// rejected with DECK_SOURCE_REQUIRED so the cluster never silently
+// chooses a non-deterministic shuffle in production paths.
+message Shuffle {
+  // Optional: full 52-card deck in the order the cluster will draw
+  // from it. Validated for no duplicates. When set, ``seed`` is
+  // ignored.
+  repeated Card deck = 1;
+  // Optional: SplitMix64-seeded shuffle of the standard 52-card deck.
+  // Identical determinism contract as the prior DealCards.deck_seed
+  // field (which is removed in this same change).
+  bytes seed = 2;
+  GameVariant game_variant = 3;
+}
+
 message DealCards {
   bytes table_root = 1;
   int64 hand_number = 2;
@@ -25,7 +45,9 @@ message DealCards {
   int32 dealer_position = 5;
   int64 small_blind = 6;
   int64 big_blind = 7;
-  bytes deck_seed = 8; // For deterministic shuffle (testing)
+  // Field 8 reserved — formerly ``bytes deck_seed``, moved to Shuffle.
+  reserved 8;
+  reserved "deck_seed";
   // Betting format. Defaults to NO_LIMIT when unspecified for backward
   // compatibility with existing hand.feature scenarios that pre-date
   // the BettingFormat enum.
@@ -317,6 +339,26 @@ message ReportPrematureStudCard {
 }
 
 // Events
+
+// Emitted by handle_shuffle. The full ordered deck (52 cards) the hand
+// will deal from — public testimony for audit/replay. Production saga
+// emits Shuffle(seed=hand_root); the resulting DeckShuffled.deck is
+// the SplitMix64 shuffle output. Test scenarios that pin a deck emit
+// Shuffle(deck=...); the field mirrors verbatim.
+message DeckShuffled {
+  repeated Card deck = 1;
+  google.protobuf.Timestamp shuffled_at = 2;
+}
+
+// Emitted once before each community-card street (flop / turn / river).
+// The burnt card is consumed from state.remaining_deck before
+// CommunityCardsDealt draws its cards. WSOP/TDA convention; the burn
+// is testimony but not used in hand evaluation.
+message CardBurned {
+  Card card = 1;
+  BettingPhase phase = 2; // The phase whose deal the burn precedes
+  google.protobuf.Timestamp burned_at = 3;
+}
 
 message CardsDealt {
   bytes table_root = 1;
