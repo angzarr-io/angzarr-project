@@ -1124,11 +1124,14 @@ Feature: Hand aggregate logic
 
   @EU-0096
   Scenario: Event book records every emitted event
+    # Post-B3: every hand event book opens with DeckShuffled before
+    # CardsDealt. The synthesizer steps inject a default DeckShuffled
+    # so the count is 4 — DeckShuffled, CardsDealt, BlindPosted×2.
     Given a CardsDealt event for TEXAS_HOLDEM with 2 players at stacks 1000
     And a BlindPosted event for player "player-1" amount 5
     And a BlindPosted event for player "player-2" amount 10
     When I rebuild the hand state
-    Then the hand event book has 3 pages
+    Then the hand event book has 4 pages
 
   @EU-0097
   Scenario: small_blind and big_blind accessors reflect posted blinds
