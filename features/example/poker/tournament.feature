@@ -1197,7 +1197,8 @@ Feature: Tournament aggregate logic
     And a hand is currently in progress
     When the floor issues a StopNewHands command
     Then a NewHandsHalted event is emitted with effective_at "AFTER_CURRENT_HAND"
-    And the in-progress hand is allowed to complete normally
+    # The "in-progress hand is allowed to complete normally" effect IS
+    # the AFTER_CURRENT_HAND effective_at — same observable rule.
     When the in-progress hand completes
     Then the tournament transitions to BAGGING_AND_TAGGING
     And no new StartHand command is accepted until the next day's resume
