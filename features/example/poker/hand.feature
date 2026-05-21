@@ -2400,6 +2400,10 @@ Feature: Hand aggregate logic
     # Rule: TDA RP-5C (2024) — premature river procedure.
     Given a CardsDealt event for TEXAS_HOLDEM with 3 players "Alice,Bob,Carol" at stacks 500
     And blinds posted with pot 15
+    And a BettingRoundComplete event for preflop
+    And a CommunityCardsDealt event for FLOP
+    And a BettingRoundComplete event for flop
+    And a CommunityCardsDealt event for TURN
     And the turn betting round is incomplete
     When the dealer prematurely deals a river card
     Then a angzarr_client.proto.examples.PrematureRiverDetected event is emitted
