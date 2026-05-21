@@ -378,6 +378,21 @@ message BettingRoundComplete {
   google.protobuf.Timestamp completed_at = 4;
 }
 
+// Emitted whenever action transfers to a new seat: preflop opening,
+// after each ActionTaken, on phase transitions. ``amount_to_call`` is
+// the absolute level the seat must reach to call; ``min_raise`` is
+// the minimum legal raise increment for ``phase``. ``handle_player_action``
+// rejects any command whose ``player_root`` doesn't match the
+// most-recent TurnAssigned.player_root with NotYourTurn (TDA Rule 50).
+message TurnAssigned {
+  bytes player_root = 1;
+  int32 seat_position = 2;
+  int64 amount_to_call = 3;
+  int64 min_raise = 4;
+  BettingPhase phase = 5;
+  google.protobuf.Timestamp assigned_at = 6;
+}
+
 message PlayerStackSnapshot {
   bytes player_root = 1;
   int64 stack = 2;
