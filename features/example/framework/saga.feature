@@ -36,7 +36,7 @@ Feature: Saga logic
   # the hand aggregate. When a hand completes, it signals the table to end.
 
   @EU-0300
-  Scenario: Table sync saga routes HandStarted to DealCards
+  Scenario: Table sync saga routes HandStarted to Shuffle + DealCards
     Given a TableSyncSaga
     And a HandStarted event from table domain with:
       | hand_root   | hand_number | game_variant   | dealer_position |
@@ -46,15 +46,14 @@ Feature: Saga logic
       | player-1    | 0        | 500   |
       | player-2    | 1        | 500   |
     When the saga handles the event
-    Then the saga emits a DealCards command to hand domain
+    # Saga emits Shuffle first (hand_root as seed for replay-
+    # deterministic per-hand deck order), then DealCards.
+    Then the saga emits a Shuffle command to hand domain
+    And the Shuffle command has seed equal to the hand_root
+    And the saga emits a DealCards command to hand domain
     And the command has game_variant TEXAS_HOLDEM
     And the command has 2 players
     And the command has hand_number 1
-    # The saga must propagate hand_root as deck_seed so the deck shuffle is
-    # deterministic across runs — required for acceptance tests that assert
-    # specific cards. hand_root = sha256(table_id, hand_n) is itself
-    # deterministic per-hand, so this seed is reproducible.
-    And the command has deck_seed equal to the hand_root
 
   @EU-0301
   Scenario: Table sync saga routes HandComplete to EndHand
