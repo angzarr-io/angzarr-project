@@ -100,7 +100,7 @@ class PlayerRegisteredV1ToV2Upcaster:
 
 Links related events across aggregates:
 
-```protobuf file=proto/angzarr_client/proto/angzarr/types.proto region=cover
+```protobuf file=proto/angzarr_client/proto/angzarr/v1/types.proto region=cover
 ```
 
 **Propagation rules:**
@@ -165,7 +165,7 @@ Controls when command processing returns to caller:
 | **SIMPLE** | 1 | Wait for projectors only | Read-after-write consistency |
 | **CASCADE** | 2 | Wait for projectors + saga cascade | Full sync (expensive) |
 
-```protobuf file=proto/angzarr_client/proto/angzarr/types.proto region=sync_mode
+```protobuf file=proto/angzarr_client/proto/angzarr/v1/types.proto region=sync_mode
 ```
 
 **Trade-offs:**
@@ -208,7 +208,7 @@ print(f"Balance at {yesterday}: {state.bankroll}")
 
 Editions enable divergent timelines for speculative execution, historical analysis, or saga coordination:
 
-```protobuf file=proto/angzarr_client/proto/angzarr/types.proto region=edition
+```protobuf file=proto/angzarr_client/proto/angzarr/v1/types.proto region=edition
 ```
 
 **Use cases:**
@@ -242,7 +242,7 @@ cmd = CommandBook(cover=cover, pages=[...])
 
 Controls how snapshots are managed during compaction:
 
-```protobuf file=proto/angzarr_client/proto/angzarr/types.proto region=snapshot_retention
+```protobuf file=proto/angzarr_client/proto/angzarr/v1/types.proto region=snapshot_retention
 ```
 
 **When to use:**

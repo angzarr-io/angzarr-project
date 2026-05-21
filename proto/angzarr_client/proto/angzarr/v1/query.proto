@@ -1,7 +1,7 @@
 syntax = "proto3";
-package angzarr_client.proto.angzarr;
+package angzarr_client.proto.angzarr.v1;
 
-import "angzarr_client/proto/angzarr/types.proto";
+import "angzarr_client/proto/angzarr/v1/types.proto";
 import "google/api/annotations.proto";
 import "google/protobuf/empty.proto";
 

@@ -3,7 +3,7 @@
 //      Edition, SnapshotRetention, or Notification types.
 
 syntax = "proto3";
-package angzarr_client.proto.angzarr;
+package angzarr_client.proto.angzarr.v1;
 
 import "google/protobuf/any.proto";
 import "google/protobuf/timestamp.proto";

@@ -200,7 +200,7 @@ CASCADE sync can easily 10× your event store read load compared to async. Profi
 
 When concurrent commands arrive for the same aggregate, the framework must decide how to handle sequence conflicts:
 
-```protobuf file=proto/angzarr_client/proto/angzarr/types.proto region=merge_strategy
+```protobuf file=proto/angzarr_client/proto/angzarr/v1/types.proto region=merge_strategy
 ```
 
 ### MERGE_COMMUTATIVE (Default)

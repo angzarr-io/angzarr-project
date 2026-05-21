@@ -1,5 +1,5 @@
 syntax = "proto3";
-package angzarr_client.proto.angzarr;
+package angzarr_client.proto.angzarr.v1;
 
 import "google/protobuf/any.proto";
 

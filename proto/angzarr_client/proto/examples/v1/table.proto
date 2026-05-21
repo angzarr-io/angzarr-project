@@ -1,7 +1,7 @@
 syntax = "proto3";
-package angzarr_client.proto.examples;
+package angzarr_client.proto.examples.v1;
 
-import "angzarr_client/proto/examples/poker_types.proto";
+import "angzarr_client/proto/examples/v1/poker_types.proto";
 import "google/protobuf/timestamp.proto";
 
 option csharp_namespace = "Angzarr.Examples";
