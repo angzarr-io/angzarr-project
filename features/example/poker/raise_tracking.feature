@@ -159,9 +159,12 @@ Feature: Minimum raise tracking observable on TurnAssigned
   Scenario: An all-in for less than the min raise updates current_bet but does not increase min_raise
     # Short all-in raises current_bet to the all-in level but does NOT
     # update min_raise — earlier bettors do not have action reopened.
-    Given a 3-handed Texas Hold'em hand with big_blind 10
+    # Seat 1 has a 45-chip short stack: SB=5 posted leaves 40 behind, so
+    # the subsequent ALL_IN puts in 40 (bringing seat 1's
+    # bet_this_round to 45, current_bet to 45 once they're all-in).
+    Given a 3-handed Texas Hold'em hand with big_blind 10 and stacks 10000, 45, 10000
     When SB at seat 1 and BB at seat 2 post blinds
     And seat 0 raises to 30
     And seat 1 goes all-in to 40
-    Then the latest TurnAssigned has amount_to_call 40
+    Then the latest TurnAssigned has amount_to_call 45
     And the latest TurnAssigned has min_raise 20
