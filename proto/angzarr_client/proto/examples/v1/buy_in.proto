@@ -53,6 +53,13 @@ message SeatPlayer {
   // recorded on the resulting PlayerSeated event for replay.
   bool tournament_mode = 5;
   bytes rng_seed = 6; // Optional explicit seed; auto-derived if empty.
+  // TDA Rule 10A — when set, this is a player from a broken table
+  // being reseated mid-orbit. The handler skips the destination's
+  // ``min_buy_in`` check because the player carries their existing
+  // stack (which may legitimately fall below the destination's
+  // minimum) and is dealt out of the current hand, dealt in for the
+  // next.
+  bool moved_player = 7;
 }
 
 // -----------------------------------------------------------------------------
