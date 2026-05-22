@@ -29,6 +29,19 @@ message Cover {
   string correlation_id = 3; // Workflow correlation - flows through all commands/events
   Edition edition = 4; // Edition for diverged timelines; empty name = main timeline
   // Field 5 removed: external_id moved to ExternalDeferredSequence in PageHeader
+  // Client-supplied extension slot. Most consumers pack a nested
+  // ``Cover`` here to express parent-aggregate relationships (e.g.
+  // table events carry the tournament Cover; hand events carry the
+  // table Cover). Helper ``unpack_parent_cover`` extracts the typed
+  // Cover when present. Framework code treats this as opaque routing
+  // metadata — it propagates without inspecting.
+  //
+  // WARNING — mass-propagating: the framework stamps this slot onto
+  // EVERY event a child aggregate emits, so the payload is paid per
+  // event. Keep what you pack small. The intended workload is a single
+  // nested Cover (~50–80 bytes packed); larger payloads multiply
+  // across the event stream and the bus.
+  google.protobuf.Any ext = 6;
 }
 // endregion
 
