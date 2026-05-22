@@ -1,6 +1,7 @@
 syntax = "proto3";
 package angzarr_client.proto.examples.v1;
 
+import "angzarr_client/proto/angzarr/v1/types.proto";
 import "angzarr_client/proto/examples/v1/poker_types.proto";
 import "google/protobuf/timestamp.proto";
 
@@ -232,6 +233,45 @@ message TableHaltedForBalancing {
 message TableResumedForBalancing {
   bytes table_root = 1;
   google.protobuf.Timestamp resumed_at = 2;
+}
+
+// TDA Rule 11D part 1 — local trigger emitted when the table's next BB
+// position becomes an empty seat. Edge-only: emitted on the false→true
+// transition. Consumed by saga-table-tournament which forwards into
+// the tournament aggregate for the cross-table deficit check.
+message TableBBOnEmptyPredicted {
+  bytes table_root = 1;
+  google.protobuf.Timestamp predicted_at = 2;
+}
+
+// Edge-only counterpart: emitted on the true→false transition (BB
+// position now occupied — typically because a rebalance seated a
+// player at the BB-next seat). Triggers the resume path at the
+// tournament side if the table is currently halted.
+message TableBBOnEmptyResolved {
+  bytes table_root = 1;
+  google.protobuf.Timestamp resolved_at = 2;
+}
+
+// =============================================================================
+// Cross-aggregate routing context
+// =============================================================================
+//
+// Poker-domain wrapper packed into the framework ``Cover.ext`` slot on
+// every command/event for a tournament-owned table. The framework
+// treats Cover.ext as opaque Any; this typed wrapper gives the
+// poker-side code a named field to read.
+//
+// The aggregate creator (operator / saga) constructs this with the
+// owning tournament's Cover and packs into the CreateTable command's
+// cover.ext. The framework dispatcher then propagates the same ext
+// onto every event the table emits thereafter.
+//
+// Sagas that route per-tournament (e.g. saga-table-tournament) read
+// ``unpack_table_ext(source_cover).tournament_cover.root.value`` for
+// their target.
+message TableExt {
+  angzarr_client.proto.angzarr.v1.Cover tournament_cover = 1;
 }
 
 // TDA Rule 33 / WSOP Rule 86 emit — a player who skipped a blind by

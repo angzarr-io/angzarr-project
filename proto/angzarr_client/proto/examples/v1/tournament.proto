@@ -541,6 +541,22 @@ message HandForHandRoundComplete {
   google.protobuf.Timestamp completed_at = 2;
 }
 
+// Per-table progress receipt for ``RecordTableHandComplete`` while the
+// pending-tables set still has unreported entries. Without this event
+// the handler had no way to persist "table T already reported in" —
+// each command rebuilds state from prior events and the original apply
+// for ``HandForHandStarted`` reseeded the pending set to the full
+// ``active_table_roots``, so the second-and-subsequent
+// ``RecordTableHandComplete`` saw the original membership and only
+// removed one entry per call. The progressive emit lets state replay
+// converge: by the time the last table reports, the rebuilt state has
+// the prior table's removal applied and the empty-set transition fires
+// the ``HandForHandRoundComplete`` event.
+message TableHandCompleteRecorded {
+  bytes table_root = 1;
+  google.protobuf.Timestamp recorded_at = 2;
+}
+
 // TDA RP-8B/8C emit — a single hand-for-hand hand finished.
 // ``clock_seconds_deducted`` records the per-hand level-clock charge
 // (capped at 180 = 3 min, defaults to 120 = 2 min per RP-8C).
@@ -769,4 +785,108 @@ message TournamentState {
   // Bag-and-tag snapshots from the most recent end-of-day stop, keyed
   // by player_root_hex. Empty unless status == TOURNAMENT_BAGGED.
   map<string, PlayerBagSnapshot> bag_snapshots = 20;
+}
+
+// =============================================================================
+// TDA Rule 11D — short-table halt orchestration
+// =============================================================================
+//
+// Tournament aggregate as cross-table state-of-record. Per-table
+// player counts and BB-on-empty flags are kept here so the deficit
+// rule (3+ short relative to the largest table) can be evaluated
+// inside an event-sourced aggregate handler. Two input paths feed
+// the state:
+//
+//   1. Operator-issued: HaltShortTable / ResumeShortTable. The
+//      operator decides (TD dashboard, ops gRPC); the tournament
+//      records the order and the table halts via the fan-out saga.
+//
+//   2. Auto-detection: saga-table-tournament listens to table-domain
+//      events (PlayerJoined / PlayerLeft / TableBBOnEmptyPredicted /
+//      TableBBOnEmptyResolved), routes them via the tournament_cover
+//      packed in Cover.ext, and emits the Record* commands below.
+//      The handlers evaluate the rule and emit TableHaltOrdered when
+//      deficit ≥ 3 and BB-on-empty are both true; TableResumeOrdered
+//      when BB-on-empty resolves on a halted table.
+//
+// Both paths feed the same TableHaltOrdered / TableResumeOrdered
+// events, which saga-tournament-halt-fanout translates into the
+// table-domain HaltForBalancing / ResumePlayAtTable commands.
+
+// Operator-issued: halt a short table directly. Deficit is computed
+// externally (today by the operator, in future by a watcher) and
+// passed as a parameter.
+message HaltShortTable {
+  bytes target_table_root = 1;
+  int32 deficit = 2;
+}
+
+// Operator-issued: resume a previously halted table.
+message ResumeShortTable {
+  bytes target_table_root = 1;
+}
+
+// Saga-issued: forwarded from table.PlayerJoined / buy_in.PlayerSeated
+// via saga-table-tournament. Tournament accumulates per-table counts.
+message RecordTablePlayerJoined {
+  bytes table_root = 1;
+  bytes player_root = 2;
+}
+
+// Saga-issued: forwarded from table.PlayerLeft.
+message RecordTablePlayerLeft {
+  bytes table_root = 1;
+  bytes player_root = 2;
+}
+
+// Saga-issued: forwarded from table.TableBBOnEmptyPredicted. The
+// handler evaluates the deficit rule and ALSO emits TableHaltOrdered
+// if deficit ≥ 3 and this table is not already in pending_halt_orders.
+message RecordTableBBOnEmpty {
+  bytes table_root = 1;
+}
+
+// Saga-issued: forwarded from table.TableBBOnEmptyResolved. The
+// handler ALSO emits TableResumeOrdered if the table was halted.
+message RecordTableBBOnEmptyCleared {
+  bytes table_root = 1;
+}
+
+// Order-of-record events consumed by saga-tournament-halt-fanout to
+// emit the per-table HaltForBalancing / ResumePlayAtTable commands.
+
+message TableHaltOrdered {
+  bytes target_table_root = 1;
+  int32 deficit = 2;
+  google.protobuf.Timestamp ordered_at = 3;
+}
+
+message TableResumeOrdered {
+  bytes target_table_root = 1;
+  google.protobuf.Timestamp ordered_at = 2;
+}
+
+// State-of-record events from the saga-fed Record* handlers — apply
+// onto the tournament's per-table count / flag dictionaries.
+
+message TournamentTablePlayerJoined {
+  bytes table_root = 1;
+  bytes player_root = 2;
+  google.protobuf.Timestamp recorded_at = 3;
+}
+
+message TournamentTablePlayerLeft {
+  bytes table_root = 1;
+  bytes player_root = 2;
+  google.protobuf.Timestamp recorded_at = 3;
+}
+
+message TournamentTableBBOnEmpty {
+  bytes table_root = 1;
+  google.protobuf.Timestamp recorded_at = 2;
+}
+
+message TournamentTableBBOnEmptyCleared {
+  bytes table_root = 1;
+  google.protobuf.Timestamp recorded_at = 2;
 }
