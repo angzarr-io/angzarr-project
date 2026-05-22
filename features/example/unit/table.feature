@@ -903,9 +903,13 @@ Feature: Table aggregate logic
     And a PlayerJoined event for player "Eve" at seat 0 of "Dest"
     And a PlayerJoined event for player "Frank" at seat 1 of "Dest"
     When I handle a BalanceTables command moving from "Source" to "Dest"
-    Then the result is a angzarr_client.proto.examples.v1.PlayerMovedBetweenTables event
+    # Source-side emit (table-domain): names the player + destination table
+    # by root. The destination seat is filled by a downstream saga that
+    # holds both tables in view; the unit-tier scenario verifies the
+    # source aggregate's BB-next choice and routing target only.
+    Then the result is a angzarr_client.proto.examples.v1.BalancingMoveDecided event
     And the moved player is "Dave"
-    And the moved player's destination seat at "Dest" is the BB position (not the SB position)
+    And the move's destination table root matches "Dest"
 
   @EU-1181
   Scenario: Final-table combination — 9-handed event collapses 2 tables of 5 to one final table of 9
