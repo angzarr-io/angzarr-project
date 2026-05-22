@@ -1005,6 +1005,19 @@ Feature: Table aggregate logic
     Then a angzarr_client.proto.examples.v1.TableHaltedForBalancing event is emitted for "Table-B"
     And "Table-B" status is "halted_for_balancing"
 
+  @EU-1184B
+  Scenario: Halted table resumes after the coordinator issues ResumePlayAtTable
+    # Rule: TDA Rule 11D (2024) — resume side. Once rebalancing closes the
+    # deficit the tournament coordinator clears the halt explicitly via
+    # ResumePlayAtTable; the table emits TableResumedForBalancing and
+    # accepts StartHand again.
+    Given a TableCreated event for "Table-A" with 8 active players
+    And a TableCreated event for "Table-B" with 5 active players
+    And the next hand at "Table-B" would assign the BB to an empty seat
+    When the coordinator resumes play at "Table-B"
+    Then a angzarr_client.proto.examples.v1.TableResumedForBalancing event is emitted for "Table-B"
+    And "Table-B" is no longer halted for balancing
+
   # ==========================================================================
   # Dodging Blinds Penalty — TDA Rule 33 / WSOP Rule 86
   # ==========================================================================
