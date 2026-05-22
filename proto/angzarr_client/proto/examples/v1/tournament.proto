@@ -890,3 +890,37 @@ message TournamentTableBBOnEmptyCleared {
   bytes table_root = 1;
   google.protobuf.Timestamp recorded_at = 2;
 }
+
+// =============================================================================
+// TDA RP-9 / WSOP Rule 68 — final-table combination orchestration
+// =============================================================================
+//
+// Same operator-parameterized shape as the Rule 11D halt orchestration
+// above: an operator-issued command at the tournament aggregate
+// records an order-of-record event, which a stateless fan-out saga
+// translates into the per-table ``CombineFinalTable`` command. Today
+// the rule itself (when to combine — e.g. 9-handed event collapses to
+// one table at 9 players, 6-handed at 7) stays the operator's call;
+// auto-detection paths can be added later as ``RecordTableField*``
+// saga-issued commands without changing the operator-issued contract.
+
+// Operator-issued: order a final-table combination at the tournament
+// level. Field shape mirrors the existing table-domain
+// ``CombineFinalTable`` (names, not roots) so the fan-out saga is a
+// pure field-by-field translation — the table aggregate's
+// name-addressed handler stays unchanged.
+message OrderCombineFinalTable {
+  string final_table_name = 1;
+  repeated string source_table_names = 2;
+  int32 max_handed = 3; // 9 / 8 / 7 / 6
+}
+
+// Order-of-record event consumed by saga-tournament-combine-fanout to
+// emit the table-domain ``CombineFinalTable`` command against the
+// final table aggregate.
+message FinalTableCombineOrdered {
+  string final_table_name = 1;
+  repeated string source_table_names = 2;
+  int32 max_handed = 3;
+  google.protobuf.Timestamp ordered_at = 4;
+}

@@ -1018,6 +1018,60 @@ Feature: Table aggregate logic
     Then a angzarr_client.proto.examples.v1.TableResumedForBalancing event is emitted for "Table-B"
     And "Table-B" is no longer halted for balancing
 
+  @EU-1184C
+  Scenario: A 2-player deficit does not trigger halt (below the 3-short threshold)
+    # Rule: TDA Rule 11D (2024) — first clause ("3 or more players short").
+    # 9-handed event. Largest table A has 8 players. Short table B has 6.
+    # Deficit is 2, below the rule's 3-player threshold. The BB-on-empty
+    # trigger fires but no halt is ordered.
+    Given a TableCreated event for "Table-A" with 8 active players
+    And a TableCreated event for "Table-B" with 6 active players
+    When the next hand at "Table-B" would assign the BB to an empty seat
+    Then no TableHaltedForBalancing event is emitted
+    And "Table-B" is not halted for balancing
+
+  @EU-1184D
+  Scenario: Halt comparator uses the largest table, not the average
+    # Rule: TDA Rule 11D (2024) — second clause ("than the table with
+    # the most players"). Three tables: 9, 6, 6. Average over peers
+    # would be (9+6)/2 = 7.5 → deficit < 3 → no halt. Max is 9 →
+    # deficit 3 → halt fires. This sanity-checks the comparator
+    # choice: rule says "the table with the most players", not "the
+    # average across remaining tables".
+    Given a TableCreated event for "Table-A" with 9 active players
+    And a TableCreated event for "Table-B" with 6 active players
+    And a TableCreated event for "Table-C" with 6 active players
+    When the next hand at "Table-B" would assign the BB to an empty seat
+    Then a angzarr_client.proto.examples.v1.TableHaltedForBalancing event is emitted for "Table-B"
+    And "Table-B" status is "halted_for_balancing"
+
+  @EU-1184E
+  Scenario: A halted table refuses StartHand until the coordinator resumes
+    # Rule: TDA Rule 11D (2024) — the effect of "halt". A halted table
+    # does not start new hands. No HandStarted is emitted; the command
+    # is rejected so the saga / operator gets a clear signal.
+    Given a TableCreated event for "Table-A" with 8 active players
+    And a TableCreated event for "Table-B" with 5 active players
+    And the next hand at "Table-B" would assign the BB to an empty seat
+    When I handle a StartHand command at "Table-B"
+    Then the command at "Table-B" is rejected
+    And no HandStarted event is emitted at "Table-B"
+
+  @EU-1184F
+  Scenario: Halt re-arms after a previous resume if the deficit reopens
+    # Rule: TDA Rule 11D (2024) — the rule is evaluated each time the
+    # BB threatens an empty seat, not once-per-table. After a resume,
+    # if the deficit still meets the threshold and the BB again
+    # threatens an empty seat (e.g. before rebalancing fully closed
+    # the gap), the table halts again.
+    Given a TableCreated event for "Table-A" with 8 active players
+    And a TableCreated event for "Table-B" with 5 active players
+    And the next hand at "Table-B" would assign the BB to an empty seat
+    And the coordinator resumes play at "Table-B"
+    When the next hand at "Table-B" would assign the BB to an empty seat
+    Then a angzarr_client.proto.examples.v1.TableHaltedForBalancing event is emitted for "Table-B"
+    And "Table-B" status is "halted_for_balancing"
+
   # ==========================================================================
   # Dodging Blinds Penalty — TDA Rule 33 / WSOP Rule 86
   # ==========================================================================

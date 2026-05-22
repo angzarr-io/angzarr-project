@@ -1,6 +1,7 @@
 # Allocated: EU-0800 .. EU-0865, EU-1151, EU-1160 .. EU-1162,
 #            EU-1190 .. EU-1192, EU-1310 .. EU-1317,
-#            EU-1370 .. EU-1376 (TDA RP / WSOP gap scenarios)
+#            EU-1370 .. EU-1376 (TDA RP / WSOP gap scenarios),
+#            EU-1380 .. EU-1381 (final-table combine orchestration)
 # DOC: Unit scenarios for the Tournament aggregate (tournament/agg/handlers.py).
 
 Feature: Tournament aggregate logic
@@ -1213,3 +1214,36 @@ Feature: Tournament aggregate logic
     Then a TournamentResumed event is emitted
     And every player's starting stack equals their Day 1 bagged stack
     And every player's seat assignment matches the Day 2 redraw if 100+ event, else bagged seat
+
+  # ==========================================================================
+  # Final-table combine — operator-parameterized tournament orchestration
+  # ==========================================================================
+  # Mirrors the TDA Rule 11D shape (EU-1184 et al): an operator-issued
+  # tournament command (``OrderCombineFinalTable``) records an
+  # order-of-record event (``FinalTableCombineOrdered``) that a
+  # stateless fan-out saga translates into the existing table-domain
+  # ``CombineFinalTable`` command. Today the rule that determines WHEN
+  # to combine (TDA RP-9 / WSOP Rule 68 — 9-handed event collapses to
+  # one table at 9 players, 6-handed at 7, etc.) stays the operator's
+  # call; auto-detection can later be added as ``RecordTableField*``
+  # saga-issued commands without changing the operator-issued contract.
+
+  @EU-1380
+  Scenario: Operator-issued final-table combination records the order at the tournament level
+    # Pattern: operator-parameterized (same as EU-1184 HaltShortTable).
+    # The tournament aggregate stamps the order of record; the
+    # subsequent fan-out to the table aggregate is the saga's job.
+    Given a running tournament with two semifinal tables "Semi-1" and "Semi-2"
+    When the operator issues an OrderCombineFinalTable command for "Final" combining "Semi-1,Semi-2" max_handed 9
+    Then a angzarr_client.proto.examples.v1.FinalTableCombineOrdered event is emitted
+    And the order event has final_table_name "Final"
+    And the order event has source_table_names "Semi-1,Semi-2"
+    And the order event has max_handed 9
+
+  @EU-1381
+  Scenario: OrderCombineFinalTable is rejected when the tournament is not running
+    # Defensive guard mirroring HaltShortTable's TournamentNotRunning
+    # check — operator commands cannot pre-empt the running phase.
+    Given a tournament that has not started
+    When the operator issues an OrderCombineFinalTable command for "Final" combining "Semi-1,Semi-2" max_handed 9
+    Then the command is rejected

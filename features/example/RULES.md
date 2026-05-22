@@ -51,7 +51,7 @@ completed on 2026-05-05. Results:
 | 10A  | New Players & Broken-Table Seating     | covered     | EU-1183                                         |
 | 11A  | Balancing Tables — BB-next             | covered     | EU-1180; EA-0012 (cluster, @wip)                |
 | 11B  | Mixed-Game Button Shifts (HORSE)       | covered     | EU-1320, EU-1322..1341 (stud variants)          |
-| 11D  | Halt Play When 3+ Short                | covered     | EU-1184                                         |
+| 11D  | Halt Play When 3+ Short                | covered     | EU-1184, EU-1184B (resume), EU-1184C..F (clauses + halt effects) |
 | 12   | Cards Speak at Showdown                | covered     | EU-0027..0028, EU-0082..0087, EU-1008, EU-1009  |
 | 13A  | Tabling Cards Properly                 | covered     | EU-0025..0026, EU-0077..0081, EU-1271, EU-1272  |
 | 13B  | Partial Muck                           | covered     | EU-1200, EU-1271 (must table all hole cards)    |

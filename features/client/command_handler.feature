@@ -1,4 +1,4 @@
-# Allocated: C-0001 .. C-0006, C-0085
+# Allocated: C-0001 .. C-0006, C-0085, C-0146 .. C-0148
 Feature: Command handler dispatch
   As an aggregate author
   I want commands routed to @handles methods with state rebuilt from prior events
@@ -57,3 +57,30 @@ Feature: Command handler dispatch
     And no prior events in the incoming ContextualCommand
     When CreateOrder(order_id="o-1") is dispatched
     Then the handler observed state.created = false
+
+  # ==========================================================================
+  # Cover.ext propagation (client-side, fill-only)
+  # ==========================================================================
+  # types.proto Cover doc: "the framework stamps this slot onto EVERY event
+  # a child aggregate emits". Implementation lives in each client's
+  # dispatch path (not the coordinator) so the policy is colocated with
+  # event creation. Fill-only — never overrides a handler-set ext.
+
+  @C-0146
+  Scenario: Command cover.ext is stamped onto the emitted EventBook's cover
+    Given the incoming command has cover.ext set to a packed parent Cover
+    When CreateOrder(order_id="o-1") is dispatched
+    Then the response's EventBook cover.ext is the same packed parent Cover
+
+  @C-0147
+  Scenario: Handler-set ext on the emitted EventBook is not overridden
+    Given a command handler whose emit step sets EventBook cover.ext explicitly
+    And the incoming command also has a different cover.ext set
+    When CreateOrder(order_id="o-1") is dispatched
+    Then the response's EventBook cover.ext is the handler-set value
+
+  @C-0148
+  Scenario: No command ext leaves the emitted EventBook cover.ext unset
+    Given the incoming command's cover has no ext field set
+    When CreateOrder(order_id="o-1") is dispatched
+    Then the response's EventBook cover has no ext field set
