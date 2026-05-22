@@ -181,12 +181,20 @@ message BalanceTables {
 
 // TDA RP-9 / WSOP Rule 68 — coordinator command to combine multiple
 // tables into a single final table. ``source_table_names`` is the
-// CSV list of tables being broken; ``final_table_name`` is the new
+// list of tables being broken; ``final_table_name`` is the new
 // final-table aggregate.
+//
+// ``active_players`` carries the source players + stacks the saga
+// gathered from the breaking tables. The final-table aggregate
+// stamps positions 0..N onto these and emits ``FinalTableCombined``
+// — it cannot read source-aggregate state itself, so the caller
+// (a balancing saga in production, the cucumber step in unit
+// tests) is responsible for collecting the active set.
 message CombineFinalTable {
   string final_table_name = 1;
   repeated string source_table_names = 2;
   int32 max_handed = 3; // 9 / 8 / 7 / 6
+  repeated SeatSnapshot active_players = 4;
 }
 
 // TDA Rule 11D — coordinator command issued to a short table once the
