@@ -188,6 +188,18 @@ message CombineFinalTable {
   int32 max_handed = 3; // 9 / 8 / 7 / 6
 }
 
+// TDA Rule 11D — coordinator command issued to a short table once the
+// detection saga determines the deficit warrants a halt. The table
+// aggregate emits ``TableHaltedForBalancing`` in response and
+// subsequently refuses ``StartHand`` until ``ResumePlayAtTable``.
+message HaltForBalancing {
+  int32 deficit = 1; // players-short relative to the largest table
+}
+
+// TDA Rule 11D — coordinator command to resume play at a previously
+// halted table once rebalancing has closed the deficit.
+message ResumePlayAtTable {}
+
 // TDA Rule 11A emit — a balancing move emitted at the source table.
 message BalancingMoveDecided {
   bytes player_root = 1;
@@ -213,6 +225,13 @@ message TableHaltedForBalancing {
   bytes table_root = 1;
   int32 deficit = 2; // players-short relative to the largest table
   google.protobuf.Timestamp halted_at = 3;
+}
+
+// TDA Rule 11D emit — table resumed play after the coordinator's
+// ``ResumePlayAtTable`` command closed the halted_for_balancing flag.
+message TableResumedForBalancing {
+  bytes table_root = 1;
+  google.protobuf.Timestamp resumed_at = 2;
 }
 
 // TDA Rule 33 / WSOP Rule 86 emit — a player who skipped a blind by
