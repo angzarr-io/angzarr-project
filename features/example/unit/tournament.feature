@@ -70,7 +70,7 @@ Feature: Tournament aggregate logic
     When tournament "Test Tournament" is created with 100 buy-in, 1000 starting stack, max 100 players, min 10 players
     Then the tournament is named "Test Tournament"
     And the buy-in is 100
-    And the tournament starting stack is 1000
+    And the starting stack is 1000
 
   @EU-0801
   Scenario: Cannot create tournament twice
