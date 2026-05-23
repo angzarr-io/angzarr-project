@@ -55,35 +55,31 @@ Feature: Table aggregate logic
   @wip
   @EU-0100
   Scenario: Create a Texas Hold'em table
-    Given no prior events for the table aggregate
-    When I handle a CreateTable command with name "Main Table" and variant "TEXAS_HOLDEM":
+    Given the table has not yet been created
+    When a Texas Hold'em table named "Main Table" is created with:
       | small_blind | big_blind | min_buy_in | max_buy_in | max_players |
       | 5           | 10        | 200        | 1000       | 9           |
-    Then the result is a angzarr_client.proto.examples.v1.TableCreated event
-    And the table event has table_name "Main Table"
-    And the table event has game_variant "TEXAS_HOLDEM"
-    And the table event has small_blind 5
-    And the table event has big_blind 10
+    Then the table is named "Main Table"
+    And the table is configured as a Texas Hold'em game
+    And the blinds are 5/10
 
   @wip
   @EU-0101
   Scenario: Create a Five Card Draw table
-    Given no prior events for the table aggregate
-    When I handle a CreateTable command with name "Draw Table" and variant "FIVE_CARD_DRAW":
+    Given the table has not yet been created
+    When a Five Card Draw table named "Draw Table" is created with:
       | small_blind | big_blind | min_buy_in | max_buy_in | max_players |
       | 10          | 20        | 400        | 2000       | 6           |
-    Then the result is a angzarr_client.proto.examples.v1.TableCreated event
-    And the table event has game_variant "FIVE_CARD_DRAW"
+    Then the table is configured as a Five Card Draw game
 
   @wip
   @EU-0102
   Scenario: Cannot create table twice
-    Given a TableCreated event for "Main Table"
-    When I handle a CreateTable command with name "Another Table" and variant "TEXAS_HOLDEM":
+    Given a table "Main Table" exists
+    When a Texas Hold'em table named "Another Table" is created with:
       | small_blind | big_blind | min_buy_in | max_buy_in | max_players |
       | 5           | 10        | 200        | 1000       | 9           |
-    Then the command fails with status "FAILED_PRECONDITION"
-    And the error message contains "already exists"
+    Then the create-table is refused because the table already exists
 
   # ==========================================================================
   # Player Seating
@@ -101,58 +97,48 @@ Feature: Table aggregate logic
   @wip
   @EU-0103
   Scenario: Player joins table at preferred seat
-    Given a TableCreated event for "Main Table"
-    When I handle a JoinTable command for player "player-1" at seat 3 with buy-in 500
-    Then the result is a angzarr_client.proto.examples.v1.PlayerJoined event
-    And the table event has seat_position 3
-    And the table event has buy_in_amount 500
+    Given a table "Main Table" exists
+    When player "player-1" joins the table at seat 3 with a buy-in of 500
+    Then player "player-1" is seated at position 3 with a 500-chip stack
 
   @wip
   @EU-0104
   Scenario: Player joins table at any seat
-    Given a TableCreated event for "Main Table"
-    When I handle a JoinTable command for player "player-1" at seat -1 with buy-in 500
-    Then the result is a angzarr_client.proto.examples.v1.PlayerJoined event
-    And the table event has seat_position 0
+    Given a table "Main Table" exists
+    When player "player-1" joins the table at any available seat with a buy-in of 500
+    Then player "player-1" is seated at position 0
 
   @wip
   @EU-0105
   Scenario: Cannot join occupied seat
-    Given a TableCreated event for "Main Table"
-    And a PlayerJoined event for player "player-1" at seat 3
-    When I handle a JoinTable command for player "player-2" at seat 3 with buy-in 500
-    Then the command fails with status "FAILED_PRECONDITION"
-    And the command is rejected with code "SEAT_OCCUPIED"
-    And the rejection field "seat" equals "3"
+    Given a table "Main Table" exists
+    And player "player-1" is seated at position 3
+    When player "player-2" joins the table at seat 3 with a buy-in of 500
+    Then the join is refused because seat 3 is already occupied
 
   @wip
   @EU-0106
   Scenario: Cannot join table twice
-    Given a TableCreated event for "Main Table"
-    And a PlayerJoined event for player "player-1" at seat 3
-    When I handle a JoinTable command for player "player-1" at seat 5 with buy-in 500
-    Then the command fails with status "FAILED_PRECONDITION"
-    And the error message contains "already seated"
+    Given a table "Main Table" exists
+    And player "player-1" is seated at position 3
+    When player "player-1" joins the table at seat 5 with a buy-in of 500
+    Then the join is refused because the player is already seated
 
   @wip
   @EU-0107
   Scenario: Cannot join with insufficient buy-in
-    Given a TableCreated event for "Main Table" with min_buy_in 200
-    When I handle a JoinTable command for player "player-1" at seat 0 with buy-in 100
-    Then the command fails with status "FAILED_PRECONDITION"
-    And the command is rejected with code "BUY_IN_BELOW_MIN"
-    And the rejection field "got" equals "100"
-    And the rejection field "bound" equals "200"
+    Given a table "Main Table" exists with a minimum buy-in of 200
+    When player "player-1" joins the table at seat 0 with a buy-in of 100
+    Then the join is refused because the buy-in of 100 is below the table minimum of 200
 
   @wip
   @EU-0108
   Scenario: Cannot join full table
-    Given a TableCreated event for "Main Table" with max_players 2
-    And a PlayerJoined event for player "player-1" at seat 0
-    And a PlayerJoined event for player "player-2" at seat 1
-    When I handle a JoinTable command for player "player-3" at seat -1 with buy-in 500
-    Then the command fails with status "FAILED_PRECONDITION"
-    And the error message contains "Table is full"
+    Given a table "Main Table" exists with a maximum of 2 players
+    And player "player-1" is seated at position 0
+    And player "player-2" is seated at position 1
+    When player "player-3" joins the table at any available seat with a buy-in of 500
+    Then the join is refused because the table is full
 
   # ==========================================================================
   # Player Departure
@@ -167,30 +153,27 @@ Feature: Table aggregate logic
   @wip
   @EU-0109
   Scenario: Player leaves table
-    Given a TableCreated event for "Main Table"
-    And a PlayerJoined event for player "player-1" at seat 3 with stack 500
-    When I handle a LeaveTable command for player "player-1"
-    Then the result is a angzarr_client.proto.examples.v1.PlayerLeft event
-    And the table event has chips_cashed_out 500
+    Given a table "Main Table" exists
+    And player "player-1" is seated at position 3 with a 500-chip stack
+    When player "player-1" leaves the table
+    Then player "player-1" cashes out 500 chips
 
   @wip
   @EU-0110
   Scenario: Cannot leave during hand
-    Given a TableCreated event for "Main Table"
-    And a PlayerJoined event for player "player-1" at seat 0
-    And a PlayerJoined event for player "player-2" at seat 1
-    And a HandStarted event for hand 1
-    When I handle a LeaveTable command for player "player-1"
-    Then the command fails with status "FAILED_PRECONDITION"
-    And the error message contains "during a hand"
+    Given a table "Main Table" exists
+    And player "player-1" is seated at position 0
+    And player "player-2" is seated at position 1
+    And the first hand at the table has begun
+    When player "player-1" leaves the table
+    Then the leave is refused because a hand is in progress
 
   @wip
   @EU-0111
   Scenario: Cannot leave table not joined
-    Given a TableCreated event for "Main Table"
-    When I handle a LeaveTable command for player "player-1"
-    Then the command fails with status "FAILED_PRECONDITION"
-    And the error message contains "not seated"
+    Given a table "Main Table" exists
+    When player "player-1" leaves the table
+    Then the leave is refused because the player is not seated
 
   # ==========================================================================
   # Hand Lifecycle - Start
@@ -206,46 +189,40 @@ Feature: Table aggregate logic
   @wip
   @EU-0112
   Scenario: Start a new hand
-    Given a TableCreated event for "Main Table"
-    And a PlayerJoined event for player "player-1" at seat 0 with stack 500
-    And a PlayerJoined event for player "player-2" at seat 1 with stack 500
-    When I handle a StartHand command
-    Then the result is a angzarr_client.proto.examples.v1.HandStarted event
-    And the table event has hand_number 1
-    And the table event has 2 active_players
+    Given a table "Main Table" exists
+    And player "player-1" is seated at position 0 with a 500-chip stack
+    And player "player-2" is seated at position 1 with a 500-chip stack
+    When the next hand at the table begins
+    Then the table is on hand number 1 with 2 active players
 
   @wip
   @EU-0113
   Scenario: Dealer button advances each hand
-    Given a TableCreated event for "Main Table"
-    And a PlayerJoined event for player "player-1" at seat 0
-    And a PlayerJoined event for player "player-2" at seat 1
-    And a HandStarted event for hand 1 with dealer at seat 0
-    And a HandEnded event for hand 1
-    When I handle a StartHand command
-    Then the result is a angzarr_client.proto.examples.v1.HandStarted event
-    And the table event has hand_number 2
-    And the table event has dealer_position 1
+    Given a table "Main Table" exists
+    And player "player-1" is seated at position 0
+    And player "player-2" is seated at position 1
+    And hand 1 was played with the dealer at seat 0 and has ended
+    When the next hand at the table begins
+    Then the table is on hand number 2
+    And the dealer is at seat 1
 
   @wip
   @EU-0114
   Scenario: Cannot start hand with fewer than 2 players
-    Given a TableCreated event for "Main Table"
-    And a PlayerJoined event for player "player-1" at seat 0
-    When I handle a StartHand command
-    Then the command fails with status "FAILED_PRECONDITION"
-    And the error message contains "Not enough players"
+    Given a table "Main Table" exists
+    And player "player-1" is seated at position 0
+    When the next hand at the table begins
+    Then the start-hand is refused because there are not enough players
 
   @wip
   @EU-0115
   Scenario: Cannot start hand while one is in progress
-    Given a TableCreated event for "Main Table"
-    And a PlayerJoined event for player "player-1" at seat 0
-    And a PlayerJoined event for player "player-2" at seat 1
-    And a HandStarted event for hand 1
-    When I handle a StartHand command
-    Then the command fails with status "FAILED_PRECONDITION"
-    And the error message contains "already in progress"
+    Given a table "Main Table" exists
+    And player "player-1" is seated at position 0
+    And player "player-2" is seated at position 1
+    And the first hand at the table has begun
+    When the next hand at the table begins
+    Then the start-hand is refused because a hand is already in progress
 
   # ==========================================================================
   # Hand Lifecycle - End
@@ -261,38 +238,35 @@ Feature: Table aggregate logic
   @wip
   @EU-0116
   Scenario: End hand and update stacks
-    Given a TableCreated event for "Main Table"
-    And a PlayerJoined event for player "player-1" at seat 0 with stack 500
-    And a PlayerJoined event for player "player-2" at seat 1 with stack 500
-    And a HandStarted event for hand 1
-    When I handle an EndHand command with winner "player-1" winning 50
-    Then the result is a angzarr_client.proto.examples.v1.HandEnded event
-    And player "player-1" stack change is 50
+    Given a table "Main Table" exists
+    And player "player-1" is seated at position 0 with a 500-chip stack
+    And player "player-2" is seated at position 1 with a 500-chip stack
+    And the first hand at the table has begun
+    When the hand ends with "player-1" winning 50
+    Then player "player-1"'s stack change is 50
 
   @wip
   @EU-0117
   Scenario: Cannot end hand not in progress
-    Given a TableCreated event for "Main Table"
-    And a PlayerJoined event for player "player-1" at seat 0
-    And a PlayerJoined event for player "player-2" at seat 1
-    When I handle an EndHand command with winner "player-1" winning 50
-    Then the command fails with status "FAILED_PRECONDITION"
-    And the error message contains "No hand in progress"
+    Given a table "Main Table" exists
+    And player "player-1" is seated at position 0
+    And player "player-2" is seated at position 1
+    When the hand ends with "player-1" winning 50
+    Then the end-hand is refused because no hand is in progress
 
   @wip
   @EU-0118
   Scenario: End hand updates player stacks with wins and losses
-    Given a TableCreated event for "Main Table"
-    And a PlayerJoined event for player "player-1" at seat 0 with stack 500
-    And a PlayerJoined event for player "player-2" at seat 1 with stack 500
-    And a HandStarted event for hand 1
-    When I handle an EndHand command with results:
+    Given a table "Main Table" exists
+    And player "player-1" is seated at position 0 with a 500-chip stack
+    And player "player-2" is seated at position 1 with a 500-chip stack
+    And the first hand at the table has begun
+    When the hand ends with the following results:
       | player   | change |
       | player-1 | 150    |
       | player-2 | -150   |
-    Then the result is a angzarr_client.proto.examples.v1.HandEnded event
-    And player "player-1" stack change is 150
-    And player "player-2" stack change is -150
+    Then player "player-1"'s stack change is 150
+    And player "player-2"'s stack change is -150
 
   # ==========================================================================
   # State Reconstruction
@@ -306,25 +280,23 @@ Feature: Table aggregate logic
   @wip
   @EU-0119
   Scenario: Rebuild state with multiple players
-    Given a TableCreated event for "Main Table"
-    And a PlayerJoined event for player "player-1" at seat 0 with stack 500
-    And a PlayerJoined event for player "player-2" at seat 3 with stack 800
-    When I rebuild the table state
-    Then the table state has 2 players
-    And the table state has seat 0 occupied by "player-1"
-    And the table state has seat 3 occupied by "player-2"
-    And the table state has status "waiting"
+    Given a table "Main Table" exists
+    And player "player-1" is seated at position 0 with a 500-chip stack
+    And player "player-2" is seated at position 3 with an 800-chip stack
+    Then the table has 2 seated players
+    And seat 0 is occupied by "player-1"
+    And seat 3 is occupied by "player-2"
+    And the table is waiting for a hand to start
 
   @wip
   @EU-0120
   Scenario: Rebuild state during hand
-    Given a TableCreated event for "Main Table"
-    And a PlayerJoined event for player "player-1" at seat 0
-    And a PlayerJoined event for player "player-2" at seat 1
-    And a HandStarted event for hand 1
-    When I rebuild the table state
-    Then the table state has status "in_hand"
-    And the table state has hand_count 1
+    Given a table "Main Table" exists
+    And player "player-1" is seated at position 0
+    And player "player-2" is seated at position 1
+    And the first hand at the table has begun
+    Then a hand is in progress at the table
+    And the table has played 1 hand
 
   # ==========================================================================
   # Create Validation (Phase 2 — test_table.py)
@@ -341,92 +313,74 @@ Feature: Table aggregate logic
   @wip
   @EU-0531
   Scenario: CreateTable rejects non-positive min_buy_in
-    Given no prior events for the table aggregate
-    When I handle a CreateTable command with name "Test" and variant "TEXAS_HOLDEM":
+    Given the table has not yet been created
+    When a Texas Hold'em table named "Test" is created with:
       | small_blind | big_blind | min_buy_in | max_buy_in | max_players |
       | 5           | 10        | 0          | 1000       | 6           |
-    Then the command fails with status "INVALID_ARGUMENT"
-    And the command is rejected with code "MIN_BUY_IN_MUST_BE_POSITIVE"
-    And the rejection field "value" equals "0"
+    Then the create-table is refused because the minimum buy-in must be positive
 
   @wip
   @EU-0531
   Scenario: CreateTable rejects max_buy_in below min_buy_in
-    Given no prior events for the table aggregate
-    When I handle a CreateTable command with name "Test" and variant "TEXAS_HOLDEM":
+    Given the table has not yet been created
+    When a Texas Hold'em table named "Test" is created with:
       | small_blind | big_blind | min_buy_in | max_buy_in | max_players |
       | 5           | 10        | 500        | 100        | 6           |
-    Then the command fails with status "FAILED_PRECONDITION"
-    And the command is rejected with code "MAX_BUY_IN_MUST_EXCEED_MIN_BUY_IN"
-    And the rejection field "lhs" equals "100"
-    And the rejection field "rhs" equals "500"
+    Then the create-table is refused because the maximum buy-in of 100 must exceed the minimum buy-in of 500
 
   @wip
   @EU-0531
   Scenario: CreateTable rejects non-positive small_blind
-    Given no prior events for the table aggregate
-    When I handle a CreateTable command with name "Test" and variant "TEXAS_HOLDEM":
+    Given the table has not yet been created
+    When a Texas Hold'em table named "Test" is created with:
       | small_blind | big_blind | min_buy_in | max_buy_in | max_players |
       | 0           | 10        | 100        | 1000       | 6           |
-    Then the command fails with status "INVALID_ARGUMENT"
-    And the command is rejected with code "SMALL_BLIND_MUST_BE_POSITIVE"
-    And the rejection field "value" equals "0"
+    Then the create-table is refused because the small blind must be positive
 
   @wip
   @EU-0531
   Scenario: CreateTable rejects big_blind below small_blind
-    Given no prior events for the table aggregate
-    When I handle a CreateTable command with name "Test" and variant "TEXAS_HOLDEM":
+    Given the table has not yet been created
+    When a Texas Hold'em table named "Test" is created with:
       | small_blind | big_blind | min_buy_in | max_buy_in | max_players |
       | 20          | 10        | 100        | 1000       | 6           |
-    Then the command fails with status "FAILED_PRECONDITION"
-    And the command is rejected with code "BIG_BLIND_MUST_EXCEED_SMALL_BLIND"
-    And the rejection field "lhs" equals "10"
-    And the rejection field "rhs" equals "20"
+    Then the create-table is refused because the big blind of 10 must exceed the small blind of 20
 
   @wip
   @EU-0531
   Scenario: CreateTable rejects zero big_blind
-    Given no prior events for the table aggregate
-    When I handle a CreateTable command with name "Test" and variant "TEXAS_HOLDEM":
+    Given the table has not yet been created
+    When a Texas Hold'em table named "Test" is created with:
       | small_blind | big_blind | min_buy_in | max_buy_in | max_players |
       | 5           | 0         | 100        | 1000       | 6           |
-    Then the command fails with status "FAILED_PRECONDITION"
-    And the command is rejected with code "BIG_BLIND_MUST_EXCEED_SMALL_BLIND"
-    And the rejection field "lhs" equals "0"
-    And the rejection field "rhs" equals "5"
+    Then the create-table is refused because the big blind of 0 must exceed the small blind of 5
 
   @wip
   @EU-0531
   Scenario: CreateTable rejects max_players below 2
-    Given no prior events for the table aggregate
-    When I handle a CreateTable command with name "Test" and variant "TEXAS_HOLDEM":
+    Given the table has not yet been created
+    When a Texas Hold'em table named "Test" is created with:
       | small_blind | big_blind | min_buy_in | max_buy_in | max_players |
       | 5           | 10        | 100        | 1000       | 1           |
-    Then the command fails with status "INVALID_ARGUMENT"
-    And the command is rejected with code "MAX_PLAYERS_OUT_OF_RANGE"
-    And the rejection field "got" equals "1"
+    Then the create-table is refused because max_players of 1 is out of the allowed 2-10 range
 
   @wip
   @EU-0531
   Scenario: CreateTable rejects max_players above 10
-    Given no prior events for the table aggregate
-    When I handle a CreateTable command with name "Test" and variant "TEXAS_HOLDEM":
+    Given the table has not yet been created
+    When a Texas Hold'em table named "Test" is created with:
       | small_blind | big_blind | min_buy_in | max_buy_in | max_players |
       | 5           | 10        | 100        | 1000       | 11          |
-    Then the command fails with status "INVALID_ARGUMENT"
-    And the command is rejected with code "MAX_PLAYERS_OUT_OF_RANGE"
-    And the rejection field "got" equals "11"
+    Then the create-table is refused because max_players of 11 is out of the allowed 2-10 range
 
   @wip
   @EU-0532
   Scenario: CreateTable requires a table_name
-    Given no prior events for the table aggregate
-    When I handle a CreateTable command with name "" and variant "TEXAS_HOLDEM":
+    Given the table has not yet been created
+    When a Texas Hold'em table named "" is created with:
       | small_blind | big_blind | min_buy_in | max_buy_in | max_players |
       | 5           | 10        | 100        | 1000       | 6           |
-    Then the command fails with status "INVALID_ARGUMENT"
-    And the error message contains "table_name"
+    Then the create-table is refused because a table name is required
 
   # ==========================================================================
   # Join Validation (Phase 2)
@@ -441,38 +395,31 @@ Feature: Table aggregate logic
   @wip
   @EU-0533
   Scenario: JoinTable rejects when buy-in exceeds max
-    Given a TableCreated event for "Main Table"
-    When I handle a JoinTable command for player "player-1" at seat 0 with buy-in 5000
-    Then the command fails with status "FAILED_PRECONDITION"
-    And the command is rejected with code "BUY_IN_ABOVE_MAX"
-    And the rejection field "got" equals "5000"
-    And the rejection field "bound" equals "1000"
+    Given a table "Main Table" exists
+    When player "player-1" joins the table at seat 0 with a buy-in of 5000
+    Then the join is refused because the buy-in of 5000 is above the table maximum of 1000
 
   @wip
   @EU-0534
   Scenario: JoinTable rejects when table does not exist
-    Given no prior events for the table aggregate
-    When I handle a JoinTable command for player "player-1" at seat 0 with buy-in 500
-    Then the command fails with status "FAILED_PRECONDITION"
-    And the error message contains "does not exist"
+    Given the table has not yet been created
+    When player "player-1" joins the table at seat 0 with a buy-in of 500
+    Then the join is refused because the table does not exist
 
   @wip
   @EU-0535
   Scenario: JoinTable requires a player_root
-    Given a TableCreated event for "Main Table"
-    When I handle a JoinTable command for player "" at seat 0 with buy-in 500
-    Then the command fails with status "INVALID_ARGUMENT"
-    And the error message contains "player_root"
+    Given a table "Main Table" exists
+    When player "" joins the table at seat 0 with a buy-in of 500
+    Then the join is refused because a player identity is required
 
   @wip
   @EU-0536
   Scenario: JoinTable rejects occupied preferred seat
-    Given a TableCreated event for "Main Table"
-    And a PlayerJoined event for player "player-1" at seat 3
-    When I handle a JoinTable command for player "player-2" at seat 3 with buy-in 500
-    Then the command fails with status "FAILED_PRECONDITION"
-    And the command is rejected with code "SEAT_OCCUPIED"
-    And the rejection field "seat" equals "3"
+    Given a table "Main Table" exists
+    And player "player-1" is seated at position 3
+    When player "player-2" joins the table at seat 3 with a buy-in of 500
+    Then the join is refused because seat 3 is already occupied
 
   # ==========================================================================
   # Leave Validation (Phase 2)
@@ -482,18 +429,16 @@ Feature: Table aggregate logic
   @wip
   @EU-0537
   Scenario: LeaveTable rejects when table does not exist
-    Given no prior events for the table aggregate
-    When I handle a LeaveTable command for player "player-1"
-    Then the command fails with status "FAILED_PRECONDITION"
-    And the error message contains "does not exist"
+    Given the table has not yet been created
+    When player "player-1" leaves the table
+    Then the leave is refused because the table does not exist
 
   @wip
   @EU-0538
   Scenario: LeaveTable requires a player_root
-    Given a TableCreated event for "Main Table"
-    When I handle a LeaveTable command for player ""
-    Then the command fails with status "INVALID_ARGUMENT"
-    And the error message contains "player_root"
+    Given a table "Main Table" exists
+    When player "" leaves the table
+    Then the leave is refused because a player identity is required
 
   # ==========================================================================
   # Hand Lifecycle Validation (Phase 2)
@@ -505,60 +450,55 @@ Feature: Table aggregate logic
   @wip
   @EU-0539
   Scenario: StartHand rejects when table does not exist
-    Given no prior events for the table aggregate
-    When I handle a StartHand command
-    Then the command fails with status "FAILED_PRECONDITION"
-    And the error message contains "does not exist"
+    Given the table has not yet been created
+    When the next hand at the table begins
+    Then the start-hand is refused because the table does not exist
 
   @wip
   @EU-0540
   Scenario: EndHand rejects when table does not exist
-    Given no prior events for the table aggregate
-    When I handle an EndHand command with winner "player-1" winning 50
-    Then the command fails with status "FAILED_PRECONDITION"
-    And the error message contains "does not exist"
+    Given the table has not yet been created
+    When the hand ends with "player-1" winning 50
+    Then the end-hand is refused because the table does not exist
 
   @wip
   @EU-0541
   Scenario: EndHand rejects mismatched hand_root
-    Given a TableCreated event for "Main Table"
-    And a PlayerJoined event for player "player-1" at seat 0
-    And a PlayerJoined event for player "player-2" at seat 1
-    And a HandStarted event for hand 1
-    When I handle an EndHand command with mismatched hand_root
-    Then the command fails with status "FAILED_PRECONDITION"
-    And the error message contains "Hand root mismatch"
+    Given a table "Main Table" exists
+    And player "player-1" is seated at position 0
+    And player "player-2" is seated at position 1
+    And the first hand at the table has begun
+    When the hand ends but the hand identity does not match the one in progress
+    Then the end-hand is refused because the hand identity does not match
 
   @wip
   @EU-0542
   Scenario: EndHand transitions status back to waiting
-    Given a TableCreated event for "Main Table"
-    And a PlayerJoined event for player "player-1" at seat 0
-    And a PlayerJoined event for player "player-2" at seat 1
-    When I start a hand and end it with winner "player-1" winning 100
-    Then the table state has status "waiting"
-    And the table state has current_hand_root empty
+    Given a table "Main Table" exists
+    And player "player-1" is seated at position 0
+    And player "player-2" is seated at position 1
+    When a hand is started and then ended with "player-1" winning 100
+    Then the table is waiting for a hand to start
+    And no hand is currently in progress at the table
 
   @wip
   @EU-0543
   Scenario: StartHand in heads-up: dealer posts small blind
-    Given a TableCreated event for "Main Table"
-    And a PlayerJoined event for player "player-1" at seat 0
-    And a PlayerJoined event for player "player-2" at seat 1
-    When I handle a StartHand command
-    Then the result is a angzarr_client.proto.examples.v1.HandStarted event
-    And the small_blind_position equals the dealer_position
+    Given a table "Main Table" exists
+    And player "player-1" is seated at position 0
+    And player "player-2" is seated at position 1
+    When the next hand at the table begins
+    Then the dealer is the small blind for the heads-up hand
 
   @wip
   @EU-0544
   Scenario: StartHand with 3 players: SB is left of dealer
-    Given a TableCreated event for "Main Table"
-    And a PlayerJoined event for player "player-1" at seat 0
-    And a PlayerJoined event for player "player-2" at seat 1
-    And a PlayerJoined event for player "player-3" at seat 2
-    When I handle a StartHand command
-    Then the result is a angzarr_client.proto.examples.v1.HandStarted event
-    And the small_blind_position differs from the dealer_position
+    Given a table "Main Table" exists
+    And player "player-1" is seated at position 0
+    And player "player-2" is seated at position 1
+    And player "player-3" is seated at position 2
+    When the next hand at the table begins
+    Then the small blind is in a different seat from the dealer
 
   # ==========================================================================
   # State Accessors (Phase 2)
@@ -571,29 +511,26 @@ Feature: Table aggregate logic
   @wip
   @EU-0545
   Scenario: Table id is derived from the table name
-    Given a TableCreated event for "High Stakes"
-    When I rebuild the table state
-    Then the table state has table_id "table_High Stakes"
+    Given a table "High Stakes" exists
+    Then the table carries the identity derived from its name "High Stakes"
 
   @wip
   @EU-0546
   Scenario: is_full becomes true when max_players reached
-    Given a TableCreated event for "Main Table" with max_players 2
-    And a PlayerJoined event for player "player-1" at seat 0
-    And a PlayerJoined event for player "player-2" at seat 1
-    When I rebuild the table state
-    Then the table state is full
+    Given a table "Main Table" exists with a maximum of 2 players
+    And player "player-1" is seated at position 0
+    And player "player-2" is seated at position 1
+    Then the table is full
 
   @wip
   @EU-0547
   Scenario: active_player_count excludes sitting-out players
-    Given a TableCreated event for "Main Table"
-    And a PlayerJoined event for player "player-1" at seat 0
-    And a PlayerJoined event for player "player-2" at seat 1
-    And a PlayerSatOut event for player "player-1"
-    When I rebuild the table state
-    Then the table state has 2 players
-    And the table state has 1 active_players
+    Given a table "Main Table" exists
+    And player "player-1" is seated at position 0
+    And player "player-2" is seated at position 1
+    And player "player-1" is sitting out
+    Then the table has 2 seated players
+    And 1 player is currently active at the table
 
   # ==========================================================================
   # Event Replay (Phase 2)
@@ -604,21 +541,19 @@ Feature: Table aggregate logic
   @wip
   @EU-0548
   Scenario: PlayerSatIn restores a sat-out player to active
-    Given a TableCreated event for "Main Table"
-    And a PlayerJoined event for player "player-1" at seat 0
-    And a PlayerSatOut event for player "player-1"
-    And a PlayerSatIn event for player "player-1"
-    When I rebuild the table state
-    Then the table state has 1 active_players
+    Given a table "Main Table" exists
+    And player "player-1" is seated at position 0
+    And player "player-1" is sitting out
+    And player "player-1" sits back in
+    Then 1 player is currently active at the table
 
   @wip
   @EU-0549
   Scenario: ChipsAdded updates the player stack via re-buy
-    Given a TableCreated event for "Main Table"
-    And a PlayerJoined event for player "player-1" at seat 0 with stack 500
-    And a ChipsAdded event for player "player-1" with new_stack 800
-    When I rebuild the table state
-    Then the table state seat 0 has stack 800
+    Given a table "Main Table" exists
+    And player "player-1" is seated at position 0 with a 500-chip stack
+    And player "player-1" re-buys to bring the stack to 800
+    Then the player at seat 0 has an 800-chip stack
 
   # ==========================================================================
   # Cross-language Consistency (Phase 2)
@@ -630,19 +565,17 @@ Feature: Table aggregate logic
   @wip
   @EU-0550
   Scenario: Seat 0 is an explicit valid preferred seat
-    Given a TableCreated event for "Main Table"
-    When I handle a JoinTable command for player "player-1" at seat 0 with buy-in 500
-    Then the result is a angzarr_client.proto.examples.v1.PlayerJoined event
-    And the table event has seat_position 0
+    Given a table "Main Table" exists
+    When player "player-1" joins the table at seat 0 with a buy-in of 500
+    Then player "player-1" is seated at position 0
 
   @wip
   @EU-0551
   Scenario: Negative preferred_seat picks the next available seat
-    Given a TableCreated event for "Main Table"
-    And a PlayerJoined event for player "player-1" at seat 0
-    When I handle a JoinTable command for player "player-2" at seat -1 with buy-in 500
-    Then the result is a angzarr_client.proto.examples.v1.PlayerJoined event
-    And the table event has seat_position 1
+    Given a table "Main Table" exists
+    And player "player-1" is seated at position 0
+    When player "player-2" joins the table at any available seat with a buy-in of 500
+    Then player "player-2" is seated at position 1
 
   # ==========================================================================
   # Full Lifecycle (Phase 2)
@@ -654,11 +587,11 @@ Feature: Table aggregate logic
   @wip
   @EU-0552
   Scenario: Full create/join/start/end/leave lifecycle
-    Given a TableCreated event for "Main Table"
-    And a PlayerJoined event for player "player-1" at seat 0 with stack 500
-    And a PlayerJoined event for player "player-2" at seat 1 with stack 500
-    When I start a hand and end it with winner "player-1" winning 100
-    Then the table state has status "waiting"
+    Given a table "Main Table" exists
+    And player "player-1" is seated at position 0 with a 500-chip stack
+    And player "player-2" is seated at position 1 with a 500-chip stack
+    When a hand is started and then ended with "player-1" winning 100
+    Then the table is waiting for a hand to start
 
   # ==========================================================================
   # SeatPlayer Orchestration Command (Phase 2 — test_orchestration.py)
@@ -676,64 +609,56 @@ Feature: Table aggregate logic
   @wip
   @EU-0553
   Scenario: SeatPlayer emits PlayerSeated on success
-    Given a TableCreated event for "Main Table"
-    When I handle a SeatPlayer command for player "player-a" reservation "res-001" seat 0 amount 500
-    Then the result is a angzarr_client.proto.examples.v1.PlayerSeated event
-    And the seating event has seat_position 0
-    And the seating event has stack 500
+    Given a table "Main Table" exists
+    When player "player-a" is seated at position 0 with reservation "res-001" for 500 chips
+    Then player "player-a" is seated at position 0 with a 500-chip stack
 
   @wip
   @EU-0554
   Scenario: SeatPlayer emits SeatingRejected when amount is below minimum
-    Given a TableCreated event for "Main Table"
-    When I handle a SeatPlayer command for player "player-a" reservation "res-001" seat 0 amount 100
-    Then the result is a angzarr_client.proto.examples.v1.SeatingRejected event
-    And the seating rejection reason contains "at least"
+    Given a table "Main Table" exists
+    When player "player-a" is seated at position 0 with reservation "res-001" for 100 chips
+    Then the seating is rejected because the amount is below the table minimum
 
   @wip
   @EU-0555
   Scenario: SeatPlayer emits SeatingRejected when amount exceeds maximum
-    Given a TableCreated event for "Main Table"
-    When I handle a SeatPlayer command for player "player-a" reservation "res-001" seat 0 amount 5000
-    Then the result is a angzarr_client.proto.examples.v1.SeatingRejected event
-    And the seating rejection reason contains "above maximum"
+    Given a table "Main Table" exists
+    When player "player-a" is seated at position 0 with reservation "res-001" for 5000 chips
+    Then the seating is rejected because the amount is above the table maximum
 
   @wip
   @EU-0556
   Scenario: SeatPlayer emits SeatingRejected when requested seat is occupied
-    Given a TableCreated event for "Main Table"
-    And a PlayerJoined event for player "player-b" at seat 0
-    When I handle a SeatPlayer command for player "player-a" reservation "res-001" seat 0 amount 500
-    Then the result is a angzarr_client.proto.examples.v1.SeatingRejected event
-    And the seating rejection reason contains "occupied"
+    Given a table "Main Table" exists
+    And player "player-b" is seated at position 0
+    When player "player-a" is seated at position 0 with reservation "res-001" for 500 chips
+    Then the seating is rejected because the seat is already occupied
 
   @wip
   @EU-0557
   Scenario: SeatPlayer emits SeatingRejected when player is already seated
-    Given a TableCreated event for "Main Table"
-    And a PlayerJoined event for player "player-a" at seat 1
-    When I handle a SeatPlayer command for player "player-a" reservation "res-001" seat 2 amount 500
-    Then the result is a angzarr_client.proto.examples.v1.SeatingRejected event
-    And the seating rejection reason contains "already seated"
+    Given a table "Main Table" exists
+    And player "player-a" is seated at position 1
+    When player "player-a" is seated at position 2 with reservation "res-001" for 500 chips
+    Then the seating is rejected because the player is already seated
 
   @wip
   @EU-0558
   Scenario: SeatPlayer with seat -1 picks the next available seat
-    Given a TableCreated event for "Main Table"
-    And a PlayerJoined event for player "player-b" at seat 0
-    When I handle a SeatPlayer command for player "player-a" reservation "res-001" seat -1 amount 500
-    Then the result is a angzarr_client.proto.examples.v1.PlayerSeated event
-    And the seating event has seat_position 1
+    Given a table "Main Table" exists
+    And player "player-b" is seated at position 0
+    When player "player-a" is seated at any available seat with reservation "res-001" for 500 chips
+    Then player "player-a" is seated at position 1
 
   @wip
   @EU-0559
   Scenario: SeatPlayer with seat -1 rejects when table is full
-    Given a TableCreated event for "Main Table" with max_players 2
-    And a PlayerJoined event for player "player-b" at seat 0
-    And a PlayerJoined event for player "player-c" at seat 1
-    When I handle a SeatPlayer command for player "player-a" reservation "res-001" seat -1 amount 500
-    Then the result is a angzarr_client.proto.examples.v1.SeatingRejected event
-    And the seating rejection reason contains "full"
+    Given a table "Main Table" exists with a maximum of 2 players
+    And player "player-b" is seated at position 0
+    And player "player-c" is seated at position 1
+    When player "player-a" is seated at any available seat with reservation "res-001" for 500 chips
+    Then the seating is rejected because the table is full
 
   # ==========================================================================
   # AddRebuyChips Orchestration Command (Phase 2)
@@ -750,39 +675,33 @@ Feature: Table aggregate logic
   @wip
   @EU-0560
   Scenario: AddRebuyChips emits RebuyChipsAdded with new stack
-    Given a TableCreated event for "Main Table"
-    And a PlayerJoined event for player "player-a" at seat 2 with stack 500
-    When I handle an AddRebuyChips command for player "player-a" reservation "res-001" seat 2 amount 1000
-    Then the result is a angzarr_client.proto.examples.v1.RebuyChipsAdded event
-    And the rebuy event has amount 1000
-    And the rebuy event has new_stack 1500
-    And the rebuy event has seat 2
+    Given a table "Main Table" exists
+    And player "player-a" is seated at position 2 with a 500-chip stack
+    When player "player-a" re-buys 1000 chips with reservation "res-001" at seat 2
+    Then player "player-a" at seat 2 has a stack of 1500 after adding 1000 chips
 
   @wip
   @EU-0561
   Scenario: AddRebuyChips rejects when the player is not seated
-    Given a TableCreated event for "Main Table"
-    When I handle an AddRebuyChips command for player "player-a" reservation "res-001" seat 2 amount 1000
-    Then the command fails with status "FAILED_PRECONDITION"
-    And the error message contains "not seated"
+    Given a table "Main Table" exists
+    When player "player-a" re-buys 1000 chips with reservation "res-001" at seat 2
+    Then the re-buy is refused because the player is not seated
 
   @wip
   @EU-0562
   Scenario: AddRebuyChips rejects when seat does not match
-    Given a TableCreated event for "Main Table"
-    And a PlayerJoined event for player "player-a" at seat 2 with stack 500
-    When I handle an AddRebuyChips command for player "player-a" reservation "res-001" seat 3 amount 1000
-    Then the command fails with status "FAILED_PRECONDITION"
-    And the error message contains "mismatch"
+    Given a table "Main Table" exists
+    And player "player-a" is seated at position 2 with a 500-chip stack
+    When player "player-a" re-buys 1000 chips with reservation "res-001" at seat 3
+    Then the re-buy is refused because the seat does not match the player's seat
 
   @wip
   @EU-0563
   Scenario: AddRebuyChips rejects a non-positive amount
-    Given a TableCreated event for "Main Table"
-    And a PlayerJoined event for player "player-a" at seat 2 with stack 500
-    When I handle an AddRebuyChips command for player "player-a" reservation "res-001" seat 2 amount 0
-    Then the command fails with status "INVALID_ARGUMENT"
-    And the error message contains "positive"
+    Given a table "Main Table" exists
+    And player "player-a" is seated at position 2 with a 500-chip stack
+    When player "player-a" re-buys 0 chips with reservation "res-001" at seat 2
+    Then the re-buy is refused because the amount must be positive
 
   # ==========================================================================
   # SeatPlayer / AddRebuyChips — Guard Rejections
@@ -799,43 +718,38 @@ Feature: Table aggregate logic
   @wip
   @EU-0570
   Scenario: SeatPlayer rejects when the table does not exist
-    Given no prior events for the table aggregate
-    When I handle a SeatPlayer command for player "player-a" reservation "res-001" seat 0 amount 500
-    Then the command fails with status "FAILED_PRECONDITION"
-    And the error message contains "Table does not exist"
+    Given the table has not yet been created
+    When player "player-a" is seated at position 0 with reservation "res-001" for 500 chips
+    Then the seat-player is refused because the table does not exist
 
   @wip
   @EU-0571
   Scenario: SeatPlayer emits SeatingRejected when player_root is empty
-    Given a TableCreated event for "Main Table"
-    When I handle a SeatPlayer command for player "" reservation "res-001" seat 0 amount 500
-    Then the result is a angzarr_client.proto.examples.v1.SeatingRejected event
-    And the seating rejection reason contains "player_root"
+    Given a table "Main Table" exists
+    When player "" is seated at position 0 with reservation "res-001" for 500 chips
+    Then the seating is rejected because a player identity is required
 
   @wip
   @EU-0572
   Scenario: SeatPlayer emits SeatingRejected when seat is out of range
-    Given a TableCreated event for "Main Table"
-    When I handle a SeatPlayer command for player "player-a" reservation "res-001" seat -5 amount 500
-    Then the result is a angzarr_client.proto.examples.v1.SeatingRejected event
-    And the seating rejection reason contains "Invalid seat"
+    Given a table "Main Table" exists
+    When player "player-a" is seated at position -5 with reservation "res-001" for 500 chips
+    Then the seating is rejected because the seat is out of range
 
   @wip
   @EU-0573
   Scenario: AddRebuyChips rejects when the table does not exist
-    Given no prior events for the table aggregate
-    When I handle an AddRebuyChips command for player "player-a" reservation "res-001" seat 0 amount 100
-    Then the command fails with status "FAILED_PRECONDITION"
-    And the error message contains "Table does not exist"
+    Given the table has not yet been created
+    When player "player-a" re-buys 100 chips with reservation "res-001" at seat 0
+    Then the re-buy is refused because the table does not exist
 
   @wip
   @EU-0574
   Scenario: AddRebuyChips rejects when player_root is empty
-    Given a TableCreated event for "Main Table"
-    And a PlayerJoined event for player "player-a" at seat 2 with stack 500
-    When I handle an AddRebuyChips command for player "" reservation "res-001" seat 2 amount 100
-    Then the command fails with status "INVALID_ARGUMENT"
-    And the error message contains "player_root"
+    Given a table "Main Table" exists
+    And player "player-a" is seated at position 2 with a 500-chip stack
+    When player "" re-buys 100 chips with reservation "res-001" at seat 2
+    Then the re-buy is refused because a player identity is required
 
   # ==========================================================================
   # Dead Button Rule (button advancement after eliminations)
@@ -866,18 +780,16 @@ Feature: Table aggregate logic
     #     player at seat 2 to be SB on the following hand if it advanced).
     #   - SB is the next active seat clockwise of the dead button: seat 3.
     #   - BB is the next active seat after SB.
-    Given a TableCreated event for "Main Table"
-    And a PlayerJoined event for player "player-A" at seat 0
-    And a PlayerJoined event for player "player-B" at seat 1
-    And a PlayerJoined event for player "player-D" at seat 3
-    And a HandStarted event for hand 1 with dealer at seat 0
-    And a HandEnded event for hand 1
+    Given a table "Main Table" exists
+    And player "player-A" is seated at position 0
+    And player "player-B" is seated at position 1
+    And player "player-D" is seated at position 3
+    And hand 1 was played with the dealer at seat 0 and has ended
     And player "player-C" busted at seat 2 during hand 1
-    When I handle a StartHand command
-    Then the result is a angzarr_client.proto.examples.v1.HandStarted event
-    And the table event has dealer_position 0
-    And the small_blind_position is seat 3
-    And the big_blind_position is seat 0
+    When the next hand at the table begins
+    Then the dealer is at seat 0
+    And the small blind is at seat 3
+    And the big blind is at seat 0
 
   @wip
   @EU-0576
@@ -887,17 +799,15 @@ Feature: Table aggregate logic
     # *next active* seat... but the BB still must not double-blind. By the
     # dead-button rule, the player who was BB last hand (player-C) becomes
     # SB this hand, and BB moves to the next active seat (seat 3).
-    Given a TableCreated event for "Main Table"
-    And a PlayerJoined event for player "player-A" at seat 0
-    And a PlayerJoined event for player "player-C" at seat 2
-    And a PlayerJoined event for player "player-D" at seat 3
-    And a HandStarted event for hand 1 with dealer at seat 0
-    And a HandEnded event for hand 1
+    Given a table "Main Table" exists
+    And player "player-A" is seated at position 0
+    And player "player-C" is seated at position 2
+    And player "player-D" is seated at position 3
+    And hand 1 was played with the dealer at seat 0 and has ended
     And player "player-B" busted at seat 1 during hand 1
-    When I handle a StartHand command
-    Then the result is a angzarr_client.proto.examples.v1.HandStarted event
-    And the small_blind_position is seat 2
-    And the big_blind_position is seat 3
+    When the next hand at the table begins
+    Then the small blind is at seat 2
+    And the big blind is at seat 3
 
   @wip
   @EU-0577
@@ -910,17 +820,15 @@ Feature: Table aggregate logic
     # player-A is BB. This satisfies the orbit invariant that BB does
     # not repeat the same occupant on consecutive hands (also tested
     # in EU-0578).
-    Given a TableCreated event for "Main Table"
-    And a PlayerJoined event for player "player-A" at seat 0
-    And a PlayerJoined event for player "player-C" at seat 2
-    And a HandStarted event for hand 1 with dealer at seat 0
-    And a HandEnded event for hand 1
+    Given a table "Main Table" exists
+    And player "player-A" is seated at position 0
+    And player "player-C" is seated at position 2
+    And hand 1 was played with the dealer at seat 0 and has ended
     And player "player-B" busted at seat 1 during hand 1
-    When I handle a StartHand command
-    Then the result is a angzarr_client.proto.examples.v1.HandStarted event
-    And the small_blind_position equals the dealer_position
-    And the dealer_position is seat 2
-    And the big_blind_position is seat 0
+    When the next hand at the table begins
+    Then the dealer is at seat 2
+    And the dealer is the small blind for the heads-up hand
+    And the big blind is at seat 0
 
   @wip
   @EU-0578
@@ -929,16 +837,13 @@ Feature: Table aggregate logic
     # hand N+1 even if eliminations would naively produce that. This
     # scenario constructs the elimination pattern that breaks naive +1
     # advancement and asserts the BB seat changes occupant.
-    Given a TableCreated event for "Main Table"
-    And a PlayerJoined event for player "player-A" at seat 0
-    And a PlayerJoined event for player "player-D" at seat 3
-    And a HandStarted event for hand 1 with dealer at seat 0
-    And big_blind_position on hand 1 was player "player-D"
-    And a HandEnded event for hand 1
+    Given a table "Main Table" exists
+    And player "player-A" is seated at position 0
+    And player "player-D" is seated at position 3
+    And hand 1 was played with the dealer at seat 0 and player "player-D" on the big blind, and has ended
     And player "player-C" busted at seat 2 during hand 1
-    When I handle a StartHand command
-    Then the result is a angzarr_client.proto.examples.v1.HandStarted event
-    And the player at the big_blind_position is not "player-D"
+    When the next hand at the table begins
+    Then player "player-D" is not on the big blind
 
   # ==========================================================================
   # Table Balancing — TDA Rule 11A
@@ -962,23 +867,22 @@ Feature: Table aggregate logic
     # seat 0. The "worst position" — never the small blind — is the seat
     # immediately to the right of the would-be small blind, i.e. the BB
     # position (or single-BB if the source table has SB filled).
-    Given a TableCreated event for "Source"
-    And a PlayerJoined event for player "Alice" at seat 0
-    And a PlayerJoined event for player "Bob" at seat 1
-    And a PlayerJoined event for player "Carol" at seat 2
-    And a PlayerJoined event for player "Dave" at seat 3
+    Given a table "Source" exists
+    And player "Alice" is seated at position 0
+    And player "Bob" is seated at position 1
+    And player "Carol" is seated at position 2
+    And player "Dave" is seated at position 3
     And the source table has the dealer button at seat 0
-    And a TableCreated event for "Dest"
-    And a PlayerJoined event for player "Eve" at seat 0 of "Dest"
-    And a PlayerJoined event for player "Frank" at seat 1 of "Dest"
-    When I handle a BalanceTables command moving from "Source" to "Dest"
+    And a table "Dest" exists
+    And player "Eve" is seated at position 0 of "Dest"
+    And player "Frank" is seated at position 1 of "Dest"
+    When the coordinator balances tables from "Source" to "Dest"
     # Source-side emit (table-domain): names the player + destination table
     # by root. The destination seat is filled by a downstream saga that
     # holds both tables in view; the unit-tier scenario verifies the
     # source aggregate's BB-next choice and routing target only.
-    Then the result is a angzarr_client.proto.examples.v1.BalancingMoveDecided event
-    And the moved player is "Dave"
-    And the move's destination table root matches "Dest"
+    Then the moved player is "Dave"
+    And the move's destination table is "Dest"
 
   @EU-1181
   Scenario: Final-table combination — 9-handed event collapses 2 tables of 5 to one final table of 9
@@ -990,23 +894,22 @@ Feature: Table aggregate logic
     # The "next bust" referred to in the rule narrative trims the field
     # from 10 to 9 before the seating; we represent the post-bust state
     # below by listing only the 9 players who reach the FT.
-    Given a TableCreated event for "Semi-1"
-    And a PlayerJoined event for player "Alice" at seat 0
-    And a PlayerJoined event for player "Bob" at seat 1
-    And a PlayerJoined event for player "Carol" at seat 2
-    And a PlayerJoined event for player "Dave" at seat 3
-    And a TableCreated event for "Semi-2"
-    And a PlayerJoined event for player "Frank" at seat 0 of "Semi-2"
-    And a PlayerJoined event for player "Grace" at seat 1 of "Semi-2"
-    And a PlayerJoined event for player "Henry" at seat 2 of "Semi-2"
-    And a PlayerJoined event for player "Ivy"   at seat 3 of "Semi-2"
-    And a PlayerJoined event for player "Jack"  at seat 4 of "Semi-2"
-    When I handle a CombineFinalTable command for "Final" combining "Semi-1,Semi-2"
-    Then the result is a angzarr_client.proto.examples.v1.FinalTableCombined event
-    And the final table has 9 active_players
+    Given a table "Semi-1" exists
+    And player "Alice" is seated at position 0
+    And player "Bob" is seated at position 1
+    And player "Carol" is seated at position 2
+    And player "Dave" is seated at position 3
+    And a table "Semi-2" exists
+    And player "Frank" is seated at position 0 of "Semi-2"
+    And player "Grace" is seated at position 1 of "Semi-2"
+    And player "Henry" is seated at position 2 of "Semi-2"
+    And player "Ivy"   is seated at position 3 of "Semi-2"
+    And player "Jack"  is seated at position 4 of "Semi-2"
+    When the coordinator combines "Semi-1,Semi-2" into final table "Final"
+    Then the final table has 9 active players
     And every original player has been reseated at "Final"
-    And "Semi-1" status is "broken"
-    And "Semi-2" status is "broken"
+    And "Semi-1" is broken
+    And "Semi-2" is broken
 
   # ==========================================================================
   # Random Seat Assignment — TDA Rule 7 / WSOP Rule 34/65
@@ -1022,12 +925,11 @@ Feature: Table aggregate logic
   Scenario: Tournament seat assignment is uniformly random among available seats
     # Rule: TDA Rule 7 (2024) — random correct seating.
     # Rule: WSOP Rule 34 (2025) — random computer selection.
-    Given a TableCreated event for "Random-1" tagged for tournament play
+    Given a tournament table "Random-1" exists
     And seats 0, 2, 5, and 7 are unoccupied
-    When I handle a SeatPlayer command for player "Alice" with seat -1 amount 1500 in tournament mode
-    Then the result is a angzarr_client.proto.examples.v1.PlayerSeated event
-    And the seating event has seat_position drawn uniformly at random from {0, 2, 5, 7}
-    And the seating event has rng_seed populated for replay determinism
+    When player "Alice" is seated at any available seat for 1500 chips in tournament mode
+    Then player "Alice" is seated at a seat drawn uniformly at random from {0, 2, 5, 7}
+    And the random draw is reproducible for replay
 
   # ==========================================================================
   # Broken-Table Reseating — TDA Rule 10A
@@ -1048,15 +950,15 @@ Feature: Table aggregate logic
     # the button on the next deal, those are legal. The rule guards against
     # being dealt in to a position that has already received cards on the
     # current orbit.
-    Given a TableCreated event for "Dest"
-    And a PlayerJoined event for player "Alice" at seat 0 (button)
-    And a PlayerJoined event for player "Bob" at seat 1 (SB)
-    And a PlayerJoined event for player "Carol" at seat 2 (BB)
-    And a PlayerJoined event for player "Dave" at seat 3
+    Given a table "Dest" exists
+    And player "Alice" is seated at position 0 on the button
+    And player "Bob" is seated at position 1 on the small blind
+    And player "Carol" is seated at position 2 on the big blind
+    And player "Dave" is seated at position 3
     And seats 4, 5, 6, 7 are open
     And a hand has been dealt at "Dest" with substantial action this orbit
-    When I handle a SeatPlayer command for moved player "Eve" at seat 4 amount 1500
-    Then the result is a angzarr_client.proto.examples.v1.PlayerSeated event
+    When moved player "Eve" is seated at position 4 for 1500 chips
+    Then player "Eve" is seated at position 4
     And player "Eve" is dealt out of the current hand
     And player "Eve" is dealt in starting the next hand
 
@@ -1074,11 +976,11 @@ Feature: Table aggregate logic
     # 9-handed event. Source table A has 8 players. Short table B has 5.
     # The difference is 3, which triggers halt-play once the blinds at B
     # are impacted (i.e. when the BB hits an open seat at B).
-    Given a TableCreated event for "Table-A" with 8 active players
-    And a TableCreated event for "Table-B" with 5 active players
-    When the next hand at "Table-B" would assign the BB to an empty seat
-    Then a angzarr_client.proto.examples.v1.TableHaltedForBalancing event is emitted for "Table-B"
-    And "Table-B" status is "halted_for_balancing"
+    Given a table "Table-A" exists with 8 active players
+    And a table "Table-B" exists with 5 active players
+    When the next hand at "Table-B" would assign the big blind to an empty seat
+    Then "Table-B" halts for balancing
+    And "Table-B" is halted for balancing
 
   @wip
   @EU-1184B
@@ -1087,11 +989,11 @@ Feature: Table aggregate logic
     # deficit the tournament coordinator clears the halt explicitly via
     # ResumePlayAtTable; the table emits TableResumedForBalancing and
     # accepts StartHand again.
-    Given a TableCreated event for "Table-A" with 8 active players
-    And a TableCreated event for "Table-B" with 5 active players
-    And the next hand at "Table-B" would assign the BB to an empty seat
+    Given a table "Table-A" exists with 8 active players
+    And a table "Table-B" exists with 5 active players
+    And the next hand at "Table-B" would assign the big blind to an empty seat
     When the coordinator resumes play at "Table-B"
-    Then a angzarr_client.proto.examples.v1.TableResumedForBalancing event is emitted for "Table-B"
+    Then "Table-B" resumes from balancing
     And "Table-B" is no longer halted for balancing
 
   @wip
@@ -1101,10 +1003,10 @@ Feature: Table aggregate logic
     # 9-handed event. Largest table A has 8 players. Short table B has 6.
     # Deficit is 2, below the rule's 3-player threshold. The BB-on-empty
     # trigger fires but no halt is ordered.
-    Given a TableCreated event for "Table-A" with 8 active players
-    And a TableCreated event for "Table-B" with 6 active players
-    When the next hand at "Table-B" would assign the BB to an empty seat
-    Then no TableHaltedForBalancing event is emitted
+    Given a table "Table-A" exists with 8 active players
+    And a table "Table-B" exists with 6 active players
+    When the next hand at "Table-B" would assign the big blind to an empty seat
+    Then "Table-B" does not halt for balancing
     And "Table-B" is not halted for balancing
 
   @wip
@@ -1116,12 +1018,12 @@ Feature: Table aggregate logic
     # deficit 3 → halt fires. This sanity-checks the comparator
     # choice: rule says "the table with the most players", not "the
     # average across remaining tables".
-    Given a TableCreated event for "Table-A" with 9 active players
-    And a TableCreated event for "Table-B" with 6 active players
-    And a TableCreated event for "Table-C" with 6 active players
-    When the next hand at "Table-B" would assign the BB to an empty seat
-    Then a angzarr_client.proto.examples.v1.TableHaltedForBalancing event is emitted for "Table-B"
-    And "Table-B" status is "halted_for_balancing"
+    Given a table "Table-A" exists with 9 active players
+    And a table "Table-B" exists with 6 active players
+    And a table "Table-C" exists with 6 active players
+    When the next hand at "Table-B" would assign the big blind to an empty seat
+    Then "Table-B" halts for balancing
+    And "Table-B" is halted for balancing
 
   @EU-1184E
   @wip
@@ -1129,12 +1031,12 @@ Feature: Table aggregate logic
     # Rule: TDA Rule 11D (2024) — the effect of "halt". A halted table
     # does not start new hands. No HandStarted is emitted; the command
     # is rejected so the saga / operator gets a clear signal.
-    Given a TableCreated event for "Table-A" with 8 active players
-    And a TableCreated event for "Table-B" with 5 active players
-    And the next hand at "Table-B" would assign the BB to an empty seat
-    When I handle a StartHand command at "Table-B"
-    Then the command at "Table-B" is rejected
-    And no HandStarted event is emitted at "Table-B"
+    Given a table "Table-A" exists with 8 active players
+    And a table "Table-B" exists with 5 active players
+    And the next hand at "Table-B" would assign the big blind to an empty seat
+    When the next hand at "Table-B" begins
+    Then the start-hand at "Table-B" is refused because the table is halted for balancing
+    And no hand starts at "Table-B"
 
   @wip
   @EU-1184F
@@ -1144,13 +1046,13 @@ Feature: Table aggregate logic
     # if the deficit still meets the threshold and the BB again
     # threatens an empty seat (e.g. before rebalancing fully closed
     # the gap), the table halts again.
-    Given a TableCreated event for "Table-A" with 8 active players
-    And a TableCreated event for "Table-B" with 5 active players
-    And the next hand at "Table-B" would assign the BB to an empty seat
+    Given a table "Table-A" exists with 8 active players
+    And a table "Table-B" exists with 5 active players
+    And the next hand at "Table-B" would assign the big blind to an empty seat
     And the coordinator resumes play at "Table-B"
-    When the next hand at "Table-B" would assign the BB to an empty seat
-    Then a angzarr_client.proto.examples.v1.TableHaltedForBalancing event is emitted for "Table-B"
-    And "Table-B" status is "halted_for_balancing"
+    When the next hand at "Table-B" would assign the big blind to an empty seat
+    Then "Table-B" halts for balancing
+    And "Table-B" is halted for balancing
 
   # ==========================================================================
   # Dodging Blinds Penalty — TDA Rule 33 / WSOP Rule 86
@@ -1163,14 +1065,13 @@ Feature: Table aggregate logic
   @EU-1185
   Scenario: A player who skips a blind by moving forfeits the missed blinds and earns a round penalty
     # Rule: TDA Rule 33 (2024) + WSOP Rule 86 (2025).
-    Given a TableCreated event for "Main Table" with blinds 5/10
-    And a PlayerJoined event for player "Alice" at seat 1
-    And the next hand would post Alice's BB
+    Given a table "Main Table" exists with blinds 5/10
+    And player "Alice" is seated at position 1
+    And the next hand would post Alice's big blind
     When player "Alice" requests a seat change to seat 4 to skip her blind
-    Then a angzarr_client.proto.examples.v1.BlindDodgePenalty event is emitted
-    And the penalty event has player_root "Alice"
-    And the penalty event has chips_forfeited 15
-    And the penalty event has missed_round_count 1
+    Then player "Alice" is penalised for dodging her blind
+    And player "Alice" forfeits 15 chips
+    And player "Alice" misses 1 round as a penalty
 
   # ==========================================================================
   # Initial Button Placement — WSOP Rule 85
@@ -1188,14 +1089,13 @@ Feature: Table aggregate logic
     # First chip stack to the dealer's right (counter-clockwise) is the
     # highest seat number with a player. With seats 1, 3, 5 occupied,
     # the button starts at seat 5.
-    Given a TableCreated event for "Main Table"
-    And a PlayerJoined event for player "Alice" at seat 1
-    And a PlayerJoined event for player "Bob" at seat 3
-    And a PlayerJoined event for player "Carol" at seat 5
-    When I handle a StartHand command for the first hand
-    Then the result is a angzarr_client.proto.examples.v1.HandStarted event
-    And the table event has hand_number 1
-    And the table event has dealer_position 5
+    Given a table "Main Table" exists
+    And player "Alice" is seated at position 1
+    And player "Bob" is seated at position 3
+    And player "Carol" is seated at position 5
+    When the first hand at the table begins
+    Then the table is on hand number 1
+    And the dealer is at seat 5
 
   # ==========================================================================
   # Final-Table Combination Thresholds — TDA RP-9 / WSOP Rule 68
@@ -1213,9 +1113,8 @@ Feature: Table aggregate logic
     Given an 8-handed tournament with 9 active players across "Semi-1" and "Semi-2"
     And "Semi-1" has 4 players "Alice,Bob,Carol,Dave"
     And "Semi-2" has 5 players "Eve,Frank,Grace,Henry,Ivy"
-    When I handle a CombineFinalTable command for "Final" combining "Semi-1,Semi-2"
-    Then the result is a angzarr_client.proto.examples.v1.FinalTableCombined event
-    And the final table has 9 active_players
+    When the coordinator combines "Semi-1,Semi-2" into final table "Final"
+    Then the final table has 9 active players
     And the final table is configured as 8-handed
 
   @EU-1188
@@ -1224,7 +1123,6 @@ Feature: Table aggregate logic
     Given a 6-handed tournament with 7 active players across "Semi-1" and "Semi-2"
     And "Semi-1" has 4 players "Alice,Bob,Carol,Dave"
     And "Semi-2" has 3 players "Eve,Frank,Grace"
-    When I handle a CombineFinalTable command for "Final" combining "Semi-1,Semi-2"
-    Then the result is a angzarr_client.proto.examples.v1.FinalTableCombined event
-    And the final table has 7 active_players
+    When the coordinator combines "Semi-1,Semi-2" into final table "Final"
+    Then the final table has 7 active players
     And the final table is configured as 6-handed
