@@ -8,7 +8,6 @@ Feature: Rejection compensation details
   cover state rebuild, routing across multiple compensation handlers on one
   class, sequence stamping, and the empty-handler case.
 
-  @wip
   @C-0080
   Scenario: State is rebuilt before the compensation handler runs
     Given a command handler "Payment" for domain "payment" with stateful rejection
@@ -20,7 +19,6 @@ Feature: Rejection compensation details
     Then the response contains one FundsReleased event
     And the FundsReleased event carries amount 100
 
-  @wip
   @C-0081
   Scenario: Compensation handlers route by (source_domain, command) pair
     Given a command handler "Payment" for domain "payment" with two compensation handlers
@@ -31,7 +29,6 @@ Feature: Rejection compensation details
     Then the response contains one WorkflowFailed event
     And no FundsReleased event is emitted
 
-  @wip
   @C-0082
   Scenario: Multiple compensation handlers on one class do not cross-fire
     Given a command handler "Payment" for domain "payment" with two compensation handlers
@@ -41,7 +38,6 @@ Feature: Rejection compensation details
     When a rejection of CreateShipment arrives from fulfillment
     Then the response contains no events
 
-  @wip
   @C-0083
   Scenario: Compensation events are appended in sequence after prior history
     Given a command handler "Payment" for domain "payment" with stateful rejection
@@ -51,7 +47,6 @@ Feature: Rejection compensation details
     When a rejection of ReserveStock arrives from inventory
     Then compensation events are appended after sequence 6, taking sequences 7 and 8
 
-  @wip
   @C-0084
   Scenario: No matching compensation handler yields empty compensation
     Given a command handler "Payment" for domain "payment" with no rejection handlers

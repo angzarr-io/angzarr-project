@@ -63,7 +63,6 @@ Feature: Hand aggregate logic
   # Dealing initializes the hand with hole cards for each player. The number
   # of hole cards depends on game variant (2 for Hold'em, 4 for Omaha, 5 for Draw).
 
-  @wip
   @EU-0001
   Scenario: Deal Texas Hold'em hand to 2 players
     Given the hand has not yet been dealt
@@ -74,7 +73,6 @@ Feature: Hand aggregate logic
     Then each player has 2 hole cards
     And the remaining deck has 48 cards
 
-  @wip
   @EU-0002
   Scenario: Deal Omaha hand to 3 players
     Given the hand has not yet been dealt
@@ -86,7 +84,6 @@ Feature: Hand aggregate logic
     Then each player has 4 hole cards
     And the remaining deck has 40 cards
 
-  @wip
   @EU-0003
   Scenario: Deal Five Card Draw hand to 4 players
     Given the hand has not yet been dealt
@@ -265,7 +262,6 @@ Feature: Hand aggregate logic
     And 3 cards have been removed from the remaining deck
 
   @EU-0019
-  @wip
   Scenario: Deal the turn
     Given a Texas Hold'em hand has been dealt to 2 players
     And the flop has been dealt
@@ -276,7 +272,6 @@ Feature: Hand aggregate logic
     And there are 4 community cards in play
 
   @EU-0020
-  @wip
   Scenario: Deal the river
     Given a Texas Hold'em hand has been dealt to 2 players
     And the flop and turn have been dealt
@@ -371,7 +366,6 @@ Feature: Hand aggregate logic
     When the pot of 15 is awarded to player-1
     Then player-1 wins 15
 
-  @wip
   @EU-0028
   Scenario: Awarding the pot completes the hand
     Given a Texas Hold'em hand has reached showdown with 2 players
@@ -388,7 +382,6 @@ Feature: Hand aggregate logic
   # scenarios verify the evaluator correctly ranks hands and compares kickers.
 
   @EU-0029
-  @wip
   Scenario: Royal flush beats straight flush
     Given a showdown with player hands:
       | player   | hole_cards | community_cards    |
@@ -400,7 +393,6 @@ Feature: Hand aggregate logic
     And player-1 wins
 
   @EU-0030
-  @wip
   Scenario: Full house beats flush
     Given a showdown with player hands:
       | player   | hole_cards | community_cards    |
@@ -412,7 +404,6 @@ Feature: Hand aggregate logic
     And player-1 wins
 
   @EU-0031
-  @wip
   Scenario: High card comparison with kickers
     Given a showdown with player hands:
       | player   | hole_cards | community_cards    |
@@ -524,7 +515,6 @@ Feature: Hand aggregate logic
   # can determine the winner when hand rankings match.
 
   @EU-0044
-  @wip
   Scenario: Split pot when hands are identical
     Given a showdown with player hands:
       | player   | hole_cards | community_cards    |
@@ -535,7 +525,6 @@ Feature: Hand aggregate logic
     And player-2 has a TWO_PAIR
 
   @EU-0045
-  @wip
   Scenario: Kicker determines winner with matching pairs
     Given a showdown with player hands:
       | player   | hole_cards | community_cards    |
@@ -563,7 +552,6 @@ Feature: Hand aggregate logic
     And the hand has 2 players
 
   @EU-0047
-  @wip
   Scenario: State with community cards
     Given a Texas Hold'em hand has been dealt to 2 players
     And the flop has been dealt
@@ -596,7 +584,6 @@ Feature: Hand aggregate logic
     Then the deal is refused because no players were provided
 
   @EU-0050
-  @wip
   Scenario: Deterministic deal produces identical hole cards for the same seed
     Given the hand has not yet been dealt
     When the same Texas Hold'em hand is dealt twice with seed "seed123"
@@ -1074,7 +1061,6 @@ Feature: Hand aggregate logic
   # eligible players.
 
   @EU-1100
-  @wip
   Scenario: Three-way all-in at different stacks creates a main pot and one side pot
     # A=100, B=200, C=500. A all-in for 100. B all-in for 200. C calls 200.
     # Main pot = 100 * 3 = 300, eligible {A,B,C}.
@@ -1138,7 +1124,6 @@ Feature: Hand aggregate logic
     Then the award is refused because player-A is not eligible for side pot 1
 
   @EU-1103
-  @wip
   Scenario: Four-way all-in produces a main pot and two distinct side pots
     # A=50, B=150, C=300, D=300. All four all-in.
     # Main pot   = 50  * 4 = 200, eligible {A,B,C,D}
@@ -1159,7 +1144,6 @@ Feature: Hand aggregate logic
     And side pot 2 holds 300 and is contestable by player-C and player-D
 
   @EU-1104
-  @wip
   Scenario: A folded player's contributions stay in the pot they were already part of
     # Folding does not refund chips. If a player put in 80 and then folded
     # before an opponent went all-in for 100, that 80 still counts toward
@@ -1179,7 +1163,6 @@ Feature: Hand aggregate logic
     And the main pot holds 280 and is contestable by player-A and player-C
 
   @EU-1105
-  @wip
   Scenario: An uncontested over-bet by the deepest stack is returned, not pooled
     # If C bets 500 but the next-deepest stack is 200 (B all-in), the
     # uncontested 300 of C's bet is NOT placed into any pot - it returns to
@@ -1214,7 +1197,6 @@ Feature: Hand aggregate logic
     Then player-A's winnings come from the main pot
     And player-B's winnings come from side pot 1
 
-  @wip
   @EU-1107
   Scenario: Completing a multi-pot award lists every winner across pots
     Given a Texas Hold'em hand has been dealt to:
@@ -1258,7 +1240,6 @@ Feature: Hand aggregate logic
     Then there are 3 winners
 
   @EU-1109
-  @wip
   Scenario: All-in for less than min-raise does not create a side pot when only one other caller remains
     # When only one player has chips left to bet after a short all-in, no
     # side pot can form (a pot needs at least two contestable bettors).
@@ -1349,7 +1330,6 @@ Feature: Hand aggregate logic
     Then the ante is refused because antes must be posted before the blinds
 
   @EU-1115
-  @wip
   Scenario: Ante contributes to the main pot for side-pot accounting
     # An ante from a player who later folds still belongs to the main pot,
     # exactly like blinds (parallel to EU-1104).
@@ -1377,7 +1357,6 @@ Feature: Hand aggregate logic
   # first; remaining players follow in clockwise order.
 
   @EU-1120
-  @wip
   Scenario: Last aggressor on the river shows cards first
     # Three-handed: dealer at seat 0 (player-A), SB at 1 (player-B), BB at 2
     # (player-C). On the river, player-B bets, player-C calls, player-A
@@ -1393,7 +1372,6 @@ Feature: Hand aggregate logic
     Then the showdown order is player-B, player-C, player-A
 
   @EU-1121
-  @wip
   Scenario: With no river betting, the first seat clockwise of the dealer shows first
     # Dealer at seat 0. Round was checked through. Seat 1 (SB) is the first
     # un-folded clockwise seat from the dealer, so SB shows first; the rest
@@ -1409,7 +1387,6 @@ Feature: Hand aggregate logic
     Then the showdown order is player-B, player-C, player-A
 
   @EU-1122
-  @wip
   Scenario: Folded players are excluded from the showdown order
     # player-C folded on the turn. They do not appear in the showdown
     # order even though they were dealt in.
@@ -1546,7 +1523,6 @@ Feature: Hand aggregate logic
   # scenarios cover the cumulative case.
 
   @EU-1140
-  @wip
   Scenario: Two cumulative short all-ins that together meet a full raise reopen the bet
     # Rule: TDA Rule 47A (2024), second sentence - "If multiple short all-ins
     #       re-open the betting, the minimum raise is always the last full
@@ -1563,7 +1539,6 @@ Feature: Hand aggregate logic
     And the current bet is 160
 
   @EU-1141
-  @wip
   Scenario: Two cumulative short all-ins that together do not meet a full raise do not reopen
     # Rule: TDA Rule 47A (2024), first sentence - "An all-in wager (or
     #       cumulative multiple short all-ins) totaling less than a full bet
@@ -1655,7 +1630,6 @@ Feature: Hand aggregate logic
   # covers an even split; these scenarios pin the *odd* chip rule.
 
   @EU-1170
-  @wip
   Scenario: Odd-chip split awards the extra chip to first seat clockwise of the button
     # Rule: TDA Rule 20A (2024) - "Board games with 2 or more high or low
     #       hands: the odd chip goes to the first seat left of the button."
@@ -1676,7 +1650,6 @@ Feature: Hand aggregate logic
     And Bob wins 50
 
   @EU-1171
-  @wip
   Scenario: Odd-chip H/L split - extra chip in the total pot goes to the high side
     # Rule: TDA Rule 20C (2024) - "H/L split: the odd chip in the total pot
     #       goes to the high side."
@@ -1765,7 +1738,6 @@ Feature: Hand aggregate logic
     And the minimum raise is 10
 
   @EU-1211
-  @wip
   Scenario: Level change during dealer push - incoming dealer deals one hand at the prior level
     # Rule: TDA Rule 23 (2024) - "If a new level starts during the dealer
     #       push, the incoming dealer will deal one hand at the prior level."
@@ -1833,7 +1805,6 @@ Feature: Hand aggregate logic
   #  Rule 38 - burns are one-per-street even if the stub is reshuffled
   #    mid-hand.
 
-  @wip
   @EU-1230
   Scenario Outline: Misdeal triggers - pre-SA, hand is redealt; post-SA, hand stands
     # Rule: TDA Rule 35A & 35D (2024) - misdeal taxonomy: boxed cards on
@@ -1856,7 +1827,6 @@ Feature: Hand aggregate logic
       | BOXED_CARDS_INITIAL    | true  | HAND_STANDS          |
 
   @EU-1231
-  @wip
   Scenario: Fouled deck - duplicate (rank, suit) found at any time returns all bets
     # Rule: TDA Rule 35E (2024) - "If 2 or more cards of the same suit and
     #       rank are found, the deck is fouled. If a fouled deck is
@@ -1872,7 +1842,6 @@ Feature: Hand aggregate logic
     And every player's contribution to the hand is refunded
     And the hand is void
 
-  @wip
   @EU-1232
   Scenario Outline: Substantial Action threshold - pre-SA misdeals redeal, post-SA stand
     # Rule: TDA Rule 36 (2024) - "Substantial Action is either A) any 2
@@ -1898,7 +1867,6 @@ Feature: Hand aggregate logic
       | RAISE,FOLD            | true  |
 
   @EU-1233
-  @wip
   Scenario: Stub reshuffle mid-hand still burns exactly one card per street
     # Rule: TDA Rule 38 (2024) - "The burn is always one card per street,
     #       never more." Even after a mid-hand reshuffle (Rule 39A premature
@@ -1989,7 +1957,6 @@ Feature: Hand aggregate logic
   # captures the corrective alternative when the error is detected mid-street.
 
   @EU-1250
-  @wip
   Scenario: Underraise corrected on the same street before the next street is dealt
     # Rule: TDA Rule 52A (2024) - "In limit and no-limit, opening or raising
     #       less than the minimum legal amount is corrected anywhere on the
@@ -2047,7 +2014,6 @@ Feature: Hand aggregate logic
     And the pot is 15
 
   @EU-1261
-  @wip
   Scenario: Mucked-while-still-claiming - uncalled raise is refunded
     # Rule: TDA Rule 15B (2024) - "If a player bets then discards thinking
     #       they have won (forgetting another player is still in the hand)
@@ -2072,7 +2038,6 @@ Feature: Hand aggregate logic
   # come if the hand had not ended) is not allowed." Once a hand ends, the
   # remaining stub MUST NOT be revealed via any query or projection.
 
-  @wip
   @EU-1270
   Scenario: Hand ending early does not reveal the unburned community cards
     # Rule: TDA Rule 28 (2024) - "Rabbit hunting ... is not allowed."
@@ -2129,7 +2094,6 @@ Feature: Hand aggregate logic
   #    doesn't move, no new players are seated, limits stay the same."
 
   @EU-1273
-  @wip
   Scenario: Two consecutive cards on the button are not a misdeal
     # Rule: TDA Rule 35B (2024) - explicit allowance.
     Given a Texas Hold'em hand has been dealt to Alice, Bob, Carol, and Dave with 500-chip stacks
@@ -2139,7 +2103,6 @@ Feature: Hand aggregate logic
     And no misdeal was declared on this hand
 
   @EU-1274
-  @wip
   Scenario: Re-deal preserves the dealer button position and blind levels
     # Rule: TDA Rule 35C (2024) - "the button doesn't move, no new players
     #       are seated, limits stay the same."
@@ -2170,7 +2133,6 @@ Feature: Hand aggregate logic
   # ==========================================================================
 
   @EU-1276
-  @wip
   Scenario: 4-card flop - scramble all four, randomly select burn, remaining 3 = flop
     # Rule: TDA Rule 39A (2024) - "If the flop has 4 rather than 3 cards,
     #       exposed or not ... the dealer scrambles the 4 cards face down,
@@ -2185,7 +2147,6 @@ Feature: Hand aggregate logic
     And exactly 1 card was burned for this street
 
   @EU-1277
-  @wip
   Scenario: No-burn 3-card flop pre-action - scramble flop, one becomes burn, complete flop from stub
     # Rule: TDA Rule 39B (2024) - "If there was no burn on a 3-card flop,
     #       exposed or not ... if no action has occurred, the 3 cards are
@@ -2201,7 +2162,6 @@ Feature: Hand aggregate logic
     And exactly 1 of the original 3 flop cards is now the burn
 
   @EU-1278
-  @wip
   Scenario: No-burn 3-card flop after action - flop stands, no extra burn for the turn
     # Rule: TDA Rule 39B (2024) - "If any action (even one check) has
     #       occurred, play proceeds with the initial 3 cards. Only one card
@@ -2225,7 +2185,6 @@ Feature: Hand aggregate logic
   # burn.
 
   @EU-1280
-  @wip
   Scenario: Premature flop - burn stays, premature flop returns to stub, reshuffle, re-deal without new burn
     # Rule: TDA RP-5A (2024) - premature flop procedure.
     Given a Texas Hold'em hand has been dealt to Alice, Bob, and Carol with 500-chip stacks
@@ -2242,7 +2201,6 @@ Feature: Hand aggregate logic
     And no card was burned for this street
 
   @EU-1281
-  @wip
   Scenario: Premature turn - burn stays, premature card returns, reshuffle, re-deal without new burn
     # Rule: TDA RP-5B (2024) - premature turn procedure.
     Given a Texas Hold'em hand has been dealt to Alice, Bob, and Carol with 500-chip stacks
@@ -2260,7 +2218,6 @@ Feature: Hand aggregate logic
     Then no card was burned for this street
 
   @EU-1282
-  @wip
   Scenario: Premature river - burn stays, premature card returns, reshuffle, re-deal without new burn
     # Rule: TDA RP-5C (2024) - premature river procedure.
     Given a Texas Hold'em hand has been dealt to Alice, Bob, and Carol with 500-chip stacks
@@ -2285,7 +2242,6 @@ Feature: Hand aggregate logic
   # bet."
 
   @EU-1284
-  @wip
   Scenario: PL high (illegal) underbet is corrected for all players anywhere on the current street
     # Rule: TDA Rule 52B (2024) - high count = illegal bet, correct any time.
     # PLO 500/1000. Pot=10500. Alice asks for count, dealer says "11500"
@@ -2334,7 +2290,6 @@ Feature: Hand aggregate logic
   # not affect pot calculation. All pre-flop pot and re-pot bets will assume
   # full blinds were posted."
 
-  @wip
   @EU-1286
   Scenario: PLO pre-flop pot calculation assumes full blinds even with a short SB
     # Rule: TDA Rule 54B (2024) - full blinds assumed.
@@ -2375,7 +2330,6 @@ Feature: Hand aggregate logic
   # call or fold, but cannot raise."
 
   @EU-1288
-  @wip
   Scenario Outline: Invalid bet declaration outcomes
     # Rule: TDA Rule 55 (2024) - bind invalid declarations to the legal
     #       in-context action.
@@ -2418,7 +2372,6 @@ Feature: Hand aggregate logic
   # the next hand."
 
   @EU-1290
-  @wip
   Scenario: Incorrect button movement after substantial action stands for the rest of the hand
     # Rule: TDA Rule 34A (2024) - SA freezes the error in place.
     Given a Texas Hold'em hand has been dealt to Alice, Bob, Carol, and Dave with 500-chip stacks
@@ -2436,7 +2389,6 @@ Feature: Hand aggregate logic
   # variant). Marked @limit so engines that don't support limit can skip.
 
   @EU-1295 @limit
-  @wip
   Scenario: Limit - short all-in of at least 50% of a full bet reopens betting
     # Rule: TDA Rule 47B (2024) - "In limit, at least 50% of a full bet or
     #       raise is required to re-open betting for players who have
@@ -2453,7 +2405,6 @@ Feature: Hand aggregate logic
     Then the bet is reopened for prior actors
 
   @EU-1296 @limit
-  @wip
   Scenario: Limit - at most 1 bet and 4 raises per round until heads-up
     # Rule: TDA Rule 48 (2024) - "In limit play, there is a limit to raises
     #       even when heads-up until the event is down to 2 players; the
@@ -2475,7 +2426,6 @@ Feature: Hand aggregate logic
   # rules unless noted.
 
   @EU-1320 @stud
-  @wip
   Scenario: HORSE button shifts when game type changes from flop game to stud
     # Rule: TDA Rule 11B (2024) - "In mixed games (ex: HORSE), when the game
     #       shifts from hold'em to stud, after the last hold'em hand the
@@ -2495,7 +2445,6 @@ Feature: Hand aggregate logic
     Then the dealer button resumes at seat 1
 
   @EU-1321 @stud
-  @wip
   Scenario: 7th-street showdown order - high hand showing tables first
     # Rule: TDA Rule 17A (2024) - "In a non all-in showdown, if cards are
     #       not spontaneously tabled or discarded, the TD may enforce an
@@ -2534,7 +2483,6 @@ Feature: Hand aggregate logic
     And Bob wins 50
 
   @EU-1323 @stud
-  @wip
   Scenario: Stud - exposed first or second downcard on initial deal is a misdeal
     # Rule: TDA Rule 35A-6 (2024) - "Before SA, a non-standard card for the
     #       game type is found"; specifically: "In flop games, if 1 of the
@@ -2562,7 +2510,6 @@ Feature: Hand aggregate logic
     Then the fold is refused because picking up the up cards is not a valid muck in stud
 
   @EU-1325 @stud
-  @wip
   Scenario: RP-10A - downcard exposed on initial deal becomes the player's upcard
     # Rule: TDA RP-10A (2024) - "A downcard exposed on the initial deal
     #       will be the player's upcard and 3rd street will be dealt down
@@ -2576,7 +2523,6 @@ Feature: Hand aggregate logic
     And Alice remains eligible to be the bring-in based on her up card
 
   @EU-1326 @stud
-  @wip
   Scenario: RP-10B - exposed 7th-street card is replaced when betting action remains
     # Rule: TDA RP-10B (2024) - "A card exposed by the dealer on 7th street
     #       will be replaced if betting action remains on the hand. 7th
@@ -2617,7 +2563,6 @@ Feature: Hand aggregate logic
     Then the first-to-act player is Alice
 
   @EU-1329 @stud
-  @wip
   Scenario: RP-10E - bring-in player all-in for the ante: betting starts to their left
     # Rule: TDA RP-10E (2024) - "If the player dealt the low card by suit
     #       is all-in for the ante, betting starts to his or her left.
@@ -2629,7 +2574,6 @@ Feature: Hand aggregate logic
     And the minimum bet for Bob and Carol is the bring-in amount
 
   @EU-1330 @stud
-  @wip
   Scenario: RP-10F - open pair on 4th street does NOT enable a doubled bet (TDA standard)
     # Rule: TDA RP-10F (2024) - "Bets will not be doubled on 4th street for
     #       a pair showing." (Note: WSOP-1521/1531 says the OPPOSITE for
@@ -2642,7 +2586,6 @@ Feature: Hand aggregate logic
     And the rejection notes the maximum bet of 100
 
   @EU-1331 @stud
-  @wip
   Scenario: RP-10H sub-C - 7th-street short stub (<3 cards) becomes a community card
     # Rule: TDA RP-10H sub-C (2024) - "If the current stub has less than 3
     #       cards, it will be scrambled with the 3 prior burns for a new
@@ -2660,7 +2603,6 @@ Feature: Hand aggregate logic
     And the first-to-act on 7th street is the same player who acted first on 6th street
 
   @EU-1332 @stud
-  @wip
   Scenario: RP-10G / RP-5D - premature card in stud returned to stub, reshuffled, no extra burn
     # Rule: TDA RP-10G (2024) - "For premature cards dealt in stud see
     #       RP-5-D."
@@ -2680,7 +2622,6 @@ Feature: Hand aggregate logic
     And no card was burned for this street
 
   @EU-1333 @stud
-  @wip
   Scenario: RP-10H sub-A - short stub: stub + prior burns reaches required count
     # Rule: TDA RP-10H sub-A (2024) - "if the required number can be reached
     #       by adding the 3 prior burn cards (for 4th, 5th, and 6th street)
@@ -2699,7 +2640,6 @@ Feature: Hand aggregate logic
     And no community card is in play
 
   @EU-1334 @stud
-  @wip
   Scenario: RP-10H sub-B - stub has >=3 but combining with burns is still short -> community card
     # Rule: TDA RP-10H sub-B (2024) - "if there are at least 3 cards in the
     #       current stub but adding the prior burns would not reach the
@@ -2719,7 +2659,6 @@ Feature: Hand aggregate logic
     And the first-to-act on 7th street is the same player who acted first on 6th street
 
   @EU-1335 @stud
-  @wip
   Scenario: WSOP - all 3 first cards dealt face down: scramble, randomly turn one face up
     # Rule: WSOP Seven Card Games (2025) - "If a Participant receives each
     #       of the first three cards down, the floor supervisor will
@@ -2750,7 +2689,6 @@ Feature: Hand aggregate logic
     And Carol (the actual low card) is now obligated to post the bring-in
 
   @EU-1337 @stud
-  @wip
   Scenario: WSOP - bring-in completion to a full bet does not count as a raise
     # Rule: WSOP Seven Card Games (2025) - "Increasing the amount wagered
     #       by the forced bring-in, up to a full bet does not count as a
@@ -2765,7 +2703,6 @@ Feature: Hand aggregate logic
     And up to 4 subsequent raises are allowed
 
   @EU-1338 @stud
-  @wip
   Scenario: WSOP - absent at 3rd-street completion forfeits ante and bring-in
     # Rule: WSOP Seven Card Games (2025) - "If you are not present at the
     #       table when third street has been delivered to the final
@@ -2784,7 +2721,6 @@ Feature: Hand aggregate logic
     And the pot is 15
 
   @EU-1339 @stud
-  @wip
   Scenario: WSOP - open pair on 4th street locks lower limit in Stud Hi/Lo and Razz
     # Rule: WSOP Seven Card Stud Hi/Lo 8b (2025) - "On Fourth Street, a
     #       Participant showing an open pair does not have an option of
@@ -2800,7 +2736,6 @@ Feature: Hand aggregate logic
     Then the bet is refused because an open pair locks the lower limit
 
   @EU-1340 @stud
-  @wip
   Scenario: Robert's SC Stud #18 - hand with too few or too many cards at showdown is dead
     # Rule: Robert's Rules SC Stud #18 (Ciaffone v11) - "A hand with more
     #       than seven cards is dead. A hand with less than seven cards at
@@ -2819,7 +2754,6 @@ Feature: Hand aggregate logic
     Then the reveal is refused because there are too many cards for stud
 
   @EU-1341 @stud
-  @wip
   Scenario: Robert's RAZZ #3 - open pair on 4th street does not affect the limit (Razz only)
     # Rule: Robert's Rules RAZZ #3 (Ciaffone v11) - "Fixed-limit games use
     #       the lower limit on third and fourth streets and the upper limit
@@ -3013,7 +2947,6 @@ Feature: Hand aggregate logic
   # before substantial action, otherwise stands as accepted action.
 
   @EU-1354
-  @wip
   Scenario: Verbal undercall in turn is corrected up to the actual bet before SA
     # Rule: TDA Rule 51 (2024) - "An in-turn verbal undercall must be
     #       corrected up to the bet amount provided no substantial action
@@ -3026,7 +2959,6 @@ Feature: Hand aggregate logic
     And Bob's call of 100 is recorded
 
   @EU-1355
-  @wip
   Scenario: Verbal undercall in turn stands at the lesser amount after substantial action
     # Rule: TDA Rule 51 (2024) - "After SA the undercall stands."
     Given a Texas Hold'em hand has been dealt to Alice, Bob, and Carol with 1000-chip stacks
@@ -3047,7 +2979,6 @@ Feature: Hand aggregate logic
   # are non-binding when the condition fails.
 
   @EU-1356
-  @wip
   Scenario: String bet - chips beyond the first forward motion are returned
     # Rule: TDA Rule 56 (2024) - "Dealers will be responsible for calling
     #       string bets/raises. Chips beyond the first forward motion are
@@ -3066,7 +2997,6 @@ Feature: Hand aggregate logic
     And the next player owes 30 to call
 
   @EU-1357
-  @wip
   Scenario: Non-standard bet declaration is ruled by the floor with player at risk
     # Rule: TDA Rule 57 (2024) - "Players using non-standard or unclear
     #       betting declarations bear the risk of the floor's interpretation."
@@ -3128,7 +3058,6 @@ Feature: Hand aggregate logic
   # in play for this hand." Hidden chips do not retroactively join the all-in.
 
   @EU-1361
-  @wip
   Scenario: Hidden chip discovered after a call to all-in is not in play this hand
     # Rule: TDA Rule 62 (2024) - chips found behind after a call do not
     #       retroactively join the all-in.
@@ -3159,7 +3088,6 @@ Feature: Hand aggregate logic
     And the penalty severity is at least missed-hand
 
   @EU-1363
-  @wip
   Scenario: Exposing cards with action pending earns a penalty and the hand stays live
     # Rule: TDA Rule 68 (2024) - "A player exposing his or her cards with
     #       action pending will incur a penalty but the hand will not be
@@ -3182,7 +3110,6 @@ Feature: Hand aggregate logic
   # to special situations such as tied late-reg seats, tied stack draws."
 
   @EU-1364
-  @wip
   Scenario: Disordered stub triggers reshuffle of the remaining stub
     # Rule: TDA RP-4 (2024) - disordered stub reshuffle.
     Given a hand mid-deal on the river with a disordered stub
@@ -3192,7 +3119,6 @@ Feature: Hand aggregate logic
     And no community cards already exposed are altered
 
   @EU-1365
-  @wip
   Scenario: Tied late-reg seat picks resolved by deterministic randomness
     # Rule: TDA RP-14 (2024) - randomness for special situations.
     Given two late-registering players Eve and Frank assigned to the same hand number

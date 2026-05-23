@@ -42,9 +42,9 @@ Feature: Tournament aggregate logic
   #   subscription billing, and publication approval flows.
   # - Capacity + duplicate checks: Enrollment rules mirror waitlist and
   #   seat-reservation systems across any bounded-resource domain.
-  # - Rejection-as-event: Bad enrollments emit TournamentEnrollmentRejected
-  #   (a domain event) rather than raising, so the PM sees the outcome on
-  #   the event stream. Rebuys follow the same shape with RebuyDenied.
+  # - Rejection-as-event: Bad enrollments are recorded as domain events on
+  #   the stream rather than raising, so the PM sees the outcome. Rebuys
+  #   follow the same shape.
   #
   # Why poker exercises these patterns well:
   # - Tournaments have clear, hard gates (registration open/closed, running)
@@ -66,53 +66,47 @@ Feature: Tournament aggregate logic
 
   @EU-0800
   Scenario: Create a tournament successfully
-    Given no prior events for the tournament aggregate
-    When I handle a CreateTournament command with name "Test Tournament" buy_in 100 starting_stack 1000 max_players 100 min_players 10
-    Then the result is a angzarr_client.proto.examples.v1.TournamentCreated event
-    And the tournament event has name "Test Tournament"
-    And the tournament event has buy_in 100
-    And the tournament event has starting_stack 1000
+    Given the tournament has not yet been created
+    When tournament "Test Tournament" is created with 100 buy-in, 1000 starting stack, max 100 players, min 10 players
+    Then the tournament is named "Test Tournament"
+    And the buy-in is 100
+    And the tournament starting stack is 1000
 
   @EU-0801
   Scenario: Cannot create tournament twice
-    Given a TournamentCreated event with name "Test Tournament" buy_in 100 starting_stack 1000 max_players 100 min_players 10
-    When I handle a CreateTournament command with name "Test Tournament" buy_in 100 starting_stack 1000 max_players 100 min_players 10
-    Then the command fails with status "FAILED_PRECONDITION"
-    And the error message contains "already exists"
+    Given tournament "Test Tournament" exists with 100 buy-in, 1000 starting stack, max 100 players, min 10 players
+    When tournament "Test Tournament" is created with 100 buy-in, 1000 starting stack, max 100 players, min 10 players
+    Then the create-tournament is refused because it already exists
 
   @EU-0802
   Scenario: Cannot create tournament with empty name
-    Given no prior events for the tournament aggregate
-    When I handle a CreateTournament command with name "" buy_in 100 starting_stack 1000 max_players 100 min_players 10
-    Then the command fails with status "INVALID_ARGUMENT"
-    And the error message contains "name is required"
+    Given the tournament has not yet been created
+    When tournament "" is created with 100 buy-in, 1000 starting stack, max 100 players, min 10 players
+    Then the create-tournament is refused because the name is required
 
   @EU-0803
   Scenario: Cannot create tournament with non-positive buy_in
-    Given no prior events for the tournament aggregate
-    When I handle a CreateTournament command with name "Test Tournament" buy_in 0 starting_stack 1000 max_players 100 min_players 10
-    Then the command fails with status "INVALID_ARGUMENT"
-    And the error message contains "buy_in must be positive"
+    Given the tournament has not yet been created
+    When tournament "Test Tournament" is created with 0 buy-in, 1000 starting stack, max 100 players, min 10 players
+    Then the create-tournament is refused because buy_in must be positive
 
   @EU-0804
   Scenario: Cannot create tournament with non-positive starting_stack
-    Given no prior events for the tournament aggregate
-    When I handle a CreateTournament command with name "Test Tournament" buy_in 100 starting_stack 0 max_players 100 min_players 10
-    Then the command fails with status "INVALID_ARGUMENT"
-    And the error message contains "starting_stack must be positive"
+    Given the tournament has not yet been created
+    When tournament "Test Tournament" is created with 100 buy-in, 0 starting stack, max 100 players, min 10 players
+    Then the create-tournament is refused because starting_stack must be positive
 
   @EU-0805
   Scenario: Cannot create tournament with min_players below 2
-    Given no prior events for the tournament aggregate
-    When I handle a CreateTournament command with name "Test Tournament" buy_in 100 starting_stack 1000 max_players 100 min_players 1
-    Then the command fails with status "INVALID_ARGUMENT"
-    And the error message contains "min_players must be at least 2"
+    Given the tournament has not yet been created
+    When tournament "Test Tournament" is created with 100 buy-in, 1000 starting stack, max 100 players, min 1 players
+    Then the create-tournament is refused because min_players must be at least 2
 
   @EU-0806
   Scenario: Cannot create tournament with min_players exceeding max_players
-    Given no prior events for the tournament aggregate
-    When I handle a CreateTournament command with name "Test Tournament" buy_in 100 starting_stack 1000 max_players 5 min_players 10
-    Then the command fails with status "FAILED_PRECONDITION"
+    Given the tournament has not yet been created
+    When tournament "Test Tournament" is created with 100 buy-in, 1000 starting stack, max 5 players, min 10 players
+    Then the create-tournament is refused because min_players exceeds max_players
     And the command is rejected with code "MIN_PLAYERS_EXCEEDS_MAX"
     And the rejection field "lhs" equals "10"
     And the rejection field "rhs" equals "5"
@@ -131,36 +125,33 @@ Feature: Tournament aggregate logic
 
   @EU-0807
   Scenario: Open registration successfully
-    Given a TournamentCreated event with name "Test Tournament" buy_in 100 starting_stack 1000 max_players 100 min_players 10
-    When I handle an OpenRegistration command
-    Then the result is a angzarr_client.proto.examples.v1.RegistrationOpened event
+    Given tournament "Test Tournament" exists with 100 buy-in, 1000 starting stack, max 100 players, min 10 players
+    When registration opens
+    Then registration is open
 
   @EU-0808
   Scenario: Cannot open registration for nonexistent tournament
-    Given no prior events for the tournament aggregate
-    When I handle an OpenRegistration command
-    Then the command fails with status "FAILED_PRECONDITION"
-    And the error message contains "does not exist"
+    Given the tournament has not yet been created
+    When registration opens
+    Then opening registration is refused because the tournament does not exist
 
   @EU-0809
   Scenario: Cannot open registration that is already open
     Given a tournament with registration open
-    When I handle an OpenRegistration command
-    Then the command fails with status "FAILED_PRECONDITION"
-    And the error message contains "already open"
+    When registration opens
+    Then opening registration is refused because it is already open
 
   @EU-0810
   Scenario: Close registration successfully
     Given a tournament with registration open
-    When I handle a CloseRegistration command
-    Then the result is a angzarr_client.proto.examples.v1.RegistrationClosed event
+    When registration closes
+    Then registration is closed
 
   @EU-0811
   Scenario: Cannot close registration that is not open
-    Given a TournamentCreated event with name "Test Tournament" buy_in 100 starting_stack 1000 max_players 100 min_players 10
-    When I handle a CloseRegistration command
-    Then the command fails with status "FAILED_PRECONDITION"
-    And the error message contains "not open"
+    Given tournament "Test Tournament" exists with 100 buy-in, 1000 starting stack, max 100 players, min 10 players
+    When registration closes
+    Then closing registration is refused because it is not open
 
   # ==========================================================================
   # Player Enrollment
@@ -169,49 +160,42 @@ Feature: Tournament aggregate logic
   #       methods; participant pays buy-in to enter prize pool.
   # Rule: WSOP §I-2, §I-7 (2025) — capacity controls + entry refusal at
   #       host discretion (mapped here to "tournament full" rejection).
-  # Successful enrollment emits TournamentPlayerEnrolled with the buy-in as
-  # fee_paid. Guard failures (empty player_root, registration closed, full
-  # tournament, duplicate player) emit TournamentEnrollmentRejected instead
-  # so the PM sees the outcome on the event stream.
+  # Successful enrollment records the buy-in as fee_paid. Guard failures
+  # (empty player_root, registration closed, full tournament, duplicate
+  # player) emit a rejection on the event stream so the PM sees the outcome.
 
   @EU-0812
   Scenario: Enroll a player successfully
     Given a tournament with registration open
-    When I handle an EnrollPlayer command for player "player1" reservation "res1"
-    Then the result is a angzarr_client.proto.examples.v1.TournamentPlayerEnrolled event
-    And the tournament event has player_root "player1"
-    And the tournament event has fee_paid 100
+    When player "player1" enrolls with reservation "res1"
+    Then player "player1" is enrolled paying a fee of 100
 
   @EU-0813
   Scenario: Enrollment rejected with empty player_root
     Given a tournament with registration open
-    When I handle an EnrollPlayer command for player "" reservation ""
-    Then the result is a angzarr_client.proto.examples.v1.TournamentEnrollmentRejected event
-    And the tournament event has reason containing "player_root"
+    When player "" enrolls with reservation ""
+    Then the enrollment is rejected because of "player_root"
 
   @EU-0814
   Scenario: Enrollment rejected when registration is not open
-    Given a TournamentCreated event with name "Test Tournament" buy_in 100 starting_stack 1000 max_players 100 min_players 10
-    When I handle an EnrollPlayer command for player "player1" reservation ""
-    Then the result is a angzarr_client.proto.examples.v1.TournamentEnrollmentRejected event
-    And the tournament event has reason containing "not open"
+    Given tournament "Test Tournament" exists with 100 buy-in, 1000 starting stack, max 100 players, min 10 players
+    When player "player1" enrolls with reservation ""
+    Then the enrollment is rejected because of "not open"
 
   @EU-0815
   Scenario: Enrollment rejected when tournament is full
     Given a tournament with max_players 2 and min_players 2 and registration open
-    And a player "p1" enrolled
-    And a player "p2" enrolled
-    When I handle an EnrollPlayer command for player "p3" reservation ""
-    Then the result is a angzarr_client.proto.examples.v1.TournamentEnrollmentRejected event
-    And the tournament event has reason containing "full"
+    And player "p1" is enrolled
+    And player "p2" is enrolled
+    When player "p3" enrolls with reservation ""
+    Then the enrollment is rejected because of "full"
 
   @EU-0816
   Scenario: Enrollment rejected for duplicate player
     Given a tournament with registration open
-    And a player "player1" enrolled
-    When I handle an EnrollPlayer command for player "player1" reservation ""
-    Then the result is a angzarr_client.proto.examples.v1.TournamentEnrollmentRejected event
-    And the tournament event has reason containing "already registered"
+    And player "player1" is enrolled
+    When player "player1" enrolls with reservation ""
+    Then the enrollment is rejected because of "already registered"
 
   # ==========================================================================
   # Rebuy Processing
@@ -221,21 +205,19 @@ Feature: Tournament aggregate logic
   # Rule: WSOP §I-13 (2025) — re-entry events: zero chips required;
   #       re-entrants get a full starting stack.
   # Rebuys only work while the tournament is running. Unregistered players
-  # get a RebuyDenied event on the stream rather than a raised error.
+  # get a rebuy-denied event on the stream rather than a raised error.
 
   @EU-0817
   Scenario: Rebuy rejected when tournament is not running
     Given a tournament with registration open
-    When I handle a ProcessRebuy command for player "p1"
-    Then the command fails with status "FAILED_PRECONDITION"
-    And the error message contains "not running"
+    When player "p1" requests a rebuy
+    Then the rebuy is refused because the tournament is not running
 
   @EU-0818
   Scenario: Rebuy denied for unregistered player
     Given a running tournament with min_players 2 and max_players 10 and 10 enrolled players
-    When I handle a ProcessRebuy command for player "unknown"
-    Then the result is a angzarr_client.proto.examples.v1.RebuyDenied event
-    And the tournament event has reason containing "not registered"
+    When player "unknown" requests a rebuy
+    Then the rebuy is denied because of "not registered"
 
   # ==========================================================================
   # Player Elimination
@@ -252,9 +234,8 @@ Feature: Tournament aggregate logic
   @EU-0819
   Scenario: Eliminate rejected when tournament is not running
     Given a tournament with registration open
-    When I handle an EliminatePlayer command for player "p1"
-    Then the command fails with status "FAILED_PRECONDITION"
-    And the error message contains "not running"
+    When player "p1" is eliminated
+    Then the elimination is refused because the tournament is not running
 
   # ==========================================================================
   # Pause / Resume
@@ -267,16 +248,14 @@ Feature: Tournament aggregate logic
   @EU-0820
   Scenario: Pause rejected when tournament is not running
     Given a tournament with registration open
-    When I handle a PauseTournament command with reason "break"
-    Then the command fails with status "FAILED_PRECONDITION"
-    And the error message contains "not running"
+    When the tournament is paused with reason "break"
+    Then the pause is refused because the tournament is not running
 
   @EU-0821
   Scenario: Resume rejected when tournament is not paused
     Given a tournament with registration open
-    When I handle a ResumeTournament command
-    Then the command fails with status "FAILED_PRECONDITION"
-    And the error message contains "not paused"
+    When the tournament resumes
+    Then the resume is refused because the tournament is not paused
 
   # ==========================================================================
   # Start Tournament
@@ -287,19 +266,17 @@ Feature: Tournament aggregate logic
   @EU-0822
   Scenario: Start tournament with enough players
     Given a tournament with min_players 2 and max_players 10 and registration open
-    And a player "p1" enrolled
-    And a player "p2" enrolled
-    When I handle a StartTournament command
-    Then the result is a angzarr_client.proto.examples.v1.TournamentStarted event
-    And the tournament event has total_players 2
+    And player "p1" is enrolled
+    And player "p2" is enrolled
+    When the tournament starts
+    Then the tournament is running with 2 players
 
   @EU-0823
   Scenario: Cannot start without enough players
     Given a tournament with min_players 2 and max_players 10 and registration open
-    And a player "p1" enrolled
-    When I handle a StartTournament command
-    Then the command fails with status "FAILED_PRECONDITION"
-    And the error message contains "Not enough players"
+    And player "p1" is enrolled
+    When the tournament starts
+    Then the start is refused because there are not enough players
 
   # ==========================================================================
   # EnrollPlayer — Non-existent Tournament
@@ -309,10 +286,9 @@ Feature: Tournament aggregate logic
 
   @EU-0824
   Scenario: EnrollPlayer rejects when the tournament does not exist
-    Given no prior events for the tournament aggregate
-    When I handle an EnrollPlayer command for player "p1" reservation ""
-    Then the command fails with status "FAILED_PRECONDITION"
-    And the error message contains "Tournament does not exist"
+    Given the tournament has not yet been created
+    When player "p1" enrolls with reservation ""
+    Then the enrollment is refused because the tournament does not exist
 
   # ==========================================================================
   # AdvanceBlindLevel — Success and Not-Running Rejection
@@ -324,18 +300,14 @@ Feature: Tournament aggregate logic
   @EU-0825
   Scenario: AdvanceBlindLevel on a running tournament emits BlindLevelAdvanced
     Given a running tournament with a two-level blind structure
-    When I handle an AdvanceBlindLevel command
-    Then the result is a angzarr_client.proto.examples.v1.BlindLevelAdvanced event
-    And the tournament event has blind level 2
-    And the tournament event has small_blind 50
-    And the tournament event has ante 10
+    When the blind level advances
+    Then the tournament is at blind level 2 with small blind 50 and ante 10
 
   @EU-0826
   Scenario: AdvanceBlindLevel rejects when tournament is not running
     Given a tournament with registration open
-    When I handle an AdvanceBlindLevel command
-    Then the command fails with status "FAILED_PRECONDITION"
-    And the error message contains "not running"
+    When the blind level advances
+    Then advancing the blind level is refused because the tournament is not running
 
   # IDs renumbered to EU-0855/0856; the original numbers collided with the
   # Pause/Resume scenarios further down. EU-0842's comment block has been
@@ -343,12 +315,12 @@ Feature: Tournament aggregate logic
   @EU-0855
   Scenario: AdvanceBlindLevel rejects when blind structure is exhausted
     # current_level is at the final defined level (2); advancing past it would
-    # write a BlindLevelAdvanced event with level 3 the structure does not
-    # define. Reject so the operator decides explicitly (extend the structure
-    # or end the tournament).
+    # write a new blind level (3) the structure does not define. Reject so
+    # the operator decides explicitly (extend the structure or end the
+    # tournament).
     Given a running tournament at the final defined blind level
-    When I handle an AdvanceBlindLevel command
-    Then the command fails with status "FAILED_PRECONDITION"
+    When the blind level advances
+    Then advancing the blind level is refused because the blind structure is exhausted
     And the command is rejected with code "BLIND_STRUCTURE_EXHAUSTED"
     And the rejection field "current" equals "2"
     And the rejection field "max_value" equals "2"
@@ -357,8 +329,8 @@ Feature: Tournament aggregate logic
   Scenario: AdvanceBlindLevel rejects when no blind structure is defined
     # Empty structure folds into BLIND_STRUCTURE_EXHAUSTED with max=0.
     Given a running tournament with no blind structure
-    When I handle an AdvanceBlindLevel command
-    Then the command fails with status "FAILED_PRECONDITION"
+    When the blind level advances
+    Then advancing the blind level is refused because the blind structure is exhausted
     And the command is rejected with code "BLIND_STRUCTURE_EXHAUSTED"
     And the rejection field "max_value" equals "0"
 
@@ -370,18 +342,16 @@ Feature: Tournament aggregate logic
   # Rules covered by Player Elimination section above.)
 
   @EU-0827
-  Scenario: EliminatePlayer emits PlayerEliminated with the supplied hand_root
+  Scenario: EliminatePlayer records the supplied hand_root on the elimination
     Given a running tournament with min_players 2 and max_players 10 and 2 enrolled players
-    When I handle an EliminatePlayer command for player "p0" with hand_root "hand-01"
-    Then the result is a angzarr_client.proto.examples.v1.PlayerEliminated event
-    And the tournament event has hand_root "hand-01"
+    When player "p0" is eliminated on hand "hand-01"
+    Then the elimination records hand "hand-01"
 
   @EU-0828
   Scenario: EliminatePlayer rejects when the player is not registered
     Given a running tournament with min_players 2 and max_players 10 and 2 enrolled players
-    When I handle an EliminatePlayer command for player "ghost"
-    Then the command fails with status "FAILED_PRECONDITION"
-    And the error message contains "not registered"
+    When player "ghost" is eliminated
+    Then the elimination is refused because the player is not registered
 
   # ==========================================================================
   # PauseTournament — Success and Already-Paused Rejection
@@ -390,18 +360,16 @@ Feature: Tournament aggregate logic
   # section above.)
 
   @EU-0829
-  Scenario: PauseTournament on a running tournament emits TournamentPaused
+  Scenario: PauseTournament on a running tournament records the reason
     Given a running tournament with min_players 2 and max_players 10 and 2 enrolled players
-    When I handle a PauseTournament command with reason "dinner break"
-    Then the result is a angzarr_client.proto.examples.v1.TournamentPaused event
-    And the tournament event has reason "dinner break"
+    When the tournament is paused with reason "dinner break"
+    Then the tournament is paused with reason "dinner break"
 
   @EU-0830
   Scenario: PauseTournament rejects when tournament is already paused
     Given a paused tournament
-    When I handle a PauseTournament command with reason "again"
-    Then the command fails with status "FAILED_PRECONDITION"
-    And the error message contains "already paused"
+    When the tournament is paused with reason "again"
+    Then the pause is refused because the tournament is already paused
 
   # ==========================================================================
   # ResumeTournament — Success
@@ -409,10 +377,10 @@ Feature: Tournament aggregate logic
   # (Framework: state-machine transition. Rules covered by Pause / Resume.)
 
   @EU-0831
-  Scenario: ResumeTournament on a paused tournament emits TournamentResumed
+  Scenario: ResumeTournament on a paused tournament resumes play
     Given a paused tournament
-    When I handle a ResumeTournament command
-    Then the result is a angzarr_client.proto.examples.v1.TournamentResumed event
+    When the tournament resumes
+    Then the tournament has resumed
 
   # ==========================================================================
   # OpenRegistration — Running-Tournament Rejection
@@ -423,9 +391,8 @@ Feature: Tournament aggregate logic
   @EU-0832
   Scenario: OpenRegistration rejects when tournament is running
     Given a running tournament with min_players 2 and max_players 10 and 2 enrolled players
-    When I handle an OpenRegistration command
-    Then the command fails with status "FAILED_PRECONDITION"
-    And the error message contains "running tournament"
+    When registration opens
+    Then opening registration is refused because the tournament is running
 
   # ==========================================================================
   # CloseRegistration — total_registrations count
@@ -433,12 +400,11 @@ Feature: Tournament aggregate logic
   # (Framework: snapshot of registered count at registration close.)
 
   @EU-0833
-  Scenario: CloseRegistration emits RegistrationClosed with the registered count
+  Scenario: CloseRegistration records the registered count
     Given a tournament with registration open
-    And a player "p1" enrolled
-    When I handle a CloseRegistration command
-    Then the result is a angzarr_client.proto.examples.v1.RegistrationClosed event
-    And the tournament event has total_registrations 1
+    And player "p1" is enrolled
+    When registration closes
+    Then registration is closed with 1 total registrations
 
   # ==========================================================================
   # ProcessRebuy — Success, Missing Tournament, Disabled Rebuys
@@ -448,27 +414,22 @@ Feature: Tournament aggregate logic
   # setting (rebuys_enabled) — when false, rebuys are denied.
 
   @EU-0834
-  Scenario: ProcessRebuy emits RebuyProcessed for an enrolled player with rebuys enabled
+  Scenario: ProcessRebuy succeeds for an enrolled player with rebuys enabled
     Given a running tournament with rebuys enabled and 1 enrolled player
-    When I handle a ProcessRebuy command for player "p0"
-    Then the result is a angzarr_client.proto.examples.v1.RebuyProcessed event
-    And the tournament event has rebuy_cost 100
-    And the tournament event has chips_added 1000
-    And the tournament event has rebuy_count 1
+    When player "p0" requests a rebuy
+    Then the rebuy is processed at cost 100 adding 1000 chips for rebuy 1
 
   @EU-0835
   Scenario: ProcessRebuy rejects when the tournament does not exist
-    Given no prior events for the tournament aggregate
-    When I handle a ProcessRebuy command for player "p0"
-    Then the command fails with status "FAILED_PRECONDITION"
-    And the error message contains "does not exist"
+    Given the tournament has not yet been created
+    When player "p0" requests a rebuy
+    Then the rebuy is refused because the tournament does not exist
 
   @EU-0836
-  Scenario: ProcessRebuy emits RebuyDenied when rebuys are not enabled
+  Scenario: ProcessRebuy denies the rebuy when rebuys are not enabled
     Given a running tournament with min_players 2 and max_players 10 and 2 enrolled players
-    When I handle a ProcessRebuy command for player "p0"
-    Then the result is a angzarr_client.proto.examples.v1.RebuyDenied event
-    And the tournament event has reason containing "not enabled"
+    When player "p0" requests a rebuy
+    Then the rebuy is denied because of "not enabled"
 
   # ==========================================================================
   # ProcessRebuy — Config Threshold Variations
@@ -480,38 +441,34 @@ Feature: Tournament aggregate logic
   # max_rebuys) — each threshold gets its own denial/allow scenario.
 
   @EU-0837
-  Scenario: ProcessRebuy emits RebuyDenied when rebuys are disabled in config
+  Scenario: ProcessRebuy denies the rebuy when rebuys are disabled in config
     Given a running tournament with rebuys disabled and 1 enrolled player
-    When I handle a ProcessRebuy command for player "p0"
-    Then the result is a angzarr_client.proto.examples.v1.RebuyDenied event
-    And the tournament event has reason containing "not enabled"
+    When player "p0" requests a rebuy
+    Then the rebuy is denied because of "not enabled"
 
   @EU-0838
-  Scenario: ProcessRebuy emits RebuyDenied when current level is past the cutoff
+  Scenario: ProcessRebuy denies the rebuy when current level is past the cutoff
     Given a running tournament with rebuy cutoff 2 and 1 enrolled player at level 5
-    When I handle a ProcessRebuy command for player "p0"
-    Then the result is a angzarr_client.proto.examples.v1.RebuyDenied event
-    And the tournament event has reason containing "closed"
+    When player "p0" requests a rebuy
+    Then the rebuy is denied because of "closed"
 
   @EU-0839
-  Scenario: ProcessRebuy emits RebuyDenied when player has reached max rebuys
+  Scenario: ProcessRebuy denies the rebuy when player has reached max rebuys
     Given a running tournament with max_rebuys 2 and player "p0" who has used 2 rebuys
-    When I handle a ProcessRebuy command for player "p0"
-    Then the result is a angzarr_client.proto.examples.v1.RebuyDenied event
-    And the tournament event has reason containing "Maximum"
+    When player "p0" requests a rebuy
+    Then the rebuy is denied because of "Maximum"
 
   @EU-0840
   Scenario: ProcessRebuy succeeds when rebuy_level_cutoff is 0 (cutoff check disabled)
     Given a running tournament with rebuy cutoff 0 and 1 enrolled player at level 99
-    When I handle a ProcessRebuy command for player "p0"
-    Then the result is a angzarr_client.proto.examples.v1.RebuyProcessed event
-    And the tournament event has rebuy_count 1
+    When player "p0" requests a rebuy
+    Then the rebuy is processed as rebuy 1
 
   @EU-0841
   Scenario: ProcessRebuy succeeds when max_rebuys is 0 (unlimited rebuys)
     Given a running tournament with max_rebuys 0 and player "p0" who has used 100 rebuys
-    When I handle a ProcessRebuy command for player "p0"
-    Then the result is a angzarr_client.proto.examples.v1.RebuyProcessed event
+    When player "p0" requests a rebuy
+    Then the rebuy is processed
 
   # ==========================================================================
   # State Reconstruction
@@ -525,11 +482,11 @@ Feature: Tournament aggregate logic
   # no-ops (closed/rejected/denied), and cumulative updates (pool/level/remaining).
 
   @EU-0842
-  Scenario: Rebuild state from TournamentCreated sets identity and initial level
+  Scenario: Rebuild state from a created tournament sets identity and initial level
     # blind_structure is preserved as supplied — when the create event omits
-    # one, the rebuilt state has no levels and AdvanceBlindLevel rejects with
-    # BLIND_STRUCTURE_EXHAUSTED (see EU-0856).
-    Given a TournamentCreated event for "Spring Classic" with buy_in 500 starting_stack 10000 max_players 9 min_players 2
+    # one, the rebuilt state has no levels and the next blind-level advance
+    # rejects with BLIND_STRUCTURE_EXHAUSTED (see EU-0856).
+    Given tournament "Spring Classic" exists with 500 buy-in, 10000 starting stack, max 9 players, min 2 players
     When I rebuild the tournament state
     Then the tournament state has tournament_id "tournament_Spring Classic"
     And the tournament state has name "Spring Classic"
@@ -542,18 +499,18 @@ Feature: Tournament aggregate logic
     And the tournament state has blind_structure count 0
 
   @EU-0843
-  Scenario: Rebuild state after RegistrationOpened transitions status
-    Given a TournamentCreated event for "Spring" with buy_in 500 starting_stack 10000 max_players 9 min_players 2
-    And a RegistrationOpened event
+  Scenario: Rebuild state after registration opens transitions status
+    Given tournament "Spring" exists with 500 buy-in, 10000 starting stack, max 9 players, min 2 players
+    And registration has opened
     When I rebuild the tournament state
     Then the tournament state has status "RegistrationOpen"
 
   @EU-0844
-  Scenario: Rebuild state after RegistrationClosed leaves pool and count unchanged
-    Given a TournamentCreated event for "Spring" with buy_in 500 starting_stack 10000 max_players 9 min_players 2
-    And a RegistrationOpened event
-    And a TournamentPlayerEnrolled event for player "p1" with fee_paid 500
-    And a RegistrationClosed event
+  Scenario: Rebuild state after registration closes leaves pool and count unchanged
+    Given tournament "Spring" exists with 500 buy-in, 10000 starting stack, max 9 players, min 2 players
+    And registration has opened
+    And player "p1" was enrolled paying 500
+    And registration has closed
     When I rebuild the tournament state
     Then the tournament state has status "RegistrationOpen"
     And the tournament state has total_prize_pool 500
@@ -561,10 +518,10 @@ Feature: Tournament aggregate logic
     And the tournament state has players_remaining 1
 
   @EU-0845
-  Scenario: Rebuild state after TournamentPlayerEnrolled adds registration and grows pool
-    Given a TournamentCreated event for "Spring" with buy_in 500 starting_stack 10000 max_players 9 min_players 2
-    And a RegistrationOpened event
-    And a TournamentPlayerEnrolled event for player "p1" with fee_paid 500
+  Scenario: Rebuild state after a player is enrolled adds registration and grows pool
+    Given tournament "Spring" exists with 500 buy-in, 10000 starting stack, max 9 players, min 2 players
+    And registration has opened
+    And player "p1" was enrolled paying 500
     When I rebuild the tournament state
     Then the tournament state has registered_players count 1
     And the tournament state has total_prize_pool 500
@@ -572,82 +529,82 @@ Feature: Tournament aggregate logic
     And the tournament state has rebuys_used 0 for player "p1"
 
   @EU-0846
-  Scenario: Rebuild state after TournamentEnrollmentRejected leaves pool and count unchanged
-    Given a TournamentCreated event for "Spring" with buy_in 500 starting_stack 10000 max_players 9 min_players 2
-    And a RegistrationOpened event
-    And a TournamentPlayerEnrolled event for player "p1" with fee_paid 500
-    And a TournamentEnrollmentRejected event for player "p2" with reason "full"
+  Scenario: Rebuild state after a rejected enrollment leaves pool and count unchanged
+    Given tournament "Spring" exists with 500 buy-in, 10000 starting stack, max 9 players, min 2 players
+    And registration has opened
+    And player "p1" was enrolled paying 500
+    And player "p2" was rejected from enrollment because of "full"
     When I rebuild the tournament state
     Then the tournament state has total_prize_pool 500
     And the tournament state has registered_players count 1
     And the tournament state has players_remaining 1
 
   @EU-0847
-  Scenario: Rebuild state after RebuyProcessed for unknown player still grows pool
-    Given a TournamentCreated event for "Spring" with buy_in 500 starting_stack 10000 max_players 9 min_players 2
-    And a RebuyProcessed event for player "ghost" with rebuy_cost 77 rebuy_count 1
+  Scenario: Rebuild state after a rebuy for an unknown player still grows pool
+    Given tournament "Spring" exists with 500 buy-in, 10000 starting stack, max 9 players, min 2 players
+    And player "ghost" had a rebuy processed at cost 77 for rebuy 1
     When I rebuild the tournament state
     Then the tournament state has total_prize_pool 77
     And the tournament state has registered_players count 0
 
   @EU-0848
-  Scenario: Rebuild state after RebuyDenied is a no-op
-    Given a TournamentCreated event for "Spring" with buy_in 500 starting_stack 10000 max_players 9 min_players 2
-    And a RegistrationOpened event
-    And a TournamentPlayerEnrolled event for player "p1" with fee_paid 500
-    And a RebuyDenied event for player "p1" with reason "max_reached"
+  Scenario: Rebuild state after a denied rebuy is a no-op
+    Given tournament "Spring" exists with 500 buy-in, 10000 starting stack, max 9 players, min 2 players
+    And registration has opened
+    And player "p1" was enrolled paying 500
+    And player "p1" was denied a rebuy because of "max_reached"
     When I rebuild the tournament state
     Then the tournament state has total_prize_pool 500
     And the tournament state has registered_players count 1
 
   @EU-0849
-  Scenario: Rebuild state after BlindLevelAdvanced updates current_level
-    Given a TournamentCreated event for "Spring" with buy_in 500 starting_stack 10000 max_players 9 min_players 2
-    And a BlindLevelAdvanced event to level 7
+  Scenario: Rebuild state after a blind level advance updates current_level
+    Given tournament "Spring" exists with 500 buy-in, 10000 starting stack, max 9 players, min 2 players
+    And the blind level was advanced to 7
     When I rebuild the tournament state
     Then the tournament state has current_level 7
 
   @EU-0850
-  Scenario: Rebuild state after PlayerEliminated removes entry and decrements remaining
-    Given a TournamentCreated event for "Spring" with buy_in 500 starting_stack 10000 max_players 9 min_players 2
-    And a RegistrationOpened event
-    And a TournamentPlayerEnrolled event for player "p1" with fee_paid 500
-    And a TournamentPlayerEnrolled event for player "p2" with fee_paid 500
-    And a PlayerEliminated event for player "p1"
+  Scenario: Rebuild state after an elimination removes the entry and decrements remaining
+    Given tournament "Spring" exists with 500 buy-in, 10000 starting stack, max 9 players, min 2 players
+    And registration has opened
+    And player "p1" was enrolled paying 500
+    And player "p2" was enrolled paying 500
+    And player "p1" was eliminated previously
     When I rebuild the tournament state
     Then the tournament state has registered_players count 1
     And the tournament state has players_remaining 1
     And the tournament state has no registered player "p1"
 
   @EU-0851
-  Scenario: Rebuild state after TournamentPaused transitions to Paused
-    Given a TournamentCreated event for "Spring" with buy_in 500 starting_stack 10000 max_players 9 min_players 2
-    And a TournamentPaused event
+  Scenario: Rebuild state after the tournament was paused transitions to Paused
+    Given tournament "Spring" exists with 500 buy-in, 10000 starting stack, max 9 players, min 2 players
+    And the tournament was paused
     When I rebuild the tournament state
     Then the tournament state has status "Paused"
 
   @EU-0852
-  Scenario: Rebuild state after TournamentResumed transitions to Running
-    Given a TournamentCreated event for "Spring" with buy_in 500 starting_stack 10000 max_players 9 min_players 2
-    And a TournamentPaused event
-    And a TournamentResumed event
+  Scenario: Rebuild state after the tournament resumed transitions to Running
+    Given tournament "Spring" exists with 500 buy-in, 10000 starting stack, max 9 players, min 2 players
+    And the tournament was paused
+    And the tournament was resumed
     When I rebuild the tournament state
     Then the tournament state has status "Running"
 
   @EU-0853
-  Scenario: Rebuild state after TournamentCompleted transitions to Completed
-    Given a TournamentCreated event for "Spring" with buy_in 500 starting_stack 10000 max_players 9 min_players 2
-    And a TournamentCompleted event
+  Scenario: Rebuild state after the tournament completed transitions to Completed
+    Given tournament "Spring" exists with 500 buy-in, 10000 starting stack, max 9 players, min 2 players
+    And the tournament was completed
     When I rebuild the tournament state
     Then the tournament state has status "Completed"
 
   @EU-0854
-  Scenario: Rebuild state with two RebuyProcessed events accumulates rebuys_used and prize pool
-    Given a TournamentCreated event for "Spring" with buy_in 500 starting_stack 10000 max_players 9 min_players 2
-    And a RegistrationOpened event
-    And a TournamentPlayerEnrolled event for player "p1" with fee_paid 500
-    And a RebuyProcessed event for player "p1" with rebuy_cost 100 rebuy_count 1
-    And a RebuyProcessed event for player "p1" with rebuy_cost 150 rebuy_count 2
+  Scenario: Rebuild state with two rebuys accumulates rebuys_used and prize pool
+    Given tournament "Spring" exists with 500 buy-in, 10000 starting stack, max 9 players, min 2 players
+    And registration has opened
+    And player "p1" was enrolled paying 500
+    And player "p1" had a rebuy processed at cost 100 for rebuy 1
+    And player "p1" had a rebuy processed at cost 150 for rebuy 2
     When I rebuild the tournament state
     Then the tournament state has total_prize_pool 750
     And the tournament state has rebuys_used 2 for player "p1"
@@ -662,21 +619,19 @@ Feature: Tournament aggregate logic
   # Rule: WSOP §I-12, §I-14 (2025) — late registration closes at end of
   #       structure-defined level; late registrants get full stack.
   # Real tournaments keep registration open for several blind levels into
-  # running play. The previously implicit rule "TournamentStarted closes
-  # registration" was a real-rule violation: registration must remain
-  # open until either the configured cutoff level or an explicit
-  # CloseRegistration. These scenarios pin the late-registration surface.
+  # running play. The previously implicit rule "the tournament closes
+  # registration when it starts" was a real-rule violation: registration
+  # must remain open until either the configured cutoff level or an
+  # explicit close. These scenarios pin the late-registration surface.
 
   @EU-0857
-  Scenario: EnrollPlayer succeeds against a Running tournament when registration is still open
+  Scenario: Late registration enrolls a player against a Running tournament
     # Tournament starts with min_players=2 enrolled. A third player registers
     # AFTER the start while registration is still open. They are enrolled and
     # added to the prize pool.
     Given a running tournament with registration open and 2 enrolled players
-    When I handle an EnrollPlayer command for player "p3" reservation "res-3"
-    Then the result is a angzarr_client.proto.examples.v1.TournamentPlayerEnrolled event
-    And the tournament event has player_root "p3"
-    And the tournament event has fee_paid 100
+    When player "p3" enrolls with reservation "res-3"
+    Then player "p3" is enrolled paying a fee of 100
     And the tournament state has registered_players count 3
     And the tournament state has players_remaining 3
 
@@ -686,31 +641,28 @@ Feature: Tournament aggregate logic
     # already in play (TDA Rule 30 — late registrants do not receive a
     # discounted stack). Pin starting_stack on enrollment.
     Given a running tournament with starting_stack 1500, registration open, and 2 enrolled players
-    When I handle an EnrollPlayer command for player "p3" reservation "res-3"
-    Then the result is a angzarr_client.proto.examples.v1.TournamentPlayerEnrolled event
-    And the tournament event has starting_stack 1500
+    When player "p3" enrolls with reservation "res-3"
+    Then player "p3" is enrolled with starting stack 1500
 
   @EU-0859
   Scenario: Registration auto-closes when the cutoff level is reached
     # Tournaments configure a registration_cutoff_level. When the tournament
     # advances to a level past the cutoff, registration auto-closes and a
     # subsequent enrollment is rejected with the "not open" reason — same
-    # rejection path as an explicit CloseRegistration.
+    # rejection path as an explicit close.
     Given a running tournament with registration_cutoff_level 3 at level 4 and 2 enrolled players
-    When I handle an EnrollPlayer command for player "p3" reservation "res-3"
-    Then the result is a angzarr_client.proto.examples.v1.TournamentEnrollmentRejected event
-    And the tournament event has reason containing "not open"
+    When player "p3" enrolls with reservation "res-3"
+    Then the enrollment is rejected because of "not open"
 
   @EU-0860
-  Scenario: Explicit CloseRegistration during a running tournament prevents further enrollment
+  Scenario: Explicitly closing registration during a running tournament prevents further enrollment
     # Operators can close registration manually (e.g. after announcing the
     # late-reg deadline). Enrollments after that are rejected even though
     # the tournament is still running.
     Given a running tournament with 2 enrolled players
-    When I handle a CloseRegistration command
-    And I handle an EnrollPlayer command for player "p3" reservation "res-3"
-    Then the result is a angzarr_client.proto.examples.v1.TournamentEnrollmentRejected event
-    And the tournament event has reason containing "not open"
+    When registration closes
+    And player "p3" enrolls with reservation "res-3"
+    Then the enrollment is rejected because of "not open"
 
   # ==========================================================================
   # Multi-place Payout
@@ -719,34 +671,33 @@ Feature: Tournament aggregate logic
   #       entrants and type of Event. Prizes are paid out as posted."
   # Rule: WSOP §III-37 (2025) — schedule cannot be modified once awarded.
   # Tournaments pay multiple finishing positions on a published payout
-  # schedule. The proto's TournamentResult already carries (position,
-  # player_root, payout) — these scenarios pin the distribution. The
-  # payout schedule is supplied to CompleteTournament (or pre-configured
-  # at create time); the aggregate verifies payouts sum to total_prize_pool.
+  # schedule. The result carries (position, player_root, payout) — these
+  # scenarios pin the distribution. The payout schedule is supplied at
+  # completion (or pre-configured at create time); the aggregate verifies
+  # payouts sum to total_prize_pool.
 
   @EU-0861
-  Scenario: CompleteTournament emits results for the top-N finishers per the payout schedule
+  Scenario: Completing the tournament emits results for the top-N finishers per the payout schedule
     # 9-player $500 buy-in. Pool = 4500. Schedule pays top 3 at 50/30/20.
     Given a running tournament "Spring" with total_prize_pool 4500 and 9 enrolled players
     And a payout_structure paying positions 1,2,3 at percentages 50,30,20
     And finishing order "p1,p2,p3,p4,p5,p6,p7,p8,p9"
-    When I handle a CompleteTournament command with winner "p1"
-    Then the result is a angzarr_client.proto.examples.v1.TournamentCompleted event
-    And the tournament event has winner_root "p1"
-    And the tournament event has 3 results
+    When the tournament completes with winner "p1"
+    Then the tournament is completed with winner "p1"
+    And there are 3 results
     And TournamentResult 0 has position 1 player_root "p1" payout 2250
     And TournamentResult 1 has position 2 player_root "p2" payout 1350
     And TournamentResult 2 has position 3 player_root "p3" payout 900
 
   @EU-0862
   Scenario: Sum of payouts equals total_prize_pool
-    # The aggregate must reject a TournamentCompleted whose payouts do not
-    # sum to the prize pool. This guards the chip ledger from drift when
-    # the payout schedule and pool are out of sync.
+    # The aggregate must reject a completion whose payouts do not sum to
+    # the prize pool. This guards the chip ledger from drift when the
+    # payout schedule and pool are out of sync.
     Given a running tournament "Spring" with total_prize_pool 1000 and 5 enrolled players
     And a payout_structure paying positions 1,2 at percentages 50,30
-    When I handle a CompleteTournament command with winner "p1" and finishing order "p1,p2,p3,p4,p5"
-    Then the command fails with status "FAILED_PRECONDITION"
+    When the tournament completes with winner "p1" and finishing order "p1,p2,p3,p4,p5"
+    Then completing the tournament is refused because payouts do not sum to the pool
     And the command is rejected with code "PAYOUTS_DO_NOT_SUM_TO_POOL"
     And the rejection field "got" equals "800"
     And the rejection field "bound" equals "1000"
@@ -755,13 +706,13 @@ Feature: Tournament aggregate logic
   Scenario: Bubble — the player eliminated immediately before the money receives no payout
     # 10-player tournament paying top 3. The 4th-place finisher is the
     # "bubble" — they are recorded in finishing order but get no payout
-    # entry. Only positions 1..3 appear in TournamentResult.
+    # entry. Only positions 1..3 appear in the results.
     Given a running tournament "Spring" with total_prize_pool 1000 and 10 enrolled players
     And a payout_structure paying positions 1,2,3 at percentages 50,30,20
     And finishing order "p1,p2,p3,p4,p5,p6,p7,p8,p9,p10"
-    When I handle a CompleteTournament command with winner "p1"
-    Then the result is a angzarr_client.proto.examples.v1.TournamentCompleted event
-    And the tournament event has 3 results
+    When the tournament completes with winner "p1"
+    Then the tournament is completed
+    And there are 3 results
     And no TournamentResult has player_root "p4"
 
   @EU-0864
@@ -772,22 +723,22 @@ Feature: Tournament aggregate logic
     Given a running tournament "Spring" with total_prize_pool 1000 and 2 enrolled players
     And a payout_structure paying positions 1,2 at percentages 50,50
     And finishing order "p1,p2"
-    When I handle a CompleteTournament command with winner "p1"
-    Then the result is a angzarr_client.proto.examples.v1.TournamentCompleted event
-    And the tournament event has 2 results
+    When the tournament completes with winner "p1"
+    Then the tournament is completed
+    And there are 2 results
     And TournamentResult 0 has position 1 player_root "p1" payout 500
     And TournamentResult 1 has position 2 player_root "p2" payout 500
 
   @EU-0865
-  Scenario: CompleteTournament rejects when the supplied finishing order is shorter than the paid positions
+  Scenario: Completing the tournament is refused when the supplied finishing order is shorter than the paid positions
     # Schedule pays top 3 but only 2 finishing positions are supplied.
     # Reject so the operator decides explicitly (extend the order or trim
     # the schedule).
     Given a running tournament "Spring" with total_prize_pool 1000 and 5 enrolled players
     And a payout_structure paying positions 1,2,3 at percentages 50,30,20
     And finishing order "p1,p2"
-    When I handle a CompleteTournament command with winner "p1"
-    Then the command fails with status "FAILED_PRECONDITION"
+    When the tournament completes with winner "p1"
+    Then completing the tournament is refused because finishing order is shorter than paid positions
     And the command is rejected with code "FINISHING_ORDER_SHORTER_THAN_PAYOUT_POSITIONS"
     And the rejection field "got" equals "2"
     And the rejection field "bound" equals "3"
@@ -813,10 +764,8 @@ Feature: Tournament aggregate logic
     Given a running tournament "Reentry" with starting_stack 1500 and 4 enrolled players
     And total_chips_in_play is 6000
     And player "Alice" has 200 chips remaining and elects to re-enter
-    When I handle a ReEntryPlayer command for player "Alice" forfeiting 200 chips
-    Then the result is a angzarr_client.proto.examples.v1.PlayerReEntered event
-    And the tournament event has chips_forfeited 200
-    And the tournament event has chips_added 1500
+    When player "Alice" re-enters forfeiting 200 chips
+    Then player "Alice" forfeits 200 chips and receives 1500 chips
     And total_chips_in_play is 7300
 
   # ==========================================================================
@@ -839,8 +788,8 @@ Feature: Tournament aggregate logic
     # chip per player.
     Given a running tournament "Race" with 3 active players
     And every active player has exactly 75 chips of denomination 25
-    When I handle an AdvanceBlindLevel command with chip-race retiring 25 to 100
-    Then the result is a angzarr_client.proto.examples.v1.ColorUpCompleted event
+    When the blind level advances with a chip-race retiring 25 to 100
+    Then the color-up completes
     And no player received more than 1 chip from the race
 
   @EU-1161
@@ -853,8 +802,8 @@ Feature: Tournament aggregate logic
     # remaining denomination (100) so they remain in play.
     Given a running tournament "Race" with 3 active players
     And player "Alice" has exactly 25 chips of denomination 25 and nothing else
-    When I handle an AdvanceBlindLevel command with chip-race retiring 25 to 100
-    Then the result is a angzarr_client.proto.examples.v1.ColorUpCompleted event
+    When the blind level advances with a chip-race retiring 25 to 100
+    Then the color-up completes
     And player "Alice" stack is at least 100
 
   @EU-1162
@@ -868,9 +817,9 @@ Feature: Tournament aggregate logic
     # by the rescue clause and by removed odd-denomination chips that
     # didn't qualify; the difference must be auditable.
     Given a running tournament "Race" with total_chips_in_play 6000
-    When I handle an AdvanceBlindLevel command with chip-race retiring 25 to 100
-    Then the result is a angzarr_client.proto.examples.v1.ColorUpCompleted event
-    And the event has chips_added_by_rescue and chips_removed_by_race
+    When the blind level advances with a chip-race retiring 25 to 100
+    Then the color-up completes
+    And the color-up records chips_added_by_rescue and chips_removed_by_race
     And total_chips_in_play after race equals 6000 + chips_added_by_rescue - chips_removed_by_race
 
   # ==========================================================================
@@ -898,9 +847,9 @@ Feature: Tournament aggregate logic
     And hand-for-hand is active
     And finishing order "Alice,Bob,Carol,Dave"
     When players "Carol,Dave" both bust on the same hand-for-hand hand
-    And I handle a CompleteTournament command with winner "Alice"
-    Then the result is a angzarr_client.proto.examples.v1.TournamentCompleted event
-    And the tournament event has 4 results
+    And the tournament completes with winner "Alice"
+    Then the tournament is completed
+    And there are 4 results
     And TournamentResult 0 has position 1 player_root "Alice" payout 500
     And TournamentResult 1 has position 2 player_root "Bob" payout 300
     # 3rd place is split 50/50 between the two simultaneous busts
@@ -948,10 +897,8 @@ Feature: Tournament aggregate logic
     # Rule: WSOP Rule 113 (2025) — penalty hierarchy.
     Given a running tournament "Spring" with min_players 6, max_players 9, and 6 enrolled players
     And player "Alice" is at a table with 6 active players
-    When I handle an IssuePenalty command for player "Alice" with type "<type>" rounds <rounds>
-    Then the result is a angzarr_client.proto.examples.v1.PenaltyIssued event
-    And the penalty event has type "<type>"
-    And the penalty event has missed_hands <missed>
+    When player "Alice" is issued a "<type>" penalty for <rounds> rounds
+    Then the penalty issued is of type "<type>" with <missed> missed hands
 
     Examples:
       | type           | rounds | missed |
@@ -969,8 +916,8 @@ Feature: Tournament aggregate logic
     Given a running tournament "Spring" with min_players 2 and max_players 9 and 2 enrolled players
     And player "Alice" is on a 1-round MISSED_ROUND penalty
     And the next hand at Alice's table has SB at Alice's seat
-    When I handle a StartHand command at Alice's table
-    Then the result is a angzarr_client.proto.examples.v1.HandStarted event
+    When the next hand at Alice's table starts
+    Then a hand has started at Alice's table
     And player "Alice" had her SB posted from her stack
     And player "Alice" hand is killed after the initial deal
     And player "Alice" remains on penalty with rounds_remaining decremented by 1
@@ -982,9 +929,8 @@ Feature: Tournament aggregate logic
     # Rule: WSOP Rule 114 (2025) — same.
     Given a running tournament "Spring" with min_players 2 and max_players 9 and 4 enrolled players
     And player "Alice" has stack 1500 and tournament total_chips_in_play is 6000
-    When I handle a DisqualifyPlayer command for player "Alice" with reason "collusion"
-    Then the result is a angzarr_client.proto.examples.v1.PlayerDisqualified event
-    And the disqualification event has chips_forfeited 1500
+    When player "Alice" is disqualified for "collusion"
+    Then player "Alice" is disqualified forfeiting 1500 chips
     And total_chips_in_play is 4500
     And player "Alice" is no longer in registered_players
 
@@ -1000,16 +946,15 @@ Feature: Tournament aggregate logic
   # big blind during the first hand."
 
   @EU-1313
-  @wip
   Scenario: Late-reg player can be dealt the button on their first hand without missing the hand
     # Rule: WSOP Rule 14 (2025) — late registrant assumes first available
     #       starting position even if it's the button.
     Given a running tournament "Spring" with registration open and 8 enrolled players
     And the dealer button at "Spring-1" is about to advance to a vacated seat 5
     When player "Alice" late-registers and is seated at "Spring-1" seat 5
-    Then the result is a angzarr_client.proto.examples.v1.TournamentPlayerEnrolled event
-    When I handle a StartHand command at "Spring-1"
-    Then the result is a angzarr_client.proto.examples.v1.HandStarted event
+    Then player "Alice" is enrolled
+    When the next hand at "Spring-1" starts
+    Then a hand has started at "Spring-1"
     And the dealer_position is seat 5
     And player "Alice" is dealt in for that hand
 
@@ -1028,7 +973,7 @@ Feature: Tournament aggregate logic
     And player "Alice" enrolled but never took a hand before the first break ended
     And the new level after the first break has begun
     When the no-show deadline for "Spring" expires
-    Then a angzarr_client.proto.examples.v1.NoShowDetected event is emitted for player "Alice"
+    Then player "Alice" is marked a no-show
     And player "Alice" chips are removed from total_chips_in_play
     And player "Alice" buy-in 500 is held in safekeeping
     And player "Alice" is not in players_remaining
@@ -1047,7 +992,7 @@ Feature: Tournament aggregate logic
     Given a running tournament "HU-Final" in heads-up between "Alice" and "Bob"
     And player "Bob" has been absent from the table for 5 minutes
     When 2 minutes elapses with player "Bob" still absent
-    Then a angzarr_client.proto.examples.v1.AbsentBlindAdvanced event is emitted
+    Then the absent player's blinds are advanced
     And the dealer button advances by 1 position
     And player "Alice" stack is increased by SB + BB
     And player "Bob" stack is decreased by SB + BB
@@ -1065,8 +1010,8 @@ Feature: Tournament aggregate logic
     # Rule: WSOP Rule 67c (2025) — redraw thresholds.
     Given a running tournament "Worlds" with original_field 250 and <tables_remaining> tables remaining
     When the field collapses to <tables_remaining> table(s)
-    Then a angzarr_client.proto.examples.v1.SeatRedrawTriggered event is emitted
-    And the redraw event has trigger "<trigger>"
+    Then a seat redraw is triggered
+    And the redraw is triggered by "<trigger>"
 
     Examples:
       | tables_remaining | trigger              |
@@ -1096,8 +1041,8 @@ Feature: Tournament aggregate logic
     And the current hand started with stacks: Alice 2000, Bob 1600, Carol 800, Dave 600
     And finishing order "Alice,Bob,Carol,Dave"
     When players "Carol,Dave" both bust on the same hand at the same table
-    And I handle a CompleteTournament command with winner "Alice"
-    Then the result is a angzarr_client.proto.examples.v1.TournamentCompleted event
+    And the tournament completes with winner "Alice"
+    Then the tournament is completed
     And TournamentResult 2 has position 3 player_root "Carol" payout 200
     And no TournamentResult has player_root "Dave" with non-zero payout
     # Carol's higher pre-hand stack (800 > 600) earns her the higher finish
@@ -1117,7 +1062,7 @@ Feature: Tournament aggregate logic
     And player "Eve" had 1850 in chips on "T1"
     And open seats exist at table "T2" and "T3"
     When the breaking-table coordinator reseats absent "Eve"
-    Then a PlayerMovedTables event is emitted for "Eve" with from_table "T1"
+    Then player "Eve" is moved from table "T1"
     And player "Eve" stack at the new table equals 1850
     And player "Eve" missed-blinds clock continues at the new table
 
@@ -1159,7 +1104,7 @@ Feature: Tournament aggregate logic
     Given a bounty tournament with bounty_per_knockout 100
     And player "Alice" eliminates player "Bob" by winning the showdown
     When the elimination is processed
-    Then a BountyAwarded event is emitted with eliminator "Alice" knocked_out "Bob" amount 100
+    Then a bounty of 100 is awarded with eliminator "Alice" knocking out "Bob"
     And player "Alice" bounty_total increases by 100
 
   @EU-1373
@@ -1169,7 +1114,7 @@ Feature: Tournament aggregate logic
     And exactly 2 players left "Alice" stack 500 and "Bob" stack 400 pre-hand
     When both players go all-in and lose at the same showdown (split-pot push not applicable)
     And the higher pre-hand stack is "Alice" (500 > 400)
-    Then a BountyAwarded event is emitted with eliminator "Alice" knocked_out "Bob" amount 200
+    Then a bounty of 200 is awarded with eliminator "Alice" knocking out "Bob"
     And no bounty is awarded for "Alice"
 
   # ==========================================================================
@@ -1186,7 +1131,7 @@ Feature: Tournament aggregate logic
     # Rule: TDA Rule 71D (2024) — DQ chips removed from play.
     Given a running tournament with player "Carol" reported for soft play with player "Dave"
     When the floor disqualifies player "Carol" for soft play
-    Then a PlayerDisqualified event is emitted with player "Carol" reason "SOFT_PLAY"
+    Then player "Carol" is disqualified for reason "SOFT_PLAY"
     And player "Carol" chips are removed from total_chips_in_play
 
   @EU-1375
@@ -1197,8 +1142,8 @@ Feature: Tournament aggregate logic
     #       bagging begins."
     Given a running tournament at minute 53 of the final scheduled level (60 min levels)
     And a hand is currently in progress
-    When the floor issues a StopNewHands command
-    Then a NewHandsHalted event is emitted with effective_at "AFTER_CURRENT_HAND"
+    When the floor issues a stop-new-hands command
+    Then new hands are halted effective "AFTER_CURRENT_HAND"
     And the in-progress hand is allowed to complete normally
     When the in-progress hand completes
     Then the tournament transitions to BAGGING_AND_TAGGING
@@ -1210,9 +1155,9 @@ Feature: Tournament aggregate logic
     #       suspended prior to the end of scheduled play and will resume
     #       the following day with stacks and seats as bagged."
     Given a tournament that completed Day 1 with bag-and-tag for 18 surviving players
-    And a BagAndTagComplete event recorded each player's stack and seat
-    When the floor issues a ResumeTournament command for Day 2
-    Then a TournamentResumed event is emitted
+    And a bag-and-tag snapshot recorded each player's stack and seat
+    When the floor resumes the tournament for Day 2
+    Then the tournament has resumed
     And every player's starting stack equals their Day 1 bagged stack
     And every player's seat assignment matches the Day 2 redraw if 100+ event, else bagged seat
 
@@ -1220,14 +1165,12 @@ Feature: Tournament aggregate logic
   # Final-table combine — operator-parameterized tournament orchestration
   # ==========================================================================
   # Mirrors the TDA Rule 11D shape (EU-1184 et al): an operator-issued
-  # tournament command (``OrderCombineFinalTable``) records an
-  # order-of-record event (``FinalTableCombineOrdered``) that a
-  # stateless fan-out saga translates into the existing table-domain
-  # ``CombineFinalTable`` command. Today the rule that determines WHEN
-  # to combine (TDA RP-9 / WSOP Rule 68 — 9-handed event collapses to
-  # one table at 9 players, 6-handed at 7, etc.) stays the operator's
-  # call; auto-detection can later be added as ``RecordTableField*``
-  # saga-issued commands without changing the operator-issued contract.
+  # tournament command records an order-of-record event that a stateless
+  # fan-out saga translates into the existing table-domain command. Today
+  # the rule that determines WHEN to combine (TDA RP-9 / WSOP Rule 68 —
+  # 9-handed event collapses to one table at 9 players, 6-handed at 7,
+  # etc.) stays the operator's call; auto-detection can later be added
+  # as saga-issued commands without changing the operator-issued contract.
 
   @EU-1380
   Scenario: Operator-issued final-table combination records the order at the tournament level
@@ -1235,16 +1178,16 @@ Feature: Tournament aggregate logic
     # The tournament aggregate stamps the order of record; the
     # subsequent fan-out to the table aggregate is the saga's job.
     Given a running tournament with two semifinal tables "Semi-1" and "Semi-2"
-    When the operator issues an OrderCombineFinalTable command for "Final" combining "Semi-1,Semi-2" max_handed 9
-    Then a angzarr_client.proto.examples.v1.FinalTableCombineOrdered event is emitted
-    And the order event has final_table_name "Final"
-    And the order event has source_table_names "Semi-1,Semi-2"
-    And the order event has max_handed 9
+    When the operator orders combining final table "Final" from "Semi-1,Semi-2" max_handed 9
+    Then the final-table combine is ordered
+    And the order is for final table "Final"
+    And the order combines tables "Semi-1,Semi-2"
+    And the order has max_handed 9
 
   @EU-1381
-  Scenario: OrderCombineFinalTable is rejected when the tournament is not running
+  Scenario: Ordering a final-table combine is rejected when the tournament is not running
     # Defensive guard mirroring HaltShortTable's TournamentNotRunning
     # check — operator commands cannot pre-empt the running phase.
     Given a tournament that has not started
-    When the operator issues an OrderCombineFinalTable command for "Final" combining "Semi-1,Semi-2" max_handed 9
-    Then the command is rejected
+    When the operator orders combining final table "Final" from "Semi-1,Semi-2" max_handed 9
+    Then the order is refused

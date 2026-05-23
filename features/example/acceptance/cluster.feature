@@ -24,7 +24,6 @@ Feature: Cluster Acceptance
   # ===========================================================================
 
   # CLUSTER-ONLY: validated against deployed standalone.yaml
-  @wip
   @e2e @smoke @cluster
   @EA-0001
   Scenario: Smoke end-to-end hand completes across services
@@ -46,7 +45,6 @@ Feature: Cluster Acceptance
   # ===========================================================================
 
   # CLUSTER-ONLY: validated against deployed standalone.yaml
-  @wip
   @saga @latency @cluster
   @EA-0002
   Scenario: Cross-service saga propagates within realistic bound
@@ -60,7 +58,6 @@ Feature: Cluster Acceptance
   # ===========================================================================
 
   # CLUSTER-ONLY: validated against deployed standalone.yaml
-  @wip
   @durability @cluster
   @EA-0003
   Scenario: Player state survives a service restart
@@ -78,7 +75,6 @@ Feature: Cluster Acceptance
   # impl polled the in-test bookkeeping mirror (which the When step had
   # already set), so the assertion never observed the actual read model
   # — see ACCEPTANCE_REMEDIATION_PLAN.md Pattern J.
-  @wip
   @projector @consistency @cluster @wip
   @EA-0004
   Scenario: Player display reflects a deposit within bound
@@ -92,7 +88,6 @@ Feature: Cluster Acceptance
   # ===========================================================================
 
   # CLUSTER-ONLY: validated against deployed standalone.yaml
-  @wip
   @routing @pm @cluster
   @EA-0005
   Scenario: A cross-domain request reaches the correct service

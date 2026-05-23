@@ -9,25 +9,21 @@ Feature: Projector dispatch
     And the projector handles OrderCreated by appending to a write log
     And Output is the active projector
 
-  @wip
   @C-0030
   Scenario: Each event in the book triggers a handler call
     When an EventBook with three OrderCreated events is dispatched
     Then the write log contains 3 entries
 
-  @wip
   @C-0031
   Scenario: Unknown event types are silently skipped
     When an EventBook mixing OrderCreated and OrderCompleted is dispatched
     Then the write log contains only OrderCreated entries
 
-  @wip
   @C-0032
   Scenario: Events from undeclared domains do not fire handlers
     When an EventBook in domain "inventory" is dispatched
     Then the write log remains empty
 
-  @wip
   @C-0086
   Scenario: A projector instance is reused across all events in one delivery
     When an EventBook with five OrderCreated events is dispatched

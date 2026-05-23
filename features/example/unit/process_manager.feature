@@ -58,7 +58,6 @@ Feature: Hand orchestration
   # A round ends once every active player has acted and matched the current
   # bet. A raise reopens the action for everyone still in the hand.
 
-  @wip
   @EU-0404
   Scenario: Action passes to the next player after one acts
     Given a hand is in a betting round
@@ -134,7 +133,6 @@ Feature: Hand orchestration
     And action is on the big blind at position 2
 
   @EU-0446
-  @wip
   Scenario: Post-flop action starts on the first active seat left of the dealer (3-handed)
     # After the flop is dealt with three players still in (dealer at seat 0,
     # small blind at 1, big blind at 2), the next round opens with action on
@@ -146,7 +144,6 @@ Feature: Hand orchestration
     And action is on the player at position 1
 
   @EU-0447
-  @wip
   Scenario: Post-flop action starts on the big blind in heads-up
     # Heads-up reverses the post-flop order: the dealer/small blind at seat 0
     # acts last and the big blind at seat 1 acts first.

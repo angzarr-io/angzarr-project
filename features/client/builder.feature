@@ -4,21 +4,18 @@ Feature: Building a handler routing configuration
   I want the handler registry to catch misconfiguration before dispatch
   So that misconfiguration surfaces with a clear error, not a cryptic runtime failure
 
-  @wip
   @C-0060
   Scenario: Empty configuration fails to build
     Given an empty handler configuration
     When I build the router
     Then the configuration is rejected because no handlers are registered
 
-  @wip
   @C-0061
   Scenario: An unmarked component cannot be registered as a handler
     Given a component that has not been marked as a handler kind
     When I attempt to register it
     Then the configuration is rejected because the component is not a recognised handler
 
-  @wip
   @C-0062
   Scenario: Command handlers for distinct domains build a command-handling router
     Given a command handler "Order" for domain "order" with order state
@@ -26,7 +23,6 @@ Feature: Building a handler routing configuration
     When I build the router
     Then the result routes commands to their handlers
 
-  @wip
   @C-0063
   Scenario: Mixed handler kinds are rejected
     Given a command handler "Order" for domain "order" with order state
@@ -34,7 +30,6 @@ Feature: Building a handler routing configuration
     When I build the router
     Then the configuration is rejected for mixing handler kinds
 
-  @wip
   @C-0064
   Scenario: Two command handlers for the same domain and command pair are rejected at build time
     # Audit finding #18 (formerly #51): multi-handler command dispatch is
@@ -47,7 +42,6 @@ Feature: Building a handler routing configuration
     When I build the router
     Then the configuration is rejected because two command handlers share the same domain and command
 
-  @wip
   @C-0065
   Scenario: Each registered handler is introspected at most once at build time
     # Audit #18: the build step inspects each command handler once to
@@ -59,7 +53,6 @@ Feature: Building a handler routing configuration
     When I register the handler and build the router
     Then the handler has been introspected exactly once
 
-  @wip
   @C-0088
   Scenario: A single saga handler builds a saga-routing router
     Given a saga "OrderFulfillment" translating from "order" to "inventory"

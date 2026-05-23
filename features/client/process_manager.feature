@@ -13,20 +13,17 @@ Feature: Process-manager dispatch
     And the PM handles OrderCreated by emitting a ReserveStock command
     And Fulfillment is the active process manager
 
-  @wip
   @C-0020
   Scenario: PM receives a trigger and emits a command
     When an OrderCreated trigger is dispatched to the PM router
     Then the response contains exactly one command
 
-  @wip
   @C-0021
   Scenario: PM state is rebuilt from its own process events
     Given process state events: OrderCompleted, OrderCompleted
     When an OrderCreated trigger is dispatched to the PM router
     Then the PM has seen 2 completed orders
 
-  @wip
   @C-0022
   Scenario: PM skips events from domains outside its sources
     When a StockReserved trigger with a domain outside sources is dispatched

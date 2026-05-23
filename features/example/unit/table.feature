@@ -52,7 +52,6 @@ Feature: Table aggregate logic
   # Tables are created with game configuration. Once created, the table
   # exists until closed (future feature). Duplicate creation is rejected.
 
-  @wip
   @EU-0100
   Scenario: Create a Texas Hold'em table
     Given the table has not yet been created
@@ -63,7 +62,6 @@ Feature: Table aggregate logic
     And the table is configured as a Texas Hold'em game
     And the blinds are 5/10
 
-  @wip
   @EU-0101
   Scenario: Create a Five Card Draw table
     Given the table has not yet been created
@@ -72,7 +70,6 @@ Feature: Table aggregate logic
       | 10          | 20        | 400        | 2000       | 6           |
     Then the table is configured as a Five Card Draw game
 
-  @wip
   @EU-0102
   Scenario: Cannot create table twice
     Given a table "Main Table" exists
@@ -94,21 +91,18 @@ Feature: Table aggregate logic
   # seats. Players can request a specific seat or take any available one.
   # Join failures don't affect the player's bankroll - no funds reserved yet.
 
-  @wip
   @EU-0103
   Scenario: Player joins table at preferred seat
     Given a table "Main Table" exists
     When player "player-1" joins the table at seat 3 with a buy-in of 500
     Then player "player-1" is seated at position 3 with a 500-chip stack
 
-  @wip
   @EU-0104
   Scenario: Player joins table at any seat
     Given a table "Main Table" exists
     When player "player-1" joins the table at any available seat with a buy-in of 500
     Then player "player-1" is seated at position 0
 
-  @wip
   @EU-0105
   Scenario: Cannot join occupied seat
     Given a table "Main Table" exists
@@ -116,7 +110,6 @@ Feature: Table aggregate logic
     When player "player-2" joins the table at seat 3 with a buy-in of 500
     Then the join is refused because seat 3 is already occupied
 
-  @wip
   @EU-0106
   Scenario: Cannot join table twice
     Given a table "Main Table" exists
@@ -124,14 +117,12 @@ Feature: Table aggregate logic
     When player "player-1" joins the table at seat 5 with a buy-in of 500
     Then the join is refused because the player is already seated
 
-  @wip
   @EU-0107
   Scenario: Cannot join with insufficient buy-in
     Given a table "Main Table" exists with a minimum buy-in of 200
     When player "player-1" joins the table at seat 0 with a buy-in of 100
     Then the join is refused because the buy-in of 100 is below the table minimum of 200
 
-  @wip
   @EU-0108
   Scenario: Cannot join full table
     Given a table "Main Table" exists with a maximum of 2 players
@@ -150,7 +141,6 @@ Feature: Table aggregate logic
   # Departure during an active hand is forbidden - the player must wait
   # for the hand to complete. This prevents mid-hand bailouts.
 
-  @wip
   @EU-0109
   Scenario: Player leaves table
     Given a table "Main Table" exists
@@ -158,7 +148,6 @@ Feature: Table aggregate logic
     When player "player-1" leaves the table
     Then player "player-1" cashes out 500 chips
 
-  @wip
   @EU-0110
   Scenario: Cannot leave during hand
     Given a table "Main Table" exists
@@ -168,7 +157,6 @@ Feature: Table aggregate logic
     When player "player-1" leaves the table
     Then the leave is refused because a hand is in progress
 
-  @wip
   @EU-0111
   Scenario: Cannot leave table not joined
     Given a table "Main Table" exists
@@ -186,7 +174,6 @@ Feature: Table aggregate logic
   # dealer button. The HandStarted event triggers the hand-table-saga to
   # deal cards in the hand domain.
 
-  @wip
   @EU-0112
   Scenario: Start a new hand
     Given a table "Main Table" exists
@@ -195,7 +182,6 @@ Feature: Table aggregate logic
     When the next hand at the table begins
     Then the table is on hand number 1 with 2 active players
 
-  @wip
   @EU-0113
   Scenario: Dealer button advances each hand
     Given a table "Main Table" exists
@@ -206,7 +192,6 @@ Feature: Table aggregate logic
     Then the table is on hand number 2
     And the dealer is at seat 1
 
-  @wip
   @EU-0114
   Scenario: Cannot start hand with fewer than 2 players
     Given a table "Main Table" exists
@@ -214,7 +199,6 @@ Feature: Table aggregate logic
     When the next hand at the table begins
     Then the start-hand is refused because there are not enough players
 
-  @wip
   @EU-0115
   Scenario: Cannot start hand while one is in progress
     Given a table "Main Table" exists
@@ -235,7 +219,6 @@ Feature: Table aggregate logic
   # The HandEnded event triggers the hand-player-saga to update player
   # bankrolls in the player domain.
 
-  @wip
   @EU-0116
   Scenario: End hand and update stacks
     Given a table "Main Table" exists
@@ -245,7 +228,6 @@ Feature: Table aggregate logic
     When the hand ends with "player-1" winning 50
     Then player "player-1"'s stack change is 50
 
-  @wip
   @EU-0117
   Scenario: Cannot end hand not in progress
     Given a table "Main Table" exists
@@ -254,7 +236,6 @@ Feature: Table aggregate logic
     When the hand ends with "player-1" winning 50
     Then the end-hand is refused because no hand is in progress
 
-  @wip
   @EU-0118
   Scenario: End hand updates player stacks with wins and losses
     Given a table "Main Table" exists
@@ -277,7 +258,6 @@ Feature: Table aggregate logic
   # Table state is rebuilt by replaying events. This verifies that joining,
   # leaving, and hand events correctly update seated players and table status.
 
-  @wip
   @EU-0119
   Scenario: Rebuild state with multiple players
     Given a table "Main Table" exists
@@ -288,7 +268,6 @@ Feature: Table aggregate logic
     And seat 3 is occupied by "player-2"
     And the table is waiting for a hand to start
 
-  @wip
   @EU-0120
   Scenario: Rebuild state during hand
     Given a table "Main Table" exists
@@ -310,7 +289,6 @@ Feature: Table aggregate logic
   # bounds, and max_players are validated synchronously. These checks match
   # the Go implementation for cross-language consistency.
 
-  @wip
   @EU-0531
   Scenario: CreateTable rejects non-positive min_buy_in
     Given the table has not yet been created
@@ -319,7 +297,6 @@ Feature: Table aggregate logic
       | 5           | 10        | 0          | 1000       | 6           |
     Then the create-table is refused because the minimum buy-in must be positive
 
-  @wip
   @EU-0531
   Scenario: CreateTable rejects max_buy_in below min_buy_in
     Given the table has not yet been created
@@ -328,7 +305,6 @@ Feature: Table aggregate logic
       | 5           | 10        | 500        | 100        | 6           |
     Then the create-table is refused because the maximum buy-in of 100 must exceed the minimum buy-in of 500
 
-  @wip
   @EU-0531
   Scenario: CreateTable rejects non-positive small_blind
     Given the table has not yet been created
@@ -337,7 +313,6 @@ Feature: Table aggregate logic
       | 0           | 10        | 100        | 1000       | 6           |
     Then the create-table is refused because the small blind must be positive
 
-  @wip
   @EU-0531
   Scenario: CreateTable rejects big_blind below small_blind
     Given the table has not yet been created
@@ -346,7 +321,6 @@ Feature: Table aggregate logic
       | 20          | 10        | 100        | 1000       | 6           |
     Then the create-table is refused because the big blind of 10 must exceed the small blind of 20
 
-  @wip
   @EU-0531
   Scenario: CreateTable rejects zero big_blind
     Given the table has not yet been created
@@ -355,7 +329,6 @@ Feature: Table aggregate logic
       | 5           | 0         | 100        | 1000       | 6           |
     Then the create-table is refused because the big blind of 0 must exceed the small blind of 5
 
-  @wip
   @EU-0531
   Scenario: CreateTable rejects max_players below 2
     Given the table has not yet been created
@@ -364,7 +337,6 @@ Feature: Table aggregate logic
       | 5           | 10        | 100        | 1000       | 1           |
     Then the create-table is refused because max_players of 1 is out of the allowed 2-10 range
 
-  @wip
   @EU-0531
   Scenario: CreateTable rejects max_players above 10
     Given the table has not yet been created
@@ -373,7 +345,6 @@ Feature: Table aggregate logic
       | 5           | 10        | 100        | 1000       | 11          |
     Then the create-table is refused because max_players of 11 is out of the allowed 2-10 range
 
-  @wip
   @EU-0532
   Scenario: CreateTable requires a table_name
     Given the table has not yet been created
@@ -392,28 +363,24 @@ Feature: Table aggregate logic
   # fits within the configured bounds. Preferred-seat occupancy is checked
   # before the any-seat fallback.
 
-  @wip
   @EU-0533
   Scenario: JoinTable rejects when buy-in exceeds max
     Given a table "Main Table" exists
     When player "player-1" joins the table at seat 0 with a buy-in of 5000
     Then the join is refused because the buy-in of 5000 is above the table maximum of 1000
 
-  @wip
   @EU-0534
   Scenario: JoinTable rejects when table does not exist
     Given the table has not yet been created
     When player "player-1" joins the table at seat 0 with a buy-in of 500
     Then the join is refused because the table does not exist
 
-  @wip
   @EU-0535
   Scenario: JoinTable requires a player_root
     Given a table "Main Table" exists
     When player "" joins the table at seat 0 with a buy-in of 500
     Then the join is refused because a player identity is required
 
-  @wip
   @EU-0536
   Scenario: JoinTable rejects occupied preferred seat
     Given a table "Main Table" exists
@@ -426,14 +393,12 @@ Feature: Table aggregate logic
   # ==========================================================================
   # (Framework: input validation for leave requests.)
 
-  @wip
   @EU-0537
   Scenario: LeaveTable rejects when table does not exist
     Given the table has not yet been created
     When player "player-1" leaves the table
     Then the leave is refused because the table does not exist
 
-  @wip
   @EU-0538
   Scenario: LeaveTable requires a player_root
     Given a table "Main Table" exists
@@ -447,21 +412,18 @@ Feature: Table aggregate logic
   #       carried over from the Hand Lifecycle - Start section above.
   # (Framework: pre-condition gates for StartHand / EndHand.)
 
-  @wip
   @EU-0539
   Scenario: StartHand rejects when table does not exist
     Given the table has not yet been created
     When the next hand at the table begins
     Then the start-hand is refused because the table does not exist
 
-  @wip
   @EU-0540
   Scenario: EndHand rejects when table does not exist
     Given the table has not yet been created
     When the hand ends with "player-1" winning 50
     Then the end-hand is refused because the table does not exist
 
-  @wip
   @EU-0541
   Scenario: EndHand rejects mismatched hand_root
     Given a table "Main Table" exists
@@ -471,7 +433,6 @@ Feature: Table aggregate logic
     When the hand ends but the hand identity does not match the one in progress
     Then the end-hand is refused because the hand identity does not match
 
-  @wip
   @EU-0542
   Scenario: EndHand transitions status back to waiting
     Given a table "Main Table" exists
@@ -481,7 +442,6 @@ Feature: Table aggregate logic
     Then the table is waiting for a hand to start
     And no hand is currently in progress at the table
 
-  @wip
   @EU-0543
   Scenario: StartHand in heads-up: dealer posts small blind
     Given a table "Main Table" exists
@@ -490,7 +450,6 @@ Feature: Table aggregate logic
     When the next hand at the table begins
     Then the dealer is the small blind for the heads-up hand
 
-  @wip
   @EU-0544
   Scenario: StartHand with 3 players: SB is left of dealer
     Given a table "Main Table" exists
@@ -508,13 +467,11 @@ Feature: Table aggregate logic
   # quence of TDA Rule 30 — players away from table can be marked
   # sitting out so blinds skip them or are paid into the pot.)
 
-  @wip
   @EU-0545
   Scenario: Table id is derived from the table name
     Given a table "High Stakes" exists
     Then the table carries the identity derived from its name "High Stakes"
 
-  @wip
   @EU-0546
   Scenario: is_full becomes true when max_players reached
     Given a table "Main Table" exists with a maximum of 2 players
@@ -522,7 +479,6 @@ Feature: Table aggregate logic
     And player "player-2" is seated at position 1
     Then the table is full
 
-  @wip
   @EU-0547
   Scenario: active_player_count excludes sitting-out players
     Given a table "Main Table" exists
@@ -538,7 +494,6 @@ Feature: Table aggregate logic
   # (Framework: event-replay applier correctness — PlayerSatIn,
   # ChipsAdded, etc. project into table state.)
 
-  @wip
   @EU-0548
   Scenario: PlayerSatIn restores a sat-out player to active
     Given a table "Main Table" exists
@@ -547,7 +502,6 @@ Feature: Table aggregate logic
     And player "player-1" sits back in
     Then 1 player is currently active at the table
 
-  @wip
   @EU-0549
   Scenario: ChipsAdded updates the player stack via re-buy
     Given a table "Main Table" exists
@@ -562,14 +516,12 @@ Feature: Table aggregate logic
   # implementations — seat 0 is valid, negative preferred_seat picks
   # next available.)
 
-  @wip
   @EU-0550
   Scenario: Seat 0 is an explicit valid preferred seat
     Given a table "Main Table" exists
     When player "player-1" joins the table at seat 0 with a buy-in of 500
     Then player "player-1" is seated at position 0
 
-  @wip
   @EU-0551
   Scenario: Negative preferred_seat picks the next available seat
     Given a table "Main Table" exists
@@ -584,7 +536,6 @@ Feature: Table aggregate logic
   # round-trip on a single aggregate. Exercises the rule sections above
   # in sequence.)
 
-  @wip
   @EU-0552
   Scenario: Full create/join/start/end/leave lifecycle
     Given a table "Main Table" exists
@@ -606,28 +557,24 @@ Feature: Table aggregate logic
   # rejection becomes a SeatingRejected event (not an exception) so the PM
   # can compensate by releasing the buy-in reservation.
 
-  @wip
   @EU-0553
   Scenario: SeatPlayer emits PlayerSeated on success
     Given a table "Main Table" exists
     When player "player-a" is seated at position 0 with reservation "res-001" for 500 chips
     Then player "player-a" is seated at position 0 with a 500-chip stack
 
-  @wip
   @EU-0554
   Scenario: SeatPlayer emits SeatingRejected when amount is below minimum
     Given a table "Main Table" exists
     When player "player-a" is seated at position 0 with reservation "res-001" for 100 chips
     Then the seating is rejected because the amount is below the table minimum
 
-  @wip
   @EU-0555
   Scenario: SeatPlayer emits SeatingRejected when amount exceeds maximum
     Given a table "Main Table" exists
     When player "player-a" is seated at position 0 with reservation "res-001" for 5000 chips
     Then the seating is rejected because the amount is above the table maximum
 
-  @wip
   @EU-0556
   Scenario: SeatPlayer emits SeatingRejected when requested seat is occupied
     Given a table "Main Table" exists
@@ -635,7 +582,6 @@ Feature: Table aggregate logic
     When player "player-a" is seated at position 0 with reservation "res-001" for 500 chips
     Then the seating is rejected because the seat is already occupied
 
-  @wip
   @EU-0557
   Scenario: SeatPlayer emits SeatingRejected when player is already seated
     Given a table "Main Table" exists
@@ -643,7 +589,6 @@ Feature: Table aggregate logic
     When player "player-a" is seated at position 2 with reservation "res-001" for 500 chips
     Then the seating is rejected because the player is already seated
 
-  @wip
   @EU-0558
   Scenario: SeatPlayer with seat -1 picks the next available seat
     Given a table "Main Table" exists
@@ -651,7 +596,6 @@ Feature: Table aggregate logic
     When player "player-a" is seated at any available seat with reservation "res-001" for 500 chips
     Then player "player-a" is seated at position 1
 
-  @wip
   @EU-0559
   Scenario: SeatPlayer with seat -1 rejects when table is full
     Given a table "Main Table" exists with a maximum of 2 players
@@ -672,7 +616,6 @@ Feature: Table aggregate logic
   # handler raises — the rebuy PM has already reserved the funds, so the
   # command should never reach the table if preconditions fail.
 
-  @wip
   @EU-0560
   Scenario: AddRebuyChips emits RebuyChipsAdded with new stack
     Given a table "Main Table" exists
@@ -680,14 +623,12 @@ Feature: Table aggregate logic
     When player "player-a" re-buys 1000 chips with reservation "res-001" at seat 2
     Then player "player-a" at seat 2 has a stack of 1500 after adding 1000 chips
 
-  @wip
   @EU-0561
   Scenario: AddRebuyChips rejects when the player is not seated
     Given a table "Main Table" exists
     When player "player-a" re-buys 1000 chips with reservation "res-001" at seat 2
     Then the re-buy is refused because the player is not seated
 
-  @wip
   @EU-0562
   Scenario: AddRebuyChips rejects when seat does not match
     Given a table "Main Table" exists
@@ -695,7 +636,6 @@ Feature: Table aggregate logic
     When player "player-a" re-buys 1000 chips with reservation "res-001" at seat 3
     Then the re-buy is refused because the seat does not match the player's seat
 
-  @wip
   @EU-0563
   Scenario: AddRebuyChips rejects a non-positive amount
     Given a table "Main Table" exists
@@ -715,35 +655,30 @@ Feature: Table aggregate logic
   # the "no table" and "no player_root" cases since the rebuy PM has already
   # reserved the funds.
 
-  @wip
   @EU-0570
   Scenario: SeatPlayer rejects when the table does not exist
     Given the table has not yet been created
     When player "player-a" is seated at position 0 with reservation "res-001" for 500 chips
     Then the seat-player is refused because the table does not exist
 
-  @wip
   @EU-0571
   Scenario: SeatPlayer emits SeatingRejected when player_root is empty
     Given a table "Main Table" exists
     When player "" is seated at position 0 with reservation "res-001" for 500 chips
     Then the seating is rejected because a player identity is required
 
-  @wip
   @EU-0572
   Scenario: SeatPlayer emits SeatingRejected when seat is out of range
     Given a table "Main Table" exists
     When player "player-a" is seated at position -5 with reservation "res-001" for 500 chips
     Then the seating is rejected because the seat is out of range
 
-  @wip
   @EU-0573
   Scenario: AddRebuyChips rejects when the table does not exist
     Given the table has not yet been created
     When player "player-a" re-buys 100 chips with reservation "res-001" at seat 0
     Then the re-buy is refused because the table does not exist
 
-  @wip
   @EU-0574
   Scenario: AddRebuyChips rejects when player_root is empty
     Given a table "Main Table" exists
@@ -771,7 +706,6 @@ Feature: Table aggregate logic
   # The simple "advance to next *seated* seat" rule (current implementation)
   # violates this when the BB busts.
 
-  @wip
   @EU-0575
   Scenario: BB busts — button stays put, BB skips to the next active seat (dead button)
     # Pre-elimination: dealer at seat 0 (player-A), SB at 1 (player-B),
@@ -791,7 +725,6 @@ Feature: Table aggregate logic
     And the small blind is at seat 3
     And the big blind is at seat 0
 
-  @wip
   @EU-0576
   Scenario: SB busts — BB stays in place, button advances normally
     # Dealer 0, SB 1 (player-B), BB 2 (player-C). player-B busts.
@@ -809,7 +742,6 @@ Feature: Table aggregate logic
     Then the small blind is at seat 2
     And the big blind is at seat 3
 
-  @wip
   @EU-0577
   Scenario: Three players collapse to heads-up — button advances, dealer is SB
     # 3-handed: dealer 0, SB 1, BB 2. player-B (SB seat 1) busts during
@@ -830,7 +762,6 @@ Feature: Table aggregate logic
     And the dealer is the small blind for the heads-up hand
     And the big blind is at seat 0
 
-  @wip
   @EU-0578
   Scenario: No player pays the big blind twice in a row across an elimination
     # The orbit invariant: a player who was BB on hand N is NEVER BB on
@@ -855,7 +786,6 @@ Feature: Table aggregate logic
   # tier EA-0012 covers the multi-table cluster integration; this
   # unit scenario pins the deterministic per-table algorithm.
 
-  @wip
   @EU-1180
   Scenario: Balancing moves the BB-next player from the larger table to the worst seat at the shorter table
     # Rule: TDA Rule 11A (2024) — "the player to be big blind next moves to
@@ -885,7 +815,6 @@ Feature: Table aggregate logic
     Then the moved player is "Dave"
     And the move's destination table is "Dest"
 
-  @wip
   @EU-1181
   Scenario: Final-table combination — 9-handed event collapses 2 tables of 5 to one final table of 9
     # Rule: TDA RP-9 (2024) — "9 and 8-handed events will combine from two
@@ -922,7 +851,6 @@ Feature: Table aggregate logic
   # seat=-1 picks the next *available* seat — this is fine for cash play
   # but tournament seating must be RNG-driven.
 
-  @wip
   @EU-1182
   Scenario: Tournament seat assignment is uniformly random among available seats
     # Rule: TDA Rule 7 (2024) — random correct seating.
@@ -940,7 +868,6 @@ Feature: Table aggregate logic
   # players from broken tables can get any seat including the small or big
   # blind or the button and be dealt in except between the SB and button."
 
-  @wip
   @EU-1183
   Scenario: Broken-table player can take any seat except between SB and button
     # Rule: TDA Rule 10A (2024).
@@ -972,7 +899,6 @@ Feature: Table aggregate logic
   # short (by elimination) than the table with the most players once the
   # blinds are impacted."
 
-  @wip
   @EU-1184
   Scenario: Play halts on a short table when 3+ behind once the blinds are impacted
     # Rule: TDA Rule 11D (2024).
@@ -985,7 +911,6 @@ Feature: Table aggregate logic
     Then "Table-B" halts for balancing
     And "Table-B" is halted for balancing
 
-  @wip
   @EU-1184B
   Scenario: Halted table resumes after the coordinator issues ResumePlayAtTable
     # Rule: TDA Rule 11D (2024) — resume side. Once rebalancing closes the
@@ -999,7 +924,6 @@ Feature: Table aggregate logic
     Then "Table-B" resumes from balancing
     And "Table-B" is no longer halted for balancing
 
-  @wip
   @EU-1184C
   Scenario: A 2-player deficit does not trigger halt (below the 3-short threshold)
     # Rule: TDA Rule 11D (2024) — first clause ("3 or more players short").
@@ -1012,7 +936,6 @@ Feature: Table aggregate logic
     Then "Table-B" does not halt for balancing
     And "Table-B" is not halted for balancing
 
-  @wip
   @EU-1184D
   Scenario: Halt comparator uses the largest table, not the average
     # Rule: TDA Rule 11D (2024) — second clause ("than the table with
@@ -1029,7 +952,6 @@ Feature: Table aggregate logic
     And "Table-B" is halted for balancing
 
   @EU-1184E
-  @wip
   Scenario: A halted table refuses StartHand until the coordinator resumes
     # Rule: TDA Rule 11D (2024) — the effect of "halt". A halted table
     # does not start new hands. No HandStarted is emitted; the command
@@ -1041,7 +963,6 @@ Feature: Table aggregate logic
     Then the start-hand at "Table-B" is refused because the table is halted for balancing
     And no hand starts at "Table-B"
 
-  @wip
   @EU-1184F
   Scenario: Halt re-arms after a previous resume if the deficit reopens
     # Rule: TDA Rule 11D (2024) — the rule is evaluated each time the
@@ -1065,7 +986,6 @@ Feature: Table aggregate logic
   # forfeit both blinds (and BBA if applicable) and will receive a one (1)
   # round penalty."
 
-  @wip
   @EU-1185
   Scenario: A player who skips a blind by moving forfeits the missed blinds and earns a round penalty
     # Rule: TDA Rule 33 (2024) + WSOP Rule 86 (2025).
@@ -1085,7 +1005,6 @@ Feature: Table aggregate logic
   # Operationally: the button on hand 1 of any new table is *deterministic*
   # given the seat-occupancy list, not a coin flip.
 
-  @wip
   @EU-1186
   Scenario: Initial button placement on hand 1 starts at the seat to the dealer's right
     # Rule: WSOP Rule 85 (2025) — initial button placement.
@@ -1111,7 +1030,6 @@ Feature: Table aggregate logic
   #   7-handed event → combine to FT with 8 remaining (4+4 → 7)
   #   6-handed event → combine to FT with 7 remaining (4+3 → 6)
 
-  @wip
   @EU-1187
   Scenario: 8-handed event combines 2 tables of 4 and 5 to a final table of 9 then 8
     # Rule: WSOP Rule 68b (2025) — 8-handed → combine at 9 remaining.
@@ -1122,7 +1040,6 @@ Feature: Table aggregate logic
     Then the final table has 9 active players
     And the final table is configured as 8-handed
 
-  @wip
   @EU-1188
   Scenario: 6-handed event combines at 7 remaining
     # Rule: WSOP Rule 68d (2025) — 6-handed → combine at 7 remaining.

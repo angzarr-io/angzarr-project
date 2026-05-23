@@ -31,19 +31,16 @@ Feature: Rejection compensation
     And Payment compensates a rejected ReserveStock from inventory by releasing funds
     And Payment is the active component
 
-  @wip
   @C-0040
   Scenario: A matching rejection fires the compensation
     When a rejection of ReserveStock arrives from inventory
     Then a FundsReleased event is emitted
 
-  @wip
   @C-0041
   Scenario: A rejection Payment does not compensate is ignored
     When a rejection of ProcessPayment arrives from inventory
     Then no events are emitted
 
-  @wip
   @C-0042
   Scenario: Multiple compensators for the same rejection all run
     Given a second compensation handler for the same rejection also releases funds

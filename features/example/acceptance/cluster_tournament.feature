@@ -23,7 +23,6 @@ Feature: Cluster Tournament Acceptance
   # eliminate the loser, complete the tournament.
   # ===========================================================================
 
-  @wip
   @tournament @e2e @cluster
   @EA-0006
   Scenario: Two-player tournament completes after one hand
@@ -57,7 +56,6 @@ Feature: Cluster Tournament Acceptance
   # Multi-hand with blind advance, rebuy, and sequential eliminations.
   # ===========================================================================
 
-  @wip
   @tournament @multihand @rebuy @cluster
   @EA-0007
   Scenario: Three-player tournament with blind advance, rebuy, and eliminations
@@ -119,7 +117,6 @@ Feature: Cluster Tournament Acceptance
 
   @tournament @complex @cluster @full-lifecycle
   @EA-0008
-  @wip
   Scenario: Full-lifecycle complex tournament across every code path
     Given registered players with bankroll:
       | name    | bankroll |
@@ -243,7 +240,6 @@ Feature: Cluster Tournament Acceptance
   # via a randomised "race" for any odd chips that don't divide evenly.
   # ===========================================================================
 
-  @wip
   @tournament @color-up @cluster
   @EA-0011
   Scenario: Color-up at level transition removes low-denom chips from every stack
@@ -279,7 +275,6 @@ Feature: Cluster Tournament Acceptance
   # table to the smaller. The moved player's stack travels with them.
   # ===========================================================================
 
-  @wip
   @tournament @balancing @cluster
   @EA-0012
   Scenario: Table balancing moves a player when one table is short
@@ -318,7 +313,6 @@ Feature: Cluster Tournament Acceptance
   # cannot stall to pass the bubble onto another table.
   # ===========================================================================
 
-  @wip
   @tournament @bubble @cluster
   @EA-0013
   Scenario: Bubble triggers hand-for-hand play across all active tables

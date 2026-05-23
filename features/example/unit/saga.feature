@@ -30,7 +30,6 @@ Feature: Cross-domain event translations
   # When a table starts a hand, the hand is dealt. When the hand finishes,
   # the table is told to end the round.
 
-  @wip
   @EU-0300
   Scenario: When a hand starts at a table, cards are dealt
     Given a hand "hand-1" begins as hand number 1 with TEXAS_HOLDEM and dealer at position 0
@@ -44,7 +43,6 @@ Feature: Cross-domain event translations
     # tests can assert specific cards across runs.
     And the deal is reproducible from the hand's identifier
 
-  @wip
   @EU-0301
   Scenario: When a hand finishes, the table is told to end the round
     Given a hand at table "table-1" completes with pot total 100
@@ -60,7 +58,6 @@ Feature: Cross-domain event translations
   # ==========================================================================
   # When a hand ends or pots are awarded, players' bankrolls need updating.
 
-  @wip
   @EU-0302
   Scenario: When a hand ends, each participant's reserved chips are released
     Given hand "hand-1" ends with the following stack changes:
@@ -70,7 +67,6 @@ Feature: Cross-domain event translations
     When the hand-end is translated for the players
     Then 2 players have their reserved chips released
 
-  @wip
   @EU-0303
   Scenario: When a pot is awarded, each winner's bankroll is credited
     Given a pot of 100 is awarded with winners:
@@ -120,14 +116,12 @@ Feature: Cross-domain event translations
   # Empty or no-op inputs must not crash. Zero-change participants are still
   # released so their reservation is cleared.
 
-  @wip
   @EU-0307
   Scenario: A hand ending with no participants releases nothing
     Given hand "hand-1" ends with no stack changes
     When the hand-end is translated for the players
     Then no chips are released
 
-  @wip
   @EU-0308
   Scenario: A hand ending releases every participant, even those with no net change
     Given hand "hand-1" ends with the following stack changes:
