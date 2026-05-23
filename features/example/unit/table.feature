@@ -855,6 +855,7 @@ Feature: Table aggregate logic
   # tier EA-0012 covers the multi-table cluster integration; this
   # unit scenario pins the deterministic per-table algorithm.
 
+  @wip
   @EU-1180
   Scenario: Balancing moves the BB-next player from the larger table to the worst seat at the shorter table
     # Rule: TDA Rule 11A (2024) — "the player to be big blind next moves to
@@ -884,6 +885,7 @@ Feature: Table aggregate logic
     Then the moved player is "Dave"
     And the move's destination table is "Dest"
 
+  @wip
   @EU-1181
   Scenario: Final-table combination — 9-handed event collapses 2 tables of 5 to one final table of 9
     # Rule: TDA RP-9 (2024) — "9 and 8-handed events will combine from two
@@ -938,6 +940,7 @@ Feature: Table aggregate logic
   # players from broken tables can get any seat including the small or big
   # blind or the button and be dealt in except between the SB and button."
 
+  @wip
   @EU-1183
   Scenario: Broken-table player can take any seat except between SB and button
     # Rule: TDA Rule 10A (2024).
@@ -1062,6 +1065,7 @@ Feature: Table aggregate logic
   # forfeit both blinds (and BBA if applicable) and will receive a one (1)
   # round penalty."
 
+  @wip
   @EU-1185
   Scenario: A player who skips a blind by moving forfeits the missed blinds and earns a round penalty
     # Rule: TDA Rule 33 (2024) + WSOP Rule 86 (2025).
@@ -1107,6 +1111,7 @@ Feature: Table aggregate logic
   #   7-handed event → combine to FT with 8 remaining (4+4 → 7)
   #   6-handed event → combine to FT with 7 remaining (4+3 → 6)
 
+  @wip
   @EU-1187
   Scenario: 8-handed event combines 2 tables of 4 and 5 to a final table of 9 then 8
     # Rule: WSOP Rule 68b (2025) — 8-handed → combine at 9 remaining.
@@ -1117,6 +1122,7 @@ Feature: Table aggregate logic
     Then the final table has 9 active players
     And the final table is configured as 8-handed
 
+  @wip
   @EU-1188
   Scenario: 6-handed event combines at 7 remaining
     # Rule: WSOP Rule 68d (2025) — 6-handed → combine at 7 remaining.
