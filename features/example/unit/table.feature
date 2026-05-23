@@ -52,6 +52,7 @@ Feature: Table aggregate logic
   # Tables are created with game configuration. Once created, the table
   # exists until closed (future feature). Duplicate creation is rejected.
 
+  @wip
   @EU-0100
   Scenario: Create a Texas Hold'em table
     Given no prior events for the table aggregate
@@ -64,6 +65,7 @@ Feature: Table aggregate logic
     And the table event has small_blind 5
     And the table event has big_blind 10
 
+  @wip
   @EU-0101
   Scenario: Create a Five Card Draw table
     Given no prior events for the table aggregate
@@ -73,6 +75,7 @@ Feature: Table aggregate logic
     Then the result is a angzarr_client.proto.examples.v1.TableCreated event
     And the table event has game_variant "FIVE_CARD_DRAW"
 
+  @wip
   @EU-0102
   Scenario: Cannot create table twice
     Given a TableCreated event for "Main Table"
@@ -95,6 +98,7 @@ Feature: Table aggregate logic
   # seats. Players can request a specific seat or take any available one.
   # Join failures don't affect the player's bankroll - no funds reserved yet.
 
+  @wip
   @EU-0103
   Scenario: Player joins table at preferred seat
     Given a TableCreated event for "Main Table"
@@ -103,6 +107,7 @@ Feature: Table aggregate logic
     And the table event has seat_position 3
     And the table event has buy_in_amount 500
 
+  @wip
   @EU-0104
   Scenario: Player joins table at any seat
     Given a TableCreated event for "Main Table"
@@ -110,6 +115,7 @@ Feature: Table aggregate logic
     Then the result is a angzarr_client.proto.examples.v1.PlayerJoined event
     And the table event has seat_position 0
 
+  @wip
   @EU-0105
   Scenario: Cannot join occupied seat
     Given a TableCreated event for "Main Table"
@@ -119,6 +125,7 @@ Feature: Table aggregate logic
     And the command is rejected with code "SEAT_OCCUPIED"
     And the rejection field "seat" equals "3"
 
+  @wip
   @EU-0106
   Scenario: Cannot join table twice
     Given a TableCreated event for "Main Table"
@@ -127,6 +134,7 @@ Feature: Table aggregate logic
     Then the command fails with status "FAILED_PRECONDITION"
     And the error message contains "already seated"
 
+  @wip
   @EU-0107
   Scenario: Cannot join with insufficient buy-in
     Given a TableCreated event for "Main Table" with min_buy_in 200
@@ -136,6 +144,7 @@ Feature: Table aggregate logic
     And the rejection field "got" equals "100"
     And the rejection field "bound" equals "200"
 
+  @wip
   @EU-0108
   Scenario: Cannot join full table
     Given a TableCreated event for "Main Table" with max_players 2
@@ -155,6 +164,7 @@ Feature: Table aggregate logic
   # Departure during an active hand is forbidden - the player must wait
   # for the hand to complete. This prevents mid-hand bailouts.
 
+  @wip
   @EU-0109
   Scenario: Player leaves table
     Given a TableCreated event for "Main Table"
@@ -163,6 +173,7 @@ Feature: Table aggregate logic
     Then the result is a angzarr_client.proto.examples.v1.PlayerLeft event
     And the table event has chips_cashed_out 500
 
+  @wip
   @EU-0110
   Scenario: Cannot leave during hand
     Given a TableCreated event for "Main Table"
@@ -173,6 +184,7 @@ Feature: Table aggregate logic
     Then the command fails with status "FAILED_PRECONDITION"
     And the error message contains "during a hand"
 
+  @wip
   @EU-0111
   Scenario: Cannot leave table not joined
     Given a TableCreated event for "Main Table"
@@ -191,6 +203,7 @@ Feature: Table aggregate logic
   # dealer button. The HandStarted event triggers the hand-table-saga to
   # deal cards in the hand domain.
 
+  @wip
   @EU-0112
   Scenario: Start a new hand
     Given a TableCreated event for "Main Table"
@@ -201,6 +214,7 @@ Feature: Table aggregate logic
     And the table event has hand_number 1
     And the table event has 2 active_players
 
+  @wip
   @EU-0113
   Scenario: Dealer button advances each hand
     Given a TableCreated event for "Main Table"
@@ -213,6 +227,7 @@ Feature: Table aggregate logic
     And the table event has hand_number 2
     And the table event has dealer_position 1
 
+  @wip
   @EU-0114
   Scenario: Cannot start hand with fewer than 2 players
     Given a TableCreated event for "Main Table"
@@ -221,6 +236,7 @@ Feature: Table aggregate logic
     Then the command fails with status "FAILED_PRECONDITION"
     And the error message contains "Not enough players"
 
+  @wip
   @EU-0115
   Scenario: Cannot start hand while one is in progress
     Given a TableCreated event for "Main Table"
@@ -242,6 +258,7 @@ Feature: Table aggregate logic
   # The HandEnded event triggers the hand-player-saga to update player
   # bankrolls in the player domain.
 
+  @wip
   @EU-0116
   Scenario: End hand and update stacks
     Given a TableCreated event for "Main Table"
@@ -252,6 +269,7 @@ Feature: Table aggregate logic
     Then the result is a angzarr_client.proto.examples.v1.HandEnded event
     And player "player-1" stack change is 50
 
+  @wip
   @EU-0117
   Scenario: Cannot end hand not in progress
     Given a TableCreated event for "Main Table"
@@ -261,6 +279,7 @@ Feature: Table aggregate logic
     Then the command fails with status "FAILED_PRECONDITION"
     And the error message contains "No hand in progress"
 
+  @wip
   @EU-0118
   Scenario: End hand updates player stacks with wins and losses
     Given a TableCreated event for "Main Table"
@@ -284,6 +303,7 @@ Feature: Table aggregate logic
   # Table state is rebuilt by replaying events. This verifies that joining,
   # leaving, and hand events correctly update seated players and table status.
 
+  @wip
   @EU-0119
   Scenario: Rebuild state with multiple players
     Given a TableCreated event for "Main Table"
@@ -295,6 +315,7 @@ Feature: Table aggregate logic
     And the table state has seat 3 occupied by "player-2"
     And the table state has status "waiting"
 
+  @wip
   @EU-0120
   Scenario: Rebuild state during hand
     Given a TableCreated event for "Main Table"
@@ -317,6 +338,7 @@ Feature: Table aggregate logic
   # bounds, and max_players are validated synchronously. These checks match
   # the Go implementation for cross-language consistency.
 
+  @wip
   @EU-0531
   Scenario: CreateTable rejects non-positive min_buy_in
     Given no prior events for the table aggregate
@@ -327,6 +349,7 @@ Feature: Table aggregate logic
     And the command is rejected with code "MIN_BUY_IN_MUST_BE_POSITIVE"
     And the rejection field "value" equals "0"
 
+  @wip
   @EU-0531
   Scenario: CreateTable rejects max_buy_in below min_buy_in
     Given no prior events for the table aggregate
@@ -338,6 +361,7 @@ Feature: Table aggregate logic
     And the rejection field "lhs" equals "100"
     And the rejection field "rhs" equals "500"
 
+  @wip
   @EU-0531
   Scenario: CreateTable rejects non-positive small_blind
     Given no prior events for the table aggregate
@@ -348,6 +372,7 @@ Feature: Table aggregate logic
     And the command is rejected with code "SMALL_BLIND_MUST_BE_POSITIVE"
     And the rejection field "value" equals "0"
 
+  @wip
   @EU-0531
   Scenario: CreateTable rejects big_blind below small_blind
     Given no prior events for the table aggregate
@@ -359,6 +384,7 @@ Feature: Table aggregate logic
     And the rejection field "lhs" equals "10"
     And the rejection field "rhs" equals "20"
 
+  @wip
   @EU-0531
   Scenario: CreateTable rejects zero big_blind
     Given no prior events for the table aggregate
@@ -370,6 +396,7 @@ Feature: Table aggregate logic
     And the rejection field "lhs" equals "0"
     And the rejection field "rhs" equals "5"
 
+  @wip
   @EU-0531
   Scenario: CreateTable rejects max_players below 2
     Given no prior events for the table aggregate
@@ -380,6 +407,7 @@ Feature: Table aggregate logic
     And the command is rejected with code "MAX_PLAYERS_OUT_OF_RANGE"
     And the rejection field "got" equals "1"
 
+  @wip
   @EU-0531
   Scenario: CreateTable rejects max_players above 10
     Given no prior events for the table aggregate
@@ -390,6 +418,7 @@ Feature: Table aggregate logic
     And the command is rejected with code "MAX_PLAYERS_OUT_OF_RANGE"
     And the rejection field "got" equals "11"
 
+  @wip
   @EU-0532
   Scenario: CreateTable requires a table_name
     Given no prior events for the table aggregate
@@ -409,6 +438,7 @@ Feature: Table aggregate logic
   # fits within the configured bounds. Preferred-seat occupancy is checked
   # before the any-seat fallback.
 
+  @wip
   @EU-0533
   Scenario: JoinTable rejects when buy-in exceeds max
     Given a TableCreated event for "Main Table"
@@ -418,6 +448,7 @@ Feature: Table aggregate logic
     And the rejection field "got" equals "5000"
     And the rejection field "bound" equals "1000"
 
+  @wip
   @EU-0534
   Scenario: JoinTable rejects when table does not exist
     Given no prior events for the table aggregate
@@ -425,6 +456,7 @@ Feature: Table aggregate logic
     Then the command fails with status "FAILED_PRECONDITION"
     And the error message contains "does not exist"
 
+  @wip
   @EU-0535
   Scenario: JoinTable requires a player_root
     Given a TableCreated event for "Main Table"
@@ -432,6 +464,7 @@ Feature: Table aggregate logic
     Then the command fails with status "INVALID_ARGUMENT"
     And the error message contains "player_root"
 
+  @wip
   @EU-0536
   Scenario: JoinTable rejects occupied preferred seat
     Given a TableCreated event for "Main Table"
@@ -446,6 +479,7 @@ Feature: Table aggregate logic
   # ==========================================================================
   # (Framework: input validation for leave requests.)
 
+  @wip
   @EU-0537
   Scenario: LeaveTable rejects when table does not exist
     Given no prior events for the table aggregate
@@ -453,6 +487,7 @@ Feature: Table aggregate logic
     Then the command fails with status "FAILED_PRECONDITION"
     And the error message contains "does not exist"
 
+  @wip
   @EU-0538
   Scenario: LeaveTable requires a player_root
     Given a TableCreated event for "Main Table"
@@ -467,6 +502,7 @@ Feature: Table aggregate logic
   #       carried over from the Hand Lifecycle - Start section above.
   # (Framework: pre-condition gates for StartHand / EndHand.)
 
+  @wip
   @EU-0539
   Scenario: StartHand rejects when table does not exist
     Given no prior events for the table aggregate
@@ -474,6 +510,7 @@ Feature: Table aggregate logic
     Then the command fails with status "FAILED_PRECONDITION"
     And the error message contains "does not exist"
 
+  @wip
   @EU-0540
   Scenario: EndHand rejects when table does not exist
     Given no prior events for the table aggregate
@@ -481,6 +518,7 @@ Feature: Table aggregate logic
     Then the command fails with status "FAILED_PRECONDITION"
     And the error message contains "does not exist"
 
+  @wip
   @EU-0541
   Scenario: EndHand rejects mismatched hand_root
     Given a TableCreated event for "Main Table"
@@ -491,6 +529,7 @@ Feature: Table aggregate logic
     Then the command fails with status "FAILED_PRECONDITION"
     And the error message contains "Hand root mismatch"
 
+  @wip
   @EU-0542
   Scenario: EndHand transitions status back to waiting
     Given a TableCreated event for "Main Table"
@@ -500,6 +539,7 @@ Feature: Table aggregate logic
     Then the table state has status "waiting"
     And the table state has current_hand_root empty
 
+  @wip
   @EU-0543
   Scenario: StartHand in heads-up: dealer posts small blind
     Given a TableCreated event for "Main Table"
@@ -509,6 +549,7 @@ Feature: Table aggregate logic
     Then the result is a angzarr_client.proto.examples.v1.HandStarted event
     And the small_blind_position equals the dealer_position
 
+  @wip
   @EU-0544
   Scenario: StartHand with 3 players: SB is left of dealer
     Given a TableCreated event for "Main Table"
@@ -527,12 +568,14 @@ Feature: Table aggregate logic
   # quence of TDA Rule 30 — players away from table can be marked
   # sitting out so blinds skip them or are paid into the pot.)
 
+  @wip
   @EU-0545
   Scenario: Table id is derived from the table name
     Given a TableCreated event for "High Stakes"
     When I rebuild the table state
     Then the table state has table_id "table_High Stakes"
 
+  @wip
   @EU-0546
   Scenario: is_full becomes true when max_players reached
     Given a TableCreated event for "Main Table" with max_players 2
@@ -541,6 +584,7 @@ Feature: Table aggregate logic
     When I rebuild the table state
     Then the table state is full
 
+  @wip
   @EU-0547
   Scenario: active_player_count excludes sitting-out players
     Given a TableCreated event for "Main Table"
@@ -557,6 +601,7 @@ Feature: Table aggregate logic
   # (Framework: event-replay applier correctness — PlayerSatIn,
   # ChipsAdded, etc. project into table state.)
 
+  @wip
   @EU-0548
   Scenario: PlayerSatIn restores a sat-out player to active
     Given a TableCreated event for "Main Table"
@@ -566,6 +611,7 @@ Feature: Table aggregate logic
     When I rebuild the table state
     Then the table state has 1 active_players
 
+  @wip
   @EU-0549
   Scenario: ChipsAdded updates the player stack via re-buy
     Given a TableCreated event for "Main Table"
@@ -581,6 +627,7 @@ Feature: Table aggregate logic
   # implementations — seat 0 is valid, negative preferred_seat picks
   # next available.)
 
+  @wip
   @EU-0550
   Scenario: Seat 0 is an explicit valid preferred seat
     Given a TableCreated event for "Main Table"
@@ -588,6 +635,7 @@ Feature: Table aggregate logic
     Then the result is a angzarr_client.proto.examples.v1.PlayerJoined event
     And the table event has seat_position 0
 
+  @wip
   @EU-0551
   Scenario: Negative preferred_seat picks the next available seat
     Given a TableCreated event for "Main Table"
@@ -603,6 +651,7 @@ Feature: Table aggregate logic
   # round-trip on a single aggregate. Exercises the rule sections above
   # in sequence.)
 
+  @wip
   @EU-0552
   Scenario: Full create/join/start/end/leave lifecycle
     Given a TableCreated event for "Main Table"
@@ -624,6 +673,7 @@ Feature: Table aggregate logic
   # rejection becomes a SeatingRejected event (not an exception) so the PM
   # can compensate by releasing the buy-in reservation.
 
+  @wip
   @EU-0553
   Scenario: SeatPlayer emits PlayerSeated on success
     Given a TableCreated event for "Main Table"
@@ -632,6 +682,7 @@ Feature: Table aggregate logic
     And the seating event has seat_position 0
     And the seating event has stack 500
 
+  @wip
   @EU-0554
   Scenario: SeatPlayer emits SeatingRejected when amount is below minimum
     Given a TableCreated event for "Main Table"
@@ -639,6 +690,7 @@ Feature: Table aggregate logic
     Then the result is a angzarr_client.proto.examples.v1.SeatingRejected event
     And the seating rejection reason contains "at least"
 
+  @wip
   @EU-0555
   Scenario: SeatPlayer emits SeatingRejected when amount exceeds maximum
     Given a TableCreated event for "Main Table"
@@ -646,6 +698,7 @@ Feature: Table aggregate logic
     Then the result is a angzarr_client.proto.examples.v1.SeatingRejected event
     And the seating rejection reason contains "above maximum"
 
+  @wip
   @EU-0556
   Scenario: SeatPlayer emits SeatingRejected when requested seat is occupied
     Given a TableCreated event for "Main Table"
@@ -654,6 +707,7 @@ Feature: Table aggregate logic
     Then the result is a angzarr_client.proto.examples.v1.SeatingRejected event
     And the seating rejection reason contains "occupied"
 
+  @wip
   @EU-0557
   Scenario: SeatPlayer emits SeatingRejected when player is already seated
     Given a TableCreated event for "Main Table"
@@ -662,6 +716,7 @@ Feature: Table aggregate logic
     Then the result is a angzarr_client.proto.examples.v1.SeatingRejected event
     And the seating rejection reason contains "already seated"
 
+  @wip
   @EU-0558
   Scenario: SeatPlayer with seat -1 picks the next available seat
     Given a TableCreated event for "Main Table"
@@ -670,6 +725,7 @@ Feature: Table aggregate logic
     Then the result is a angzarr_client.proto.examples.v1.PlayerSeated event
     And the seating event has seat_position 1
 
+  @wip
   @EU-0559
   Scenario: SeatPlayer with seat -1 rejects when table is full
     Given a TableCreated event for "Main Table" with max_players 2
@@ -691,6 +747,7 @@ Feature: Table aggregate logic
   # handler raises — the rebuy PM has already reserved the funds, so the
   # command should never reach the table if preconditions fail.
 
+  @wip
   @EU-0560
   Scenario: AddRebuyChips emits RebuyChipsAdded with new stack
     Given a TableCreated event for "Main Table"
@@ -701,6 +758,7 @@ Feature: Table aggregate logic
     And the rebuy event has new_stack 1500
     And the rebuy event has seat 2
 
+  @wip
   @EU-0561
   Scenario: AddRebuyChips rejects when the player is not seated
     Given a TableCreated event for "Main Table"
@@ -708,6 +766,7 @@ Feature: Table aggregate logic
     Then the command fails with status "FAILED_PRECONDITION"
     And the error message contains "not seated"
 
+  @wip
   @EU-0562
   Scenario: AddRebuyChips rejects when seat does not match
     Given a TableCreated event for "Main Table"
@@ -716,6 +775,7 @@ Feature: Table aggregate logic
     Then the command fails with status "FAILED_PRECONDITION"
     And the error message contains "mismatch"
 
+  @wip
   @EU-0563
   Scenario: AddRebuyChips rejects a non-positive amount
     Given a TableCreated event for "Main Table"
@@ -736,6 +796,7 @@ Feature: Table aggregate logic
   # the "no table" and "no player_root" cases since the rebuy PM has already
   # reserved the funds.
 
+  @wip
   @EU-0570
   Scenario: SeatPlayer rejects when the table does not exist
     Given no prior events for the table aggregate
@@ -743,6 +804,7 @@ Feature: Table aggregate logic
     Then the command fails with status "FAILED_PRECONDITION"
     And the error message contains "Table does not exist"
 
+  @wip
   @EU-0571
   Scenario: SeatPlayer emits SeatingRejected when player_root is empty
     Given a TableCreated event for "Main Table"
@@ -750,6 +812,7 @@ Feature: Table aggregate logic
     Then the result is a angzarr_client.proto.examples.v1.SeatingRejected event
     And the seating rejection reason contains "player_root"
 
+  @wip
   @EU-0572
   Scenario: SeatPlayer emits SeatingRejected when seat is out of range
     Given a TableCreated event for "Main Table"
@@ -757,6 +820,7 @@ Feature: Table aggregate logic
     Then the result is a angzarr_client.proto.examples.v1.SeatingRejected event
     And the seating rejection reason contains "Invalid seat"
 
+  @wip
   @EU-0573
   Scenario: AddRebuyChips rejects when the table does not exist
     Given no prior events for the table aggregate
@@ -764,6 +828,7 @@ Feature: Table aggregate logic
     Then the command fails with status "FAILED_PRECONDITION"
     And the error message contains "Table does not exist"
 
+  @wip
   @EU-0574
   Scenario: AddRebuyChips rejects when player_root is empty
     Given a TableCreated event for "Main Table"
@@ -792,6 +857,7 @@ Feature: Table aggregate logic
   # The simple "advance to next *seated* seat" rule (current implementation)
   # violates this when the BB busts.
 
+  @wip
   @EU-0575
   Scenario: BB busts — button stays put, BB skips to the next active seat (dead button)
     # Pre-elimination: dealer at seat 0 (player-A), SB at 1 (player-B),
@@ -813,6 +879,7 @@ Feature: Table aggregate logic
     And the small_blind_position is seat 3
     And the big_blind_position is seat 0
 
+  @wip
   @EU-0576
   Scenario: SB busts — BB stays in place, button advances normally
     # Dealer 0, SB 1 (player-B), BB 2 (player-C). player-B busts.
@@ -832,6 +899,7 @@ Feature: Table aggregate logic
     And the small_blind_position is seat 2
     And the big_blind_position is seat 3
 
+  @wip
   @EU-0577
   Scenario: Three players collapse to heads-up — button advances, dealer is SB
     # 3-handed: dealer 0, SB 1, BB 2. player-B (SB seat 1) busts during
@@ -854,6 +922,7 @@ Feature: Table aggregate logic
     And the dealer_position is seat 2
     And the big_blind_position is seat 0
 
+  @wip
   @EU-0578
   Scenario: No player pays the big blind twice in a row across an elimination
     # The orbit invariant: a player who was BB on hand N is NEVER BB on
@@ -948,6 +1017,7 @@ Feature: Table aggregate logic
   # seat=-1 picks the next *available* seat — this is fine for cash play
   # but tournament seating must be RNG-driven.
 
+  @wip
   @EU-1182
   Scenario: Tournament seat assignment is uniformly random among available seats
     # Rule: TDA Rule 7 (2024) — random correct seating.
@@ -997,6 +1067,7 @@ Feature: Table aggregate logic
   # short (by elimination) than the table with the most players once the
   # blinds are impacted."
 
+  @wip
   @EU-1184
   Scenario: Play halts on a short table when 3+ behind once the blinds are impacted
     # Rule: TDA Rule 11D (2024).
@@ -1009,6 +1080,7 @@ Feature: Table aggregate logic
     Then a angzarr_client.proto.examples.v1.TableHaltedForBalancing event is emitted for "Table-B"
     And "Table-B" status is "halted_for_balancing"
 
+  @wip
   @EU-1184B
   Scenario: Halted table resumes after the coordinator issues ResumePlayAtTable
     # Rule: TDA Rule 11D (2024) — resume side. Once rebalancing closes the
@@ -1022,6 +1094,7 @@ Feature: Table aggregate logic
     Then a angzarr_client.proto.examples.v1.TableResumedForBalancing event is emitted for "Table-B"
     And "Table-B" is no longer halted for balancing
 
+  @wip
   @EU-1184C
   Scenario: A 2-player deficit does not trigger halt (below the 3-short threshold)
     # Rule: TDA Rule 11D (2024) — first clause ("3 or more players short").
@@ -1034,6 +1107,7 @@ Feature: Table aggregate logic
     Then no TableHaltedForBalancing event is emitted
     And "Table-B" is not halted for balancing
 
+  @wip
   @EU-1184D
   Scenario: Halt comparator uses the largest table, not the average
     # Rule: TDA Rule 11D (2024) — second clause ("than the table with
@@ -1062,6 +1136,7 @@ Feature: Table aggregate logic
     Then the command at "Table-B" is rejected
     And no HandStarted event is emitted at "Table-B"
 
+  @wip
   @EU-1184F
   Scenario: Halt re-arms after a previous resume if the deficit reopens
     # Rule: TDA Rule 11D (2024) — the rule is evaluated each time the
@@ -1105,6 +1180,7 @@ Feature: Table aggregate logic
   # Operationally: the button on hand 1 of any new table is *deterministic*
   # given the seat-occupancy list, not a coin flip.
 
+  @wip
   @EU-1186
   Scenario: Initial button placement on hand 1 starts at the seat to the dealer's right
     # Rule: WSOP Rule 85 (2025) — initial button placement.

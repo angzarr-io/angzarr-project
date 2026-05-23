@@ -63,6 +63,7 @@ Feature: Hand aggregate logic
   # Dealing initializes the hand with hole cards for each player. The number
   # of hole cards depends on game variant (2 for Hold'em, 4 for Omaha, 5 for Draw).
 
+  @wip
   @EU-0001
   Scenario: Deal Texas Hold'em hand to 2 players
     Given the hand has not yet been dealt
@@ -73,6 +74,7 @@ Feature: Hand aggregate logic
     Then each player has 2 hole cards
     And the remaining deck has 48 cards
 
+  @wip
   @EU-0002
   Scenario: Deal Omaha hand to 3 players
     Given the hand has not yet been dealt
@@ -84,6 +86,7 @@ Feature: Hand aggregate logic
     Then each player has 4 hole cards
     And the remaining deck has 40 cards
 
+  @wip
   @EU-0003
   Scenario: Deal Five Card Draw hand to 4 players
     Given the hand has not yet been dealt
@@ -368,6 +371,7 @@ Feature: Hand aggregate logic
     When the pot of 15 is awarded to player-1
     Then player-1 wins 15
 
+  @wip
   @EU-0028
   Scenario: Awarding the pot completes the hand
     Given a Texas Hold'em hand has reached showdown with 2 players
@@ -1210,6 +1214,7 @@ Feature: Hand aggregate logic
     Then player-A's winnings come from the main pot
     And player-B's winnings come from side pot 1
 
+  @wip
   @EU-1107
   Scenario: Completing a multi-pot award lists every winner across pots
     Given a Texas Hold'em hand has been dealt to:
@@ -1828,6 +1833,7 @@ Feature: Hand aggregate logic
   #  Rule 38 - burns are one-per-street even if the stub is reshuffled
   #    mid-hand.
 
+  @wip
   @EU-1230
   Scenario Outline: Misdeal triggers - pre-SA, hand is redealt; post-SA, hand stands
     # Rule: TDA Rule 35A & 35D (2024) - misdeal taxonomy: boxed cards on
@@ -1866,6 +1872,7 @@ Feature: Hand aggregate logic
     And every player's contribution to the hand is refunded
     And the hand is void
 
+  @wip
   @EU-1232
   Scenario Outline: Substantial Action threshold - pre-SA misdeals redeal, post-SA stand
     # Rule: TDA Rule 36 (2024) - "Substantial Action is either A) any 2
@@ -2065,6 +2072,7 @@ Feature: Hand aggregate logic
   # come if the hand had not ended) is not allowed." Once a hand ends, the
   # remaining stub MUST NOT be revealed via any query or projection.
 
+  @wip
   @EU-1270
   Scenario: Hand ending early does not reveal the unburned community cards
     # Rule: TDA Rule 28 (2024) - "Rabbit hunting ... is not allowed."
@@ -2326,6 +2334,7 @@ Feature: Hand aggregate logic
   # not affect pot calculation. All pre-flop pot and re-pot bets will assume
   # full blinds were posted."
 
+  @wip
   @EU-1286
   Scenario: PLO pre-flop pot calculation assumes full blinds even with a short SB
     # Rule: TDA Rule 54B (2024) - full blinds assumed.

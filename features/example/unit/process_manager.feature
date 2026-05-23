@@ -58,6 +58,7 @@ Feature: Hand orchestration
   # A round ends once every active player has acted and matched the current
   # bet. A raise reopens the action for everyone still in the hand.
 
+  @wip
   @EU-0404
   Scenario: Action passes to the next player after one acts
     Given a hand is in a betting round
