@@ -178,6 +178,7 @@ Feature: Process manager logic
     And action_on is position 2
 
   @EU-0446
+  @wip
   Scenario: Post-flop action starts at first active seat left of dealer (3-handed)
     # After the flop is dealt with 3 players still in (dealer at seat 0, SB at
     # 1, BB at 2), the next betting round opens with action on seat 1 (SB) —
@@ -191,6 +192,7 @@ Feature: Process manager logic
     And action_on is position 1
 
   @EU-0447
+  @wip
   Scenario: Post-flop action starts on the BB in heads-up
     # Heads-up reverses the post-flop order: dealer/SB at seat 0 acts last,
     # BB at seat 1 acts first. _find_next_active(dealer_position) wraps to

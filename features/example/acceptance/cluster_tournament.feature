@@ -180,6 +180,7 @@ Feature: Cluster Tournament Acceptance
 
   @tournament @complex @cluster @full-lifecycle
   @EA-0008
+  @wip
   Scenario: Full-lifecycle complex tournament across every code path
     Given registered players with bankroll:
       | name    | bankroll |

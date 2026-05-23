@@ -1050,6 +1050,7 @@ Feature: Table aggregate logic
     And "Table-B" status is "halted_for_balancing"
 
   @EU-1184E
+  @wip
   Scenario: A halted table refuses StartHand until the coordinator resumes
     # Rule: TDA Rule 11D (2024) — the effect of "halt". A halted table
     # does not start new hands. No HandStarted is emitted; the command

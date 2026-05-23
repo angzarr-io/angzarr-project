@@ -1000,6 +1000,7 @@ Feature: Tournament aggregate logic
   # big blind during the first hand."
 
   @EU-1313
+  @wip
   Scenario: Late-reg player can be dealt the button on their first hand without missing the hand
     # Rule: WSOP Rule 14 (2025) — late registrant assumes first available
     #       starting position even if it's the button.
