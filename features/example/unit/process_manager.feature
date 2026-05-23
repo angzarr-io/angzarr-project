@@ -1,583 +1,438 @@
 # Allocated: EU-0400 .. EU-0499 (in use: 0400..0440, 0441..0442, 0445..0447)
-Feature: Process manager logic
-  The HandFlowPM orchestrates a poker hand's state machine: dealing, blind
-  posting, betting rounds, community cards, and showdown. Unlike sagas,
-  process managers are STATEFUL - they maintain their own event stream to
-  track workflow progress.
-
-  # Why a process manager (not just sagas):
-  # - Hand flow requires sequencing: blinds before betting, flop before turn
-  # - State machine transitions need memory (current phase, who has acted)
-  # - Timeouts require knowing the current action player
-  # - Multiple events across domains must be correlated
-
-  # Patterns enabled by process managers:
-  # - Cross-domain correlation: Events from table AND hand domains drive one
-    # workflow. Same pattern applies to order+payment+shipping coordination.
-  # - Long-running workflows: A hand may last minutes with many events. PM state
-    # survives restarts. Same pattern applies to approval chains, onboarding flows.
-  # - Timeout orchestration: PM schedules timeouts, handles expiration. Same
-    # pattern applies to payment timeouts, SLA enforcement, auction endings.
-  # - Compensation coordination: When downstream fails, PM updates workflow state
-    # before source aggregate compensates. Same pattern for distributed sagas.
-
-  # Why poker exercises PM patterns well:
-  # - Multi-domain events: HandStarted (table) + CardsDealt (hand) + actions (hand)
-  # - Complex state machine: DEALING→BLINDS→BETTING→FLOP→BETTING→TURN→... with
-    # clear phase transitions and invalid paths
-  # - Timeouts are critical: players have N seconds to act or auto-fold/check
-  # - Action tracking: who has acted, who needs to act, who has folded
-
-  # The HandFlowPM:
-  # - Receives events from table and hand domains
-  # - Maintains workflow state (phase, betting state, player status)
-  # - Emits commands to advance the hand (PostBlind, DealCommunityCards, AwardPot)
-  # - Handles timeouts with sensible defaults (auto-fold/check)
+Feature: Hand orchestration
+  The hand orchestrator runs each hand through dealing, blinds, betting,
+  community cards, and showdown. It also coordinates the buy-in, rebuy, and
+  tournament registration flows that span the player, table, and tournament
+  sides of the game.
 
   # ==========================================================================
   # Hand Initialization
   # ==========================================================================
-  # When a table starts a hand, the PM creates a HandProcess to track the
-  # workflow. This process state persists across all phases of the hand.
+  # When a table starts a hand, the orchestrator begins tracking it so that
+  # dealing, blinds, betting, and the showdown all happen in order.
 
   @EU-0400
-  Scenario: Process manager initializes hand from HandStarted
-    Given a HandFlowPM
-    And a HandStarted event with:
-      | hand_number | game_variant   | dealer_position | small_blind | big_blind |
-      | 1           | TEXAS_HOLDEM   | 0               | 5           | 10        |
-    And active players:
-      | player_root | position | stack |
-      | player-1    | 0        | 500   |
-      | player-2    | 1        | 500   |
-    When the process manager starts the hand
-    Then a HandProcess is created with phase DEALING
-    And the process has 2 players
-    And the process has dealer_position 0
+  Scenario: A new hand begins in the dealing phase
+    Given a hand has just started with dealer at position 0, small blind 5, big blind 10
+    And the seated players are:
+      | player   | position | stack |
+      | player-1 | 0        | 500   |
+      | player-2 | 1        | 500   |
+    When the hand is started
+    Then the hand is in the dealing phase
+    And the hand has 2 players
+    And the dealer is at position 0
 
   # ==========================================================================
   # Blind Posting Phase
   # ==========================================================================
-  # After cards are dealt, the PM drives blind posting: small blind first,
-  # then big blind. Once both are posted, betting can begin.
+  # After cards are dealt, the small blind is posted first, then the big
+  # blind. Once both are posted, betting can begin.
 
   @EU-0401
-  Scenario: Process manager transitions to blind posting after cards dealt
-    Given an active hand process in phase DEALING
-    And a CardsDealt event
-    When the process manager handles the event
-    Then the process transitions to phase POSTING_BLINDS
-    And a PostBlind command is sent for small blind
+  Scenario: Blinds are posted once the cards are dealt
+    Given a hand is in the dealing phase
+    When the cards are dealt to the players
+    Then the hand moves to posting blinds
+    And the small blind is asked of the player due to post it
 
   @EU-0402
-  Scenario: Process manager posts big blind after small blind
-    Given an active hand process in phase POSTING_BLINDS
-    And small_blind_posted is true
-    And a BlindPosted event for small blind
-    When the process manager handles the event
-    Then a PostBlind command is sent for big blind
+  Scenario: The big blind is posted after the small blind
+    Given a hand is posting blinds
+    And the small blind has been posted
+    When the small blind is posted
+    Then the big blind is asked of the player due to post it
 
   @EU-0403
-  Scenario: Process manager starts betting after big blind posted
-    Given an active hand process in phase POSTING_BLINDS
-    And small_blind_posted is true
-    And a BlindPosted event for big blind
-    When the process manager handles the event
-    Then the process transitions to phase BETTING
-    And action_on is set to UTG position
+  Scenario: Betting opens after the big blind is posted
+    Given a hand is posting blinds
+    And the small blind has been posted
+    When the big blind is posted
+    Then the hand moves to the betting round
+    And action is on the player under the gun
 
   # ==========================================================================
   # Betting Round Management
   # ==========================================================================
-  # The PM tracks who has acted, current bet, and when the round is complete.
-  # A round ends when all active players have acted and matched the current bet.
-  # Raises reset the "has acted" state for other players.
+  # The orchestrator tracks who has acted and when the round is complete.
+  # A round ends once every active player has acted and matched the current
+  # bet. A raise reopens the action for everyone still in the hand.
 
   @EU-0404
-  Scenario: Process manager advances action after player acts
-    Given an active hand process in phase BETTING
-    And action_on is position 2
-    And an ActionTaken event for player at position 2 with action CALL
-    When the process manager handles the event
-    Then action_on advances to next active player
+  Scenario: Action passes to the next player after one acts
+    Given a hand is in a betting round
+    And action is on the player at position 2
+    When the player at position 2 calls
+    Then action passes to the next active player
 
   @EU-0405
-  Scenario: Process manager resets has_acted after raise
-    Given an active hand process in phase BETTING
-    And players at positions 0, 1, 2 have all acted
-    And an ActionTaken event for player at position 0 with action RAISE
-    When the process manager handles the event
-    Then players at positions 1 and 2 have has_acted reset to false
+  Scenario: A raise reopens the action for everyone else
+    Given a hand is in a betting round
+    And the players at positions 0, 1, and 2 have all acted
+    When the player at position 0 raises
+    Then the players at positions 1 and 2 must act again
 
   @EU-0406
-  Scenario: Process manager detects betting complete
-    Given an active hand process in phase BETTING
-    And all active players have acted and matched the current bet
-    And an ActionTaken event for the last player
-    When the process manager handles the event
+  Scenario: The betting round ends when everyone has acted and matched the bet
+    Given a hand is in a betting round
+    And every active player has acted and matched the current bet
+    When the last player acts
     Then the betting round ends
-    And the process advances to next phase
+    And the hand advances to the next phase
 
   @EU-0407
-  Scenario: Process manager deals flop after preflop betting
-    Given an active hand process with betting_phase PREFLOP
-    And betting round is complete
-    When the process manager ends the betting round
-    Then a DealCommunityCards command is sent with count 3
-    And the process transitions to phase DEALING_COMMUNITY
+  Scenario: The flop is dealt after the preflop betting round
+    Given preflop betting is complete
+    When the betting round ends
+    Then the flop is dealt
+    And the hand is dealing community cards
 
   @EU-0408
-  Scenario: Process manager deals turn after flop betting
-    Given an active hand process with betting_phase FLOP
-    And betting round is complete
-    When the process manager ends the betting round
-    Then a DealCommunityCards command is sent with count 1
+  Scenario: The turn is dealt after the flop betting round
+    Given flop betting is complete
+    When the betting round ends
+    Then the turn card is dealt
 
   @EU-0409
-  Scenario: Process manager deals river after turn betting
-    Given an active hand process with betting_phase TURN
-    And betting round is complete
-    When the process manager ends the betting round
-    Then a DealCommunityCards command is sent with count 1
+  Scenario: The river is dealt after the turn betting round
+    Given turn betting is complete
+    When the betting round ends
+    Then the river card is dealt
 
   @EU-0410
-  Scenario: Process manager starts showdown after river betting
-    Given an active hand process with betting_phase RIVER
-    And betting round is complete
-    When the process manager ends the betting round
-    Then the process transitions to phase SHOWDOWN
-    And an AwardPot command is sent
+  Scenario: Showdown begins after the river betting round
+    Given river betting is complete
+    When the betting round ends
+    Then the hand moves to showdown
+    And the pot is awarded
 
   # ==========================================================================
   # Position-Specific Action Order
   # ==========================================================================
   # Three positional rules every poker engine must get right:
-  #   - Preflop: BB acts last and retains the "option" to check or raise even
-  #     when current_bet == BB amount (everyone else just called the blind).
-  #   - Post-flop, ring (3+): action starts at the first un-folded seat left
-  #     of the dealer (typically the SB position).
-  #   - Post-flop, heads-up: action reverses — BB acts first, dealer/SB last.
-  # All three are easy to get wrong with off-by-one logic in the seat walker.
+  #   - Preflop: the big blind acts last and keeps the option to check or
+  #     raise even when everyone else has only matched the blind.
+  #   - Post-flop, ring (3+ players): action starts at the first un-folded
+  #     seat left of the dealer.
+  #   - Post-flop, heads-up: action reverses — the big blind acts first and
+  #     the dealer/small blind acts last.
 
   @EU-0445
-  Scenario: BB retains option preflop after non-BB players match the blind
-    # Three-handed: dealer at 0, SB at 1, BB at 2. Blinds posted, current_bet
-    # = BB. Dealer (UTG with 3 players) calls; SB completes. Both have
-    # bet_this_round == current_bet, but the round must NOT be complete: BB's
-    # has_acted is still false (the PM resets it on _start_betting), so BB
-    # gets the option to check or raise even though their blind already
-    # matches. A buggy implementation that closes the round on
-    # "everyone-matched" would skip BB entirely.
-    Given an active hand process in phase BETTING
-    And dealer is at position 0 and 3 players seated at positions 0, 1, 2
-    And blinds posted: SB position 1 amount 5, BB position 2 amount 10
-    And action_on is position 0
+  Scenario: The big blind keeps the option preflop after the others just call
+    # Three-handed: dealer at 0, small blind at 1, big blind at 2. After the
+    # dealer calls and the small blind completes, both have matched the big
+    # blind but the round is NOT over — the big blind still has the option to
+    # check or raise.
+    Given a hand is in a betting round
+    And the dealer is at position 0 with players at positions 0, 1, and 2
+    And the small blind of 5 was posted by position 1 and the big blind of 10 was posted by position 2
+    And action is on the player at position 0
     When the player at position 0 calls 10
     And the player at position 1 calls 5
-    Then the betting round is not complete
-    And action_on is position 2
+    Then the betting round is not yet complete
+    And action is on the big blind at position 2
 
   @EU-0446
   @wip
-  Scenario: Post-flop action starts at first active seat left of dealer (3-handed)
-    # After the flop is dealt with 3 players still in (dealer at seat 0, SB at
-    # 1, BB at 2), the next betting round opens with action on seat 1 (SB) —
-    # the first active seat clockwise from the dealer. Confirms the seat
-    # walker uses the dealer position, not the previous-round action_on.
-    Given an active hand process with betting_phase PREFLOP
-    And dealer is at position 0 and 3 players seated at positions 0, 1, 2
-    And the preflop betting round is complete
-    When a CommunityCardsDealt event for FLOP is handled
-    Then the process transitions to phase BETTING
-    And action_on is position 1
+  Scenario: Post-flop action starts on the first active seat left of the dealer (3-handed)
+    # After the flop is dealt with three players still in (dealer at seat 0,
+    # small blind at 1, big blind at 2), the next round opens with action on
+    # seat 1 — the first active seat clockwise from the dealer.
+    Given preflop betting is complete
+    And the dealer is at position 0 with players at positions 0, 1, and 2
+    When the flop is dealt
+    Then the hand moves to the betting round
+    And action is on the player at position 1
 
   @EU-0447
   @wip
-  Scenario: Post-flop action starts on the BB in heads-up
-    # Heads-up reverses the post-flop order: dealer/SB at seat 0 acts last,
-    # BB at seat 1 acts first. _find_next_active(dealer_position) wraps to
-    # the next seat — which IS the BB. Without an explicit assertion, a
-    # heads-up off-by-one (e.g. starting on the dealer post-flop) would slip
-    # through unit tests because the action still completes.
-    Given an active hand process with betting_phase PREFLOP
-    And dealer is at position 0 and 2 players seated at positions 0, 1
-    And the preflop betting round is complete
-    When a CommunityCardsDealt event for FLOP is handled
-    Then the process transitions to phase BETTING
-    And action_on is position 1
+  Scenario: Post-flop action starts on the big blind in heads-up
+    # Heads-up reverses the post-flop order: the dealer/small blind at seat 0
+    # acts last and the big blind at seat 1 acts first.
+    Given preflop betting is complete
+    And the dealer is at position 0 with players at positions 0 and 1
+    When the flop is dealt
+    Then the hand moves to the betting round
+    And action is on the player at position 1
 
   # ==========================================================================
   # All-in and Early Endings
   # ==========================================================================
-  # Hands can end early if all but one player folds. All-in players are
-  # tracked separately since they can't take further actions but remain
-  # eligible for pot awards.
+  # A hand can end early if everyone but one player folds. All-in players
+  # cannot take further actions but remain eligible for pot awards.
 
   @EU-0411
-  Scenario: Process manager awards pot to last player standing
-    Given an active hand process with 2 players
-    And an ActionTaken event with action FOLD
-    When the process manager handles the event
-    Then the process transitions to phase COMPLETE
-    And an AwardPot command is sent to the remaining player
+  Scenario: The pot is awarded to the last player still in the hand
+    Given a hand with 2 players is in progress
+    When one of the players folds
+    Then the hand is complete
+    And the pot is awarded to the remaining player
 
   @EU-0412
-  Scenario: Process manager handles all-in correctly
-    Given an active hand process in phase BETTING
-    And an ActionTaken event with action ALL_IN
-    When the process manager handles the event
-    Then the player is marked as is_all_in
-    And the player is not included in active players for betting
+  Scenario: A player who moves all-in is taken out of the action
+    Given a hand is in a betting round
+    When a player moves all-in
+    Then that player is marked as all-in
+    And that player no longer acts in this betting round
 
   # ==========================================================================
   # Timeout Handling
   # ==========================================================================
   # Players who don't act within the time limit are auto-acted: fold if
-  # facing a bet, check if no bet. This prevents hands from stalling
-  # indefinitely.
+  # facing a bet, check if there is no bet to face. This keeps hands from
+  # stalling indefinitely.
 
   @EU-0413
-  Scenario: Process manager auto-folds on timeout when facing bet
-    Given an active hand process in phase BETTING
-    And current_bet is 20
-    And action_on player has bet_this_round 0
-    When the action times out
-    Then the process manager sends PlayerAction with FOLD
+  Scenario: A player who times out facing a bet is folded
+    Given a hand is in a betting round
+    And the player to act faces a bet of 20 with nothing committed this round
+    When the player times out
+    Then the player is folded
 
   @EU-0414
-  Scenario: Process manager auto-checks on timeout when no bet
-    Given an active hand process in phase BETTING
-    And current_bet is 0
-    When the action times out
-    Then the process manager sends PlayerAction with CHECK
+  Scenario: A player who times out with no bet to face is checked
+    Given a hand is in a betting round
+    And there is no bet to call
+    When the player times out
+    Then the player is checked
 
   # ==========================================================================
   # Draw Game Phases
   # ==========================================================================
   # Draw games have an additional phase between betting rounds where players
-  # discard and draw new cards. The PM tracks draw completion.
+  # discard and draw new cards.
 
   @EU-0415
-  Scenario: Process manager handles Five Card Draw phase transition
-    Given an active hand process with game_variant FIVE_CARD_DRAW
-    And betting_phase PREFLOP
-    And betting round is complete
-    When the process manager ends the betting round
-    Then the process transitions to phase DRAW
+  Scenario: Five Card Draw moves to the draw after the first betting round
+    Given a Five Card Draw hand has finished the first betting round
+    When the betting round ends
+    Then the hand moves to the draw
 
   @EU-0416
-  Scenario: Process manager starts final betting after draw
-    Given an active hand process with game_variant FIVE_CARD_DRAW
-    And betting_phase DRAW
-    And all players have completed their draws
-    When the process manager handles the last draw
-    Then the process transitions to phase BETTING
-    And betting_phase is set to DRAW
+  Scenario: Five Card Draw resumes betting after every player has drawn
+    Given a Five Card Draw hand is in the draw
+    And every player has finished drawing
+    When the last player finishes drawing
+    Then the hand moves to the final betting round
 
   # ==========================================================================
   # Community Card Dealing
   # ==========================================================================
-  # When community cards are dealt, the PM resets betting state for the new
-  # round: bet amounts reset to zero, action moves to first player after dealer.
+  # When new community cards are dealt, the betting state resets: nothing is
+  # committed yet for the new round and action moves to the first player
+  # left of the dealer who is still in the hand.
 
   @EU-0417
-  Scenario: Process manager resets betting state for new round
-    Given an active hand process in phase BETTING
-    And a CommunityCardsDealt event for FLOP
-    When the process manager handles the event
-    Then all players have bet_this_round reset to 0
-    And all players have has_acted reset to false
-    And current_bet is reset to 0
-    And action_on is set to first player after dealer
+  Scenario: A new community card resets the betting state for the next round
+    Given a hand is in a betting round
+    When the flop is dealt
+    Then no player has anything committed this round
+    And no player has yet acted this round
+    And there is no bet to call
+    And action is on the first active player left of the dealer
 
   # ==========================================================================
-  # State Management
+  # Pot and Stack Tracking
   # ==========================================================================
-  # The PM maintains accurate pot totals and player stacks throughout the
-  # hand. These scenarios verify state updates are correct.
+  # The orchestrator keeps the running pot total and the players' stacks
+  # accurate throughout the hand.
 
   @EU-0418
-  Scenario: Process manager tracks pot total correctly
-    Given an active hand process
-    And a series of BlindPosted and ActionTaken events totaling 150
-    When all events are processed
-    Then pot_total is 150
+  Scenario: The pot total reflects every blind and bet so far
+    Given a hand is in progress
+    And the players have together contributed 150 in blinds and bets
+    Then the pot total is 150
 
   @EU-0419
-  Scenario: Process manager tracks player stacks correctly
-    Given an active hand process with player "player-1" at stack 500
-    And an ActionTaken event for "player-1" with amount 50
-    When the process manager handles the event
-    Then "player-1" stack is 450
+  Scenario: A bet is deducted from the player's stack
+    Given a hand is in progress with "player-1" sitting on 500
+    When "player-1" puts 50 into the pot
+    Then "player-1"'s stack is 450
 
   @EU-0420
-  Scenario: Process manager completes hand on PotAwarded
-    Given an active hand process in phase SHOWDOWN
-    And a PotAwarded event
-    When the process manager handles the event
-    Then the process transitions to phase COMPLETE
+  Scenario: The hand ends once the pot has been awarded
+    Given a hand is at showdown
+    When the pot is awarded
+    Then the hand is complete
     And any pending timeout is cancelled
 
   # ==========================================================================
-  # Buy-In Process Manager
+  # Buy-In Flow
   # ==========================================================================
-  # The BuyInPM coordinates buy-in flows across Player <-> Table aggregates:
-  # 1. Player emits BuyInRequested
-  # 2. PM (optionally) queries Table state via QueryClient for pre-validation
-  # 3. On pass, PM emits SeatPlayer command + BuyInInitiated process event
-  # 4. Table replies with PlayerSeated (success) or SeatingRejected (failure)
-  # 5. Success path: PM emits ConfirmBuyIn + BuyInCompleted process event
-  #    Failure path: PM emits ReleaseBuyIn + BuyInFailed process event
-  #
-  # These scenarios exercise the happy/error paths without a query client
-  # wired (validation is skipped when table_state is empty).
+  # A buy-in is coordinated across the player and table sides:
+  # 1. The player requests a buy-in for a seat.
+  # 2. The orchestrator asks the table to seat the player.
+  # 3. If the table accepts, the player's funds are confirmed for that seat.
+  # 4. If the table rejects, the player's reservation is released.
 
   @EU-0421
-  Scenario: BuyInPM emits SeatPlayer command for BuyInRequested
-    Given a BuyInPM with player_root "player_123"
-    And a BuyInRequested event with table_root "table_456", reservation_id "res_789", seat 2, amount 500
-    And destinations with sequences table=5
-    When the BuyInPM handles buy_in_requested
-    Then a SeatPlayer command is sent to the "table" domain
-    And the SeatPlayer command has player_root "player_123"
-    And the SeatPlayer command has seat 2
-    And the SeatPlayer command has amount 500
-    And the SeatPlayer command has reservation_id "res_789"
+  Scenario: A buy-in request asks the table to seat the player
+    Given a buy-in is in progress for player "player_123"
+    When player "player_123" requests a buy-in at table "table_456" for seat 2 with 500 chips under reservation "res_789"
+    Then the table is asked to seat "player_123" at seat 2 with 500 chips under reservation "res_789"
 
   @EU-0422
-  Scenario: BuyInPM records BuyInInitiated process event
-    Given a BuyInPM with player_root "player_123"
-    And a BuyInRequested event with table_root "table_456", reservation_id "res_789", seat 2, amount 500
-    And destinations with sequences table=5
-    When the BuyInPM handles buy_in_requested
-    Then the process event is a angzarr_client.proto.examples.v1.BuyInInitiated event
-    And the BuyInInitiated event has player_root "player_123"
-    And the BuyInInitiated event has table_root "table_456"
-    And the BuyInInitiated event phase is BUY_IN_SEATING
+  Scenario: A buy-in request is recorded as in progress
+    Given a buy-in is in progress for player "player_123"
+    When player "player_123" requests a buy-in at table "table_456" for seat 2 with 500 chips under reservation "res_789"
+    Then the buy-in for "player_123" at "table_456" is recorded as awaiting seating
 
   @EU-0423
-  Scenario: BuyInPM emits ConfirmBuyIn on PlayerSeated
-    Given a BuyInPM
-    And a PlayerSeated event with player_root "player_123", reservation_id "res_789", seat_position 2, stack 500
-    And destinations with sequences player=3
-    When the BuyInPM handles player_seated
-    Then a ConfirmBuyIn command is sent to the "reservation" domain
-    And the ConfirmBuyIn command has reservation_id "res_789"
+  Scenario: Once the player is seated the buy-in funds are confirmed
+    Given a buy-in is in progress
+    When the table seats "player_123" at seat 2 with 500 chips under reservation "res_789"
+    Then "player_123"'s buy-in reservation "res_789" is confirmed
 
   @EU-0424
-  Scenario: BuyInPM records BuyInCompleted on PlayerSeated
-    Given a BuyInPM
-    And a PlayerSeated event with player_root "player_123", reservation_id "res_789", seat_position 2, stack 500
-    And destinations with sequences player=3
-    When the BuyInPM handles player_seated
-    Then the process event is a angzarr_client.proto.examples.v1.BuyInCompleted event
-    And the BuyInCompleted event has player_root "player_123"
-    And the BuyInCompleted event has seat 2
+  Scenario: Once the player is seated the buy-in is recorded as completed
+    Given a buy-in is in progress
+    When the table seats "player_123" at seat 2 with 500 chips under reservation "res_789"
+    Then the buy-in for "player_123" at seat 2 is recorded as completed
 
   @EU-0425
-  Scenario: BuyInPM emits ReleaseBuyIn on SeatingRejected
-    Given a BuyInPM
-    And a SeatingRejected event with player_root "player_123", reservation_id "res_789", reason "Seat already taken"
-    And destinations with sequences player=3
-    When the BuyInPM handles seating_rejected
-    Then a ReleaseBuyIn command is sent to the "reservation" domain
-    And the ReleaseBuyIn command has reservation_id "res_789"
-    And the ReleaseBuyIn command has reason "Seat already taken"
+  Scenario: If seating is refused the buy-in funds are released
+    Given a buy-in is in progress
+    When the table refuses to seat "player_123" under reservation "res_789" because "Seat already taken"
+    Then "player_123"'s buy-in reservation "res_789" is released because "Seat already taken"
 
   @EU-0426
-  Scenario: BuyInPM records BuyInFailed on SeatingRejected
-    Given a BuyInPM
-    And a SeatingRejected event with player_root "player_123", reservation_id "res_789", reason "Seat already taken"
-    And destinations with sequences player=3
-    When the BuyInPM handles seating_rejected
-    Then the process event is a angzarr_client.proto.examples.v1.BuyInFailed event
-    And the BuyInFailed event has player_root "player_123"
-    And the BuyInFailed event failure code is "SEATING_REJECTED"
+  Scenario: If seating is refused the buy-in is recorded as failed
+    Given a buy-in is in progress
+    When the table refuses to seat "player_123" under reservation "res_789" because "Seat already taken"
+    Then the buy-in for "player_123" is recorded as failed because the table refused to seat the player
 
   # ==========================================================================
-  # Rebuy Process Manager
+  # Rebuy Flow
   # ==========================================================================
-  # The RebuyPM coordinates rebuy flows across Player <-> Tournament <-> Table:
-  # 1. Player emits RebuyRequested
-  # 2. PM (optionally) queries Tournament + Table state for pre-validation
-  # 3. On pass, PM emits ProcessRebuy command to Tournament +
-  #    RebuyInitiated process event
-  # 4. Tournament replies RebuyProcessed (approve) or RebuyDenied (reject)
-  # 5. On approve, PM emits AddRebuyChips to Table which echoes
-  #    RebuyChipsAdded — PM then emits ConfirmRebuyFee + RebuyCompleted
-  #    On deny, PM emits ReleaseRebuyFee + RebuyFailed
+  # A rebuy is coordinated across the player, tournament, and table sides:
+  # 1. The player requests a rebuy.
+  # 2. The orchestrator asks the tournament to approve it.
+  # 3. If approved, the table adds the rebuy chips and the fee is confirmed.
+  # 4. If denied, the rebuy fee is released.
 
   @EU-0427
-  Scenario: RebuyPM emits ProcessRebuy for RebuyRequested
-    Given a RebuyPM with player_root "player_123"
-    And a RebuyRequested event with tournament_root "tournament_456", table_root "table_789", reservation_id "res_001", seat 2, fee 50
-    And destinations with sequences tournament=5, table=3
-    When the RebuyPM handles rebuy_requested
-    Then a ProcessRebuy command is sent to the "tournament" domain
-    And the ProcessRebuy command has player_root "player_123"
-    And the ProcessRebuy command has reservation_id "res_001"
+  Scenario: A rebuy request asks the tournament to approve the rebuy
+    Given a rebuy is in progress for player "player_123"
+    When player "player_123" requests a rebuy at tournament "tournament_456", table "table_789", seat 2 with fee 50 under reservation "res_001"
+    Then the tournament is asked to approve the rebuy for "player_123" under reservation "res_001"
 
   @EU-0428
-  Scenario: RebuyPM records RebuyInitiated process event
-    Given a RebuyPM with player_root "player_123"
-    And a RebuyRequested event with tournament_root "tournament_456", table_root "table_789", reservation_id "res_001", seat 2, fee 50
-    And destinations with sequences tournament=5
-    When the RebuyPM handles rebuy_requested
-    Then the process event is a angzarr_client.proto.examples.v1.RebuyInitiated event
-    And the RebuyInitiated event has player_root "player_123"
-    And the RebuyInitiated event has tournament_root "tournament_456"
-    And the RebuyInitiated event phase is REBUY_APPROVING
+  Scenario: A rebuy request is recorded as awaiting approval
+    Given a rebuy is in progress for player "player_123"
+    When player "player_123" requests a rebuy at tournament "tournament_456", table "table_789", seat 2 with fee 50 under reservation "res_001"
+    Then the rebuy for "player_123" in tournament "tournament_456" is recorded as awaiting approval
 
   @EU-0429
-  Scenario: RebuyPM emits AddRebuyChips on RebuyProcessed
-    Given a RebuyPM with table_root "table_789" and seat 2
-    And a RebuyProcessed event with player_root "player_123", reservation_id "res_001", chips_added 1500, rebuy_count 1
-    And destinations with sequences table=3
-    When the RebuyPM handles rebuy_processed
-    Then an AddRebuyChips command is sent to the "table" domain
-    And the AddRebuyChips command has player_root "player_123"
-    And the AddRebuyChips command has reservation_id "res_001"
-    And the AddRebuyChips command has seat 2
-    And the AddRebuyChips command has amount 1500
+  Scenario: An approved rebuy asks the table to add the rebuy chips
+    Given a rebuy is in progress for table "table_789" at seat 2
+    When the tournament approves the rebuy for "player_123" under reservation "res_001" with 1500 chips
+    Then the table is asked to add 1500 chips for "player_123" at seat 2 under reservation "res_001"
 
   @EU-0430
-  Scenario: RebuyPM emits ReleaseRebuyFee on RebuyDenied
-    Given a RebuyPM with tournament_root "tournament_456"
-    And a RebuyDenied event with player_root "player_123", reservation_id "res_001", reason "Rebuy limit reached"
-    And destinations with sequences player=5
-    When the RebuyPM handles rebuy_denied
-    Then a ReleaseRebuyFee command is sent to the "reservation" domain
-    And the ReleaseRebuyFee command has reservation_id "res_001"
-    And the ReleaseRebuyFee command has reason "Rebuy limit reached"
+  Scenario: A denied rebuy releases the rebuy fee
+    Given a rebuy is in progress for tournament "tournament_456"
+    When the tournament denies the rebuy for "player_123" under reservation "res_001" because "Rebuy limit reached"
+    Then "player_123"'s rebuy reservation "res_001" is released because "Rebuy limit reached"
 
   @EU-0431
-  Scenario: RebuyPM records RebuyFailed on RebuyDenied
-    Given a RebuyPM with tournament_root "tournament_456"
-    And a RebuyDenied event with player_root "player_123", reservation_id "res_001", reason "Rebuy limit reached"
-    And destinations with sequences player=5
-    When the RebuyPM handles rebuy_denied
-    Then the process event is a angzarr_client.proto.examples.v1.RebuyFailed event
-    And the RebuyFailed event has player_root "player_123"
-    And the RebuyFailed event failure code is "REBUY_DENIED"
+  Scenario: A denied rebuy is recorded as failed
+    Given a rebuy is in progress for tournament "tournament_456"
+    When the tournament denies the rebuy for "player_123" under reservation "res_001" because "Rebuy limit reached"
+    Then the rebuy for "player_123" is recorded as failed because the tournament denied the rebuy
 
   @EU-0432
-  Scenario: RebuyPM emits ConfirmRebuyFee on RebuyChipsAdded
-    Given a RebuyPM with tournament_root "tournament_456", table_root "table_789", fee 50
-    And a RebuyChipsAdded event with player_root "player_123", reservation_id "res_001", seat 2, amount 1500, new_stack 2000
-    And destinations with sequences player=5
-    When the RebuyPM handles rebuy_chips_added
-    Then a ConfirmRebuyFee command is sent to the "reservation" domain
-    And the ConfirmRebuyFee command has reservation_id "res_001"
+  Scenario: Once the chips are added the rebuy fee is confirmed
+    Given a rebuy is in progress for tournament "tournament_456" at table "table_789" with fee 50
+    When the table adds 1500 rebuy chips for "player_123" at seat 2 under reservation "res_001"
+    Then "player_123"'s rebuy fee reservation "res_001" is confirmed
 
   @EU-0433
-  Scenario: RebuyPM records RebuyCompleted on RebuyChipsAdded
-    Given a RebuyPM with tournament_root "tournament_456", table_root "table_789", fee 50
-    And a RebuyChipsAdded event with player_root "player_123", reservation_id "res_001", seat 2, amount 1500, new_stack 2000
-    And destinations with sequences player=5
-    When the RebuyPM handles rebuy_chips_added
-    Then the process event is a angzarr_client.proto.examples.v1.RebuyCompleted event
-    And the RebuyCompleted event has player_root "player_123"
-    And the RebuyCompleted event has chips_added 1500
+  Scenario: Once the chips are added the rebuy is recorded as completed
+    Given a rebuy is in progress for tournament "tournament_456" at table "table_789" with fee 50
+    When the table adds 1500 rebuy chips for "player_123" at seat 2 under reservation "res_001"
+    Then the rebuy for "player_123" is recorded as completed with 1500 chips added
 
   # ==========================================================================
-  # Registration Process Manager
+  # Tournament Registration Flow
   # ==========================================================================
-  # The RegistrationPM coordinates registration flows across
-  # Player <-> Tournament aggregates:
-  # 1. Player emits RegistrationRequested
-  # 2. PM (optionally) queries Tournament state for pre-validation
-  #    (registration_open, capacity, already-registered)
-  # 3. On pass, PM emits EnrollPlayer command + RegistrationInitiated
-  #    process event
-  # 4. Tournament replies TournamentPlayerEnrolled (success) or
-  #    TournamentEnrollmentRejected (failure)
-  # 5. Success: PM emits ConfirmRegistrationFee + RegistrationCompleted
-  #    Failure: PM emits ReleaseRegistrationFee + RegistrationFailed
+  # Tournament registration is coordinated across the player and tournament
+  # sides:
+  # 1. The player requests to register for a tournament.
+  # 2. The orchestrator asks the tournament to enroll the player.
+  # 3. If enrolled, the registration fee is confirmed.
+  # 4. If rejected, the fee is released.
   #
-  # The tournament-state rebuild scenarios verify the TournamentStateHelper
-  # used during pre-validation correctly folds tournament domain events.
+  # The first three scenarios verify a tournament's registration state can
+  # be reconstructed from its history (open/closed, capacity, who has
+  # already registered).
 
   @EU-0434
-  Scenario: Tournament state rebuild from TournamentCreated event
-    Given a tournament event book with a TournamentCreated event name "Test Tournament", max_players 100, buy_in 50, starting_stack 1500
-    When I rebuild the tournament state from the event book
-    Then the tournament state has registration_open true
-    And the tournament state has max_players 100
-    And the tournament state has buy_in 50
-    And the tournament state has starting_stack 1500
-    And the tournament state has registered_count 0
+  Scenario: A newly created tournament is open for registration
+    Given a tournament has been created with name "Test Tournament", up to 100 players, buy-in 50, and starting stack 1500
+    When the tournament's registration state is reconstructed from its history
+    Then the tournament is open for registration
+    And the tournament allows up to 100 players
+    And the tournament buy-in is 50
+    And the tournament starting stack is 1500
+    And no players have registered yet
 
   @EU-0435
-  Scenario: Tournament state rebuild tracks player enrollments
-    Given a tournament event book with:
-      | event_type                | name      | max_players | player_root |
-      | TournamentCreated         | Test      | 50          |             |
-      | TournamentPlayerEnrolled  |           |             | player_123  |
-    When I rebuild the tournament state from the event book
-    Then the tournament state has registered player "player_123"
-    And the tournament state has registered_count 1
+  Scenario: Reconstructing the tournament state shows who has registered
+    Given a tournament history with:
+      | event                    | name | max_players | player     |
+      | tournament created       | Test | 50          |            |
+      | player enrolled          |      |             | player_123 |
+    When the tournament's registration state is reconstructed from its history
+    Then "player_123" is registered for the tournament
+    And 1 player is registered for the tournament
 
   @EU-0436
-  Scenario: Tournament state rebuild closes registration after start
-    Given a tournament event book with:
-      | event_type         | name |
-      | TournamentCreated  | Test |
-      | TournamentStarted  |      |
-    When I rebuild the tournament state from the event book
-    Then the tournament state has registration_open false
-    And the tournament state status is TOURNAMENT_RUNNING
+  Scenario: Reconstructing the tournament state shows registration closed once it starts
+    Given a tournament history with:
+      | event              | name |
+      | tournament created | Test |
+      | tournament started |      |
+    When the tournament's registration state is reconstructed from its history
+    Then the tournament is closed for registration
+    And the tournament is running
 
   @EU-0437
-  Scenario: Direct tournament_state_rebuild folds events into a state helper
-    Given an empty tournament state helper
-    When I apply a TournamentCreated event with name "T" and max_players 4
-    And I apply a TournamentPlayerEnrolled event for player_root "p1"
-    Then the tournament state has registered_count 1
-    And the tournament state has max_players 4
+  Scenario: The tournament state reflects each enrollment as it is applied
+    Given a fresh tournament
+    When a tournament is created with name "T" and up to 4 players
+    And "p1" is enrolled in the tournament
+    Then 1 player is registered for the tournament
+    And the tournament allows up to 4 players
 
   @EU-0438
-  Scenario: RegistrationPM emits EnrollPlayer for RegistrationRequested
-    Given a RegistrationPM with player_root "player_123"
-    And a RegistrationRequested event with tournament_root "tournament_456", reservation_id "res_001", fee 50
-    And destinations with sequences tournament=5
-    When the RegistrationPM handles registration_requested
-    Then an EnrollPlayer command is sent to the "tournament" domain
-    And the EnrollPlayer command has player_root "player_123"
-    And the EnrollPlayer command has reservation_id "res_001"
+  Scenario: A registration request asks the tournament to enroll the player
+    Given a registration is in progress for player "player_123"
+    When player "player_123" requests registration in tournament "tournament_456" with fee 50 under reservation "res_001"
+    Then the tournament is asked to enroll "player_123" under reservation "res_001"
 
   @EU-0439
-  Scenario: RegistrationPM emits ConfirmRegistrationFee on TournamentPlayerEnrolled
-    Given a RegistrationPM with tournament_root "tournament_456" and fee 50
-    And a TournamentPlayerEnrolled event with player_root "player_123", reservation_id "res_001", fee_paid 50, starting_stack 1500
-    And destinations with sequences player=3
-    When the RegistrationPM handles player_enrolled
-    Then a ConfirmRegistrationFee command is sent to the "reservation" domain
-    And the ConfirmRegistrationFee command has reservation_id "res_001"
+  Scenario: Once the player is enrolled the registration fee is confirmed
+    Given a registration is in progress for tournament "tournament_456" with fee 50
+    When the tournament enrolls "player_123" under reservation "res_001" with fee paid 50 and starting stack 1500
+    Then "player_123"'s registration fee reservation "res_001" is confirmed
 
   @EU-0440
-  Scenario: RegistrationPM emits ReleaseRegistrationFee on TournamentEnrollmentRejected
-    Given a RegistrationPM with tournament_root "tournament_456"
-    And a TournamentEnrollmentRejected event with player_root "player_123", reservation_id "res_001", reason "Tournament full"
-    And destinations with sequences player=3
-    When the RegistrationPM handles enrollment_rejected
-    Then a ReleaseRegistrationFee command is sent to the "reservation" domain
-    And the ReleaseRegistrationFee command has reservation_id "res_001"
-    And the ReleaseRegistrationFee command has reason "Tournament full"
+  Scenario: A rejected registration releases the registration fee
+    Given a registration is in progress for tournament "tournament_456"
+    When the tournament rejects the registration for "player_123" under reservation "res_001" because "Tournament full"
+    Then "player_123"'s registration fee reservation "res_001" is released because "Tournament full"
 
   # ==========================================================================
-  # RegistrationPM — Missing Fee Default
+  # Registration — Missing Fee Default
   # ==========================================================================
-  # When RegistrationRequested carries no fee, the PM defaults the recorded
-  # amount to zero so downstream replay has a well-formed Currency value.
+  # When a registration request carries no fee, the recorded amount defaults
+  # to zero so the rest of the flow has a well-formed amount to work with.
 
   @EU-0441
-  Scenario: RegistrationPM defaults missing fee to zero
-    Given a RegistrationPM with player_root "player_123"
-    And a RegistrationRequested event with tournament_root "tournament_456", reservation_id "res_001" and no fee
-    And destinations with sequences tournament=5
-    When the RegistrationPM handles registration_requested
-    Then the process event is a angzarr_client.proto.examples.v1.RegistrationInitiated event
-    And the RegistrationInitiated event has fee amount 0
+  Scenario: A registration without a fee is recorded with a zero fee
+    Given a registration is in progress for player "player_123"
+    When player "player_123" requests registration in tournament "tournament_456" under reservation "res_001" with no fee
+    Then the registration for "player_123" is recorded with a fee of 0
 
-  # HandComplete -> EndHand was moved out of the PM and lives in
-  # TableSyncCompleteSaga. See saga.feature for coverage.
+  # End-of-hand cleanup was moved out of the orchestrator and lives in the
+  # table-sync flow. See saga.feature for coverage.

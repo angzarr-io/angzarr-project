@@ -2,22 +2,22 @@
 Feature: Cluster Acceptance
   Cluster-tier acceptance scenarios. These are only meaningful when run
   against a deployed angzarr cluster (standalone docker-compose or k8s):
-  they exercise network serialization, pod lifecycle, inter-coordinator
-  routing, and observable read-model lag.
+  they exercise network serialization, pod lifecycle, cross-service
+  request routing, and observable read-model lag.
 
   In-process integration scenarios (single-process sagas, PMs, projectors)
   live in features/example/unit/ and are NOT duplicated here.
 
   How to run:
   - Start a cluster (standalone.yaml or kind bootstrap) and export
-    PLAYER_URL / TABLE_URL / HAND_URL to the coordinator endpoints.
-  - The consumer runner selects the gRPC backend automatically when those
-    URLs are set and skips these scenarios otherwise.
+    PLAYER_URL / TABLE_URL / HAND_URL to the service endpoints.
+  - The consumer runner selects the networked backend automatically when
+    those URLs are set and skips these scenarios otherwise.
 
   # CLUSTER-ONLY: validated against deployed standalone.yaml
 
   Background:
-    Given the poker cluster is reachable via gRPC
+    Given the poker cluster is reachable
 
   # ===========================================================================
   # Smoke - End-to-end happy path proves the deployed topology wires up.
@@ -26,7 +26,7 @@ Feature: Cluster Acceptance
   # CLUSTER-ONLY: validated against deployed standalone.yaml
   @e2e @smoke @cluster
   @EA-0001
-  Scenario: Smoke end-to-end hand completes across coordinators
+  Scenario: Smoke end-to-end hand completes across services
     Given registered players with bankroll:
       | name  | bankroll |
       | Alice | 1000     |
@@ -47,46 +47,50 @@ Feature: Cluster Acceptance
   # CLUSTER-ONLY: validated against deployed standalone.yaml
   @saga @latency @cluster
   @EA-0002
-  Scenario: Cross-coordinator saga propagates within realistic bound
+  Scenario: Cross-service saga propagates within realistic bound
     Given a table "Main" with 2 seated players
-    When I send a StartHand command to table "Main"
+    When I start a hand at table "Main"
     Then within 5 seconds hand domain has CardsDealt event
     And the hand has the same hand_number as the table event
 
   # ===========================================================================
-  # Event durability - state survives a coordinator restart via replay.
+  # Event durability - state survives a service restart via replay.
   # ===========================================================================
 
   # CLUSTER-ONLY: validated against deployed standalone.yaml
   @durability @cluster
   @EA-0003
-  Scenario: Player aggregate state survives coordinator restart
+  Scenario: Player state survives a service restart
     Given a registered player "Alice" with bankroll 1000
-    When the player coordinator is restarted
+    When the player service restarts
     Then within 10 seconds player "Alice" is reachable
     And player "Alice" has bankroll 1000
 
   # ===========================================================================
-  # Projector eventual-consistency bound observed from outside the process.
+  # Read-model eventual-consistency bound observed from outside the process.
   # ===========================================================================
 
   # CLUSTER-ONLY: validated against deployed standalone.yaml
-  @projector @consistency @cluster
+  # Tagged @wip until an external read surface exists. The previous
+  # impl polled the in-test bookkeeping mirror (which the When step had
+  # already set), so the assertion never observed the actual read model
+  # — see ACCEPTANCE_REMEDIATION_PLAN.md Pattern J.
+  @projector @consistency @cluster @wip
   @EA-0004
-  Scenario: Projector reflects state-changing command within bound
+  Scenario: Player display reflects a deposit within bound
     Given a registered player "Alice" with bankroll 0
     When I deposit 500 chips to player "Alice"
-    Then within 3 seconds the player projection shows bankroll 500
+    Then within 3 seconds the player display reports bankroll 500
 
   # ===========================================================================
-  # Cross-domain command routing - PM issues a command on a different
-  # aggregate's coordinator over the wire.
+  # Cross-domain request routing - one service issues a request that lands
+  # on a different aggregate's service over the wire.
   # ===========================================================================
 
   # CLUSTER-ONLY: validated against deployed standalone.yaml
   @routing @pm @cluster
   @EA-0005
-  Scenario: PM-issued command routes to a different coordinator
+  Scenario: A cross-domain request reaches the correct service
     Given a table "Main" with seated players:
       | name  | seat | stack |
       | Alice | 0    | 500   |
@@ -96,4 +100,4 @@ Feature: Cluster Acceptance
       | domain | event_type  |
       | table  | HandStarted |
       | hand   | CardsDealt  |
-    And the DealCards command was routed to the hand coordinator
+    And the deal-cards request was handled by the hand service

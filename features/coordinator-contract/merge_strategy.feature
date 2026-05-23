@@ -87,7 +87,7 @@ Feature: Merge Strategy - Concurrency Control
   # Behavior: Returns retryable error with fresh state.
   # Client action: Reload state from error, rebuild command, retry automatically.
   #
-  # This is the DEFAULT strategy (enum value 0).
+  # This is the DEFAULT strategy when none is specified.
 
   @merge_commutative
   Scenario: Commutative - command at correct sequence succeeds
@@ -166,7 +166,7 @@ Feature: Merge Strategy - Concurrency Control
     And the command targets sequence 1
     And the aggregate rejects due to state conflict
     When the coordinator processes the command
-    Then the command fails with aggregate's error
+    Then the command fails with the aggregate's rejection reason
     And no events are persisted
 
   @merge_aggregate_handles

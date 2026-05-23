@@ -1,338 +1,258 @@
 # Allocated: EU-0300 .. EU-0399
-Feature: Saga logic
-  Sagas translate events from one domain into commands for another. They're
-  stateless domain bridges that enable loose coupling between aggregates.
-  Each saga handles one direction: table→hand or hand→player.
+Feature: Cross-domain event translations
+  When one part of the game finishes a step, other parts need to react. A
+  hand starting at a table means cards must be dealt. A hand finishing
+  means the table can move on and the winners' bankrolls must be credited.
+  These translations happen automatically without players or tables
+  knowing about each other.
 
-  # Why sagas exist:
-  # - Aggregates shouldn't know about each other directly
-  # - Domain translation logic has a clear home
-  # - Saga failures can be compensated independently
-  # - Adding new sagas extends functionality without changing aggregates
+  # Why this exists:
+  # - Players, tables, and hands each own their own rules
+  # - When something happens in one area, the right follow-up should happen elsewhere
+  # - A failure in one follow-up should not block unrelated follow-ups
+  # - New reactions can be added without changing existing rules
 
-  # Patterns enabled by sagas:
-  # - Domain decoupling: Table doesn't import Hand types; saga translates. Same
-    # pattern applies to order→fulfillment, payment→ledger, user→notification.
-  # - Event-driven choreography: Events trigger sagas; sagas emit commands. No
-    # central orchestrator needed. Same pattern applies to microservice integration.
-  # - Fan-out reactions: One event can trigger multiple sagas targeting different
-    # domains. PotAwarded triggers both player balance updates AND table state updates.
+  # Why poker exercises this well:
+  # - Clear separation: a player owns money, a table owns seating, a hand owns gameplay
+  # - Obvious follow-ups: starting a hand means dealing cards; awarding a pot means crediting a player
+  # - One event can trigger multiple follow-ups in different areas
+  # - Rejected actions must release the funds they reserved
 
-  # Why poker exercises saga patterns well:
-  # - Clear domain boundaries: player (money), table (seating), hand (gameplay)
-  # - Obvious translations: HandStarted→DealCards, PotAwarded→DepositFunds
-  # - Multi-target fan-out: HandComplete triggers hand-player-saga AND hand-table-saga
-  # - Compensation scenarios: JoinTable rejection requires FundsReleased via saga
-
-  # The poker example sagas:
-  # - table-hand-saga: table events → hand commands (HandStarted → DealCards)
-  # - hand-player-saga: hand events → player commands (PotAwarded → DepositFunds)
-  # - hand-table-saga: hand events → table commands (HandComplete → EndHand)
+  # The translators exercised here:
+  # - table-to-hand translator: a hand starting at a table triggers card dealing;
+  #   a hand finishing triggers the table to wrap up the round
+  # - hand-to-player translator: pot awards credit winners; hand-end releases
+  #   the chips back to the participants' bankrolls
 
   # ==========================================================================
-  # TableSyncSaga - Table to Hand Bridge
+  # Table-to-Hand Translations
   # ==========================================================================
-  # When a table starts a hand, the saga translates this into commands for
-  # the hand aggregate. When a hand completes, it signals the table to end.
+  # When a table starts a hand, the hand is dealt. When the hand finishes,
+  # the table is told to end the round.
 
   @EU-0300
-  Scenario: Table sync saga routes HandStarted to DealCards
-    Given a TableSyncSaga
-    And a HandStarted event from table domain with:
-      | hand_root   | hand_number | game_variant   | dealer_position |
-      | hand-1      | 1           | TEXAS_HOLDEM   | 0               |
-    And active players:
+  Scenario: When a hand starts at a table, cards are dealt
+    Given a hand "hand-1" begins as hand number 1 with TEXAS_HOLDEM and dealer at position 0
+    And the active players are:
       | player_root | position | stack |
       | player-1    | 0        | 500   |
       | player-2    | 1        | 500   |
-    When the saga handles the event
-    Then the saga emits a DealCards command to hand domain
-    And the command has game_variant TEXAS_HOLDEM
-    And the command has 2 players
-    And the command has hand_number 1
-    # The saga must propagate hand_root as deck_seed so the deck shuffle is
-    # deterministic across runs — required for acceptance tests that assert
-    # specific cards. hand_root = sha256(table_id, hand_n) is itself
-    # deterministic per-hand, so this seed is reproducible.
-    And the command has deck_seed equal to the hand_root
+    When the hand-start is translated for the hand
+    Then the hand is dealt as hand number 1 with TEXAS_HOLDEM for 2 players
+    # The deal is reproducible from the hand's identifier, so acceptance
+    # tests can assert specific cards across runs.
+    And the deal is reproducible from the hand's identifier
 
   @EU-0301
-  Scenario: Table sync saga routes HandComplete to EndHand
-    Given a TableSyncSaga
-    And a HandComplete event from hand domain with:
-      | table_root | pot_total |
-      | table-1    | 100       |
-    And winners:
+  Scenario: When a hand finishes, the table is told to end the round
+    Given a hand at table "table-1" completes with pot total 100
+    And the winners are:
       | player_root | amount |
       | player-1    | 100    |
-    When the saga handles the event
-    Then the saga emits an EndHand command to table domain
-    And the command has 1 result
-    And the result has winner "player-1" with amount 100
+    When the hand-completion is translated for the table
+    Then the table ends the round with 1 result
+    And the result records "player-1" winning 100
 
   # ==========================================================================
-  # HandResultsSaga - Hand to Player Bridge
+  # Hand-to-Player Translations
   # ==========================================================================
   # When a hand ends or pots are awarded, players' bankrolls need updating.
-  # This saga emits DepositFunds/ReleaseFunds commands to the player domain.
 
   @EU-0302
-  Scenario: Hand results saga routes HandEnded to ReleaseFunds
-    Given a HandResultsSaga
-    And a HandEnded event from table domain with:
-      | hand_root |
-      | hand-1    |
-    And stack_changes:
+  Scenario: When a hand ends, each participant's reserved chips are released
+    Given hand "hand-1" ends with the following stack changes:
       | player_root | change |
       | player-1    | 50     |
       | player-2    | -50    |
-    When the saga handles the event
-    Then the saga emits 2 ReleaseFunds commands to player domain
+    When the hand-end is translated for the players
+    Then 2 players have their reserved chips released
 
   @EU-0303
-  Scenario: Hand results saga routes PotAwarded to DepositFunds
-    Given a HandResultsSaga
-    And a PotAwarded event from hand domain with:
-      | pot_total |
-      | 100       |
-    And winners:
+  Scenario: When a pot is awarded, each winner's bankroll is credited
+    Given a pot of 100 is awarded with winners:
       | player_root | amount |
       | player-1    | 60     |
       | player-2    | 40     |
-    When the saga handles the event
-    Then the saga emits 2 DepositFunds commands to player domain
-    And the first command has amount 60 for "player-1"
-    And the second command has amount 40 for "player-2"
+    When the pot-award is translated for the players
+    Then 2 players receive deposits
+    And "player-1" is credited 60
+    And "player-2" is credited 40
 
   # ==========================================================================
-  # SagaRouter Infrastructure
+  # Translation Dispatch
   # ==========================================================================
-  # The SagaRouter dispatches events to matching saga handlers. Multiple
-  # sagas can be registered; only those matching the event type are invoked.
+  # An event only triggers the translators that care about it. Unrelated
+  # translators are not invoked, and a failure in one translator does not
+  # prevent the others from running.
 
   @EU-0304
-  Scenario: Saga router dispatches to matching sagas only
-    Given a SagaRouter with TableSyncSaga and HandResultsSaga
-    And a HandStarted event
-    When the router routes the event
-    Then only TableSyncSaga handles the event
+  Scenario: An event only triggers the translators that care about it
+    Given both the table-to-hand and hand-to-player translators are active
+    And a hand-start event occurs
+    When the event is processed
+    Then only the table-to-hand translator reacts
 
   @EU-0305
-  Scenario: Saga router handles multiple events in event book
-    Given a SagaRouter with TableSyncSaga
-    And an event book with:
+  Scenario: A sequence of events is translated in order
+    Given the table-to-hand translator is active
+    And the following events occur in order:
       | event_type   |
       | HandStarted  |
       | HandStarted  |
-    When the router routes the events
-    Then the saga emits 2 DealCards commands
+    When the events are processed
+    Then 2 hands are dealt
 
   @EU-0306
-  Scenario: Saga router continues after saga failure
-    Given a SagaRouter with a failing saga and TableSyncSaga
-    And a HandStarted event
-    When the router routes the event
-    Then TableSyncSaga still emits its command
-    And no exception is raised
+  Scenario: A failing translator does not prevent others from running
+    Given a failing translator is active alongside the table-to-hand translator
+    And a hand-start event occurs
+    When the event is processed
+    Then the table-to-hand translator still reacts
+    And no error escapes to the caller
 
   # ==========================================================================
-  # Saga Error Handling
+  # Edge Cases on the Original Translators
   # ==========================================================================
-  # Sagas must handle edge cases gracefully. Empty or invalid input should
-  # not cause crashes; instead, sagas emit no commands or log errors.
+  # Empty or no-op inputs must not crash. Zero-change participants are still
+  # released so their reservation is cleared.
 
   @EU-0307
-  Scenario: Saga handles empty player list gracefully
-    Given a HandResultsSaga
-    And a HandEnded event from table domain with:
-      | hand_root |
-      | hand-1    |
-    And stack_changes:
-      | player_root | change |
-    When the saga handles the event
-    Then the saga emits 0 ReleaseFunds commands to player domain
+  Scenario: A hand ending with no participants releases nothing
+    Given hand "hand-1" ends with no stack changes
+    When the hand-end is translated for the players
+    Then no chips are released
 
   @EU-0308
-  Scenario: Hand results saga skips players with zero change
-    Given a HandResultsSaga
-    And a HandEnded event from table domain with:
-      | hand_root |
-      | hand-1    |
-    And stack_changes:
+  Scenario: A hand ending releases every participant, even those with no net change
+    Given hand "hand-1" ends with the following stack changes:
       | player_root | change |
       | player-1    | 100    |
       | player-2    | 0      |
-    When the saga handles the event
-    Then the saga emits 2 ReleaseFunds commands to player domain
+    When the hand-end is translated for the players
+    Then 2 players have their reserved chips released
 
   # ==========================================================================
-  # Unified Router API - SagaHandleRequest Dispatch (EU-0309..)
+  # End-to-End Translation Through the Production Dispatcher
   # ==========================================================================
-  # These scenarios exercise the production sagas via the unified Router
-  # using SagaHandleRequest with explicit destination_sequences. This is
-  # the same shape the orchestrator uses in production.
+  # These scenarios exercise the same translations through the dispatcher
+  # used in production, with explicit destinations for the resulting actions.
 
   @EU-0309
-  Scenario: TableSyncStartSaga dispatched via Router emits DealCards
-    Given a TableSyncStartSaga registered in a Router
-    And a HandStarted event from table domain with:
-      | hand_root | hand_number | game_variant | dealer_position |
-      | hand-1    | 1           | TEXAS_HOLDEM | 0               |
-    And active players:
+  Scenario: A hand starting at a table results in the hand being dealt
+    Given the table-to-hand-start translator is registered
+    And a hand "hand-1" begins as hand number 1 with TEXAS_HOLDEM and dealer at position 0
+    And the active players are:
       | player_root | position | stack |
       | player-1    | 0        | 500   |
       | player-2    | 1        | 500   |
-    When I dispatch the event via SagaHandleRequest with destination_sequences "hand=0"
-    Then the result is a angzarr_client.proto.examples.v1.DealCards command to hand domain
-    And the command DealCards has hand_number 1 and 2 players
-    And the command DealCards has game_variant TEXAS_HOLDEM
+    When the event is processed for the hand
+    Then the hand is dealt as hand number 1 with TEXAS_HOLDEM for 2 players
 
   @EU-0310
-  Scenario: TableSyncCompleteSaga dispatched via Router emits EndHand
-    Given a TableSyncCompleteSaga registered in a Router
-    And a HandComplete event from hand domain with:
-      | table_root |
-      | table-1    |
-    And winners:
+  Scenario: A hand completing results in the table being told to end the round
+    Given the table-to-hand-complete translator is registered
+    And a hand at table "table-1" completes
+    And the winners are:
       | player_root | amount |
       | player-1    | 100    |
-    When I dispatch the event via SagaHandleRequest with destination_sequences "table=0"
-    Then the result is a angzarr_client.proto.examples.v1.EndHand command to table domain
-    And the EndHand command has 1 result with winner "player-1" amount 100
+    When the event is processed for the table
+    Then the table ends the round with 1 result for "player-1" with amount 100
 
   @EU-0311
-  Scenario: HandResultsSaga dispatched via Router emits ReleaseFunds per player
-    Given a HandResultsSaga registered in a Router
-    And a HandEnded event from table domain with:
-      | hand_root |
-      | hand-1    |
-    And stack_changes:
+  Scenario: A hand ending results in each participant's reserved chips being released
+    Given the hand-results translator is registered
+    And hand "hand-1" ends with the following stack changes:
       | player_root | change |
       | player-1    | 50     |
       | player-2    | -50    |
-    When I dispatch the event via SagaHandleRequest with destination_sequences "player=0"
-    Then 2 commands are emitted to player domain
-    And each command is a angzarr_client.proto.examples.v1.ReleaseFunds
+    When the event is processed for the players
+    Then 2 players have their reserved chips released
 
   @EU-0312
-  Scenario: HandPayoutSaga dispatched via Router emits DepositFunds per winner
-    Given a HandPayoutSaga registered in a Router
-    And a PotAwarded event from hand domain with:
-      | pot_total |
-      | 100       |
-    And winners:
+  Scenario: A pot award results in each winner's bankroll being credited
+    Given the hand-payout translator is registered
+    And a pot of 100 is awarded with winners:
       | player_root | amount |
       | player-1    | 60     |
       | player-2    | 40     |
-    When I dispatch the event via SagaHandleRequest with destination_sequences "player=0"
-    Then 2 commands are emitted to player domain
-    And each command is a angzarr_client.proto.examples.v1.DepositFunds
-    And DepositFunds 0 has amount 60 for "player-1"
-    And DepositFunds 1 has amount 40 for "player-2"
+    When the event is processed for the players
+    Then 2 players receive deposits
+    And the first deposit credits "player-1" with 60
+    And the second deposit credits "player-2" with 40
 
   @EU-0313
-  Scenario: Router routes table event only to sagas matching table source
-    Given a Router with TableSyncStartSaga, HandResultsSaga, and HandPayoutSaga
-    And a HandStarted event from table domain with:
-      | hand_root | hand_number | game_variant | dealer_position |
-      | hand-1    | 1           | TEXAS_HOLDEM | 0               |
-    And active players:
+  Scenario: When several translators are registered, only those matching the event react
+    Given the table-to-hand-start, hand-results, and hand-payout translators are registered
+    And a hand "hand-1" begins as hand number 1 with TEXAS_HOLDEM and dealer at position 0
+    And the active players are:
       | player_root | position | stack |
       | player-1    | 0        | 500   |
-    When I dispatch the event via SagaHandleRequest with destination_sequences "hand=0,table=0,player=0"
-    Then only TableSyncStartSaga emits a DealCards command
+    When the event is processed for the hand, table, and players
+    Then only the hand is dealt
 
   @EU-0314
-  Scenario: HandResultsSaga emits no commands for empty stack_changes
-    Given a HandResultsSaga registered in a Router
-    And a HandEnded event from table domain with:
-      | hand_root |
-      | hand-1    |
-    And stack_changes:
-      | player_root | change |
-    When I dispatch the event via SagaHandleRequest with destination_sequences "player=0"
-    Then no commands are emitted
+  Scenario: A hand ending with no participants results in no releases
+    Given the hand-results translator is registered
+    And hand "hand-1" ends with no stack changes
+    When the event is processed for the players
+    Then no action results
 
   @EU-0315
-  Scenario: HandResultsSaga emits ReleaseFunds for all players including zero change
-    Given a HandResultsSaga registered in a Router
-    And a HandEnded event from table domain with:
-      | hand_root |
-      | hand-1    |
-    And stack_changes:
+  Scenario: A hand ending releases every participant including those with no net change
+    Given the hand-results translator is registered
+    And hand "hand-1" ends with the following stack changes:
       | player_root | change |
       | player-1    | 100    |
       | player-2    | 0      |
-    When I dispatch the event via SagaHandleRequest with destination_sequences "player=0"
-    Then 2 commands are emitted to player domain
-    And each command is a angzarr_client.proto.examples.v1.ReleaseFunds
+    When the event is processed for the players
+    Then 2 players have their reserved chips released
 
   # ==========================================================================
-  # Saga Edge Cases — Empty Inputs and Field Propagation
+  # Translation Edge Cases — Empty Inputs and Detail Propagation
   # ==========================================================================
-  # Empty trigger inputs must still produce sensible outputs: the
-  # TableSync saga emits one command even when its lists are empty, while
-  # payout/result sagas correctly emit zero commands when there is nothing
-  # to do. Field propagation (winning_hand) is also verified.
+  # An empty player list still leads to a deal (just with no players). An
+  # empty winners list leads to a no-op end-of-round. Winning-hand details
+  # carry through to the result so the table can record how the hand was won.
 
   @EU-0316
-  Scenario: TableSyncStartSaga emits DealCards with no players when active_players is empty
-    Given a TableSyncStartSaga registered in a Router
-    And a HandStarted event from table domain with:
-      | hand_root | hand_number | game_variant | dealer_position |
-      | hand-1    | 1           | TEXAS_HOLDEM | 0               |
-    And active players:
-      | player_root | position | stack |
-    When I dispatch the event via SagaHandleRequest with destination_sequences "hand=0"
-    Then the result is a angzarr_client.proto.examples.v1.DealCards command to hand domain
-    And the command DealCards has hand_number 1 and 0 players
+  Scenario: A hand starting with no active players is still dealt with no players
+    Given the table-to-hand-start translator is registered
+    And a hand "hand-1" begins as hand number 1 with TEXAS_HOLDEM and dealer at position 0
+    And there are no active players
+    When the event is processed for the hand
+    Then the hand is dealt as hand number 1 with TEXAS_HOLDEM for 0 players
 
   @EU-0317
-  Scenario: TableSyncCompleteSaga emits EndHand with no results when winners is empty
-    Given a TableSyncCompleteSaga registered in a Router
-    And a HandComplete event from hand domain with:
-      | table_root |
-      | table-1    |
-    And winners:
-      | player_root | amount |
-    When I dispatch the event via SagaHandleRequest with destination_sequences "table=0"
-    Then the result is a angzarr_client.proto.examples.v1.EndHand command to table domain
-    And the EndHand command has 0 results
+  Scenario: A hand completing with no winners is still ended at the table with no results
+    Given the table-to-hand-complete translator is registered
+    And a hand at table "table-1" completes
+    And there are no winners
+    When the event is processed for the table
+    Then the table ends the round with no results
 
   @EU-0318
-  Scenario: TableSyncCompleteSaga propagates winning_hand onto EndHand results
-    Given a TableSyncCompleteSaga registered in a Router
-    And a HandComplete event from hand domain with:
-      | table_root |
-      | table-1    |
-    And winners with winning_hand:
+  Scenario: The winning hand detail is carried through to the table's end-of-round result
+    Given the table-to-hand-complete translator is registered
+    And a hand at table "table-1" completes
+    And the winners include winning-hand detail:
       | player_root | amount |
       | player-1    | 999    |
-    When I dispatch the event via SagaHandleRequest with destination_sequences "table=0"
-    Then the result is a angzarr_client.proto.examples.v1.EndHand command to table domain
-    And the EndHand command result 0 has winning_hand populated
+    When the event is processed for the table
+    Then the table's first end-of-round result records the winning hand
 
   @EU-0319
-  Scenario: HandPayoutSaga emits no commands when winners is empty
-    Given a HandPayoutSaga registered in a Router
-    And a PotAwarded event from hand domain with:
-      | pot_total |
-      | 0         |
-    And winners:
-      | player_root | amount |
-    When I dispatch the event via SagaHandleRequest with destination_sequences "player=0"
-    Then no commands are emitted
+  Scenario: A pot award with no winners credits nobody
+    Given the hand-payout translator is registered
+    And a pot of 0 is awarded with no winners
+    When the event is processed for the players
+    Then no action results
 
   @EU-0320
-  Scenario: HandPayoutSaga targets the winner player_root for a single winner
-    Given a HandPayoutSaga registered in a Router
-    And a PotAwarded event from hand domain with:
-      | pot_total |
-      | 500       |
-    And winners:
+  Scenario: A pot award with a single winner credits that winner
+    Given the hand-payout translator is registered
+    And a pot of 500 is awarded with winners:
       | player_root | amount |
       | player-1    | 500    |
-    When I dispatch the event via SagaHandleRequest with destination_sequences "player=0"
-    Then 1 commands are emitted to player domain
-    And each command is a angzarr_client.proto.examples.v1.DepositFunds
-    And DepositFunds 0 has amount 500 for "player-1"
+    When the event is processed for the players
+    Then 1 player receives a deposit
+    And "player-1" is credited 500

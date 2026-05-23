@@ -108,9 +108,15 @@ check-submodules-clean:
         echo "================================================================"
         echo
         echo "The following submodule(s) have uncommitted changes or untracked"
-        echo "files in their working tree:"
+        echo "files in their working tree. These are git submodules — fix"
+        echo "the changes in the canonical origin repo (URL listed), then"
+        echo "bump the submodule pointer here:"
         echo
-        for sm in "${dirty[@]}"; do echo "  - ${sm}"; done
+        for sm in "${dirty[@]}"; do
+            url="$(git -C "${repo_root}/${sm}" config --get remote.origin.url 2>/dev/null || echo '<unknown>')"
+            echo "  - ${sm}"
+            echo "      origin: ${url}"
+        done
         echo
         echo "A submodule checkout is a DETACHED HEAD pinned by this repo. Any"
         echo "edits made inside it cannot be pushed to the canonical repository"

@@ -7,7 +7,7 @@ Feature: Projector dispatch
   Background:
     Given a projector "Output" consuming domains "order"
     And the projector handles OrderCreated by appending to a write log
-    And the router is built with the Output projector
+    And Output is the active projector
 
   @C-0030
   Scenario: Each event in the book triggers a handler call
@@ -25,9 +25,7 @@ Feature: Projector dispatch
     Then the write log remains empty
 
   @C-0086
-  Scenario: Projector factory invoked once per dispatch, not once per event
-    Given a projector "Output" whose factory counts invocations
-    And the router is built with the Output projector
+  Scenario: A projector instance is reused across all events in one delivery
     When an EventBook with five OrderCreated events is dispatched
-    Then the factory was invoked exactly 1 time
-    And the write log contains 5 entries
+    Then the write log contains 5 entries
+    And every entry was appended by the same projector instance

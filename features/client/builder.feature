@@ -1,60 +1,60 @@
 # Allocated: C-0060 .. C-0065, C-0088
-Feature: Router builder
+Feature: Building a handler routing configuration
   As a framework user
-  I want the Router builder to catch configuration errors before dispatch
+  I want the handler registry to catch misconfiguration before dispatch
   So that misconfiguration surfaces with a clear error, not a cryptic runtime failure
 
   @C-0060
-  Scenario: Empty builder fails to build
-    Given an empty Router named "empty"
+  Scenario: Empty configuration fails to build
+    Given an empty handler configuration
     When I build the router
-    Then the builder raises a BuildError mentioning "no handlers"
+    Then the configuration is rejected because no handlers are registered
 
   @C-0061
-  Scenario: Registering an undecorated class is rejected
-    Given a class "NotDecorated" with no kind decorator
-    When I register it with a factory
-    Then the builder raises a BuildError mentioning "NotDecorated"
+  Scenario: An unmarked component cannot be registered as a handler
+    Given a component that has not been marked as a handler kind
+    When I attempt to register it
+    Then the configuration is rejected because the component is not a recognised handler
 
   @C-0062
-  Scenario: Homogeneous factories build a runtime router of the matching kind
-    Given a command handler "Order" for domain "order" with state OrderState
-    And another command handler "Payment" for domain "payment" with state PaymentState
+  Scenario: Command handlers for distinct domains build a command-handling router
+    Given a command handler "Order" for domain "order" with order state
+    And another command handler "Payment" for domain "payment" with payment state
     When I build the router
-    Then the result is a CommandHandlerRouter
+    Then the result routes commands to their handlers
 
   @C-0063
   Scenario: Mixed handler kinds are rejected
-    Given a command handler "Order" for domain "order" with state OrderState
+    Given a command handler "Order" for domain "order" with order state
     And a saga "OrderFulfillment" translating from "order" to "inventory"
     When I build the router
-    Then the builder raises a BuildError mentioning "cannot mix"
+    Then the configuration is rejected for mixing handler kinds
 
   @C-0064
-  Scenario: Duplicate (domain, type_url) across CommandHandlers is rejected at build time
-    # Audit finding #18 (formerly #51): multi-handler CH dispatch is
-    # forbidden. Two CommandHandlers may not register for the same
-    # (domain, command_type_url) pair within one Router. Build fails
-    # with DuplicateCommandHandler. Saga / PM / projector / upcaster
-    # fan-out is unaffected (those kinds legitimately broadcast — see
+  Scenario: Two command handlers for the same domain and command pair are rejected at build time
+    # Audit finding #18 (formerly #51): multi-handler command dispatch is
+    # forbidden. Two command handlers may not register for the same
+    # domain/command pair within one configuration. Build fails with a
+    # duplicate-handler error. Saga / PM / projector / upcaster fan-out
+    # is unaffected (those kinds legitimately broadcast — see
     # multi_handler.feature C-0013..C-0015).
-    Given two command handlers Alpha and Beta for domain "order" both handling CreateOrder
+    Given two command handlers Alpha and Beta for domain "order" both handling the same command
     When I build the router
-    Then the builder raises a BuildError mentioning "duplicate command handler"
+    Then the configuration is rejected because two command handlers share the same domain and command
 
   @C-0065
-  Scenario: Factories are invoked at most once per registered handler at build time
-    # Audit #18: the builder calls each CommandHandler factory once at
-    # build time to introspect its config (handled type URLs + domain)
-    # for the duplicate-detection pass. After build, each factory is
-    # called once per dispatch, not at registration.
-    Given a command handler "Order" for domain "order" with state OrderState
-    And a factory that counts invocations
+  Scenario: Each registered handler is introspected at most once at build time
+    # Audit #18: the build step inspects each command handler once to
+    # collect its configuration (handled commands + domain) for the
+    # duplicate-detection pass. After build, the handler is exercised
+    # once per dispatch, not at registration.
+    Given a command handler "Order" for domain "order" with order state
+    And the handler reports how many times it has been introspected
     When I register the handler and build the router
-    Then the factory invocation count is 1
+    Then the handler has been introspected exactly once
 
   @C-0088
-  Scenario: Single saga handler builds into the SagaRouter variant
+  Scenario: A single saga handler builds a saga-routing router
     Given a saga "OrderFulfillment" translating from "order" to "inventory"
     When I build the router
-    Then the result is a SagaRouter
+    Then the result routes saga notifications to their handlers

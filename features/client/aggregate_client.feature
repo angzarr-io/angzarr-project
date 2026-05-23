@@ -1,39 +1,39 @@
 # docs:start:aggregate_client_contract
-Feature: AggregateClient - Command Execution
-  The AggregateClient sends commands to aggregates for processing.
-  Commands are validated, processed, and result in events being persisted.
-  Supports async (fire-and-forget), sync, and speculative modes.
+Feature: Executing commands against aggregates
+  Clients send commands to aggregates to change their state. Commands are
+  validated, processed, and result in events being persisted. Callers can
+  fire and forget, wait for the write to land, or wait for downstream
+  reactions to complete before returning.
 
   Without command execution, the system cannot accept user actions or
   change aggregate state.
 # docs:end:aggregate_client_contract
 
   Background:
-    Given an AggregateClient connected to the test backend
+    Given a client connected to the test backend
 
   # ==========================================================================
   # Basic Command Execution
   # ==========================================================================
 
   # docs:start:client_command
-  Scenario: Execute command on new aggregate
+  Scenario: Executing a command on a brand-new aggregate
     Given a new aggregate root in domain "orders"
-    When I execute a "CreateOrder" command with data "customer-123"
-    Then the command should succeed
-    And the response should contain 1 event
-    And the event should have type "OrderCreated"
+    When I send a "CreateOrder" command with data "customer-123"
+    Then the command is accepted
+    And a single "OrderCreated" event is recorded
 
-  Scenario: Execute command on existing aggregate
+  Scenario: Executing a command on an existing aggregate
     Given an aggregate "orders" with root "order-001" at sequence 3
-    When I execute a "AddItem" command at sequence 3
-    Then the command should succeed
-    And the response should contain events starting at sequence 3
+    When I send an "AddItem" command at sequence 3
+    Then the command is accepted
+    And the new events continue the history from sequence 3
 
-  Scenario: Execute command with correlation ID
+  Scenario: Commands carry a correlation ID through to their events
     Given a new aggregate root in domain "orders"
-    When I execute a command with correlation ID "trace-456"
-    Then the command should succeed
-    And the response events should have correlation ID "trace-456"
+    When I send a command tagged with correlation ID "trace-456"
+    Then the command is accepted
+    And the resulting events carry correlation ID "trace-456"
   # docs:end:client_command
 
   # ==========================================================================
@@ -41,109 +41,107 @@ Feature: AggregateClient - Command Execution
   # ==========================================================================
 
   # docs:start:client_concurrency
-  Scenario: Command at wrong sequence fails with precondition error
+  Scenario: Sending a command at the wrong sequence is refused
     Given an aggregate "orders" with root "order-002" at sequence 5
-    When I execute a command at sequence 3
-    Then the command should fail with precondition error
-    And the error should indicate sequence mismatch
+    When I send a command at sequence 3
+    Then the command is refused because the aggregate has moved on
 
-  Scenario: Concurrent writes are detected
+  Scenario: Only one of two concurrent writes can land
     Given an aggregate "orders" with root "order-003" at sequence 0
     When two commands are sent concurrently at sequence 0
-    Then one should succeed
-    And one should fail with precondition error
+    Then one command is accepted
+    And the other is refused because the aggregate has moved on
 
-  Scenario: Retry with correct sequence succeeds
+  Scenario: Retrying at the current sequence after a stale write succeeds
     Given an aggregate "orders" with root "order-004" at sequence 5
-    When I execute a command at sequence 3
-    Then the command should fail with precondition error
-    When I query the current sequence for "orders" root "order-004"
-    And I retry the command at the correct sequence
-    Then the command should succeed
+    When I send a command at sequence 3
+    Then the command is refused because the aggregate has moved on
+    When I look up the current sequence for "orders" root "order-004"
+    And I retry the command at that sequence
+    Then the command is accepted
   # docs:end:client_concurrency
 
   # ==========================================================================
   # Sync Modes
   # ==========================================================================
 
-  Scenario: Async command returns immediately
+  Scenario: A fire-and-forget command returns before downstream work runs
     Given a new aggregate root in domain "orders"
-    When I execute a command asynchronously
-    Then the response should return without waiting for projectors
+    When I send a command without waiting for downstream work
+    Then the response returns before any projectors have caught up
 
-  Scenario: Sync SIMPLE waits for projectors
+  Scenario: Waiting for projectors before returning
     Given a new aggregate root in domain "orders"
     And projectors are configured for "orders" domain
-    When I execute a command with sync mode SIMPLE
-    Then the response should include projector results
+    When I send a command and wait for projectors
+    Then the response reflects the projectors having processed the event
 
-  Scenario: Sync CASCADE waits for saga chain
+  Scenario: Waiting for the full saga chain before returning
     Given a new aggregate root in domain "orders"
     And sagas are configured for "orders" domain
-    When I execute a command with sync mode CASCADE
-    Then the response should include downstream saga results
+    When I send a command and wait for downstream sagas
+    Then the response reflects the downstream sagas having completed
 
   # ==========================================================================
   # Command Validation
   # ==========================================================================
 
-  Scenario: Invalid command payload returns error
+  Scenario: A malformed command is refused as invalid
     Given an aggregate "orders" with root "order-005"
-    When I execute a command with malformed payload
-    Then the command should fail with invalid argument error
+    When I send a command with a malformed payload
+    Then the command is refused as invalid
 
-  Scenario: Missing required fields returns error
+  Scenario: A command missing required fields is refused with the field name
     Given a new aggregate root in domain "orders"
-    When I execute a command without required fields
-    Then the command should fail with invalid argument error
-    And the error message should describe the missing field
+    When I send a command missing required fields
+    Then the command is refused as invalid
+    And the refusal names the missing field
 
-  Scenario: Command to non-existent domain returns error
-    When I execute a command to domain "nonexistent"
-    Then the command should fail
-    And the error should indicate unknown domain
+  Scenario: A command for an unknown domain is refused
+    When I send a command to domain "nonexistent"
+    Then the command is refused because the domain is unknown
 
   # ==========================================================================
   # Multi-Event Commands
   # ==========================================================================
 
-  Scenario: Command can produce multiple events
+  Scenario: A single command can produce multiple events
     Given an aggregate "orders" with root "order-006" at sequence 0
-    When I execute a command that produces 3 events
-    Then the response should contain 3 events
-    And events should have sequences 0, 1, 2
+    When I send a command that produces 3 events
+    Then 3 events are recorded
+    And the events occupy consecutive sequences starting at 0
 
-  Scenario: Multi-event command is atomic
+  Scenario: A multi-event command lands atomically
     Given an aggregate "orders" with root "order-007" at sequence 0
-    When I execute a command that produces 3 events
-    And I query events for "orders" root "order-007"
-    Then I should see all 3 events or none
+    When I send a command that produces 3 events
+    And I read back the events for "orders" root "order-007"
+    Then either all 3 events are present or none of them are
 
   # ==========================================================================
   # Connection Handling
   # ==========================================================================
 
-  Scenario: Connection failure returns error
+  Scenario: The client surfaces a connection failure
     Given the aggregate service is unavailable
-    When I attempt to execute a command
-    Then the aggregate operation should fail with connection error
+    When I attempt to send a command
+    Then the call fails because the service cannot be reached
 
-  Scenario: Timeout returns error
-    Given the aggregate service is slow to respond
-    When I execute a command with timeout 100ms
-    Then the operation should fail with timeout or deadline error
+  Scenario: The client surfaces a timeout when the service is slow
+    Given the aggregate service does not respond in time
+    When I send a command with a short timeout
+    Then the call fails because the deadline was exceeded
 
   # ==========================================================================
   # New Aggregate Creation
   # ==========================================================================
 
-  Scenario: First command creates aggregate implicitly
+  Scenario: The first command on an aggregate creates it
     Given no aggregate exists for domain "orders" root "order-new"
-    When I execute a "CreateOrder" command for root "order-new" at sequence 0
-    Then the command should succeed
-    And the aggregate should now exist with 1 event
+    When I send a "CreateOrder" command for root "order-new" at sequence 0
+    Then the command is accepted
+    And the aggregate now exists with one event
 
-  Scenario: First command must be at sequence 0
+  Scenario: The first command on an aggregate must start at sequence 0
     Given no aggregate exists for domain "orders" root "order-new2"
-    When I execute a command at sequence 5
-    Then the command should fail with precondition error
+    When I send a command at sequence 5
+    Then the command is refused because the aggregate has moved on

@@ -27,10 +27,10 @@ Feature: Fact injection from sagas and process managers
     And a hand in progress where it becomes Alice's turn
     When the hand-player saga processes the turn change
     Then an ActionRequested fact is injected into Alice's player aggregate
-    And the fact is persisted with the next sequence number
-    And the player aggregate contains an ActionRequested event
+    And the fact is appended at the next sequence number
+    And Alice's player aggregate records the ActionRequested fact
 
-  Scenario: Fact receives sequence number from coordinator
+  Scenario: Fact receives the next sequence number
     Given a player aggregate with 3 existing events
     When an ActionRequested fact is injected
     Then the fact is persisted with sequence number 4
@@ -75,7 +75,7 @@ Feature: Fact injection from sagas and process managers
   Scenario: Fact injection failure fails the saga
     Given a saga that emits a fact to domain "nonexistent"
     When the saga processes an event
-    Then the saga fails with error containing "not found"
+    Then the saga fails because the target domain does not exist
     And no commands from that saga are executed
 
   Scenario: Duplicate fact with same external_id is idempotent

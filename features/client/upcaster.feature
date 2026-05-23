@@ -1,25 +1,25 @@
 # Allocated: C-0123 .. C-0125, C-0136 .. C-0137
 #
-# Cross-language contract for upcaster kind declarations and method
-# markers. Full Router-builder / Handler-trait integration for upcasters
-# is tracked separately; the C-0123..C-0125 scenarios pin the symbol surface
-# and attribute shape, the C-0136..C-0137 scenarios pin dispatch chaining.
-Feature: Upcaster macros
+# Cross-language contract for upcaster declarations. The C-0123..C-0125
+# scenarios pin the declaration surface (an upcaster's name and domain, its
+# source-and-target event types, and its state factory). The C-0136..C-0137
+# scenarios pin the dispatch chain.
+Feature: Event upcasting
 
   @C-0123
-  Scenario: upcaster decorator is applicable with name and domain
-    Given a class "PlayerUpcaster" decorated as an upcaster named "player-v1-to-v2" in domain "player"
-    Then the class declaration compiles without error
+  Scenario: an upcaster declares its name and domain
+    Given an upcaster named "player-v1-to-v2" in domain "player"
+    Then the declaration is accepted
 
   @C-0124
-  Scenario: upcasts method marker is applicable with from and to types
-    Given a method declared as upcasting from "PlayerRegisteredV1" to "PlayerRegisteredV2"
-    Then the method declaration compiles without error
+  Scenario: an upcasting rule declares its source and target event types
+    Given an upcasting rule from "PlayerRegisteredV1" to "PlayerRegisteredV2"
+    Then the declaration is accepted
 
   @C-0125
-  Scenario: state_factory method marker is applicable
-    Given a method declared as a state factory
-    Then the method declaration compiles without error
+  Scenario: an upcaster declares a state factory
+    Given an upcaster with a state factory
+    Then the declaration is accepted
 
   # Dispatch chain semantics — audit finding #43.
   # The runtime applies every matching upcaster in registration order:
@@ -32,7 +32,7 @@ Feature: Upcaster macros
     Given an upcaster registered for V1 → V2
     And an upcaster registered for V2 → V3
     And an incoming event of type V1
-    When I dispatch the upcast request
+    When the V1 event is upcasted
     Then the emitted event has type V3
 
   @C-0137
@@ -40,5 +40,5 @@ Feature: Upcaster macros
     Given an upcaster registered for V1 → V2
     And an upcaster registered for V3 → V4
     And an incoming event of type V1
-    When I dispatch the upcast request
+    When the V1 event is upcasted
     Then the emitted event has type V2

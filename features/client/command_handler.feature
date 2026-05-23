@@ -5,10 +5,10 @@ Feature: Command handler dispatch
   So that business logic runs with the correct state and emits events
 
   Background:
-    Given a command handler "Order" for domain "order" with state OrderState
-    And the handler applies OrderCreated by setting state.created = true
-    And the handler handles CreateOrder by emitting OrderCreated
-    And the router is built with the Order handler
+    Given a command handler "Order" for domain "order" with order state
+    And OrderCreated marks the order as created
+    And CreateOrder emits OrderCreated
+    And Order is the active aggregate handler
 
   @C-0001
   Scenario: Unknown aggregate receives a creation command
@@ -18,45 +18,45 @@ Feature: Command handler dispatch
 
   @C-0002
   Scenario: State is rebuilt from prior events before dispatch
-    Given a prior EventBook with an OrderCreated event at seq 0
+    Given a prior history with an OrderCreated event at sequence 0
     When a command is dispatched against the aggregate
-    Then the handler sees state.created = true
+    Then the order is treated as already created
 
   @C-0003
   Scenario: Unknown command type returns INVALID_ARGUMENT
     When CompleteOrder(order_id="o-1") is dispatched
-    Then dispatch fails with INVALID_ARGUMENT
+    Then the unknown command is rejected as invalid input
 
   @C-0004
   Scenario: Handler returning None yields empty BusinessResponse
     Given a command handler whose handler returns None for CreateOrder
     When CreateOrder(order_id="o-1") is dispatched
-    Then the response has no event pages
+    Then when the handler emits nothing, no events are produced
 
   @C-0005
-  Scenario: @state_factory override constructs state when present
-    Given a command handler "Order" for domain "order" with state OrderState
-    And Order has a @state_factory method returning OrderState(created=True)
-    And Order handles CreateOrder by emitting OrderCreated only when state.created is True
+  Scenario: Aggregate-supplied initial state constructs an already-created order
+    Given a command handler "Order" for domain "order" with order state
+    And the aggregate supplies its own initial state with created = true
+    And Order handles CreateOrder by emitting OrderCreated only when the order is already created
     When CreateOrder(order_id="o-1") is dispatched
     Then the response emits an OrderCreated event
 
   @C-0006
-  Scenario: Default state() constructor is used when no @state_factory is present
-    Given a command handler "Order" for domain "order" with state OrderState
-    And Order has no @state_factory method
-    And Order handles CreateOrder by reading state.created
+  Scenario: Default state constructor is used when the aggregate does not supply its own
+    Given a command handler "Order" for domain "order" with order state
+    And the aggregate does not supply its own initial state
+    And Order handles CreateOrder by reading whether the order is created
     When CreateOrder(order_id="o-1") is dispatched
-    Then the handler observed state.created = false
+    Then the handler observes that the order is not created
 
   @C-0085
   Scenario: With zero prior events, state remains at its constructed default
-    Given a command handler "Order" for domain "order" with state OrderState
-    And Order applies OrderCreated by setting state.created = true
-    And Order handles CreateOrder by reading state.created
+    Given a command handler "Order" for domain "order" with order state
+    And OrderCreated marks the order as created
+    And Order handles CreateOrder by reading whether the order is created
     And no prior events in the incoming ContextualCommand
     When CreateOrder(order_id="o-1") is dispatched
-    Then the handler observed state.created = false
+    Then the handler observes that the order is not created
 
   # ==========================================================================
   # Cover.ext propagation (client-side, fill-only)

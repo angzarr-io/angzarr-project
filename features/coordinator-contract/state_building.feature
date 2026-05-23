@@ -1,8 +1,8 @@
 # docs:start:state_building_contract
 Feature: State Building - Aggregate State Reconstruction
   Aggregates reconstruct their state by replaying events. This feature
-  tests the state building process including snapshot integration,
-  event application, and the build_state pattern used across languages.
+  tests the state building contract including snapshot integration,
+  event application, and event dispatch behavior.
 
   State building is the foundation of event sourcing - without correct
   state reconstruction, commands cannot make valid decisions.
@@ -94,20 +94,20 @@ Feature: State Building - Aggregate State Reconstruction
     Then the field should equal 10
 
   # ==========================================================================
-  # Any-Wrapped Events
+  # Type-Erased Event Envelopes
   # ==========================================================================
 
-  Scenario: Build state handles Any-wrapped events
-    Given events wrapped in google.protobuf.Any
+  Scenario: Build state handles type-erased event envelopes
+    Given events stored in a type-erased envelope
     When I build state from the EventBook
-    Then the Any wrapper should be unpacked
+    Then the envelope should be unwrapped
     And the typed event should be applied
 
-  Scenario: Type URL determines event type
-    Given an event with type_url "type.googleapis.com/orders.ItemAdded"
+  Scenario: Type identifier determines event type
+    Given an event whose envelope identifies type "orders.ItemAdded"
     When I apply the event
     Then the ItemAdded handler should be invoked
-    And the type_url suffix should match the handler
+    And the type identifier should resolve to that handler
 
   # ==========================================================================
   # Error Handling
@@ -122,8 +122,8 @@ Feature: State Building - Aggregate State Reconstruction
   Scenario: Missing required field in event
     Given an event missing a required field
     When I attempt to build state
-    Then the behavior depends on language
-    And either default value is used or error is raised
+    Then an error should be raised
+    And the error should indicate the missing field
 
   # ==========================================================================
   # Next Sequence Calculation
@@ -166,19 +166,19 @@ Feature: State Building - Aggregate State Reconstruction
     And the original state should be unchanged
 
   # ==========================================================================
-  # Language-Specific Patterns
+  # State Building Contract
   # ==========================================================================
 
-  Scenario: build_state takes state and Any-wrapped events
-    Given a build_state function
-    When I call build_state(state, events)
-    Then each event should be unpacked from Any
-    And _apply_event should be called for each
-    And final state should be returned
+  Scenario: State building accepts a starting state and event sequence
+    Given a starting state and a sequence of type-erased events
+    When state is built
+    Then each event should be unwrapped from its envelope
+    And the event application step should run for each event
+    And the resulting state should be returned
 
-  Scenario: _apply_event dispatches by type
-    Given an _apply_event function
-    When I call _apply_event(state, event_any)
-    Then the event should be unpacked
-    And the correct type handler should be invoked
-    And state should be mutated
+  Scenario: Event application dispatches by type
+    Given a state and a type-erased event
+    When the event is applied
+    Then the envelope should be unwrapped
+    And the handler registered for that event type should be invoked
+    And the produced state should reflect the event

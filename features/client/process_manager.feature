@@ -5,13 +5,13 @@ Feature: Process-manager dispatch
   So that multi-step workflows are orchestrated correctly
 
   Background:
-    Given a process manager "Fulfillment" with pm_domain "fulfillment"
+    Given a process manager "Fulfillment" for the fulfillment domain
     And the PM sources from "order" and "inventory"
     And the PM targets "shipping"
-    And the PM has state WorkflowState with orders_seen int
-    And the PM applies OrderCompleted by incrementing state.orders_seen
+    And the PM tracks the number of orders seen
+    And OrderCompleted advances the orders-seen count
     And the PM handles OrderCreated by emitting a ReserveStock command
-    And the router is built with the Fulfillment PM
+    And Fulfillment is the active process manager
 
   @C-0020
   Scenario: PM receives a trigger and emits a command
@@ -22,7 +22,7 @@ Feature: Process-manager dispatch
   Scenario: PM state is rebuilt from its own process events
     Given process state events: OrderCompleted, OrderCompleted
     When an OrderCreated trigger is dispatched to the PM router
-    Then the PM observed state.orders_seen = 2
+    Then the PM has seen 2 completed orders
 
   @C-0022
   Scenario: PM skips events from domains outside its sources

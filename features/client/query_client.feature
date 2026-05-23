@@ -1,130 +1,126 @@
 # docs:start:query_client_contract
-Feature: QueryClient - Event Retrieval
-  The QueryClient provides read access to aggregate event histories.
-  It supports various query modes: full history, range queries, temporal
-  queries, and correlation-based queries across aggregates.
+Feature: Querying aggregate event histories
+  Clients need read access to an aggregate's recorded history so they can
+  reconstruct state, catch up read models, and investigate what happened.
+  The query surface supports asking for everything, a range, a point in time,
+  a separate edition of history, or all activity tied to a correlation.
 
-  Without query access, clients cannot reconstruct aggregate state,
-  catch up projectors, or debug event flows.
+  Without this access, clients cannot reconstruct aggregate state,
+  catch up projectors, or debug what happened in the system.
 # docs:end:query_client_contract
 
   Background:
-    Given a QueryClient connected to the test backend
+    Given a query surface available
 
   # ==========================================================================
   # Basic Event Retrieval
   # ==========================================================================
 
   # docs:start:client_query
-  Scenario: Query returns empty for new aggregate
+  Scenario: A query against an unknown aggregate returns nothing
     Given an aggregate "orders" with root "order-new"
     When I query events for "orders" root "order-new"
-    Then I should receive an EventBook with 0 events
-    And the next_sequence should be 0
+    Then the history is empty and the next sequence is 0
 
-  Scenario: Query returns all events for existing aggregate
+  Scenario: A query returns the full history of an aggregate
     Given an aggregate "orders" with root "order-001" has 5 events
     When I query events for "orders" root "order-001"
-    Then I should receive an EventBook with 5 events
-    And events should be in sequence order 0 to 4
+    Then I receive 5 events
+    And the events are in sequence order 0 to 4
 
-  Scenario: Query preserves event payloads exactly
+  Scenario: A query preserves event types and payloads exactly
     Given an aggregate "orders" with root "order-002" has event "OrderCreated" with data "test-payload"
     When I query events for "orders" root "order-002"
-    Then the first event should have type "OrderCreated"
-    And the first event should have payload "test-payload"
+    Then the first event has type "OrderCreated"
+    And the first event has payload "test-payload"
   # docs:end:client_query
 
   # ==========================================================================
   # Range Queries
   # ==========================================================================
 
-  Scenario: Range query from specific sequence
+  Scenario: A range query starting at a sequence returns the tail of history
     Given an aggregate "orders" with root "order-003" has 10 events
     When I query events for "orders" root "order-003" from sequence 5
-    Then I should receive an EventBook with 5 events
-    And the first event should have sequence 5
+    Then I receive 5 events
+    And the first event has sequence 5
 
-  Scenario: Range query with upper bound (inclusive)
+  Scenario: A range query with an upper bound includes both endpoints
     Given an aggregate "orders" with root "order-004" has 10 events
     When I query events for "orders" root "order-004" from sequence 3 to 7
-    # Per audit decision 2026-04-27 (finding #27): upper bound is
-    # INCLUSIVE — matches the `range_to(lower, upper)` docstrings in
-    # both Rust (`builder.rs:170`) and Python (`builder.py:155`).
-    # Sequences 3,4,5,6,7 → 5 events.
-    Then I should receive an EventBook with 5 events
-    And the first event should have sequence 3
-    And the last event should have sequence 7
+    # The upper bound is inclusive: sequences 3, 4, 5, 6, 7 -> 5 events.
+    Then I receive 5 events
+    And the first event has sequence 3
+    And the last event has sequence 7
 
-  Scenario: Range query beyond history returns empty
+  Scenario: A range query starting past the end of history returns nothing
     Given an aggregate "orders" with root "order-005" has 5 events
     When I query events for "orders" root "order-005" from sequence 100
-    Then I should receive an EventBook with 0 events
+    Then I receive no events
 
   # ==========================================================================
   # Temporal Queries
   # ==========================================================================
 
-  Scenario: Query as of specific sequence
+  Scenario: A query as of a sequence returns history up to that point
     Given an aggregate "orders" with root "order-006" has 10 events
     When I query events for "orders" root "order-006" as of sequence 5
-    Then I should receive an EventBook with 6 events
-    And the last event should have sequence 5
+    Then I receive 6 events
+    And the last event has sequence 5
 
-  Scenario: Query as of timestamp
+  Scenario: A query as of a timestamp returns history up to that moment
     Given an aggregate "orders" with root "order-007" has events at known timestamps
     When I query events for "orders" root "order-007" as of time "2024-01-15T10:30:00Z"
-    Then I should receive events up to that timestamp
+    Then I receive events up to that timestamp
 
   # ==========================================================================
   # Edition Queries
   # ==========================================================================
 
-  Scenario: Query from specific edition
+  Scenario: A query in a named edition returns only that edition's history
     Given an aggregate "orders" with root "order-008" in edition "test-branch"
     When I query events for "orders" root "order-008" in edition "test-branch"
-    Then I should receive events from that edition only
+    Then I receive events from that edition only
 
-  Scenario: Edition queries are isolated from main timeline
+  Scenario: An edition's history is isolated from the main timeline
     Given an aggregate "orders" with root "order-009" has 3 events in main
     And an aggregate "orders" with root "order-009" has 2 events in edition "branch"
     When I query events for "orders" root "order-009"
-    Then I should receive an EventBook with 3 events
+    Then I receive 3 events
     When I query events for "orders" root "order-009" in edition "branch"
-    Then I should receive an EventBook with 2 events
+    Then I receive 2 events
 
   # ==========================================================================
   # Correlation ID Queries
   # ==========================================================================
 
-  Scenario: Query by correlation ID across aggregates
+  Scenario: A correlation query gathers events across every aggregate it touched
     Given events with correlation ID "workflow-123" exist in multiple aggregates
     When I query events by correlation ID "workflow-123"
-    Then I should receive events from all correlated aggregates
+    Then I receive events from all correlated aggregates
 
-  Scenario: Unknown correlation ID returns empty
+  Scenario: A correlation query with no matches returns nothing
     When I query events by correlation ID "nonexistent-correlation"
-    Then I should receive no events
+    Then I receive no events
 
   # ==========================================================================
   # Snapshot Integration
   # ==========================================================================
 
-  Scenario: Query includes snapshot when available
+  Scenario: A query surfaces the latest snapshot alongside the history
     Given an aggregate "orders" with root "order-010" has a snapshot at sequence 5 and 10 events
     When I query events for "orders" root "order-010"
-    Then the EventBook should include the snapshot
-    And the returned snapshot should be at sequence 5
+    Then the result carries a snapshot taken at sequence 5
 
   # ==========================================================================
   # Error Handling
   # ==========================================================================
 
-  Scenario: Query with invalid domain returns error
+  Scenario: A query with an empty domain is refused
     When I query events with empty domain
-    Then the operation should fail with invalid argument error
+    Then the query is refused because a domain is required
 
-  Scenario: Query handles connection failure gracefully
+  Scenario: A query fails clearly when the backend is unreachable
     Given the query service is unavailable
     When I attempt to query events
-    Then the operation should fail with connection error
+    Then the query fails because the backend is unreachable

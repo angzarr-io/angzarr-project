@@ -6,30 +6,57 @@
 # rejects duplicates at build time. Saga / PM / projector fan-out is
 # unaffected (those kinds legitimately broadcast).
 Feature: Multi-handler dispatch
-  As a unified-Router user
-  I want sagas, PMs, and projectors that share an event source to ALL run
-  And I want CommandHandler duplicates to fail loudly at build time
-  So that fan-out cross-cutting concerns work without ambiguous CH semantics
+  The Router enforces that exactly one CommandHandler owns a given
+  (domain, command_type) pair, while sagas, process managers, and projectors
+  may legitimately fan out — every matching handler runs once per dispatch.
+
+  # Why this constraint exists:
+  # - CommandHandlers mutate aggregate state; two handlers claiming the same
+  #   command would produce ambiguous, non-deterministic outcomes
+  # - Sagas / PMs / projectors are read-side or coordination concerns; multiple
+  #   reactors to the same event is the normal, intended pattern
+  #
+  # What breaks if this is wrong:
+  # - Silent duplicate CH registration: commands routed to an arbitrary handler,
+  #   state diverges across deployments
+  # - Saga/PM/projector under-fan-out: downstream effects (stock reservation,
+  #   shipment creation, read-model updates) silently dropped
+  # - Saga/PM over-fan-out: same effect emitted N times per matching handler
+  #   method, producing duplicate commands
+
+  # ==========================================================================
+  # CommandHandler uniqueness — build-time enforcement
+  # ==========================================================================
+  # Duplicate (domain, command_type) CH registrations must fail loudly at
+  # router build, not at dispatch. Same command_type under different domains
+  # is fine; one CH handling many command types is fine.
 
   @C-0010
   Scenario: Router rejects duplicate CommandHandler registration
     Given two command handlers Alpha and Beta for domain "order"
     And both handle CreateOrder
     When the router is built with Alpha then Beta
-    Then build fails with DuplicateCommandHandler for domain "order" and CreateOrder
+    Then registration is rejected because two command handlers claim CreateOrder in "order"
 
   @C-0011
   Scenario: Router accepts CommandHandlers in different domains for same command type
     Given a command handler Alpha for domain "orderA" handling CreateOrder
     And a command handler Beta for domain "orderB" handling CreateOrder
     When the router is built with Alpha then Beta across domains
-    Then build succeeds with a CommandHandlerRouter
+    Then the configuration is accepted
 
   @C-0012
   Scenario: Router accepts a single CommandHandler with multiple handled types
     Given a command handler Player for domain "player" handling RegisterPlayer and DepositFunds
     When the router is built with Player
-    Then build succeeds with a CommandHandlerRouter
+    Then the configuration is accepted
+
+  # ==========================================================================
+  # Saga / PM / Projector fan-out — every matching handler runs
+  # ==========================================================================
+  # Unlike CHs, multiple sagas, PMs, or projectors may legitimately react to
+  # the same event. Each matching handler is invoked, and commands emerge in
+  # registration order so downstream effects are deterministic.
 
   @C-0013
   Scenario: Saga multi-handler merge — all matching sagas invoked
@@ -61,16 +88,19 @@ Feature: Multi-handler dispatch
     Then ProjA's log has 1 entry
     And ProjB's log has 1 entry
 
+  # ==========================================================================
+  # Fan-out arity — each saga handles the event once, not once per method
+  # ==========================================================================
+  # Audit #18 reframe: the original C-0087 asserted factory invocation counts
+  # on multi-handler CH dispatch. CH multi-handler is now forbidden, so the
+  # remaining "N matching handlers, each fires once" surface is saga (and
+  # PM/projector, already covered above). A saga with multiple matching
+  # handler methods must still be dispatched to once per event — not once
+  # per matching method — otherwise downstream commands duplicate.
+
   @C-0087
-  Scenario: Each matched factory invoked exactly once per dispatch (saga fan-out)
-    # Audit #18 reframe: the original C-0087 asserted factory invocation
-    # counts on multi-handler CH dispatch. CH multi-handler is now
-    # forbidden, so the only remaining "multi-handler dispatch with N
-    # factories invoked exactly once" surface is saga (and PM/projector,
-    # already covered above).
+  Scenario: Each saga handles the event once, not once per matching handler method
     Given two sagas SagaA and SagaB both listening to source "order" for OrderCreated
-    And each saga factory counts invocations
     And the saga router is built with SagaA then SagaB
     When an OrderCreated event is dispatched to the saga router
-    Then SagaA's factory was invoked exactly 1 time
-    And SagaB's factory was invoked exactly 1 time
+    Then each saga handles the event exactly once

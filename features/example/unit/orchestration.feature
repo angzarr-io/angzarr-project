@@ -1,163 +1,165 @@
 # Allocated: EU-0600 .. EU-0617
-Feature: Process Manager orchestration logic
-  Process Managers coordinate cross-aggregate flows that require decision coupling.
-  Unlike sagas which react to events after the fact, PMs validate state across
-  aggregates BEFORE emitting commands, enabling synchronous client responses.
+Feature: Cross-domain orchestration outcomes
+  Some business flows require a decision that spans multiple domains. Orchestrators
+  check state across multiple domains before committing the outcome, so a player's
+  request can be accepted or refused in a single coherent response.
 
   # ==========================================================================
-  # BuyInOrchestrator - Player ↔ Table coordination
+  # Buy-in coordination - Player and Table together
   # ==========================================================================
-  # The buy-in flow requires decision coupling: we need to know if the Table
-  # seat is available BEFORE committing the Player's funds. The PM sees both
-  # aggregate states and coordinates the atomic operation.
+  # A buy-in only succeeds when the seat is available at the table and the
+  # amount fits the table's buy-in range. The two views are reconciled before
+  # the player's funds are committed.
 
   @EU-0600
-  Scenario: BuyInOrchestrator emits SeatPlayer when validation passes
-    Given a table with seat 0 available and buy-in range 200-2000
-    And a player with a BuyInRequested event for seat 0 with amount 500
-    When the BuyInOrchestrator handles the BuyInRequested event
-    Then the PM emits a SeatPlayer command to the table
-    And the PM emits a BuyInInitiated process event
+  Scenario: A buy-in within the table's range is accepted at an open seat
+    Given table "table-1" has seat 0 available with a buy-in range of 200 to 2000
+    And Alice has requested a buy-in for seat 0 with amount 500
+    When Alice's buy-in is processed
+    Then Alice is offered seat 0 at table "table-1"
+    And the buy-in is recorded as initiated
 
   @EU-0601
-  Scenario: BuyInOrchestrator rejects when buy-in too low
-    Given a table with seat 0 available and buy-in range 200-2000
-    And a player with a BuyInRequested event for seat 0 with amount 100
-    When the BuyInOrchestrator handles the BuyInRequested event
-    Then the PM emits no commands
-    And the PM emits a BuyInFailed process event with code "INVALID_AMOUNT"
+  Scenario: A buy-in below the table minimum is refused
+    Given table "table-1" has seat 0 available with a buy-in range of 200 to 2000
+    And Alice has requested a buy-in for seat 0 with amount 100
+    When Alice's buy-in is processed
+    Then Alice is not offered a seat
+    And the buy-in is refused because the amount is outside the allowed range
 
   @EU-0602
-  Scenario: BuyInOrchestrator rejects when buy-in too high
-    Given a table with seat 0 available and buy-in range 200-2000
-    And a player with a BuyInRequested event for seat 0 with amount 5000
-    When the BuyInOrchestrator handles the BuyInRequested event
-    Then the PM emits no commands
-    And the PM emits a BuyInFailed process event with code "INVALID_AMOUNT"
+  Scenario: A buy-in above the table maximum is refused
+    Given table "table-1" has seat 0 available with a buy-in range of 200 to 2000
+    And Alice has requested a buy-in for seat 0 with amount 5000
+    When Alice's buy-in is processed
+    Then Alice is not offered a seat
+    And the buy-in is refused because the amount is outside the allowed range
 
   @EU-0603
-  Scenario: BuyInOrchestrator rejects when seat is occupied
-    Given a table with seat 0 occupied by another player
-    And a player with a BuyInRequested event for seat 0 with amount 500
-    When the BuyInOrchestrator handles the BuyInRequested event
-    Then the PM emits no commands
-    And the PM emits a BuyInFailed process event with code "SEAT_OCCUPIED"
+  Scenario: A buy-in for an occupied seat is refused
+    Given table "table-1" has seat 0 occupied by another player
+    And Alice has requested a buy-in for seat 0 with amount 500
+    When Alice's buy-in is processed
+    Then Alice is not offered a seat
+    And the buy-in is refused because the seat is already taken
 
   @EU-0604
-  Scenario: BuyInOrchestrator rejects when table is full
-    Given a table that is full with 9 players
-    And a player with a BuyInRequested event for any seat with amount 500
-    When the BuyInOrchestrator handles the BuyInRequested event
-    Then the PM emits no commands
-    And the PM emits a BuyInFailed process event with code "TABLE_FULL"
+  Scenario: A buy-in at a full table is refused
+    Given table "table-1" is full with 9 players
+    And Alice has requested a buy-in for any seat with amount 500
+    When Alice's buy-in is processed
+    Then Alice is not offered a seat
+    And the buy-in is refused because the table is full
 
   @EU-0605
-  Scenario: BuyInOrchestrator confirms buy-in on PlayerSeated
-    Given a player and table in a pending buy-in state
-    When the BuyInOrchestrator handles a PlayerSeated event
-    Then the PM emits a ConfirmBuyIn command to the player
-    And the PM emits a BuyInCompleted process event
+  Scenario: A buy-in is completed once the player is seated
+    Given Alice has a pending buy-in at table "table-1"
+    When Alice is seated at the table
+    Then Alice's buy-in is confirmed
+    And the buy-in is recorded as completed
 
   @EU-0606
-  Scenario: BuyInOrchestrator releases funds on SeatingRejected
-    Given a player and table in a pending buy-in state
-    When the BuyInOrchestrator handles a SeatingRejected event
-    Then the PM emits a ReleaseBuyIn command to the player
-    And the PM emits a BuyInFailed process event with code "SEATING_REJECTED"
+  Scenario: A buy-in releases the player's funds when seating is refused by the table
+    Given Alice has a pending buy-in at table "table-1"
+    When the table refuses to seat Alice
+    Then Alice's reserved buy-in funds are released
+    And the buy-in is refused because seating was rejected
 
   # ==========================================================================
-  # RegistrationOrchestrator - Player ↔ Tournament coordination
+  # Tournament registration coordination - Player and Tournament together
   # ==========================================================================
-  # Tournament registration requires knowing capacity and status BEFORE
-  # committing the Player's fee. Similar pattern to buy-in.
+  # A tournament registration only succeeds when the tournament is open and has
+  # capacity. The tournament's status is reconciled with the player's request
+  # before the entry fee is committed.
 
   @EU-0607
-  Scenario: RegistrationOrchestrator emits EnrollPlayer when validation passes
-    Given a tournament with registration open and capacity available
-    And a player with a RegistrationRequested event with fee 1000
-    When the RegistrationOrchestrator handles the RegistrationRequested event
-    Then the PM emits an EnrollPlayer command to the tournament
-    And the PM emits a RegistrationInitiated process event
+  Scenario: A registration into an open tournament with capacity is accepted
+    Given tournament "trn-1" is open for registration with capacity available
+    And Alice has requested registration with fee 1000
+    When Alice's registration is processed
+    Then Alice is enrolled in tournament "trn-1"
+    And the registration is recorded as initiated
 
   @EU-0608
-  Scenario: RegistrationOrchestrator rejects when tournament is full
-    Given a tournament that is full
-    And a player with a RegistrationRequested event with fee 1000
-    When the RegistrationOrchestrator handles the RegistrationRequested event
-    Then the PM emits no commands
-    And the PM emits a RegistrationFailed process event with code "REGISTRATION_CLOSED"
+  Scenario: A registration into a full tournament is refused
+    Given tournament "trn-1" is full
+    And Alice has requested registration with fee 1000
+    When Alice's registration is processed
+    Then Alice is not enrolled
+    And the registration is refused because registration is closed
 
   @EU-0609
-  Scenario: RegistrationOrchestrator rejects when registration is closed
-    Given a tournament with registration closed
-    And a player with a RegistrationRequested event with fee 1000
-    When the RegistrationOrchestrator handles the RegistrationRequested event
-    Then the PM emits no commands
-    And the PM emits a RegistrationFailed process event with code "REGISTRATION_CLOSED"
+  Scenario: A registration into a tournament with registration closed is refused
+    Given tournament "trn-1" has registration closed
+    And Alice has requested registration with fee 1000
+    When Alice's registration is processed
+    Then Alice is not enrolled
+    And the registration is refused because registration is closed
 
   @EU-0610
-  Scenario: RegistrationOrchestrator confirms on TournamentPlayerEnrolled
-    Given a player and tournament in a pending registration state
-    When the RegistrationOrchestrator handles a TournamentPlayerEnrolled event
-    Then the PM emits a ConfirmRegistrationFee command to the player
-    And the PM emits a RegistrationCompleted process event
+  Scenario: A registration is completed once the player is enrolled
+    Given Alice has a pending registration for tournament "trn-1"
+    When Alice is enrolled in the tournament
+    Then Alice's registration fee is confirmed
+    And the registration is recorded as completed
 
   @EU-0611
-  Scenario: RegistrationOrchestrator releases fee on TournamentEnrollmentRejected
-    Given a player and tournament in a pending registration state
-    When the RegistrationOrchestrator handles a TournamentEnrollmentRejected event
-    Then the PM emits a ReleaseRegistrationFee command to the player
-    And the PM emits a RegistrationFailed process event with code "ENROLLMENT_REJECTED"
+  Scenario: A registration releases the player's fee when enrollment is refused by the tournament
+    Given Alice has a pending registration for tournament "trn-1"
+    When the tournament refuses to enroll Alice
+    Then Alice's reserved registration fee is released
+    And the registration is refused because enrollment was rejected
 
   # ==========================================================================
-  # RebuyOrchestrator - Player ↔ Tournament ↔ Table coordination
+  # Rebuy coordination - Player, Tournament, and Table together
   # ==========================================================================
-  # Rebuy is the most complex: requires validating Tournament rebuy window,
-  # Player eligibility, AND Table seat existence. Three-domain coordination.
+  # A rebuy is the most cross-cutting flow: the tournament must be in its rebuy
+  # window, the player must be seated at a table, and the player must be
+  # eligible. All three views are reconciled before the fee is committed.
 
   @EU-0612
-  Scenario: RebuyOrchestrator emits ProcessRebuy when all validations pass
-    Given a tournament in rebuy window with player eligible
-    And a table with the player seated at position 2
-    And a player with a RebuyRequested event for amount 1000
-    When the RebuyOrchestrator handles the RebuyRequested event
-    Then the PM emits a ProcessRebuy command to the tournament
-    And the PM emits a RebuyInitiated process event
+  Scenario: A rebuy during the rebuy window for a seated, eligible player is accepted
+    Given tournament "trn-1" is in its rebuy window and Alice is eligible
+    And Alice is seated at table "table-1" in seat 2
+    And Alice has requested a rebuy for amount 1000
+    When Alice's rebuy is processed
+    Then Alice's rebuy is submitted to tournament "trn-1"
+    And the rebuy is recorded as initiated
 
   @EU-0613
-  Scenario: RebuyOrchestrator rejects when rebuy window is closed
-    Given a tournament with rebuy window closed
-    And a table with the player seated at position 2
-    And a player with a RebuyRequested event for amount 1000
-    When the RebuyOrchestrator handles the RebuyRequested event
-    Then the PM emits no commands
-    And the PM emits a RebuyFailed process event with code "TOURNAMENT_NOT_RUNNING"
+  Scenario: A rebuy outside the rebuy window is refused
+    Given tournament "trn-1" has its rebuy window closed
+    And Alice is seated at table "table-1" in seat 2
+    And Alice has requested a rebuy for amount 1000
+    When Alice's rebuy is processed
+    Then Alice's rebuy is not submitted
+    And the rebuy is refused because the tournament is not currently running
 
   @EU-0614
-  Scenario: RebuyOrchestrator rejects when player not seated
-    Given a tournament in rebuy window with player eligible
-    And a table without the player seated
-    And a player with a RebuyRequested event for amount 1000
-    When the RebuyOrchestrator handles the RebuyRequested event
-    Then the PM emits no commands
-    And the PM emits a RebuyFailed process event with code "NOT_SEATED"
+  Scenario: A rebuy for a player who is not seated is refused
+    Given tournament "trn-1" is in its rebuy window and Alice is eligible
+    And Alice is not seated at any table in the tournament
+    And Alice has requested a rebuy for amount 1000
+    When Alice's rebuy is processed
+    Then Alice's rebuy is not submitted
+    And the rebuy is refused because Alice is not seated
 
   @EU-0615
-  Scenario: RebuyOrchestrator adds chips on RebuyProcessed
-    Given a player, tournament, and table in a pending rebuy state
-    When the RebuyOrchestrator handles a RebuyProcessed event
-    Then the PM emits an AddRebuyChips command to the table
+  Scenario: Once a rebuy is approved, chips are added at the table
+    Given Alice has a pending rebuy at table "table-1" in tournament "trn-1"
+    When the tournament approves Alice's rebuy
+    Then Alice's rebuy chips are added at the table
 
   @EU-0616
-  Scenario: RebuyOrchestrator confirms fee after RebuyChipsAdded
-    Given a player, tournament, and table with chips added
-    When the RebuyOrchestrator handles a RebuyChipsAdded event
-    Then the PM emits a ConfirmRebuyFee command to the player
-    And the PM emits a RebuyCompleted process event
+  Scenario: A rebuy is completed once the chips are at the table
+    Given Alice's rebuy chips have been added at table "table-1" in tournament "trn-1"
+    When the chips are settled at the table
+    Then Alice's rebuy fee is confirmed
+    And the rebuy is recorded as completed
 
   @EU-0617
-  Scenario: RebuyOrchestrator releases fee on RebuyDenied
-    Given a player, tournament, and table in a pending rebuy state
-    When the RebuyOrchestrator handles a RebuyDenied event
-    Then the PM emits a ReleaseRebuyFee command to the player
-    And the PM emits a RebuyFailed process event with code "REBUY_DENIED"
+  Scenario: A rebuy releases the player's fee when the tournament denies it
+    Given Alice has a pending rebuy at table "table-1" in tournament "trn-1"
+    When the tournament denies Alice's rebuy
+    Then Alice's reserved rebuy fee is released
+    And the rebuy is refused because the rebuy was denied

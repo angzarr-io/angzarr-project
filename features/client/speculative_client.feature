@@ -1,16 +1,16 @@
-Feature: SpeculativeClient - What-If Execution
-  The SpeculativeClient enables "what-if" scenarios without persistence.
-  Commands, projectors, sagas, and process managers can be executed
-  speculatively to preview outcomes before committing.
+Feature: What-if execution
+  A what-if execution surface previews command, projector, saga, and process
+  manager outcomes without committing them. The projected execution leaves no
+  trace on real state.
 
   Use cases:
-  - UI previews: Show user what will happen before confirming
-  - Validation: Check if a command would succeed before sending
-  - Testing: Verify behavior without side effects
-  - Simulation: Model hypothetical scenarios
+  - UI previews: show the user what will happen before confirming
+  - Validation: check whether a command would succeed before sending
+  - Testing: verify behavior without side effects
+  - Simulation: model hypothetical scenarios
 
   Background:
-    Given a SpeculativeClient connected to the test backend
+    Given a what-if execution surface available
 
   # ==========================================================================
   # Speculative Aggregate Execution
@@ -40,11 +40,10 @@ Feature: SpeculativeClient - What-If Execution
     Then the operation should fail with validation error
     And no events should be produced
 
-  Scenario: Speculative execution creates implicit edition
+  Scenario: Speculative execution leaves no trace
     Given an aggregate "orders" with root "order-005" has 5 events
     When I speculatively execute a command
-    Then an edition should be created for the speculation
-    And the edition should be discarded after execution
+    Then the projected execution leaves no trace
 
   # ==========================================================================
   # Speculative Projector Execution

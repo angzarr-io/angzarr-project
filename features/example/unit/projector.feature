@@ -1,126 +1,97 @@
 # Allocated: EU-0500 .. EU-0530
-Feature: Projector logic
-  The OutputProjector transforms domain events into human-readable text.
-  It's a read-model builder that enables observability without coupling
-  the game logic to any specific output format.
+Feature: Game display rendering
+  Game events are rendered as human-readable text for observers. The display
+  builds up a running narrative of the game without coupling the game logic
+  to any specific output format.
 
-  # Why projectors matter:
+  # Why this exists:
   # - Aggregates focus on business rules, not presentation
-  # - The same events can drive multiple projectors (text, JSON, WebSocket)
-  # - Projectors can be deployed/updated independently of aggregates
+  # - The same game can drive multiple displays (text, JSON, WebSocket)
+  # - The display can evolve independently of the game itself
 
-  # Patterns enabled by projectors:
-  # - Read model denormalization: Combine data from multiple event types into
-    # query-optimized views. Same pattern applies to search indexes, dashboards.
-  # - Event stream formatting: Transform events for external systems (logs, APIs,
-    # WebSockets). Same pattern applies to audit logs, analytics pipelines.
-  # - Stateful context building: Track cross-event state (player names) for
-    # enriched output. Same pattern applies to session tracking, entity resolution.
-  # - Multi-domain subscription: Single projector consumes player, table, AND hand
-    # events. Same pattern applies to unified dashboards, cross-cutting analytics.
-
-  # Why poker exercises projector patterns well:
-  # - Multiple event types: PlayerRegistered, TableCreated, CardsDealt, ActionTaken,
-    # CommunityCardsDealt, PotAwarded - each needs different formatting
-  # - Cross-event context: Player names from registration used when formatting
-    # ActionTaken events - requires stateful tracking
-  # - High-frequency updates: 20+ events per hand means projector sees rapid flow
-  # - Domain variety: Events from player, table, and hand domains all flow through
-
-  # What this projector demonstrates:
-  # - Stateful context (player names) built from registration events
-  # - Event-specific formatting (cards, blinds, actions)
-  # - Graceful handling of unknown events
+  # What this display demonstrates:
+  # - Names of registered players appear in the running narrative
+  # - Cards, blinds, and actions each render in a clear, consistent style
+  # - Unfamiliar events do not crash the display
 
   # ==========================================================================
   # Player Event Rendering
   # ==========================================================================
   # Player events establish context (names, balances) used throughout
-  # the game display. Projectors often need to track cross-event state.
+  # the game display.
 
   @EU-0500
-  Scenario: Render PlayerRegistered event
-    Given an OutputProjector
-    And a PlayerRegistered event with display_name "Alice"
-    When the projector handles the event
-    Then the output contains "Alice registered"
+  Scenario: A registered player appears in the display
+    Given the game display
+    When Alice registers
+    Then the display shows "Alice registered"
 
   @EU-0501
-  Scenario: Render FundsDeposited event
-    Given an OutputProjector
-    And a FundsDeposited event with amount 1000 and new_balance 1000
-    When the projector handles the event
-    Then the output contains "$1,000"
-    And the output contains "balance: $1,000"
+  Scenario: A deposit appears in the display with the new balance
+    Given the game display
+    When Alice deposits 1000 chips bringing her balance to 1000
+    Then the display shows "$1,000"
+    And the display shows "balance: $1,000"
 
   @EU-0502
-  Scenario: Render FundsWithdrawn event
-    Given an OutputProjector
-    And a FundsWithdrawn event with amount 500 and new_balance 500
-    When the projector handles the event
-    Then the output contains "Withdrew $500"
+  Scenario: A withdrawal appears in the display
+    Given the game display
+    When Alice withdraws 500 chips bringing her balance to 500
+    Then the display shows "Withdrew $500"
 
   @EU-0503
-  Scenario: Render FundsReserved event
-    Given an OutputProjector
-    And a FundsReserved event with amount 200
-    When the projector handles the event
-    Then the output contains "Reserved $200"
+  Scenario: A reservation appears in the display
+    Given the game display
+    When Alice reserves 200 chips
+    Then the display shows "Reserved $200"
 
   # ==========================================================================
   # Table Event Rendering
   # ==========================================================================
   # Table events describe the game structure: table creation, player seating,
-  # and hand lifecycle. These set up the context for hand-level events.
+  # and hand lifecycle.
 
   @EU-0504
-  Scenario: Render TableCreated event
-    Given an OutputProjector
-    And a TableCreated event with:
+  Scenario: A newly created table appears in the display
+    Given the game display
+    When a table is created with:
       | table_name | game_variant   | small_blind | big_blind | min_buy_in | max_buy_in |
       | Main Table | TEXAS_HOLDEM   | 5           | 10        | 200        | 1000       |
-    When the projector handles the event
-    Then the output contains "Main Table"
-    And the output contains "TEXAS_HOLDEM"
-    And the output contains "$5/$10"
-    And the output contains "$200 - $1,000"
+    Then the display shows "Main Table"
+    And the display shows "TEXAS_HOLDEM"
+    And the display shows "$5/$10"
+    And the display shows "$200 - $1,000"
 
   @EU-0505
-  Scenario: Render PlayerJoined event
-    Given an OutputProjector with player name "Bob"
-    And a PlayerJoined event at seat 3 with buy_in 500
-    When the projector handles the event
-    Then the output contains "Bob joined at seat 3"
-    And the output contains "$500"
+  Scenario: A player joining a table appears in the display
+    Given the game display knows Bob
+    When Bob joins at seat 3 with a buy-in of 500
+    Then the display shows "Bob joined at seat 3"
+    And the display shows "$500"
 
   @EU-0506
-  Scenario: Render PlayerLeft event
-    Given an OutputProjector with player name "Bob"
-    And a PlayerLeft event with chips_cashed_out 750
-    When the projector handles the event
-    Then the output contains "Bob left"
-    And the output contains "$750"
+  Scenario: A player leaving a table appears in the display
+    Given the game display knows Bob
+    When Bob leaves cashing out 750 chips
+    Then the display shows "Bob left"
+    And the display shows "$750"
 
   @EU-0507
-  Scenario: Render HandStarted event
-    Given an OutputProjector
-    And a HandStarted event with:
-      | hand_number | dealer_position | small_blind | big_blind |
-      | 5           | 2               | 5           | 10        |
-    And active players "Alice", "Bob", "Charlie" at seats 0, 1, 2
-    When the projector handles the event
-    Then the output contains "HAND #5"
-    And the output contains "Dealer: Seat 2"
-    And the output contains "Alice"
-    And the output contains "Bob"
-    And the output contains "Charlie"
+  Scenario: The start of a hand appears in the display
+    Given the game display
+    When hand 5 starts with dealer at seat 2 and blinds 5/10
+    And the active players are "Alice", "Bob", "Charlie" at seats 0, 1, 2
+    Then the display shows "HAND #5"
+    And the display shows "Dealer: Seat 2"
+    And the display shows "Alice"
+    And the display shows "Bob"
+    And the display shows "Charlie"
 
   @EU-0508
-  Scenario: Render HandEnded event with results
-    Given an OutputProjector with player names "Alice" and "Bob"
-    And a HandEnded event with winner "Alice" amount 100
-    When the projector handles the event
-    Then the output contains "Alice wins $100"
+  Scenario: The end of a hand appears in the display with results
+    Given the game display knows Alice and Bob
+    When the hand ends with Alice winning 100
+    Then the display shows "Alice wins $100"
 
   # ==========================================================================
   # Hand Event Rendering
@@ -129,196 +100,177 @@ Feature: Projector logic
   # community card, and showdown reveal needs clear, consistent formatting.
 
   @EU-0509
-  Scenario: Render CardsDealt event
-    Given an OutputProjector with player name "Alice"
-    And a CardsDealt event with player "Alice" holding As Kh
-    When the projector handles the event
-    Then the output contains "Alice: [As Kh]"
+  Scenario: Dealt hole cards appear in the display
+    Given the game display knows Alice
+    When Alice is dealt As Kh
+    Then the display shows "Alice: [As Kh]"
 
   @EU-0510
-  Scenario: Render BlindPosted event
-    Given an OutputProjector with player name "Alice"
-    And a BlindPosted event for "Alice" type "small" amount 5
-    When the projector handles the event
-    Then the output contains "Alice posts SMALL $5"
+  Scenario: A posted blind appears in the display
+    Given the game display knows Alice
+    When Alice posts the small blind of 5
+    Then the display shows "Alice posts SMALL $5"
 
   @EU-0511
-  Scenario: Render ActionTaken with fold
-    Given an OutputProjector with player name "Alice"
-    And an ActionTaken event for "Alice" action FOLD
-    When the projector handles the event
-    Then the output contains "Alice folds"
+  Scenario: A fold appears in the display
+    Given the game display knows Alice
+    When Alice folds
+    Then the display shows "Alice folds"
 
   @EU-0512
-  Scenario: Render ActionTaken with call
-    Given an OutputProjector with player name "Alice"
-    And an ActionTaken event for "Alice" action CALL amount 10 pot_total 25
-    When the projector handles the event
-    Then the output contains "Alice calls $10"
-    And the output contains "pot: $25"
+  Scenario: A call appears in the display with the pot total
+    Given the game display knows Alice
+    When Alice calls 10 making the pot 25
+    Then the display shows "Alice calls $10"
+    And the display shows "pot: $25"
 
   @EU-0513
-  Scenario: Render ActionTaken with raise
-    Given an OutputProjector with player name "Alice"
-    And an ActionTaken event for "Alice" action RAISE amount 30 pot_total 55
-    When the projector handles the event
-    Then the output contains "Alice raises to $30"
+  Scenario: A raise appears in the display
+    Given the game display knows Alice
+    When Alice raises to 30 making the pot 55
+    Then the display shows "Alice raises to $30"
 
   @EU-0514
-  Scenario: Render ActionTaken with all-in
-    Given an OutputProjector with player name "Alice"
-    And an ActionTaken event for "Alice" action ALL_IN amount 500 pot_total 600
-    When the projector handles the event
-    Then the output contains "Alice all-in $500"
+  Scenario: An all-in appears in the display
+    Given the game display knows Alice
+    When Alice goes all-in for 500 making the pot 600
+    Then the display shows "Alice all-in $500"
 
   @EU-0515
-  Scenario: Render CommunityCardsDealt for flop
-    Given an OutputProjector
-    And a CommunityCardsDealt event for FLOP with cards Ah Kd 7s
-    When the projector handles the event
-    Then the output contains "Flop: [Ah Kd 7s]"
-    And the output contains "Board:"
+  Scenario: The flop appears in the display
+    Given the game display
+    When the flop is dealt Ah Kd 7s
+    Then the display shows "Flop: [Ah Kd 7s]"
+    And the display shows "Board:"
 
   @EU-0516
-  Scenario: Render CommunityCardsDealt for turn
-    Given an OutputProjector
-    And a CommunityCardsDealt event for TURN with card 2c
-    When the projector handles the event
-    Then the output contains "Turn: [2c]"
+  Scenario: The turn appears in the display
+    Given the game display
+    When the turn is dealt 2c
+    Then the display shows "Turn: [2c]"
 
   @EU-0517
-  Scenario: Render ShowdownStarted event
-    Given an OutputProjector
-    And a ShowdownStarted event
-    When the projector handles the event
-    Then the output contains "SHOWDOWN"
+  Scenario: The start of the showdown appears in the display
+    Given the game display
+    When the showdown begins
+    Then the display shows "SHOWDOWN"
 
   @EU-0518
-  Scenario: Render CardsRevealed event
-    Given an OutputProjector with player name "Alice"
-    And a CardsRevealed event for "Alice" with cards As Ad and ranking PAIR
-    When the projector handles the event
-    Then the output contains "Alice shows [As Ad]"
-    And the output contains "Pair"
+  Scenario: Revealed cards appear in the display with the ranking
+    Given the game display knows Alice
+    When Alice reveals As Ad with a pair
+    Then the display shows "Alice shows [As Ad]"
+    And the display shows "Pair"
 
   @EU-0519
-  Scenario: Render CardsMucked event
-    Given an OutputProjector with player name "Alice"
-    And a CardsMucked event for "Alice"
-    When the projector handles the event
-    Then the output contains "Alice mucks"
+  Scenario: Mucked cards appear in the display
+    Given the game display knows Alice
+    When Alice mucks her cards
+    Then the display shows "Alice mucks"
 
   @EU-0520
-  Scenario: Render PotAwarded event
-    Given an OutputProjector with player name "Alice"
-    And a PotAwarded event with winner "Alice" amount 150
-    When the projector handles the event
-    Then the output contains "Alice wins $150"
+  Scenario: A pot award appears in the display
+    Given the game display knows Alice
+    When Alice wins a pot of 150
+    Then the display shows "Alice wins $150"
 
   @EU-0521
-  Scenario: Render HandComplete event
-    Given an OutputProjector with player names "Alice" and "Bob"
-    And a HandComplete event with final stacks:
+  Scenario: The final stacks at the end of a hand appear in the display
+    Given the game display knows Alice and Bob
+    When the hand finishes with final stacks:
       | player | stack | has_folded |
       | Alice  | 600   | false      |
       | Bob    | 400   | true       |
-    When the projector handles the event
-    Then the output contains "Final stacks"
-    And the output contains "Alice: $600"
-    And the output contains "Bob: $400 (folded)"
+    Then the display shows "Final stacks"
+    And the display shows "Alice: $600"
+    And the display shows "Bob: $400 (folded)"
 
   @EU-0522
-  Scenario: Render PlayerTimedOut event
-    Given an OutputProjector with player name "Alice"
-    And a PlayerTimedOut event for "Alice" with default_action FOLD
-    When the projector handles the event
-    Then the output contains "Alice timed out"
-    And the output contains "auto folds"
+  Scenario: A timeout and its automatic action appear in the display
+    Given the game display knows Alice
+    When Alice times out and is auto-folded
+    Then the display shows "Alice timed out"
+    And the display shows "auto folds"
 
   # ==========================================================================
   # Card Formatting
   # ==========================================================================
-  # Cards are represented as protobuf messages (suit + rank integers).
-  # The projector converts these to standard notation: "As" = Ace of Spades.
+  # Cards use standard short notation: rank letter or digit, then suit letter.
 
   @EU-0523
-  Scenario: Format card with all suits
-    Given an OutputProjector
-    When formatting cards:
+  Scenario: Every suit renders with its short letter
+    Given the game display
+    When cards are shown for each suit:
       | suit     | rank |
       | CLUBS    | 14   |
       | DIAMONDS | 13   |
       | HEARTS   | 12   |
       | SPADES   | 11   |
-    Then the output contains "Ac Kd Qh Js"
+    Then the display shows "Ac Kd Qh Js"
 
   @EU-0524
-  Scenario: Format card with all ranks
-    Given an OutputProjector
-    When formatting cards with rank 2 through 14
-    Then ranks 2-9 display as digits
-    And rank 10 displays as "T"
-    And rank 11 displays as "J"
-    And rank 12 displays as "Q"
-    And rank 13 displays as "K"
-    And rank 14 displays as "A"
+  Scenario: Every rank renders with its short symbol
+    Given the game display
+    Then a 2 displays as "2"
+    And a 9 displays as "9"
+    And a 10 displays as "T"
+    And a Jack displays as "J"
+    And a Queen displays as "Q"
+    And a King displays as "K"
+    And an Ace displays as "A"
 
   # ==========================================================================
   # Player Name Resolution
   # ==========================================================================
-  # Events reference players by root ID (e.g., "player-abc123"). The projector
-  # maintains a name cache built from PlayerRegistered events. This separation
-  # keeps event payloads small while enabling friendly display names.
+  # The display remembers the friendly name of each player from when they
+  # registered, and uses that name everywhere instead of a raw identifier.
 
   @EU-0525
-  Scenario: Use registered player names
-    Given an OutputProjector
+  Scenario: A registered player is shown by name
+    Given the game display
     And player "player-abc123" is registered as "Alice"
     When an event references "player-abc123"
-    Then the output uses "Alice"
+    Then the display uses "Alice"
 
   @EU-0526
-  Scenario: Fallback to truncated player ID
-    Given an OutputProjector
-    When an event references unknown "player-xyz789"
-    Then the output uses "Player_xyz789" prefix
+  Scenario: An unknown player is shown by a short fallback label
+    Given the game display
+    When an event references an unknown player "player-xyz789"
+    Then the display falls back to a short label starting with "Player_xyz789"
 
   # ==========================================================================
   # Timestamp Display
   # ==========================================================================
-  # Timestamps are useful for debugging but can clutter normal output.
-  # The projector supports toggling timestamp display via configuration.
+  # Timestamps are useful for debugging but can clutter normal output. The
+  # display can be configured to include or omit them.
 
   @EU-0527
-  Scenario: Include timestamps when enabled
-    Given an OutputProjector with show_timestamps enabled
-    And an event with created_at 14:30:00
-    When the projector handles the event
-    Then the output starts with "[14:30:00]"
+  Scenario: Timestamps appear when enabled
+    Given the game display with timestamps enabled
+    When an event happens at 14:30:00
+    Then the display line starts with "[14:30:00]"
 
   @EU-0528
-  Scenario: Exclude timestamps when disabled
-    Given an OutputProjector with show_timestamps disabled
-    And an event with created_at
-    When the projector handles the event
-    Then the output does not start with "[14:"
+  Scenario: Timestamps are omitted when disabled
+    Given the game display with timestamps disabled
+    When an event happens
+    Then the display line does not start with "[14:"
 
   # ==========================================================================
-  # Event Book Processing
+  # Event Batch Processing
   # ==========================================================================
-  # Commands often produce multiple events. The projector must handle batches
-  # correctly and gracefully degrade when encountering unknown event types.
+  # A single business action often produces several events. The display
+  # renders them all, in order, and degrades gracefully when an event is
+  # something the display does not recognise.
 
   @EU-0529
-  Scenario: Handle multiple events in event book
-    Given an OutputProjector
-    And an event book with PlayerJoined and BlindPosted events
-    When the projector handles the event book
-    Then both events are rendered in order
+  Scenario: A batch of events is rendered in order
+    Given the game display
+    When a batch of a PlayerJoined and a BlindPosted event is rendered
+    Then both events appear in the display in order
 
   @EU-0530
-  Scenario: Handle unknown event type gracefully
-    Given an OutputProjector
-    And an event with unknown type_url "type.poker/angzarr_client.proto.examples.v1.UnknownEvent"
-    When the projector handles the event
-    Then the output contains "[Unknown event type:"
+  Scenario: An unfamiliar event is indicated gracefully
+    Given the game display
+    When the display encounters an unfamiliar event
+    Then the display shows "[Unknown event type:"

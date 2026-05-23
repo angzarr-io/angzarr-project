@@ -3,12 +3,12 @@
 #      Update documentation when making changes to player feature scenarios.
 
 # docs:start:feature_overview
-Feature: Player aggregate logic
-  The Player aggregate manages a player's bankroll and table reservations.
-  It's the source of truth for how much money a player has and where it's allocated.
+Feature: Player bankroll and table reservations
+  A player manages a bankroll and table reservations. The player is the source
+  of truth for how much money the player has and where it is allocated.
 # docs:end:feature_overview
 
-  # Why this aggregate exists:
+  # Why this exists:
   # - Players can only sit at tables if they have funds to reserve
   # - Reserved funds are locked until the table session ends
   # - Withdrawals cannot touch reserved funds (preventing mid-game cashout)
@@ -18,22 +18,23 @@ Feature: Player aggregate logic
   # - Funds could be double-spent across multiple tables
   # - Players could withdraw chips currently in play
   #
-  # Patterns enabled by this aggregate:
-  # - Two-phase reservation: ReserveFunds locks money, ReleaseFunds returns it. This
-  #   pattern applies anywhere resources must be held pending confirmation (e-commerce
-  #   inventory holds, ticket reservations, hotel bookings).
-  # - Saga compensation: When JoinTable fails, FundsReserved must be undone via
-  #   FundsReleased. The player aggregate handles the Notification and compensates.
-  # - Balance tracking with allocation: Available vs reserved funds. Same pattern
-  #   applies to inventory (available vs allocated), accounts (balance vs holds).
+  # Patterns exercised here:
+  # - Two-phase reservation: reserving locks money, releasing returns it. This
+  #   pattern applies anywhere resources must be held pending confirmation
+  #   (e-commerce inventory holds, ticket reservations, hotel bookings).
+  # - Compensation: when a table join is rejected, the reservation must be
+  #   undone exactly.
+  # - Balance tracking with allocation: available vs reserved funds. Same
+  #   pattern applies to inventory (available vs allocated), bank accounts
+  #   (balance vs holds).
   #
   # Why poker exercises these patterns well:
-  # - Fund reservation is explicit: $500 reserved for Table-1 is clearly separate
-  #   from the $500 available balance - easy to verify in tests
-  # - Compensation is visible: A rejected JoinTable must release exactly the reserved
-  #   amount - the math is obvious and testable
-  # - Multiple concurrent reservations: A player at 3 tables has 3 separate holds,
-  #   exercising the allocation tracking thoroughly
+  # - Fund reservation is explicit: 500 chips reserved for Table-1 is clearly
+  #   separate from the 500 available - easy to verify in tests
+  # - Compensation is visible: a rejected table join must release exactly the
+  #   reserved amount - the math is obvious and testable
+  # - Multiple concurrent reservations: a player at 3 tables has 3 separate
+  #   holds, exercising the allocation tracking thoroughly
 
   # ==========================================================================
   # Player Registration
@@ -43,33 +44,25 @@ Feature: Player aggregate logic
 
   # docs:start:registration_scenarios
   @EU-0200
-  Scenario: Register a new human player
-    Given no prior events for the player aggregate
-    When I handle a RegisterPlayer command with name "Alice" and email "alice@example.com"
-    Then the result is a angzarr_client.proto.examples.v1.PlayerRegistered event
-    And the event has a timestamp registered_at
-    And the player event has display_name "Alice"
-    And the player event has email "alice@example.com"
-    And the player event has player_type "HUMAN"
-    And the player event has ai_model_id ""
+  Scenario: A new human player registers
+    Given Alice has not yet registered
+    When Alice registers with email "alice@example.com"
+    Then Alice is registered as a human player
+    And Alice's registration is timestamped
 
   @EU-0201
-  Scenario: Cannot register player twice
-    Given a PlayerRegistered event for "Alice"
-    When I handle a RegisterPlayer command with name "Alice2" and email "alice@example.com"
-    Then the command fails with status "FAILED_PRECONDITION"
-    And the error message equals "Player already exists"
+  Scenario: A player cannot register twice
+    Given Alice is registered
+    When Alice tries to register again with email "alice@example.com"
+    Then registration is refused because Alice already exists
   # docs:end:registration_scenarios
 
   @EU-0202
-  Scenario: Register an AI player
-    Given no prior events for the player aggregate
-    When I handle a RegisterPlayer command with name "Bot1" and email "bot1@example.com" as AI
-    Then the result is a angzarr_client.proto.examples.v1.PlayerRegistered event
-    And the event has a timestamp registered_at
-    And the player event has email "bot1@example.com"
-    And the player event has player_type "AI"
-    And the player event has ai_model_id "gpt-4"
+  Scenario: An AI player registers
+    Given Bot1 has not yet registered
+    When Bot1 registers as an AI with email "bot1@example.com" and model "gpt-4"
+    Then Bot1 is registered as an AI player using the "gpt-4" model
+    And Bot1's registration is timestamped
 
   # ==========================================================================
   # Deposits - Adding Funds to Bankroll
@@ -79,51 +72,35 @@ Feature: Player aggregate logic
   # players (no upper limit by default).
 
   @EU-0203
-  Scenario: Deposit funds to bankroll
-    Given a PlayerRegistered event for "Alice"
-    When I handle a DepositFunds command with amount 1000
-    Then the result is a angzarr_client.proto.examples.v1.FundsDeposited event
-    And the event has a timestamp deposited_at
-    And the player event has amount 1000
-    And the player event has new_balance 1000
+  Scenario: Depositing funds increases the bankroll
+    Given Alice is registered
+    When Alice deposits 1000 chips
+    Then Alice's balance is 1000
+    And the deposit is timestamped
 
   @EU-0204
-  Scenario: Multiple deposits accumulate
-    Given a PlayerRegistered event for "Alice"
-    And a FundsDeposited event with amount 500
-    When I handle a DepositFunds command with amount 300
-    Then the result is a angzarr_client.proto.examples.v1.FundsDeposited event
-    And the event has a timestamp deposited_at
-    And the player event has new_balance 800
+  Scenario: Successive deposits accumulate
+    Given Alice is registered
+    And Alice has 500 chips
+    When Alice deposits 300 chips
+    Then Alice's balance is 800
 
   @EU-0205
-  Scenario: Cannot deposit to non-existent player
-    Given no prior events for the player aggregate
-    When I handle a DepositFunds command with amount 1000
-    Then the command fails with status "FAILED_PRECONDITION"
-    And the error message equals "Player does not exist"
+  Scenario: An unregistered player cannot deposit
+    Given Alice has not yet registered
+    When Alice deposits 1000 chips
+    Then the deposit is refused because Alice does not exist
 
   @EU-0206
-  Scenario: Cannot deposit zero or negative
-    Given a PlayerRegistered event for "Alice"
-    And the command cover has domain "player" and correlation_id "deposit-flow-1"
-    When I handle a DepositFunds command with amount 0
-    Then the command fails with status "INVALID_ARGUMENT"
-    And the command is rejected with code "AMOUNT_MUST_BE_POSITIVE"
-    And the rejection field "value" equals "0"
-    # The router stamps the originating cover onto every rejection so the
-    # caller can trace it back to (domain, correlation_id, root) without
-    # threading context through handler signatures.
-    And the rejection cover has domain "player" and correlation_id "deposit-flow-1"
+  Scenario: A deposit must be positive
+    Given Alice is registered
+    When Alice deposits 0 chips
+    Then the deposit is refused because the amount must be positive
 
-  # Boundary: amount=1 must succeed. Catches `if amount <= 0` → `<= 1`
-  # which would (wrongly) reject the smallest positive deposit.
-  Scenario: Deposit of one chip succeeds at the lower boundary
-    Given a PlayerRegistered event for "Alice"
-    When I handle a DepositFunds command with amount 1
-    Then the result is a angzarr_client.proto.examples.v1.FundsDeposited event
-    And the player event has amount 1
-    And the player event has new_balance 1
+  Scenario: A deposit of one chip is allowed
+    Given Alice is registered
+    When Alice deposits 1 chip
+    Then Alice's balance is 1
 
   # ==========================================================================
   # Withdrawals - Removing Funds from Bankroll
@@ -133,729 +110,601 @@ Feature: Player aggregate logic
   # the player leaves the table. This prevents mid-session cashouts.
 
   @EU-0207
-  Scenario: Withdraw funds from bankroll
-    Given a PlayerRegistered event for "Alice"
-    And a FundsDeposited event with amount 1000
-    When I handle a WithdrawFunds command with amount 400
-    Then the result is a angzarr_client.proto.examples.v1.FundsWithdrawn event
-    And the event has a timestamp withdrawn_at
-    And the player event has amount 400
-    And the player event has new_balance 600
+  Scenario: Withdrawing funds reduces the bankroll
+    Given Alice is registered
+    And Alice has 1000 chips
+    When Alice withdraws 400 chips
+    Then Alice's balance is 600
+    And the withdrawal is timestamped
 
   @EU-0208
-  Scenario: Cannot withdraw more than available
-    Given a PlayerRegistered event for "Alice"
-    And a FundsDeposited event with amount 500
-    When I handle a WithdrawFunds command with amount 600
-    Then the command fails with status "FAILED_PRECONDITION"
-    And the command is rejected with code "INSUFFICIENT_AVAILABLE_BALANCE"
-    And the rejection field "requested" equals "600"
-    And the rejection field "available" equals "500"
+  Scenario: A player cannot withdraw more than the available balance
+    Given Alice is registered
+    And Alice has 500 chips
+    When Alice withdraws 600 chips
+    Then the withdrawal is refused because Alice has 500 available but requested 600
 
-  # Boundary: amount=1 must succeed. Catches `if amount <= 0` → `<= 1`.
-  Scenario: Withdraw of one chip succeeds at the lower boundary
-    Given a PlayerRegistered event for "Alice"
-    And a FundsDeposited event with amount 10
-    When I handle a WithdrawFunds command with amount 1
-    Then the result is a angzarr_client.proto.examples.v1.FundsWithdrawn event
-    And the player event has amount 1
-    And the player event has new_balance 9
+  Scenario: A withdrawal of one chip is allowed
+    Given Alice is registered
+    And Alice has 10 chips
+    When Alice withdraws 1 chip
+    Then Alice's balance is 9
 
   @EU-0209
-  Scenario: Cannot withdraw with funds reserved
-    Given a PlayerRegistered event for "Alice"
-    And a FundsDeposited event with amount 1000
-    And a FundsReserved event with amount 800 for table "table-1"
-    When I handle a WithdrawFunds command with amount 300
-    Then the command fails with status "FAILED_PRECONDITION"
-    And the command is rejected with code "INSUFFICIENT_AVAILABLE_BALANCE"
-    And the rejection field "requested" equals "300"
-    And the rejection field "available" equals "200"
+  Scenario: Reserved funds cannot be withdrawn
+    Given Alice is registered
+    And Alice has 1000 chips
+    And Alice has reserved 800 chips for table "table-1"
+    When Alice withdraws 300 chips
+    Then the withdrawal is refused because Alice has 200 available but requested 300
 
   # ==========================================================================
   # Fund Reservation - Locking Funds for Table Buy-ins
   # ==========================================================================
   # When a player joins a table, funds are RESERVED (not spent). Reserved
   # funds are locked against withdrawal but still belong to the player.
-  # This two-phase pattern (reserve → release) enables saga compensation:
+  # This two-phase pattern (reserve -> release) enables compensation:
   # if the table join fails, the reservation is released atomically.
 
   # docs:start:reservation_scenario
   @EU-0210
-  Scenario: Reserve funds for table buy-in
-    Given a PlayerRegistered event for "Alice"
-    And a FundsDeposited event with amount 1000
-    When I handle a ReserveFunds command with amount 500 for table "table-1"
-    Then the result is a angzarr_client.proto.examples.v1.FundsReserved event
-    And the event has a timestamp reserved_at
-    And the player event has amount 500
-    And the player event has new_available_balance 500
-    And the player event has new_reserved_balance 500
-    And the player event has table_root "table-1"
+  Scenario: Reserving funds for a table buy-in
+    Given Alice is registered
+    And Alice has 1000 chips
+    When Alice reserves 500 chips for table "table-1"
+    Then Alice has reserved 500 chips for table "table-1"
+    And Alice's available balance is 500
+    And the reservation is timestamped
 
-  # Boundary: amount=1 must succeed. Catches `if amount <= 0` → `<= 1`.
-  Scenario: Reserve of one chip succeeds at the lower boundary
-    Given a PlayerRegistered event for "Alice"
-    And a FundsDeposited event with amount 10
-    When I handle a ReserveFunds command with amount 1 for table "table-1"
-    Then the result is a angzarr_client.proto.examples.v1.FundsReserved event
-    And the player event has amount 1
+  Scenario: A reservation of one chip is allowed
+    Given Alice is registered
+    And Alice has 10 chips
+    When Alice reserves 1 chip for table "table-1"
+    Then Alice has reserved 1 chip for table "table-1"
   # docs:end:reservation_scenario
 
   @EU-0211
-  Scenario: Cannot reserve more than available
-    Given a PlayerRegistered event for "Alice"
-    And a FundsDeposited event with amount 500
-    When I handle a ReserveFunds command with amount 600 for table "table-1"
-    Then the command fails with status "FAILED_PRECONDITION"
-    And the command is rejected with code "INSUFFICIENT_FUNDS"
-    And the rejection field "requested" equals "600"
-    And the rejection field "available" equals "500"
+  Scenario: A reservation cannot exceed the available balance
+    Given Alice is registered
+    And Alice has 500 chips
+    When Alice reserves 600 chips for table "table-1"
+    Then the reservation is refused because Alice has 500 available but requested 600
 
   @EU-0212
-  Scenario: Cannot reserve for same table twice
-    Given a PlayerRegistered event for "Alice"
-    And a FundsDeposited event with amount 1000
-    And a FundsReserved event with amount 500 for table "table-1"
-    When I handle a ReserveFunds command with amount 200 for table "table-1"
-    Then the command fails with status "FAILED_PRECONDITION"
-    And the command is rejected with code "FUNDS_ALREADY_RESERVED_FOR_TABLE"
-    # uuid5(NAMESPACE_OID, "table-1").bytes.hex() — byte-identical across Python and Rust.
-    And the rejection field "table_root_hex" equals "eba6a19b488f5e1097a5a34a92553679"
+  Scenario: A player cannot reserve for the same table twice
+    Given Alice is registered
+    And Alice has 1000 chips
+    And Alice has reserved 500 chips for table "table-1"
+    When Alice reserves 200 chips for table "table-1"
+    Then the reservation is refused because Alice has already reserved for that table
 
   # ==========================================================================
   # Fund Release - Returning Reserved Funds
   # ==========================================================================
-  # When a player leaves a table, their stack (remaining chips) is released
-  # back to available balance. The release amount may differ from reservation
-  # if the player won or lost chips during play.
+  # When a player leaves a table, the player's stack (remaining chips) is
+  # released back to the available balance. The release amount may differ
+  # from the reservation if the player won or lost chips during play.
 
   @EU-0213
-  Scenario: Release reserved funds back to bankroll
-    Given a PlayerRegistered event for "Alice"
-    And a FundsDeposited event with amount 1000
-    And a FundsReserved event with amount 500 for table "table-1"
-    When I handle a ReleaseFunds command for table "table-1"
-    Then the result is a angzarr_client.proto.examples.v1.FundsReleased event
-    And the event has a timestamp released_at
-    And the player event has amount 500
-    And the player event has new_available_balance 1000
-    And the player event has new_reserved_balance 0
-    And the player event has table_root "table-1"
+  Scenario: Releasing reserved funds returns them to the available balance
+    Given Alice is registered
+    And Alice has 1000 chips
+    And Alice has reserved 500 chips for table "table-1"
+    When Alice's funds for table "table-1" are released
+    Then 500 chips are returned to Alice's available balance
+    And Alice's available balance is 1000
+    And Alice no longer has a reservation for table "table-1"
+    And the release is timestamped
 
   @EU-0214
-  Scenario: Cannot release non-existent reservation
-    Given a PlayerRegistered event for "Alice"
-    And a FundsDeposited event with amount 1000
-    When I handle a ReleaseFunds command for table "table-1"
-    Then the command fails with status "FAILED_PRECONDITION"
-    And the command is rejected with code "NO_FUNDS_RESERVED_FOR_TABLE"
-    # uuid5(NAMESPACE_OID, "table-1").bytes.hex() — byte-identical across Python and Rust.
-    And the rejection field "table_root_hex" equals "eba6a19b488f5e1097a5a34a92553679"
+  Scenario: A release without a reservation is refused
+    Given Alice is registered
+    And Alice has 1000 chips
+    When Alice's funds for table "table-1" are released
+    Then the release is refused because Alice has no reservation for that table
 
   # ==========================================================================
   # State Reconstruction
   # ==========================================================================
-  # Player state is rebuilt by replaying all events in order. This verifies
-  # that the event sequence correctly captures the full financial history.
+  # The player's balances must be derivable from the player's history. This
+  # verifies that the recorded events together capture the full financial
+  # position.
 
   @EU-0215
-  Scenario: Rebuild state with deposits and reservations
-    Given a PlayerRegistered event for "Alice"
-    And a FundsDeposited event with amount 1000
-    And a FundsReserved event with amount 400 for table "table-1"
-    When I rebuild the player state
-    Then the player state has bankroll 1000
-    And the player state has reserved_funds 400
-    And the player state has available_balance 600
+  Scenario: A player's balances follow from deposits and reservations
+    Given Alice is registered
+    And Alice has 1000 chips
+    And Alice has reserved 400 chips for table "table-1"
+    Then Alice's total bankroll is 1000
+    And Alice's reserved funds are 400
+    And Alice's available balance is 600
 
   # ==========================================================================
   # Compensation Flow - Releasing Reserved Funds
   # ==========================================================================
   # When a table join is rejected or a player leaves, reserved funds must be
-  # released back to their available balance. This exercises the compensation
+  # returned to their available balance. This exercises the compensation
   # pattern where a failed operation triggers a compensating action.
 
   @EU-0216
-  Scenario: Funds released when table join is rejected
-    Given a PlayerRegistered event for "Alice"
-    And a FundsDeposited event with amount 500
-    And a FundsReserved event with amount 200 for table "high-stakes"
-    When I handle a ReleaseFunds command for table "high-stakes"
-    Then the result is a angzarr_client.proto.examples.v1.FundsReleased event
-    And the event has a timestamp released_at
-    And the player event has amount 200
-    And the player event has new_available_balance 500
+  Scenario: Reserved funds are returned when a table join is rejected
+    Given Alice is registered
+    And Alice has 500 chips
+    And Alice has reserved 200 chips for table "high-stakes"
+    When Alice's funds for table "high-stakes" are released
+    Then 200 chips are returned to Alice's available balance
+    And Alice's available balance is 500
 
   # ==========================================================================
   # Input Validation
   # ==========================================================================
-  # Empty-string and non-positive-amount rejections. These fire on malformed
-  # commands before any state-level check — verifying the validate() phase.
+  # Empty inputs and non-positive amounts are refused before any state-level
+  # check.
 
   @EU-0217
-  Scenario: Cannot register with empty display_name
-    Given no prior events for the player aggregate
-    When I handle a RegisterPlayer command with name "" and email "alice@example.com"
-    Then the command fails with status "INVALID_ARGUMENT"
-    And the error message equals "display_name is required"
+  Scenario: A player cannot register with an empty name
+    Given Alice has not yet registered
+    When Alice registers with an empty name and email "alice@example.com"
+    Then registration is refused because a name is required
 
   @EU-0218
-  Scenario: Cannot register with empty email
-    Given no prior events for the player aggregate
-    When I handle a RegisterPlayer command with name "Alice" and email ""
-    Then the command fails with status "INVALID_ARGUMENT"
-    And the error message equals "email is required"
+  Scenario: A player cannot register with an empty email
+    Given Alice has not yet registered
+    When Alice registers with an empty email
+    Then registration is refused because an email is required
 
   @EU-0219
-  Scenario: Cannot deposit negative amount
-    Given a PlayerRegistered event for "Alice"
-    When I handle a DepositFunds command with amount -100
-    Then the command fails with status "INVALID_ARGUMENT"
-    And the command is rejected with code "AMOUNT_MUST_BE_POSITIVE"
-    And the rejection field "value" equals "-100"
+  Scenario: A deposit cannot be negative
+    Given Alice is registered
+    When Alice deposits -100 chips
+    Then the deposit is refused because the amount must be positive
 
   @EU-0220
-  Scenario: Cannot withdraw from non-existent player
-    Given no prior events for the player aggregate
-    When I handle a WithdrawFunds command with amount 100
-    Then the command fails with status "FAILED_PRECONDITION"
-    And the error message equals "Player does not exist"
+  Scenario: An unregistered player cannot withdraw
+    Given Alice has not yet registered
+    When Alice withdraws 100 chips
+    Then the withdrawal is refused because Alice does not exist
 
   @EU-0221
-  Scenario: Cannot withdraw zero amount
-    Given a PlayerRegistered event for "Alice"
-    And a FundsDeposited event with amount 1000
-    When I handle a WithdrawFunds command with amount 0
-    Then the command fails with status "INVALID_ARGUMENT"
-    And the command is rejected with code "AMOUNT_MUST_BE_POSITIVE"
-    And the rejection field "value" equals "0"
+  Scenario: A withdrawal must be positive
+    Given Alice is registered
+    And Alice has 1000 chips
+    When Alice withdraws 0 chips
+    Then the withdrawal is refused because the amount must be positive
 
   @EU-0222
-  Scenario: Can withdraw the exact available balance
-    Given a PlayerRegistered event for "Alice"
-    And a FundsDeposited event with amount 1000
-    And a FundsReserved event with amount 600 for table "table-1"
-    When I handle a WithdrawFunds command with amount 400
-    Then the result is a angzarr_client.proto.examples.v1.FundsWithdrawn event
-    And the event has a timestamp withdrawn_at
-    And the player event has new_balance 600
+  Scenario: A player can withdraw exactly the available balance
+    Given Alice is registered
+    And Alice has 1000 chips
+    And Alice has reserved 600 chips for table "table-1"
+    When Alice withdraws 400 chips
+    Then Alice's balance is 600
 
   @EU-0223
-  Scenario: Cannot reserve for non-existent player
-    Given no prior events for the player aggregate
-    When I handle a ReserveFunds command with amount 500 for table "table-1"
-    Then the command fails with status "FAILED_PRECONDITION"
-    And the error message equals "Player does not exist"
+  Scenario: An unregistered player cannot reserve
+    Given Alice has not yet registered
+    When Alice reserves 500 chips for table "table-1"
+    Then the reservation is refused because Alice does not exist
 
   @EU-0224
-  Scenario: Cannot reserve zero amount
-    Given a PlayerRegistered event for "Alice"
-    And a FundsDeposited event with amount 1000
-    When I handle a ReserveFunds command with amount 0 for table "table-1"
-    Then the command fails with status "INVALID_ARGUMENT"
-    And the command is rejected with code "AMOUNT_MUST_BE_POSITIVE"
-    And the rejection field "value" equals "0"
+  Scenario: A reservation must be positive
+    Given Alice is registered
+    And Alice has 1000 chips
+    When Alice reserves 0 chips for table "table-1"
+    Then the reservation is refused because the amount must be positive
 
   @EU-0225
-  Scenario: Insufficient funds error beats duplicate-reservation error
-    # When a player has BOTH insufficient funds AND a prior reservation for the
-    # same table, the insufficient-funds check fires first. Matches Go/Rust order.
-    Given a PlayerRegistered event for "Alice"
-    And a FundsDeposited event with amount 100
-    And a FundsReserved event with amount 50 for table "table-1"
-    When I handle a ReserveFunds command with amount 500 for table "table-1"
-    Then the command fails with status "FAILED_PRECONDITION"
-    And the command is rejected with code "INSUFFICIENT_FUNDS"
-    And the rejection field "requested" equals "500"
-    And the rejection field "available" equals "50"
+  Scenario: Insufficient-funds is reported ahead of duplicate-reservation
+    Given Alice is registered
+    And Alice has 100 chips
+    And Alice has reserved 50 chips for table "table-1"
+    When Alice reserves 500 chips for table "table-1"
+    Then the reservation is refused because Alice has 50 available but requested 500
 
   @EU-0226
-  Scenario: Reserve funds across multiple tables accumulates reserved balance
-    Given a PlayerRegistered event for "Alice"
-    And a FundsDeposited event with amount 1000
-    And a FundsReserved event with amount 300 for table "table-1"
-    When I handle a ReserveFunds command with amount 400 for table "table-2"
-    Then the result is a angzarr_client.proto.examples.v1.FundsReserved event
-    And the event has a timestamp reserved_at
-    And the player event has new_reserved_balance 700
-    And the player event has new_available_balance 300
+  Scenario: Reservations at multiple tables accumulate
+    Given Alice is registered
+    And Alice has 1000 chips
+    And Alice has reserved 300 chips for table "table-1"
+    When Alice reserves 400 chips for table "table-2"
+    Then Alice's reserved funds are 700
+    And Alice's available balance is 300
 
   @EU-0227
-  Scenario: Cannot release for non-existent player
-    Given no prior events for the player aggregate
-    When I handle a ReleaseFunds command for table "table-1"
-    Then the command fails with status "FAILED_PRECONDITION"
-    And the error message equals "Player does not exist"
+  Scenario: An unregistered player cannot release
+    Given Alice has not yet registered
+    When Alice's funds for table "table-1" are released
+    Then the release is refused because Alice does not exist
 
   @EU-0228
-  Scenario: Cannot release with empty table_root
-    Given a PlayerRegistered event for "Alice"
-    And a FundsDeposited event with amount 1000
-    When I handle a ReleaseFunds command for table ""
-    Then the command fails with status "INVALID_ARGUMENT"
-    And the error message equals "table_root is required"
+  Scenario: A release must name a table
+    Given Alice is registered
+    And Alice has 1000 chips
+    When Alice's funds for an empty table name are released
+    Then the release is refused because a table is required
 
   @EU-0229
-  Scenario: Release only affects the specified table
-    Given a PlayerRegistered event for "Alice"
-    And a FundsDeposited event with amount 1000
-    And a FundsReserved event with amount 300 for table "table-1"
-    And a FundsReserved event with amount 400 for table "table-2"
-    When I handle a ReleaseFunds command for table "table-1"
-    Then the result is a angzarr_client.proto.examples.v1.FundsReleased event
-    And the event has a timestamp released_at
-    And the player event has amount 300
-    And the player event has new_reserved_balance 400
-    # bankroll(1000) - new_reserved(400) = 600; catches bankroll +/- mutation
-    And the player event has new_available_balance 600
+  Scenario: A release only affects the named table
+    Given Alice is registered
+    And Alice has 1000 chips
+    And Alice has reserved 300 chips for table "table-1"
+    And Alice has reserved 400 chips for table "table-2"
+    When Alice's funds for table "table-1" are released
+    Then 300 chips are returned to Alice's available balance
+    And Alice's reserved funds are 400
+    And Alice's available balance is 600
 
   # ==========================================================================
   # Fund Transfer - Pot Payouts and Settlement
   # ==========================================================================
-  # Transfers credit funds from another player (e.g. winning a pot). The event
-  # carries hand_root and reason for audit trail.
+  # Transfers credit funds from another player (e.g. winning a pot). The
+  # transfer records the source player, hand, and reason for the audit trail.
 
   @EU-0230
-  Scenario: Transfer funds increases bankroll and records audit metadata
-    Given a PlayerRegistered event for "Alice"
-    And a FundsDeposited event with amount 1000
-    When I handle a TransferFunds command from "other" with amount 500 for hand "hand-1" reason "pot_win"
-    Then the result is a angzarr_client.proto.examples.v1.FundsTransferred event
-    And the event has a timestamp transferred_at
-    And the player event has amount 500
-    And the player event has new_balance 1500
-    And the player event has reason "pot_win"
-    And the player event has from_player_root "other"
-    And the player event has hand_root "hand-1"
-    And the player event has to_player_root for player "alice@example.com"
+  Scenario: A transfer credits the recipient and is annotated for audit
+    Given Alice is registered
+    And Alice has 1000 chips
+    When 500 chips are transferred to Alice from "other" for hand "hand-1" with reason "pot_win"
+    Then Alice's balance is 1500
+    And the transfer is recorded as coming from "other" for hand "hand-1" with reason "pot_win"
+    And the transfer is timestamped
 
   @EU-0231
-  Scenario: Cannot transfer to non-existent player
-    Given no prior events for the player aggregate
-    When I handle a TransferFunds command from "other" with amount 100 for hand "hand-1" reason "pot_win"
-    Then the command fails with status "FAILED_PRECONDITION"
-    And the error message equals "Player does not exist"
+  Scenario: A transfer to an unregistered player is refused
+    Given Alice has not yet registered
+    When 100 chips are transferred to Alice from "other" for hand "hand-1" with reason "pot_win"
+    Then the transfer is refused because Alice does not exist
 
   @EU-0232
-  Scenario: Cannot transfer zero amount
-    Given a PlayerRegistered event for "Alice"
-    And a FundsDeposited event with amount 1000
-    When I handle a TransferFunds command from "other" with amount 0 for hand "hand-1" reason "pot_win"
-    Then the command fails with status "INVALID_ARGUMENT"
-    And the command is rejected with code "AMOUNT_MUST_BE_NON_ZERO"
+  Scenario: A transfer of zero is refused
+    Given Alice is registered
+    And Alice has 1000 chips
+    When 0 chips are transferred to Alice from "other" for hand "hand-1" with reason "pot_win"
+    Then the transfer is refused because the amount must be non-zero
 
   # ==========================================================================
   # Full Lifecycle Replays
   # ==========================================================================
-  # Exercise the state rebuild over realistic event sequences — covers
-  # apply_withdrawn/reserved/released/etc. in combination.
+  # Realistic event sequences that exercise the full balance projection over
+  # combined deposits, withdrawals, reservations, and releases.
 
   @EU-0233
-  Scenario: Reserve and release round-trip restores available balance
-    Given a PlayerRegistered event for "Alice"
-    And a FundsDeposited event with amount 1000
-    And a FundsReserved event with amount 500 for table "table-1"
-    And a FundsReleased event for table "table-1" with amount 500
-    When I rebuild the player state
-    Then the player state has bankroll 1000
-    And the player state has reserved_funds 0
-    And the player state has available_balance 1000
+  Scenario: A reserve-then-release round-trip restores the available balance
+    Given Alice is registered
+    And Alice has 1000 chips
+    And Alice has reserved 500 chips for table "table-1"
+    And Alice's reservation for table "table-1" has been released in full
+    Then Alice's total bankroll is 1000
+    And Alice's reserved funds are 0
+    And Alice's available balance is 1000
 
   @EU-0234
-  Scenario: Rebuild state after deposit, withdraw, reserve, release sequence
-    Given a PlayerRegistered event for "Alice"
-    And a FundsDeposited event with amount 1000
-    And a FundsWithdrawn event with amount 200
-    And a FundsReserved event with amount 300 for table "table-1"
-    And a FundsReleased event for table "table-1" with amount 300
-    When I rebuild the player state
-    Then the player state has bankroll 800
-    And the player state has reserved_funds 0
-    And the player state has available_balance 800
+  Scenario: Balances after deposit, withdrawal, reserve, release
+    Given Alice is registered
+    And Alice has 1000 chips
+    And Alice has withdrawn 200 chips
+    And Alice has reserved 300 chips for table "table-1"
+    And Alice's reservation for table "table-1" has been released in full
+    Then Alice's total bankroll is 800
+    And Alice's reserved funds are 0
+    And Alice's available balance is 800
 
   # ==========================================================================
-  # Buy-in Orchestration Commands (handled on the Player aggregate)
+  # Buy-in Orchestration (Player side)
   # ==========================================================================
-  # The Player-side buy-in flow: InitiateBuyIn reserves funds and emits
-  # BuyInRequested; the PM + Table sequence lands, then ConfirmBuyIn or
-  # ReleaseBuyIn finalises. The PM-level orchestrator scenarios live in
-  # orchestration.feature.
+  # The Player-side buy-in flow: initiating a buy-in reserves funds and records
+  # a pending reservation; the table flow then either confirms (deducts the
+  # bankroll) or releases (returns the funds). The cross-aggregate sequencing
+  # lives in orchestration.feature.
 
   @EU-0235
-  Scenario: InitiateBuyIn emits BuyInRequested with generated reservation_id
-    Given a PlayerRegistered event for "Alice"
-    And a FundsDeposited event with amount 5000
-    When I handle an InitiateBuyIn command for table "table-1" seat 3 amount 500
-    Then the result is a angzarr_client.proto.examples.v1.BuyInRequested event
-    And the event has a timestamp requested_at
-    And the orchestration event has table_root "table-1"
-    # Non-zero seat so the seat=cmd.seat assignment can't be silently dropped
-    And the orchestration event has seat 3
-    And the orchestration event has amount 500
-    And the orchestration event has a reservation_id
+  Scenario: Initiating a buy-in records a pending reservation
+    Given Alice is registered
+    And Alice has 5000 chips
+    When Alice initiates a buy-in for seat 3 at table "table-1" for 500 chips
+    Then a pending buy-in is recorded for seat 3 at table "table-1" for 500 chips
+    And the buy-in carries a generated reservation identifier
+    And the buy-in is timestamped
 
   @EU-0236
-  Scenario: InitiateBuyIn rejects for non-existent player
-    Given no prior events for the player aggregate
-    When I handle an InitiateBuyIn command for table "table-1" seat 0 amount 500
-    Then the command fails with status "FAILED_PRECONDITION"
-    And the error message equals "Player does not exist"
+  Scenario: An unregistered player cannot initiate a buy-in
+    Given Alice has not yet registered
+    When Alice initiates a buy-in for seat 0 at table "table-1" for 500 chips
+    Then the buy-in is refused because Alice does not exist
 
   @EU-0237
-  Scenario: InitiateBuyIn rejects when bankroll is insufficient
-    Given a PlayerRegistered event for "Alice"
-    And a FundsDeposited event with amount 100
-    When I handle an InitiateBuyIn command for table "table-1" seat 0 amount 500
-    Then the command fails with status "FAILED_PRECONDITION"
-    And the error message equals "Insufficient funds"
+  Scenario: A buy-in requires sufficient bankroll
+    Given Alice is registered
+    And Alice has 100 chips
+    When Alice initiates a buy-in for seat 0 at table "table-1" for 500 chips
+    Then the buy-in is refused because Alice has insufficient funds
 
   @EU-0238
-  Scenario: ConfirmBuyIn rejects when no reservation is pending
-    Given a PlayerRegistered event for "Alice"
-    And a FundsDeposited event with amount 1000
-    When I handle a ConfirmBuyIn command for reservation "res-001"
-    Then the command fails with status "FAILED_PRECONDITION"
-    And the error message equals "No pending buy-in with this reservation_id"
+  Scenario: Confirming a buy-in requires a pending reservation
+    Given Alice is registered
+    And Alice has 1000 chips
+    When Alice's buy-in "res-001" is confirmed
+    Then the confirmation is refused because no buy-in with that reservation is pending
 
   @EU-0239
-  Scenario: ConfirmBuyIn emits BuyInConfirmed with pending table, seat, and amount
-    Given a PlayerRegistered event for "Alice"
-    And a FundsDeposited event with amount 2000
-    And a pending buy-in "res-001" for table "table-1" seat 2 amount 500
-    When I handle a ConfirmBuyIn command for reservation "res-001"
-    Then the result is a angzarr_client.proto.examples.v1.BuyInConfirmed event
-    And the event has a timestamp confirmed_at
-    And the orchestration event has reservation_id "res-001"
-    And the orchestration event has table_root "table-1"
-    And the orchestration event has seat 2
-    And the orchestration event has amount 500
+  Scenario: Confirming a buy-in records the seat, table, and amount
+    Given Alice is registered
+    And Alice has 2000 chips
+    And Alice has a pending buy-in "res-001" for seat 2 at table "table-1" for 500 chips
+    When Alice's buy-in "res-001" is confirmed
+    Then Alice's buy-in "res-001" is confirmed for seat 2 at table "table-1" for 500 chips
+    And the confirmation is timestamped
 
   @EU-0240
-  Scenario: ReleaseBuyIn emits BuyInReservationReleased with reason
-    Given a PlayerRegistered event for "Alice"
-    And a FundsDeposited event with amount 2000
-    And a pending buy-in "res-001" for table "table-1" seat 0 amount 500
-    When I handle a ReleaseBuyIn command for reservation "res-001" reason "timeout"
-    Then the result is a angzarr_client.proto.examples.v1.BuyInReservationReleased event
-    And the event has a timestamp released_at
-    And the orchestration event has reservation_id "res-001"
-    And the orchestration event has reason "timeout"
+  Scenario: Releasing a pending buy-in records the reason
+    Given Alice is registered
+    And Alice has 2000 chips
+    And Alice has a pending buy-in "res-001" for seat 0 at table "table-1" for 500 chips
+    When Alice's buy-in "res-001" is released because of "timeout"
+    Then Alice's buy-in "res-001" is released with reason "timeout"
+    And the release is timestamped
 
   @EU-0241
-  Scenario: Rebuild state after full buy-in lifecycle deducts bankroll and clears pending
-    Given a PlayerRegistered event for "Alice"
-    And a FundsDeposited event with amount 1000
-    And a pending buy-in "res-001" for table "table-1" seat 0 amount 500
-    And a BuyInConfirmed event for reservation "res-001" table "table-1"
-    When I rebuild the player state
-    Then the player state has bankroll 500
-    And the player state has reserved_funds 0
-    And the player state has no pending buy-in "res-001"
+  Scenario: After a full buy-in lifecycle, the bankroll is debited and the pending reservation cleared
+    Given Alice is registered
+    And Alice has 1000 chips
+    And Alice has a pending buy-in "res-001" for seat 0 at table "table-1" for 500 chips
+    And Alice's buy-in "res-001" has been confirmed
+    Then Alice's total bankroll is 500
+    And Alice's reserved funds are 0
+    And Alice has no pending buy-in "res-001"
 
   # ==========================================================================
-  # Tournament Registration Orchestration Commands (Player side)
+  # Tournament Registration Orchestration (Player side)
   # ==========================================================================
 
   @EU-0242
-  Scenario: InitiateTournamentRegistration emits RegistrationRequested
-    Given a PlayerRegistered event for "Alice"
-    And a FundsDeposited event with amount 1000
-    When I handle an InitiateTournamentRegistration command for tournament "trn-1"
-    Then the result is a angzarr_client.proto.examples.v1.RegistrationRequested event
-    And the event has a timestamp requested_at
-    And the orchestration event has tournament_root "trn-1"
-    And the orchestration event has a reservation_id
-    And the orchestration event has a reservation_id
+  Scenario: Initiating a tournament registration records a pending reservation
+    Given Alice is registered
+    And Alice has 1000 chips
+    When Alice initiates registration for tournament "trn-1"
+    Then a pending tournament registration is recorded for tournament "trn-1"
+    And the registration carries a generated reservation identifier
+    And the registration is timestamped
 
   @EU-0243
-  Scenario: ConfirmRegistrationFee rejects when no registration is pending
-    Given a PlayerRegistered event for "Alice"
-    And a FundsDeposited event with amount 1000
-    When I handle a ConfirmRegistrationFee command for reservation "res-001"
-    Then the command fails with status "FAILED_PRECONDITION"
-    And the error message equals "No pending registration with this reservation_id"
+  Scenario: Confirming a registration fee requires a pending registration
+    Given Alice is registered
+    And Alice has 1000 chips
+    When Alice's tournament registration "res-001" is confirmed
+    Then the confirmation is refused because no registration with that reservation is pending
 
   @EU-0244
-  Scenario: ConfirmRegistrationFee emits RegistrationFeeConfirmed with tournament and fee
-    Given a PlayerRegistered event for "Alice"
-    And a FundsDeposited event with amount 1000
-    And a pending registration "res-001" for tournament "trn-1" fee 100
-    When I handle a ConfirmRegistrationFee command for reservation "res-001"
-    Then the result is a angzarr_client.proto.examples.v1.RegistrationFeeConfirmed event
-    And the event has a timestamp confirmed_at
-    And the orchestration event has reservation_id "res-001"
-    And the orchestration event has tournament_root "trn-1"
-    And the orchestration event has fee 100
+  Scenario: Confirming a registration fee records the tournament and fee
+    Given Alice is registered
+    And Alice has 1000 chips
+    And Alice has a pending tournament registration "res-001" for tournament "trn-1" with fee 100
+    When Alice's tournament registration "res-001" is confirmed
+    Then Alice's tournament registration "res-001" is confirmed for tournament "trn-1" with fee 100
+    And the confirmation is timestamped
 
   @EU-0245
-  Scenario: ReleaseRegistrationFee emits RegistrationFeeReleased with reason
-    Given a PlayerRegistered event for "Alice"
-    And a FundsDeposited event with amount 1000
-    And a pending registration "res-001" for tournament "trn-1" fee 100
-    When I handle a ReleaseRegistrationFee command for reservation "res-001" reason "tournament full"
-    Then the result is a angzarr_client.proto.examples.v1.RegistrationFeeReleased event
-    And the event has a timestamp released_at
-    And the orchestration event has reservation_id "res-001"
-    And the orchestration event has reason "tournament full"
+  Scenario: Releasing a pending registration records the reason
+    Given Alice is registered
+    And Alice has 1000 chips
+    And Alice has a pending tournament registration "res-001" for tournament "trn-1" with fee 100
+    When Alice's tournament registration "res-001" is released because of "tournament full"
+    Then Alice's tournament registration "res-001" is released with reason "tournament full"
+    And the release is timestamped
 
   @EU-0246
-  Scenario: Rebuild state after full registration lifecycle deducts the fee
-    Given a PlayerRegistered event for "Alice"
-    And a FundsDeposited event with amount 500
-    And a pending registration "res-001" for tournament "trn-1" fee 100
-    And a RegistrationFeeConfirmed event for reservation "res-001" tournament "trn-1"
-    When I rebuild the player state
-    Then the player state has bankroll 400
-    And the player state has reserved_funds 0
-    And the player state has no pending registration "res-001"
+  Scenario: After a full registration lifecycle, the bankroll is debited the registration fee
+    Given Alice is registered
+    And Alice has 500 chips
+    And Alice has a pending tournament registration "res-001" for tournament "trn-1" with fee 100
+    And Alice's tournament registration "res-001" has been confirmed
+    Then Alice's total bankroll is 400
+    And Alice's reserved funds are 0
+    And Alice has no pending tournament registration "res-001"
 
   # ==========================================================================
-  # Rebuy Orchestration Commands (Player side)
+  # Rebuy Orchestration (Player side)
   # ==========================================================================
 
   @EU-0247
-  Scenario: InitiateRebuy emits RebuyRequested with tournament, table, and seat
-    Given a PlayerRegistered event for "Alice"
-    And a FundsDeposited event with amount 1000
-    When I handle an InitiateRebuy command for tournament "trn-1" table "table-1" seat 2
-    Then the result is a angzarr_client.proto.examples.v1.RebuyRequested event
-    And the event has a timestamp requested_at
-    And the orchestration event has tournament_root "trn-1"
-    And the orchestration event has table_root "table-1"
-    And the orchestration event has seat 2
-    And the orchestration event has a reservation_id
+  Scenario: Initiating a rebuy records a pending reservation
+    Given Alice is registered
+    And Alice has 1000 chips
+    When Alice initiates a rebuy for tournament "trn-1" at table "table-1" seat 2
+    Then a pending rebuy is recorded for tournament "trn-1" at table "table-1" seat 2
+    And the rebuy carries a generated reservation identifier
+    And the rebuy is timestamped
 
   @EU-0248
-  Scenario: ConfirmRebuyFee rejects when no rebuy is pending
-    Given a PlayerRegistered event for "Alice"
-    And a FundsDeposited event with amount 1000
-    When I handle a ConfirmRebuyFee command for reservation "res-001"
-    Then the command fails with status "FAILED_PRECONDITION"
-    And the error message equals "No pending rebuy with this reservation_id"
+  Scenario: Confirming a rebuy fee requires a pending rebuy
+    Given Alice is registered
+    And Alice has 1000 chips
+    When Alice's rebuy "res-001" is confirmed
+    Then the confirmation is refused because no rebuy with that reservation is pending
 
   @EU-0249
-  Scenario: ConfirmRebuyFee emits RebuyFeeConfirmed with fee (chips_added populated later by tournament)
-    Given a PlayerRegistered event for "Alice"
-    And a FundsDeposited event with amount 1000
-    And a pending rebuy "res-001" for tournament "trn-1" table "table-1" seat 2 fee 200 chips 500
-    When I handle a ConfirmRebuyFee command for reservation "res-001"
-    Then the result is a angzarr_client.proto.examples.v1.RebuyFeeConfirmed event
-    And the event has a timestamp confirmed_at
-    And the orchestration event has reservation_id "res-001"
-    And the orchestration event has tournament_root "trn-1"
-    And the orchestration event has fee 200
-    And the orchestration event has chips_added 0
+  Scenario: Confirming a rebuy fee records the fee
+    Given Alice is registered
+    And Alice has 1000 chips
+    And Alice has a pending rebuy "res-001" for tournament "trn-1" at table "table-1" seat 2 with fee 200 and 500 chips
+    When Alice's rebuy "res-001" is confirmed
+    Then Alice's rebuy "res-001" is confirmed for tournament "trn-1" with fee 200
+    And the confirmation is timestamped
+    # chips_added is populated later by the tournament side, not here
 
   @EU-0250
-  Scenario: ReleaseRebuyFee emits RebuyFeeReleased with reason
-    Given a PlayerRegistered event for "Alice"
-    And a FundsDeposited event with amount 1000
-    And a pending rebuy "res-001" for tournament "trn-1" table "table-1" seat 2 fee 200 chips 500
-    When I handle a ReleaseRebuyFee command for reservation "res-001" reason "denied"
-    Then the result is a angzarr_client.proto.examples.v1.RebuyFeeReleased event
-    And the event has a timestamp released_at
-    And the orchestration event has reservation_id "res-001"
-    And the orchestration event has reason "denied"
+  Scenario: Releasing a pending rebuy records the reason
+    Given Alice is registered
+    And Alice has 1000 chips
+    And Alice has a pending rebuy "res-001" for tournament "trn-1" at table "table-1" seat 2 with fee 200 and 500 chips
+    When Alice's rebuy "res-001" is released because of "denied"
+    Then Alice's rebuy "res-001" is released with reason "denied"
+    And the release is timestamped
 
   @EU-0251
-  Scenario: Rebuild state after full rebuy lifecycle deducts the fee
-    Given a PlayerRegistered event for "Alice"
-    And a FundsDeposited event with amount 1000
-    And a pending rebuy "res-001" for tournament "trn-1" table "table-1" seat 2 fee 200 chips 500
-    And a RebuyFeeConfirmed event for reservation "res-001"
-    When I rebuild the player state
-    Then the player state has bankroll 800
-    And the player state has reserved_funds 0
-    And the player state has no pending rebuy "res-001"
+  Scenario: After a full rebuy lifecycle, the bankroll is debited the rebuy fee
+    Given Alice is registered
+    And Alice has 1000 chips
+    And Alice has a pending rebuy "res-001" for tournament "trn-1" at table "table-1" seat 2 with fee 200 and 500 chips
+    And Alice's rebuy "res-001" has been confirmed
+    Then Alice's total bankroll is 800
+    And Alice's reserved funds are 0
+    And Alice has no pending rebuy "res-001"
 
   # ==========================================================================
   # Empty-input precondition rejections
   # ==========================================================================
 
-  Scenario: InitiateBuyIn rejects with empty table_root
-    Given a PlayerRegistered event for "Alice"
-    And a FundsDeposited event with amount 1000
-    When I handle an InitiateBuyIn command for table "" seat 0 amount 100
-    Then the command fails with status "FAILED_PRECONDITION"
-    And the error message equals "table_root is required"
+  Scenario: A buy-in requires a table
+    Given Alice is registered
+    And Alice has 1000 chips
+    When Alice initiates a buy-in for seat 0 at an empty table name for 100 chips
+    Then the buy-in is refused because a table is required
 
-  Scenario: InitiateBuyIn rejects with zero amount
-    Given a PlayerRegistered event for "Alice"
-    And a FundsDeposited event with amount 1000
-    When I handle an InitiateBuyIn command for table "tbl-1" seat 0 amount 0
-    Then the command fails with status "INVALID_ARGUMENT"
-    And the error message equals "amount must be positive"
+  Scenario: A buy-in must be positive
+    Given Alice is registered
+    And Alice has 1000 chips
+    When Alice initiates a buy-in for seat 0 at table "tbl-1" for 0 chips
+    Then the buy-in is refused because the amount must be positive
 
-  Scenario: InitiateBuyIn rejects with negative amount
-    Given a PlayerRegistered event for "Alice"
-    And a FundsDeposited event with amount 1000
-    When I handle an InitiateBuyIn command for table "tbl-1" seat 0 amount -50
-    Then the command fails with status "INVALID_ARGUMENT"
-    And the error message equals "amount must be positive"
+  Scenario: A buy-in cannot be negative
+    Given Alice is registered
+    And Alice has 1000 chips
+    When Alice initiates a buy-in for seat 0 at table "tbl-1" for -50 chips
+    Then the buy-in is refused because the amount must be positive
 
-  # Boundary: amount=1 must succeed. Catches `if amount <= 0` → `<= 1`.
-  Scenario: InitiateBuyIn at amount 1 succeeds at the lower boundary
-    Given a PlayerRegistered event for "Alice"
-    And a FundsDeposited event with amount 10
-    When I handle an InitiateBuyIn command for table "tbl-1" seat 0 amount 1
-    Then the result is a angzarr_client.proto.examples.v1.BuyInRequested event
-    And the orchestration event has amount 1
+  Scenario: A buy-in of one chip is allowed
+    Given Alice is registered
+    And Alice has 10 chips
+    When Alice initiates a buy-in for seat 0 at table "tbl-1" for 1 chip
+    Then a pending buy-in is recorded for seat 0 at table "tbl-1" for 1 chip
 
-  # Boundary: amount == available_balance must succeed.
-  # Catches `if amount > state.available_balance` → `>=` (would reject equal).
-  Scenario: InitiateBuyIn with amount equal to available balance succeeds
-    Given a PlayerRegistered event for "Alice"
-    And a FundsDeposited event with amount 500
-    When I handle an InitiateBuyIn command for table "tbl-1" seat 0 amount 500
-    Then the result is a angzarr_client.proto.examples.v1.BuyInRequested event
-    And the orchestration event has amount 500
+  Scenario: A buy-in for exactly the available balance is allowed
+    Given Alice is registered
+    And Alice has 500 chips
+    When Alice initiates a buy-in for seat 0 at table "tbl-1" for 500 chips
+    Then a pending buy-in is recorded for seat 0 at table "tbl-1" for 500 chips
 
-  Scenario: ConfirmBuyIn rejects with empty reservation_id
-    Given a PlayerRegistered event for "Alice"
-    When I handle a ConfirmBuyIn command for reservation ""
-    Then the command fails with status "FAILED_PRECONDITION"
-    And the error message equals "reservation_id is required"
+  Scenario: Confirming a buy-in requires a reservation identifier
+    Given Alice is registered
+    When Alice's buy-in with an empty reservation identifier is confirmed
+    Then the confirmation is refused because a reservation identifier is required
 
-  Scenario: ReleaseBuyIn rejects with empty reservation_id
-    Given a PlayerRegistered event for "Alice"
-    When I handle a ReleaseBuyIn command for reservation "" reason "timeout"
-    Then the command fails with status "FAILED_PRECONDITION"
-    And the error message equals "reservation_id is required"
+  Scenario: Releasing a buy-in requires a reservation identifier
+    Given Alice is registered
+    When Alice's buy-in with an empty reservation identifier is released because of "timeout"
+    Then the release is refused because a reservation identifier is required
 
-  Scenario: ReleaseBuyIn rejects when no reservation is pending
-    Given a PlayerRegistered event for "Alice"
-    When I handle a ReleaseBuyIn command for reservation "res-001" reason "timeout"
-    Then the command fails with status "FAILED_PRECONDITION"
-    And the error message equals "No pending buy-in with this reservation_id"
+  Scenario: Releasing a buy-in requires a pending reservation
+    Given Alice is registered
+    When Alice's buy-in "res-001" is released because of "timeout"
+    Then the release is refused because no buy-in with that reservation is pending
 
-  Scenario: ConfirmBuyIn rejects against empty reservation state
-    Given no prior events for the player aggregate
-    When I handle a ConfirmBuyIn command for reservation "res-001"
-    Then the command fails with status "FAILED_PRECONDITION"
-    And the error message equals "No pending buy-in with this reservation_id"
+  Scenario: An unregistered player cannot confirm a buy-in
+    Given Alice has not yet registered
+    When Alice's buy-in "res-001" is confirmed
+    Then the confirmation is refused because no buy-in with that reservation is pending
 
-  Scenario: ReleaseBuyIn rejects against empty reservation state
-    Given no prior events for the player aggregate
-    When I handle a ReleaseBuyIn command for reservation "res-001" reason "timeout"
-    Then the command fails with status "FAILED_PRECONDITION"
-    And the error message equals "No pending buy-in with this reservation_id"
+  Scenario: An unregistered player cannot release a buy-in
+    Given Alice has not yet registered
+    When Alice's buy-in "res-001" is released because of "timeout"
+    Then the release is refused because no buy-in with that reservation is pending
 
-  Scenario: InitiateTournamentRegistration rejects with empty tournament_root
-    Given a PlayerRegistered event for "Alice"
-    When I handle an InitiateTournamentRegistration command for tournament ""
-    Then the command fails with status "FAILED_PRECONDITION"
-    And the error message equals "tournament_root is required"
+  Scenario: A tournament registration requires a tournament
+    Given Alice is registered
+    When Alice initiates registration for an empty tournament name
+    Then the registration is refused because a tournament is required
 
-  Scenario: InitiateTournamentRegistration rejects for non-existent player
-    Given no prior events for the player aggregate
-    When I handle an InitiateTournamentRegistration command for tournament "trn-1"
-    Then the command fails with status "FAILED_PRECONDITION"
-    And the error message equals "Player does not exist"
+  Scenario: An unregistered player cannot initiate a tournament registration
+    Given Alice has not yet registered
+    When Alice initiates registration for tournament "trn-1"
+    Then the registration is refused because Alice does not exist
 
-  Scenario: ConfirmRegistrationFee rejects with empty reservation_id
-    Given a PlayerRegistered event for "Alice"
-    When I handle a ConfirmRegistrationFee command for reservation ""
-    Then the command fails with status "FAILED_PRECONDITION"
-    And the error message equals "reservation_id is required"
+  Scenario: Confirming a registration fee requires a reservation identifier
+    Given Alice is registered
+    When Alice's tournament registration with an empty reservation identifier is confirmed
+    Then the confirmation is refused because a reservation identifier is required
 
-  Scenario: ConfirmRegistrationFee rejects against empty reservation state
-    Given no prior events for the player aggregate
-    When I handle a ConfirmRegistrationFee command for reservation "res-001"
-    Then the command fails with status "FAILED_PRECONDITION"
-    And the error message equals "No pending registration with this reservation_id"
+  Scenario: An unregistered player cannot confirm a registration fee
+    Given Alice has not yet registered
+    When Alice's tournament registration "res-001" is confirmed
+    Then the confirmation is refused because no registration with that reservation is pending
 
-  Scenario: ReleaseRegistrationFee rejects with empty reservation_id
-    Given a PlayerRegistered event for "Alice"
-    When I handle a ReleaseRegistrationFee command for reservation "" reason "timeout"
-    Then the command fails with status "FAILED_PRECONDITION"
-    And the error message equals "reservation_id is required"
+  Scenario: Releasing a registration fee requires a reservation identifier
+    Given Alice is registered
+    When Alice's tournament registration with an empty reservation identifier is released because of "timeout"
+    Then the release is refused because a reservation identifier is required
 
-  Scenario: ReleaseRegistrationFee rejects when no registration is pending
-    Given a PlayerRegistered event for "Alice"
-    When I handle a ReleaseRegistrationFee command for reservation "res-001" reason "timeout"
-    Then the command fails with status "FAILED_PRECONDITION"
-    And the error message equals "No pending registration with this reservation_id"
+  Scenario: Releasing a registration fee requires a pending registration
+    Given Alice is registered
+    When Alice's tournament registration "res-001" is released because of "timeout"
+    Then the release is refused because no registration with that reservation is pending
 
-  Scenario: ReleaseRegistrationFee rejects against empty reservation state
-    Given no prior events for the player aggregate
-    When I handle a ReleaseRegistrationFee command for reservation "res-001" reason "timeout"
-    Then the command fails with status "FAILED_PRECONDITION"
-    And the error message equals "No pending registration with this reservation_id"
+  Scenario: An unregistered player cannot release a registration fee
+    Given Alice has not yet registered
+    When Alice's tournament registration "res-001" is released because of "timeout"
+    Then the release is refused because no registration with that reservation is pending
 
-  Scenario: InitiateRebuy rejects with empty tournament_root
-    Given a PlayerRegistered event for "Alice"
-    When I handle an InitiateRebuy command for tournament "" table "tbl-1" seat 0
-    Then the command fails with status "FAILED_PRECONDITION"
-    And the error message equals "tournament_root is required"
+  Scenario: A rebuy requires a tournament
+    Given Alice is registered
+    When Alice initiates a rebuy for an empty tournament name at table "tbl-1" seat 0
+    Then the rebuy is refused because a tournament is required
 
-  Scenario: InitiateRebuy rejects with empty table_root
-    Given a PlayerRegistered event for "Alice"
-    When I handle an InitiateRebuy command for tournament "trn-1" table "" seat 0
-    Then the command fails with status "FAILED_PRECONDITION"
-    And the error message equals "table_root is required"
+  Scenario: A rebuy requires a table
+    Given Alice is registered
+    When Alice initiates a rebuy for tournament "trn-1" at an empty table name seat 0
+    Then the rebuy is refused because a table is required
 
-  Scenario: InitiateRebuy rejects for non-existent player
-    Given no prior events for the player aggregate
-    When I handle an InitiateRebuy command for tournament "trn-1" table "tbl-1" seat 0
-    Then the command fails with status "FAILED_PRECONDITION"
-    And the error message equals "Player does not exist"
+  Scenario: An unregistered player cannot initiate a rebuy
+    Given Alice has not yet registered
+    When Alice initiates a rebuy for tournament "trn-1" at table "tbl-1" seat 0
+    Then the rebuy is refused because Alice does not exist
 
-  Scenario: ConfirmRebuyFee rejects with empty reservation_id
-    Given a PlayerRegistered event for "Alice"
-    When I handle a ConfirmRebuyFee command for reservation ""
-    Then the command fails with status "FAILED_PRECONDITION"
-    And the error message equals "reservation_id is required"
+  Scenario: Confirming a rebuy fee requires a reservation identifier
+    Given Alice is registered
+    When Alice's rebuy with an empty reservation identifier is confirmed
+    Then the confirmation is refused because a reservation identifier is required
 
-  Scenario: ConfirmRebuyFee rejects against empty reservation state
-    Given no prior events for the player aggregate
-    When I handle a ConfirmRebuyFee command for reservation "res-001"
-    Then the command fails with status "FAILED_PRECONDITION"
-    And the error message equals "No pending rebuy with this reservation_id"
+  Scenario: An unregistered player cannot confirm a rebuy fee
+    Given Alice has not yet registered
+    When Alice's rebuy "res-001" is confirmed
+    Then the confirmation is refused because no rebuy with that reservation is pending
 
-  Scenario: ReleaseRebuyFee rejects with empty reservation_id
-    Given a PlayerRegistered event for "Alice"
-    When I handle a ReleaseRebuyFee command for reservation "" reason "timeout"
-    Then the command fails with status "FAILED_PRECONDITION"
-    And the error message equals "reservation_id is required"
+  Scenario: Releasing a rebuy fee requires a reservation identifier
+    Given Alice is registered
+    When Alice's rebuy with an empty reservation identifier is released because of "timeout"
+    Then the release is refused because a reservation identifier is required
 
-  Scenario: ReleaseRebuyFee rejects when no rebuy is pending
-    Given a PlayerRegistered event for "Alice"
-    When I handle a ReleaseRebuyFee command for reservation "res-001" reason "timeout"
-    Then the command fails with status "FAILED_PRECONDITION"
-    And the error message equals "No pending rebuy with this reservation_id"
+  Scenario: Releasing a rebuy fee requires a pending rebuy
+    Given Alice is registered
+    When Alice's rebuy "res-001" is released because of "timeout"
+    Then the release is refused because no rebuy with that reservation is pending
 
-  Scenario: ReleaseRebuyFee rejects against empty reservation state
-    Given no prior events for the player aggregate
-    When I handle a ReleaseRebuyFee command for reservation "res-001" reason "timeout"
-    Then the command fails with status "FAILED_PRECONDITION"
-    And the error message equals "No pending rebuy with this reservation_id"
+  Scenario: An unregistered player cannot release a rebuy fee
+    Given Alice has not yet registered
+    When Alice's rebuy "res-001" is released because of "timeout"
+    Then the release is refused because no rebuy with that reservation is pending
 
   # ==========================================================================
-  # Saga Rejection Compensation (#[rejected] handler)
+  # Compensation on Table-Join Rejection
   # ==========================================================================
-  # When saga-emitted JoinTable is rejected by the Table aggregate, the
-  # framework delivers a RejectionNotification whose rejected_command carries
-  # the table_root on its Cover. The player aggregate's rejection handler
-  # extracts that root and emits FundsReleased for the matching reservation,
-  # compensating the prior FundsReserved. These scenarios pin the observable
-  # outcome of the compensation path.
+  # When a table join is rejected, the player's reservation for that table
+  # must be released - the exact reserved amount. If no reservation exists
+  # for the rejecting table, the compensation is a no-op.
 
   @EU-0252
-  Scenario: JoinTable rejection releases the reserved funds for the target table
-    Given a PlayerRegistered event for "Alice"
-    And a FundsDeposited event with amount 1000
-    And a FundsReserved event with amount 400 for table "table-1"
-    When I handle a JoinTable rejection notification for table "table-1"
-    Then the result is a angzarr_client.proto.examples.v1.FundsReleased event
-    And the player event has amount 400
-    And the player event has new_reserved_balance 0
+  Scenario: A rejected table join releases the reservation for the target table
+    Given Alice is registered
+    And Alice has 1000 chips
+    And Alice has reserved 400 chips for table "table-1"
+    When Alice's join attempt at table "table-1" is rejected
+    Then 400 chips are returned to Alice's available balance
+    And Alice no longer has a reservation for table "table-1"
 
   @EU-0253
-  Scenario: JoinTable rejection emits zero amount when no matching reservation exists
-    Given a PlayerRegistered event for "Alice"
-    And a FundsDeposited event with amount 1000
-    And a FundsReserved event with amount 100 for table "table-1"
-    When I handle a JoinTable rejection notification for table "unknown-table"
-    Then the result is a angzarr_client.proto.examples.v1.FundsReleased event
-    And the player event has amount 0
+  Scenario: A rejected table join with no matching reservation is a no-op release
+    Given Alice is registered
+    And Alice has 1000 chips
+    And Alice has reserved 100 chips for table "table-1"
+    When Alice's join attempt at table "unknown-table" is rejected
+    Then no chips are returned to Alice's available balance

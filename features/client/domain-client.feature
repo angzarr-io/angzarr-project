@@ -1,59 +1,56 @@
-Feature: DomainClient
-  DomainClient combines QueryClient and AggregateClient into a single unified
-  interface for interacting with a domain. This is the recommended entry point
-  for most applications because:
+Feature: Unified domain access
+  A single entry point for reading and writing a domain over one connection.
+  Most applications want both queries (read-side projections) and commands
+  (write-side aggregates) against the same domain, and want them to share a
+  channel for resource efficiency and simpler dependency injection.
 
-  - **Single connection**: One endpoint, one channel, reduced resource usage
-  - **Unified API**: Both queries and commands through one object
-  - **Builder access**: Fluent builders attached to the client instance
-  - **Simpler DI**: Inject one client instead of two
+  Why this matters:
+  - Production services run for days — two separate connections doubles the
+    socket count and the failure surface for no real benefit
+  - Operators expect one endpoint per domain — splitting reads and writes
+    across two client objects forces every caller to know which is which
+  - The fluent builder pattern only works if reads and writes hang off the
+    same object — otherwise every call site re-resolves the domain
 
-  DomainClient is a convenience wrapper. For advanced use cases (separate
-  scaling, different endpoints), use QueryClient and AggregateClient directly.
+  When to reach past this and wire reads and writes separately:
+  - The read path and write path scale on different machines
+  - Queries target a projection at a different endpoint than the aggregate
+    coordinator
+  Both cases are rare; the unified path is the default.
 
   Background:
     Given a running aggregate coordinator for domain "test"
     And a registered aggregate handler for domain "test"
 
-  Scenario: Connect to a domain and access both query and command APIs
-    # DomainClient provides .query and .aggregate (or .command) accessors
-    # for the underlying clients, enabling both read and write operations.
-    When I create a DomainClient for the coordinator endpoint
+  Scenario: Connecting to a domain exposes both query and command access
+    When I create a domain client for the coordinator endpoint
     Then I should be able to query events
     And I should be able to send commands
 
-  Scenario: Use command builder through domain client
-    # The idiomatic pattern: client.command(domain, root).withX().execute()
-    # This attaches the builder to the client for fluent usage.
-    When I create a DomainClient for domain "test"
+  Scenario: Sending a command through the fluent builder
+    When I create a domain client for domain "test"
     And I use the command builder to send a command
-    Then I should receive a CommandResponse
+    Then I should receive a command response
 
-  Scenario: Use query builder through domain client
-    # Similarly: client.query(domain, root).range(x).getPages()
+  Scenario: Fetching events through the fluent query builder
     Given an aggregate "test" with root "550e8400-e29b-41d4-a716-446655440000" has 5 events
-    When I create a DomainClient for domain "test"
+    When I create a domain client for domain "test"
     And I use the query builder to fetch events for that root
-    Then I should receive 5 EventPages
+    Then I should receive 5 event pages
 
-  Scenario: Single connection serves both read and write
-    # Verify that both operations use the same underlying channel.
-    # This is an implementation detail but important for resource efficiency.
-    When I create a DomainClient for the coordinator endpoint
+  Scenario: Reads and writes share the underlying connection
+    When I create a domain client for the coordinator endpoint
     And I send a command
     And I query for the resulting events
     Then both operations should succeed on the same connection
 
-  Scenario: Close domain client releases all resources
-    # Closing DomainClient must close both underlying clients.
-    # Resource leaks in long-running services cause gradual degradation.
-    Given a connected DomainClient
-    When I close the DomainClient
-    Then subsequent commands should fail with ConnectionError
-    And subsequent queries should fail with ConnectionError
+  Scenario: Closing the client severs both read and write paths
+    Given a connected domain client
+    When I close the domain client
+    Then subsequent commands should fail with a connection error
+    And subsequent queries should fail with a connection error
 
-  Scenario: Connect via environment variable
-    # Consistent with other clients: production deployments use env vars.
+  Scenario: Connecting via environment variable
     Given environment variable "TEST_DOMAIN_ENDPOINT" is set to the coordinator endpoint
-    When I create a DomainClient from environment variable "TEST_DOMAIN_ENDPOINT"
-    Then the DomainClient should be connected
+    When I create a domain client from environment variable "TEST_DOMAIN_ENDPOINT"
+    Then the domain client should be connected

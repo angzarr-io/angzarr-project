@@ -2,11 +2,9 @@
 #            EU-0750 .. EU-0760 (stud variants)
 
 Feature: Game rules (Texas Hold'em, Omaha, Five Card Draw, Stud)
-  The game_rules module defines polymorphic rule objects for each poker
-  variant. Each rule object knows how many hole cards to deal, what the
-  valid phase transitions are, and how to evaluate a 5-card poker hand
-  from the available cards. These are pure functions — no aggregate state,
-  no commands, no events.
+  These rules define each poker variant: how many hole cards to deal, the
+  valid phase transitions, and how to evaluate a 5-card poker hand from the
+  available cards.
 
   # ==========================================================================
   # Rule references (cited via "# Rule:" comments throughout this file)
@@ -32,7 +30,7 @@ Feature: Game rules (Texas Hold'em, Omaha, Five Card Draw, Stud)
   # - Players get the wrong number of hole cards
   # - Hand evaluation misclassifies ranks, giving pots to the wrong player
   # - Phase transitions skip community card deals
-  # - get_game_rules() returns the wrong rules class
+  # - Asking for a variant's rules returns the wrong variant's rules
   #
   # Card-string format used by these scenarios:
   #   "<rank><suit>" per card, space-separated
@@ -66,9 +64,9 @@ Feature: Game rules (Texas Hold'em, Omaha, Five Card Draw, Stud)
   # ==========================================================================
   # Rule: WSOP §IX Texas Hold'em / Omaha (2025) — preflop/flop/turn/river.
   #       WSOP §IX Draw Games — single-draw / triple-draw structures.
-  # Each variant defines a linear sequence of betting phases. get_next_phase
-  # returns the next phase plus how many community cards to deal. SHOWDOWN
-  # is terminal — returns None.
+  # Each variant defines a linear sequence of betting phases. Advancing from
+  # a phase yields the next phase plus how many community cards to deal.
+  # SHOWDOWN is terminal — there is no phase after it.
 
   @EU-0701
   Scenario Outline: Texas Hold'em advances through phases
@@ -119,8 +117,7 @@ Feature: Game rules (Texas Hold'em, Omaha, Five Card Draw, Stud)
   #       > high card.
   # Rule: Robert's §SC Hold'em — best 5-card hand from any combination of
   #       the 7 available cards (2 hole + 5 community).
-  # evaluate_hand returns (rank_type, score, kickers). Every rank category
-  # in the 10-class poker hierarchy is exercised below.
+  # Every rank category in the 10-class poker hierarchy is exercised below.
 
   @EU-0705
   Scenario Outline: Texas Hold'em evaluates the best 5-card hand
@@ -155,8 +152,7 @@ Feature: Game rules (Texas Hold'em, Omaha, Five Card Draw, Stud)
     # Real poker (Robert's Rules §31): with 7 cards available the kicker for
     # FOUR_OF_A_KIND is the *highest* remaining card, not the lowest. Two
     # players who both have AAAA on a board with AAAA-x are still ranked by
-    # their hole-card kicker — the legacy "first combo wins" implementation
-    # was a real-rule violation. Score formula must embed this kicker.
+    # their hole-card kicker.
     Given Texas Hold'em rules
     And hole cards "Ts Th"
     And community cards "Td Tc 5s 6h 7d"
@@ -168,9 +164,7 @@ Feature: Game rules (Texas Hold'em, Omaha, Five Card Draw, Stud)
   Scenario: Texas Hold'em two pair carries the highest remaining card as kicker
     # Real poker: TWO_PAIR ties break on (high pair, low pair, kicker). The
     # kicker is the *highest* remaining card from the 7 available. Best 5
-    # from "Ts Th 8d 8c 5s 6h 7d" is TT-88-7. The legacy assertion of "5"
-    # ignored the kicker entirely; pinning 7 forces the evaluator to pick
-    # the highest non-pair card.
+    # from "Ts Th 8d 8c 5s 6h 7d" is TT-88-7.
     Given Texas Hold'em rules
     And hole cards "Ts Th"
     And community cards "8d 8c 5s 6h 7d"
@@ -182,8 +176,7 @@ Feature: Game rules (Texas Hold'em, Omaha, Five Card Draw, Stud)
   Scenario: Texas Hold'em one pair carries the three highest remaining kickers
     # Real poker: PAIR tiebreaks on (pair_rank, k1, k2, k3) where k1..k3 are
     # the *highest* three remaining cards. Best 5 from "Ts Th 2 4 6 8 Q" is
-    # TT + Q + 8 + 6 — not TT + 6 + 4 + 2 (the legacy "first combo wins"
-    # implementation pinned the wrong kickers).
+    # TT + Q + 8 + 6.
     Given Texas Hold'em rules
     And hole cards "Ts Th"
     And community cards "2d 4c 6s 8h Qd"
@@ -193,15 +186,15 @@ Feature: Game rules (Texas Hold'em, Omaha, Five Card Draw, Stud)
     And the kickers are 12, 8, 6
 
   @EU-0710
-  Scenario: _find_best_hand returns HIGH_CARD with score 0 for fewer than five cards
+  Scenario: With fewer than five cards the best hand is HIGH_CARD with score 0
     Given Texas Hold'em rules
     When the best hand is evaluated from only "As Kh Qd Jc"
     Then the rank is HIGH_CARD
     And the score is 0
 
-  # Boundary: exactly 5 cards. Catches `if len(cards) < 5` → `<= 5` (would
-  # incorrectly return the empty default) and `< 5` → `< 6` (same issue).
-  Scenario: _find_best_hand evaluates the lower boundary of exactly five cards
+  # Boundary: exactly 5 cards is the minimum from which a full hand can be
+  # evaluated.
+  Scenario: With exactly five cards the best hand is evaluated normally
     Given Texas Hold'em rules
     When the best hand is evaluated from only "As Ks Qs Js Ts"
     Then the rank is ROYAL_FLUSH
@@ -287,7 +280,7 @@ Feature: Game rules (Texas Hold'em, Omaha, Five Card Draw, Stud)
     Then the rank is STRAIGHT
 
   # ==========================================================================
-  # Five Card Draw — execute_draw
+  # Five Card Draw — the draw phase
   # ==========================================================================
   # Rule: WSOP §IX Draw Games (2025) — discard/draw mechanics; "If a
   #       Participant wishes to draw an entirely new hand, the Participant
@@ -330,7 +323,6 @@ Feature: Game rules (Texas Hold'em, Omaha, Five Card Draw, Stud)
     And 5 cards were drawn
     And the remaining deck has 0 cards
     And the new hand does not contain "2c"
-    # Pin actual contents so ``new_hole.append(card)`` → ``append(None)`` is caught.
     # Deck pops from end, so cards arrive in reverse: As, Ks, Qs, Js, Ts.
     And the new hand equals "As Ks Qs Js Ts"
 
@@ -386,30 +378,26 @@ Feature: Game rules (Texas Hold'em, Omaha, Five Card Draw, Stud)
     And the remaining deck has 2 cards
 
   # ==========================================================================
-  # get_game_rules() factory
+  # Looking up rules by variant
   # ==========================================================================
-  # (Framework: variant→rules-class dispatch. Not a poker rule itself —
-  # this is the polymorphism backbone that lets the Hand aggregate run any
-  # of the variants whose rules ARE codified above.)
-  # The factory dispatches the GameVariant enum to the matching rules class.
-  # Unknown variants fall through to TexasHoldemRules.
+  # Asking for the rules of a known variant returns the rules for that
+  # variant. Asking for an unknown variant falls back to Texas Hold'em.
 
   @EU-0727
-  Scenario Outline: get_game_rules returns the class for a known variant
+  Scenario Outline: Looking up rules by variant returns the rules for that variant
     When I get game rules for variant <variant_enum>
-    Then the rules class is <rules_class>
-    And the variant is "<variant_name>"
+    Then the variant is "<variant_name>"
 
     Examples:
-      | variant_enum   | rules_class       | variant_name    |
-      | TEXAS_HOLDEM   | TexasHoldemRules  | TEXAS_HOLDEM    |
-      | OMAHA          | OmahaRules        | OMAHA           |
-      | FIVE_CARD_DRAW | FiveCardDrawRules | FIVE_CARD_DRAW  |
+      | variant_enum   | variant_name    |
+      | TEXAS_HOLDEM   | TEXAS_HOLDEM    |
+      | OMAHA          | OMAHA           |
+      | FIVE_CARD_DRAW | FIVE_CARD_DRAW  |
 
   @EU-0728
-  Scenario: get_game_rules falls back to Texas Hold'em for an unknown variant
+  Scenario: An unknown variant falls back to Texas Hold'em
     When I get game rules for an unknown variant
-    Then the rules class is TexasHoldemRules
+    Then the variant is "TEXAS_HOLDEM"
 
   # ==========================================================================
   # Hand evaluation — exact score per rank category
@@ -418,9 +406,8 @@ Feature: Game rules (Texas Hold'em, Omaha, Five Card Draw, Stud)
   #       encoded in the score formula: each rank category occupies a
   #       distinct score range so any higher-rank hand always outscores
   #       any lower-rank hand regardless of kickers.
-  # Score formulas (TexasHoldemRules._evaluate_five) embed magic offsets and
-  # multipliers; without scenarios that pin the exact score, mutations that
-  # swap +/- or shift constants survive silently.
+  # Pinning the exact score per rank category guards against silent drift
+  # in the comparison formula.
 
   Scenario: Texas Hold'em straight flush score embeds the high-card rank
     Given Texas Hold'em rules
@@ -430,7 +417,7 @@ Feature: Game rules (Texas Hold'em, Omaha, Five Card Draw, Stud)
     Then the rank is STRAIGHT_FLUSH
     And the score is 9000009
 
-  Scenario: Texas Hold'em full house score embeds trip rank * 100 + pair rank
+  Scenario: Texas Hold'em full house score ranks by trip first, pair second
     Given Texas Hold'em rules
     And hole cards "Ts Th"
     And community cards "Td 5h 5s 2c 3d"
@@ -454,7 +441,7 @@ Feature: Game rules (Texas Hold'em, Omaha, Five Card Draw, Stud)
     Then the rank is STRAIGHT
     And the score is 5000009
 
-  Scenario: Texas Hold'em three of a kind score embeds trip rank * 1000
+  Scenario: Texas Hold'em three of a kind score ranks by trip rank
     Given Texas Hold'em rules
     And hole cards "Ts Th"
     And community cards "Td 5s 6h 2c 3d"
@@ -494,11 +481,9 @@ Feature: Game rules (Texas Hold'em, Omaha, Five Card Draw, Stud)
   # Rule: Robert's §31 (Ciaffone v11) — within a rank class, primary-rank
   #       ordering applies (e.g. higher straight > lower straight; full
   #       house with higher trip > full house with lower trip).
-  # Same-class comparisons are where evaluators most often regress: a single
-  # field swap (e.g. comparing pair rank instead of trip rank in a full house)
-  # silently mis-awards pots without any rank label changing. Each scenario
-  # below pins the higher hand's score above the lower hand's so a bad
-  # comparator can't slip past with the same rank label.
+  # Same-class comparisons are where evaluators most often regress: the
+  # rank label can stay correct while the wrong hand wins. Each scenario
+  # below pins the higher hand's score above the lower hand's.
 
   @EU-0729
   Scenario: Higher straight beats lower straight (A-high vs K-high)
@@ -518,9 +503,7 @@ Feature: Game rules (Texas Hold'em, Omaha, Five Card Draw, Stud)
 
   @EU-0731
   Scenario: Full house tiebreak uses trip rank, not pair rank
-    # JJJ-22 must beat TTT-AA: trip rank dominates pair rank. A buggy formula
-    # like (pair * 100 + trip) instead of (trip * 100 + pair) would invert
-    # this and silently award pots backwards.
+    # JJJ-22 must beat TTT-AA: trip rank dominates pair rank.
     Given Texas Hold'em rules
     When I evaluate hand A with hole "Jh Jd" and community "Js 2c 2h 7c 4d"
     And I evaluate hand B with hole "Ts Td" and community "Tc Ah Ad 7s 4c"
@@ -530,8 +513,7 @@ Feature: Game rules (Texas Hold'em, Omaha, Five Card Draw, Stud)
   @EU-0732
   Scenario: Three of a kind tiebreak uses trip rank
     # KKK with low kickers beats QQQ with higher kickers — trip rank is the
-    # primary tiebreaker. Catches a comparator that summed kickers before
-    # weighting trip rank.
+    # primary tiebreaker.
     Given Texas Hold'em rules
     When I evaluate hand A with hole "Kh Kd" and community "Ks 4c 2h 5d 7c"
     And I evaluate hand B with hole "Qh Qd" and community "Qs Ah Jc 9d 8c"
@@ -545,9 +527,7 @@ Feature: Game rules (Texas Hold'em, Omaha, Five Card Draw, Stud)
   #       remaining card(s) decide the winner.
   # When two hands share the same primary structure (same quads, same trips,
   # same two pair), real poker breaks the tie by the *highest* remaining
-  # card. These scenarios exercise each rank category that can have kicker
-  # ties — they're the cases an implementation that drops kickers will
-  # silently mis-award.
+  # card.
 
   @EU-0733
   Scenario: Four of a kind with quads on board — kicker decides the winner
@@ -614,9 +594,7 @@ Feature: Game rules (Texas Hold'em, Omaha, Five Card Draw, Stud)
     Then the maximum raise-to is 140
 
     When I attempt a raise-to of 141
-    Then the raise is rejected with code "EXCEEDS_POT_LIMIT"
-    And the rejection field "got" equals "141"
-    And the rejection field "bound" equals "140"
+    Then the raise is rejected because 141 exceeds the pot limit of 140
 
   # ==========================================================================
   # Stud variants — Seven Card Stud, Stud Hi/Lo (8 or better), Razz
@@ -639,22 +617,16 @@ Feature: Game rules (Texas Hold'em, Omaha, Five Card Draw, Stud)
   #   - In Razz, A is low, straights and flushes don't count, best is wheel.
   #   - Stud Hi/Lo (8 or better) splits the pot between best high and best
   #     qualifying low (5 cards 8-or-lower, no pair).
-  #
-  # Why "hole_count" doesn't apply:
-  #   The board-game "hole_count" + "phases" schema (EU-0700) doesn't fit
-  #   stud. Stud variants expose initial_deal_count (3), total_card_count
-  #   (7), forced_bet_type (ANTE_AND_BRINGIN), and phase list separately.
 
   @EU-0750
   Scenario Outline: Stud variant exposes the correct static properties
     # Rule: TDA-RP-10 (2024) — stud format definitions.
     # Rule: WSOP Section IX, Seven Card Games (2025).
+    # Stud deals 3 cards initially, totals 7 cards per player, uses
+    # ante-and-bring-in forced bets, and has no community cards.
     Given <variant> rules
     Then the variant is "<variant_name>"
-    And the initial_deal_count is 3
-    And the total_card_count is 7
-    And the forced_bet_type is "ANTE_AND_BRINGIN"
-    And has_community_cards is False
+    And the variant is a 7-card stud format with ante and bring-in and no community cards
     And the phases are "<phases>"
 
     Examples:
@@ -671,16 +643,15 @@ Feature: Game rules (Texas Hold'em, Omaha, Five Card Draw, Stud)
     Given Seven Card Stud rules
     When I get the next phase from <current>
     Then the next phase is <next_phase>
-    And the per-player cards to deal is <deal>
-    And the dealt card is_up is <is_up>
+    And <deal> card is dealt face <face> to each player
 
     Examples:
-      | current        | next_phase     | deal | is_up |
-      | THIRD_STREET   | FOURTH_STREET  | 1    | True  |
-      | FOURTH_STREET  | FIFTH_STREET   | 1    | True  |
-      | FIFTH_STREET   | SIXTH_STREET   | 1    | True  |
-      | SIXTH_STREET   | SEVENTH_STREET | 1    | False |
-      | SEVENTH_STREET | SHOWDOWN       | 0    | False |
+      | current        | next_phase     | deal | face |
+      | THIRD_STREET   | FOURTH_STREET  | 1    | up   |
+      | FOURTH_STREET  | FIFTH_STREET   | 1    | up   |
+      | FIFTH_STREET   | SIXTH_STREET   | 1    | up   |
+      | SIXTH_STREET   | SEVENTH_STREET | 1    | down |
+      | SEVENTH_STREET | SHOWDOWN       | 0    | down |
 
   @EU-0752
   Scenario: Stud has no community cards; players hold their own 7
@@ -777,8 +748,7 @@ Feature: Game rules (Texas Hold'em, Omaha, Five Card Draw, Stud)
     Given Razz rules
     And player cards "Ah 2h 3h 4h 5h Kc Qd"
     When the best low hand is evaluated
-    Then the razz rank is "WHEEL"
-    And the razz rank value is 1
+    Then the hand is the wheel (best possible razz hand)
 
   @EU-0759
   Scenario: Razz tiebreak — among non-wheel lows, compare highest card downward
