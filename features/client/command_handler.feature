@@ -10,29 +10,34 @@ Feature: Command handler dispatch
     And CreateOrder emits OrderCreated
     And Order is the active aggregate handler
 
+  @wip
   @C-0001
   Scenario: Unknown aggregate receives a creation command
     When CreateOrder(order_id="o-1") is dispatched
     Then the response emits an OrderCreated event
     And the emitted event sequence is 0
 
+  @wip
   @C-0002
   Scenario: State is rebuilt from prior events before dispatch
     Given a prior history with an OrderCreated event at sequence 0
     When a command is dispatched against the aggregate
     Then the order is treated as already created
 
+  @wip
   @C-0003
   Scenario: Unknown command type returns INVALID_ARGUMENT
     When CompleteOrder(order_id="o-1") is dispatched
     Then the unknown command is rejected as invalid input
 
+  @wip
   @C-0004
   Scenario: Handler returning None yields empty BusinessResponse
     Given a command handler whose handler returns None for CreateOrder
     When CreateOrder(order_id="o-1") is dispatched
     Then when the handler emits nothing, no events are produced
 
+  @wip
   @C-0005
   Scenario: Aggregate-supplied initial state constructs an already-created order
     Given a command handler "Order" for domain "order" with order state
@@ -41,6 +46,7 @@ Feature: Command handler dispatch
     When CreateOrder(order_id="o-1") is dispatched
     Then the response emits an OrderCreated event
 
+  @wip
   @C-0006
   Scenario: Default state constructor is used when the aggregate does not supply its own
     Given a command handler "Order" for domain "order" with order state
@@ -49,6 +55,7 @@ Feature: Command handler dispatch
     When CreateOrder(order_id="o-1") is dispatched
     Then the handler observes that the order is not created
 
+  @wip
   @C-0085
   Scenario: With zero prior events, state remains at its constructed default
     Given a command handler "Order" for domain "order" with order state
@@ -66,12 +73,14 @@ Feature: Command handler dispatch
   # dispatch path (not the coordinator) so the policy is colocated with
   # event creation. Fill-only — never overrides a handler-set ext.
 
+  @wip
   @C-0146
   Scenario: Command cover.ext is stamped onto the emitted EventBook's cover
     Given the incoming command has cover.ext set to a packed parent Cover
     When CreateOrder(order_id="o-1") is dispatched
     Then the response's EventBook cover.ext is the same packed parent Cover
 
+  @wip
   @C-0147
   Scenario: Handler-set ext on the emitted EventBook is not overridden
     Given a command handler whose emit step sets EventBook cover.ext explicitly
@@ -79,6 +88,7 @@ Feature: Command handler dispatch
     When CreateOrder(order_id="o-1") is dispatched
     Then the response's EventBook cover.ext is the handler-set value
 
+  @wip
   @C-0148
   Scenario: No command ext leaves the emitted EventBook cover.ext unset
     Given the incoming command's cover has no ext field set

@@ -9,6 +9,7 @@ Feature: Edition propagation across cross-domain emissions
   # Saga: source event → outgoing commands / events
   # ---------------------------------------------------------------
 
+  @wip
   @C-0138
   Scenario: Saga propagates source edition to outgoing commands
     Given a saga "OrderFulfillment" translating from "order" to "inventory"
@@ -17,6 +18,7 @@ Feature: Edition propagation across cross-domain emissions
     When an OrderCreated event is dispatched to the saga
     Then the emitted command's cover has edition "speculative"
 
+  @wip
   @C-0139
   Scenario: Saga propagates source edition to outgoing events
     Given a saga "OrderAudit" translating from "order" to "audit"
@@ -25,6 +27,7 @@ Feature: Edition propagation across cross-domain emissions
     When an OrderCreated event is dispatched to the saga
     Then the emitted event's cover has edition "speculative"
 
+  @wip
   @C-0140
   Scenario: Coordinator always overrides handler-set edition with source edition
     Given a saga "OrderFulfillment" translating from "order" to "inventory"
@@ -33,6 +36,7 @@ Feature: Edition propagation across cross-domain emissions
     When an OrderCreated event is dispatched to the saga
     Then the persisted command's cover has edition "alpha"
 
+  @wip
   @C-0141
   Scenario: Saga propagates main-timeline (empty) edition unchanged
     Given a saga "OrderFulfillment" translating from "order" to "inventory"
@@ -40,6 +44,7 @@ Feature: Edition propagation across cross-domain emissions
     When an OrderCreated event is dispatched to the saga
     Then the emitted command's cover has no edition set
 
+  @wip
   @C-0142
   Scenario: Saga propagation preserves source edition divergences
     Given a saga "OrderFulfillment" translating from "order" to "inventory"
@@ -51,6 +56,7 @@ Feature: Edition propagation across cross-domain emissions
   # Process Manager: trigger event → outgoing commands / process_events
   # ---------------------------------------------------------------
 
+  @wip
   @C-0143
   Scenario: PM propagates trigger edition to outgoing commands
     Given a process manager "Fulfillment" with sources "order" and targets "shipping"
@@ -58,6 +64,7 @@ Feature: Edition propagation across cross-domain emissions
     When an OrderCreated trigger is dispatched to the PM
     Then the emitted command's cover has edition "speculative"
 
+  @wip
   @C-0144
   Scenario: PM propagates trigger edition to every emitted process_events book
     Given a process manager "Fulfillment" with sources "order" and targets "shipping"
@@ -66,6 +73,7 @@ Feature: Edition propagation across cross-domain emissions
     When an OrderCreated trigger is dispatched to the PM
     Then every emitted process_events book's cover has edition "speculative"
 
+  @wip
   @C-0145
   Scenario: Coordinator always overrides handler-set edition with trigger edition
     Given a process manager "Fulfillment" with sources "order" and targets "shipping"

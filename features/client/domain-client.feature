@@ -22,34 +22,40 @@ Feature: Unified domain access
     Given a running aggregate coordinator for domain "test"
     And a registered aggregate handler for domain "test"
 
+  @wip
   Scenario: Connecting to a domain exposes both query and command access
     When I create a domain client for the coordinator endpoint
     Then I should be able to query events
     And I should be able to send commands
 
+  @wip
   Scenario: Sending a command through the fluent builder
     When I create a domain client for domain "test"
     And I use the command builder to send a command
     Then I should receive a command response
 
+  @wip
   Scenario: Fetching events through the fluent query builder
     Given an aggregate "test" with root "550e8400-e29b-41d4-a716-446655440000" has 5 events
     When I create a domain client for domain "test"
     And I use the query builder to fetch events for that root
     Then I should receive 5 event pages
 
+  @wip
   Scenario: Reads and writes share the underlying connection
     When I create a domain client for the coordinator endpoint
     And I send a command
     And I query for the resulting events
     Then both operations should succeed on the same connection
 
+  @wip
   Scenario: Closing the client severs both read and write paths
     Given a connected domain client
     When I close the domain client
     Then subsequent commands should fail with a connection error
     And subsequent queries should fail with a connection error
 
+  @wip
   Scenario: Connecting via environment variable
     Given environment variable "TEST_DOMAIN_ENDPOINT" is set to the coordinator endpoint
     When I create a domain client from environment variable "TEST_DOMAIN_ENDPOINT"

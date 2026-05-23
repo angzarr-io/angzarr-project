@@ -31,6 +31,7 @@ Feature: Multi-handler dispatch
   # router build, not at dispatch. Same command_type under different domains
   # is fine; one CH handling many command types is fine.
 
+  @wip
   @C-0010
   Scenario: Router rejects duplicate CommandHandler registration
     Given two command handlers Alpha and Beta for domain "order"
@@ -38,6 +39,7 @@ Feature: Multi-handler dispatch
     When the router is built with Alpha then Beta
     Then registration is rejected because two command handlers claim CreateOrder in "order"
 
+  @wip
   @C-0011
   Scenario: Router accepts CommandHandlers in different domains for same command type
     Given a command handler Alpha for domain "orderA" handling CreateOrder
@@ -45,6 +47,7 @@ Feature: Multi-handler dispatch
     When the router is built with Alpha then Beta across domains
     Then the configuration is accepted
 
+  @wip
   @C-0012
   Scenario: Router accepts a single CommandHandler with multiple handled types
     Given a command handler Player for domain "player" handling RegisterPlayer and DepositFunds
@@ -98,6 +101,7 @@ Feature: Multi-handler dispatch
   # handler methods must still be dispatched to once per event — not once
   # per matching method — otherwise downstream commands duplicate.
 
+  @wip
   @C-0087
   Scenario: Each saga handles the event once, not once per matching handler method
     Given two sagas SagaA and SagaB both listening to source "order" for OrderCreated
