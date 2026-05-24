@@ -202,6 +202,14 @@ message Snapshot {
   uint32 sequence = 2;
   google.protobuf.Any state = 3;
   SnapshotRetention retention = 4; // Controls cleanup behavior
+  // Wall-clock timestamp the snapshot was persisted. Used by
+  // temporal-by-time queries to decide whether the snapshot's
+  // event coverage predates the target timestamp (snapshot is safe
+  // to use iff created_at <= target). Absent on snapshots persisted
+  // before this field existed; readers MUST treat absent as
+  // "do not use this snapshot for temporal-by-time" (safe full-replay
+  // fallback).
+  google.protobuf.Timestamp created_at = 5;
 }
 // endregion
 
