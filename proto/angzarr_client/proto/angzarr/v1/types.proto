@@ -173,9 +173,22 @@ message ExternalDeferredSequence {
 // For saga-produced commands and facts.
 // Framework stamps sequence on delivery; idempotency derived from source info.
 // Rejections route back to source aggregate.
+//
+// The idempotency key is the full tuple (source, source_seq, source_component,
+// command_index). source/source_seq alone identify only the triggering event:
+// one invocation emitting several commands at the same destination — or two
+// components reacting to the same event — would collide and silently drop all
+// but the first command on redelivery.
 message AngzarrDeferredSequence {
   Cover source = 1; // Full source aggregate (domain + root + edition) - rejection routes here
   uint32 source_seq = 2; // Sequence of the triggering event
+  // Registered name of the producing component (saga/PM). Framework-stamped;
+  // handlers never set this. Empty on pre-upgrade messages.
+  string source_component = 3;
+  // Position of this command within the invocation's emitted command list.
+  // Framework-stamped from the emission order; disambiguates multiple
+  // commands produced by one (source, source_seq) trigger.
+  uint32 command_index = 4;
 }
 // endregion
 
