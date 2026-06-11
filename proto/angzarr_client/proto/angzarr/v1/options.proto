@@ -1,0 +1,57 @@
+syntax = "proto3";
+package angzarr_client.proto.angzarr.v1;
+
+import "google/protobuf/descriptor.proto";
+
+option csharp_namespace = "Angzarr";
+option go_package = "github.com/benjaminabbitt/angzarr/client/go/proto/angzarr_client/proto/angzarr/v1;angzarr";
+option java_multiple_files = true;
+option java_package = "dev.angzarr";
+option ruby_package = "Angzarr";
+
+// Custom options for declaring dispatch components in proto.
+//
+// A component (aggregate, saga, process manager, projector) is declared as a
+// proto service carrying (angzarr.v1.component); each rpc declares one handled
+// command or event, with its input type as the registration key. Rejection
+// handlers are rpcs carrying (angzarr.v1.rejected). Code generators read these
+// from descriptors and emit a strict per-component interface plus a local
+// dispatch table; they do NOT emit gRPC service code — transport stays on the
+// generic framework services and the Any envelope so the coordinator remains
+// domain-blind.
+
+// ComponentKind identifies which dispatch component a service declaration
+// generates.
+enum ComponentKind {
+  COMPONENT_KIND_UNSPECIFIED = 0;
+  COMPONENT_KIND_AGGREGATE = 1;
+  COMPONENT_KIND_SAGA = 2;
+  COMPONENT_KIND_PROCESS_MANAGER = 3;
+  COMPONENT_KIND_PROJECTOR = 4;
+}
+
+// Component declaration carried on a service.
+message ComponentOptions {
+  ComponentKind kind = 1;
+  // Domain whose events/commands this component consumes.
+  string input_domain = 2;
+  // Domain this component issues commands to (sagas/process managers).
+  string output_domain = 3;
+}
+
+// Rejection-handler declaration carried on an rpc.
+message RejectedOptions {
+  // Fully-qualified command type name the rejection compensates
+  // (e.g. "angzarr_client.proto.examples.v1.DealCards"). Rejection dispatch
+  // keys on the fully-qualified type; short names are rejected at
+  // generation time.
+  string command = 1;
+}
+
+extend google.protobuf.ServiceOptions {
+  ComponentOptions component = 50100;
+}
+
+extend google.protobuf.MethodOptions {
+  RejectedOptions rejected = 50101;
+}
