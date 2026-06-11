@@ -5,7 +5,7 @@ import "angzarr_client/proto/examples/v1/poker_types.proto";
 import "google/protobuf/timestamp.proto";
 
 option csharp_namespace = "Angzarr.Examples";
-option go_package = "github.com/angzarr/angzarr/proto/examples";
+option go_package = "github.com/benjaminabbitt/angzarr/client/go/proto/angzarr_client/proto/examples/v1;examples";
 option java_multiple_files = true;
 option java_package = "dev.angzarr.examples";
 option ruby_package = "Angzarr::Examples";
