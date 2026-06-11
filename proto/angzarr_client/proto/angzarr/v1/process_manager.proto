@@ -5,7 +5,7 @@ import "angzarr_client/proto/angzarr/v1/types.proto";
 import "google/api/annotations.proto";
 
 option csharp_namespace = "Angzarr";
-option go_package = "github.com/angzarr/angzarr/proto/angzarr";
+option go_package = "github.com/benjaminabbitt/angzarr/client/go/proto/angzarr_client/proto/angzarr/v1;angzarr";
 option java_multiple_files = true;
 option java_package = "dev.angzarr";
 option ruby_package = "Angzarr";
@@ -96,4 +96,8 @@ message ProcessManagerHandleResponse {
   // Remote: Facts to inject to other aggregates.
   // Each EventBook targets a specific aggregate via its Cover.
   repeated EventBook facts = 3;
+  // Forward escalation notification upstream. Mirrors the rejection
+  // notification on BusinessResponse (command_handler.proto); carries a
+  // PM's escalation when a rejection cannot be compensated locally.
+  Notification notification = 4;
 }
