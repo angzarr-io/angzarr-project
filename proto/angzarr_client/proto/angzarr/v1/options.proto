@@ -33,10 +33,16 @@ enum ComponentKind {
 // Component declaration carried on a service.
 message ComponentOptions {
   ComponentKind kind = 1;
-  // Domain whose events/commands this component consumes.
+  // Domain whose events/commands this component consumes. Process
+  // managers declare per-handler source domains via (reacts) instead.
   string input_domain = 2;
   // Domain this component issues commands to (sagas/process managers).
   string output_domain = 3;
+  // Fully-qualified state message name. Required for AGGREGATE and
+  // PROCESS_MANAGER (the event-sourced state the rebuilder folds into)
+  // and for PROJECTOR (the per-delivery projection instance). Must
+  // resolve in the compiled descriptor set; generation fails otherwise.
+  string state = 4;
 }
 
 // Rejection-handler declaration carried on an rpc.
@@ -48,10 +54,21 @@ message RejectedOptions {
   string command = 1;
 }
 
+// Source-domain declaration for process-manager handler rpcs: names the
+// domain whose events this rpc reacts to (PMs source from multiple
+// domains, so the domain cannot live on the service-level options).
+message ReactsOptions {
+  string domain = 1;
+}
+
 extend google.protobuf.ServiceOptions {
   ComponentOptions component = 50100;
 }
 
 extend google.protobuf.MethodOptions {
   RejectedOptions rejected = 50101;
+  // Marks an rpc as a state applier (event folded into state during
+  // rebuild) rather than a command/event handler.
+  bool applies = 50102;
+  ReactsOptions reacts = 50103;
 }
