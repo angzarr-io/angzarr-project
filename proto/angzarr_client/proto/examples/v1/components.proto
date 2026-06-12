@@ -1,0 +1,65 @@
+syntax = "proto3";
+package angzarr_client.proto.examples.v1;
+
+import "angzarr_client/proto/angzarr/v1/options.proto";
+import "angzarr_client/proto/angzarr/v1/command_handler.proto";
+import "angzarr_client/proto/angzarr/v1/saga.proto";
+import "angzarr_client/proto/angzarr/v1/types.proto";
+import "angzarr_client/proto/examples/v1/hand.proto";
+import "angzarr_client/proto/examples/v1/table.proto";
+
+option csharp_namespace = "Angzarr.Examples";
+option go_package = "github.com/benjaminabbitt/angzarr/client/go/proto/angzarr_client/proto/examples/v1;examples";
+option java_multiple_files = true;
+option java_package = "dev.angzarr.examples";
+option ruby_package = "Angzarr::Examples";
+
+// Component declarations: each service carrying (angzarr.v1.component)
+// generates a strict handler interface + dispatch-table wiring in every
+// client language. The rpc input types ARE the registrations; rejection
+// rpcs name the FULLY-QUALIFIED rejected command. These services are
+// declarations only — no gRPC service code is generated for them; the
+// transport stays on the generic framework services.
+
+// Table aggregate: handles table commands against event-sourced TableState.
+service TableAggregate {
+  option (angzarr.v1.component) = {
+    kind: COMPONENT_KIND_AGGREGATE
+    input_domain: "table"
+    state: "angzarr_client.proto.examples.v1.TableState"
+  };
+
+  rpc HandleCreateTable(CreateTable) returns (angzarr.v1.EventBook);
+  rpc HandleStartHand(StartHand) returns (angzarr.v1.EventBook);
+
+  rpc ApplyTableCreated(TableCreated) returns (TableState) {
+    option (angzarr.v1.applies) = true;
+  }
+  rpc ApplyHandStarted(HandStarted) returns (TableState) {
+    option (angzarr.v1.applies) = true;
+  }
+
+  // Compensate a rejected hand-domain DealCards issued downstream.
+  rpc OnDealCardsRejected(angzarr.v1.RejectionNotification) returns (angzarr.v1.BusinessResponse) {
+    option (angzarr.v1.rejected) = {
+      command: "angzarr_client.proto.examples.v1.DealCards"
+    };
+  }
+}
+
+// Table→hand saga: translates HandStarted into hand-domain commands.
+service TableHandSaga {
+  option (angzarr.v1.component) = {
+    kind: COMPONENT_KIND_SAGA
+    input_domain: "table"
+    output_domain: "hand"
+  };
+
+  rpc HandleHandStarted(HandStarted) returns (angzarr.v1.SagaResponse);
+
+  rpc OnDealCardsRejected(angzarr.v1.RejectionNotification) returns (angzarr.v1.SagaResponse) {
+    option (angzarr.v1.rejected) = {
+      command: "angzarr_client.proto.examples.v1.DealCards"
+    };
+  }
+}
