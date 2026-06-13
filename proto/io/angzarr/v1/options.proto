@@ -1,20 +1,20 @@
 syntax = "proto3";
-package angzarr_client.proto.angzarr.v1;
+package io.angzarr.v1;
 
 import "google/protobuf/descriptor.proto";
 
 option csharp_namespace = "Angzarr";
-option go_package = "github.com/benjaminabbitt/angzarr/client/go/proto/angzarr_client/proto/angzarr/v1;angzarr";
+option go_package = "github.com/benjaminabbitt/angzarr/client/go/proto/io/angzarr/v1;angzarr";
 option java_multiple_files = true;
-option java_package = "dev.angzarr";
+option java_package = "io.angzarr";
 option ruby_package = "Angzarr";
 
 // Custom options for declaring dispatch components in proto.
 //
 // A component (aggregate, saga, process manager, projector) is declared as a
-// proto service carrying (angzarr.v1.component); each rpc declares one handled
+// proto service carrying (io.angzarr.v1.component); each rpc declares one handled
 // command or event, with its input type as the registration key. Rejection
-// handlers are rpcs carrying (angzarr.v1.rejected). Code generators read these
+// handlers are rpcs carrying (io.angzarr.v1.rejected). Code generators read these
 // from descriptors and emit a strict per-component interface plus a local
 // dispatch table; they do NOT emit gRPC service code — transport stays on the
 // generic framework services and the Any envelope so the coordinator remains
@@ -48,7 +48,7 @@ message ComponentOptions {
 // Rejection-handler declaration carried on an rpc.
 message RejectedOptions {
   // Fully-qualified command type name the rejection compensates
-  // (e.g. "angzarr_client.proto.examples.v1.DealCards"). Rejection dispatch
+  // (e.g. "io.angzarr.examples.v1.DealCards"). Rejection dispatch
   // keys on the fully-qualified type; short names are rejected at
   // generation time.
   string command = 1;

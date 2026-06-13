@@ -1,14 +1,14 @@
 syntax = "proto3";
-package angzarr_client.proto.examples.v1;
+package io.angzarr.examples.v1;
 
-import "angzarr_client/proto/examples/v1/orchestration.proto";
-import "angzarr_client/proto/examples/v1/poker_types.proto";
+import "io/angzarr/examples/v1/orchestration.proto";
+import "io/angzarr/examples/v1/poker_types.proto";
 import "google/protobuf/timestamp.proto";
 
 option csharp_namespace = "Angzarr.Examples";
-option go_package = "github.com/benjaminabbitt/angzarr/client/go/proto/angzarr_client/proto/examples/v1;examples";
+option go_package = "github.com/benjaminabbitt/angzarr/client/go/proto/io/angzarr/examples/v1;examples";
 option java_multiple_files = true;
-option java_package = "dev.angzarr.examples";
+option java_package = "io.angzarr.examples";
 option ruby_package = "Angzarr::Examples";
 
 // =============================================================================

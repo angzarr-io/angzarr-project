@@ -3,7 +3,7 @@
 //      Edition, SnapshotRetention, or Notification types.
 
 syntax = "proto3";
-package angzarr_client.proto.angzarr.v1;
+package io.angzarr.v1;
 
 import "google/protobuf/any.proto";
 import "google/protobuf/timestamp.proto";
@@ -13,9 +13,9 @@ import "google/protobuf/timestamp.proto";
 import "sererr/v1/sererr.proto";
 
 option csharp_namespace = "Angzarr";
-option go_package = "github.com/benjaminabbitt/angzarr/client/go/proto/angzarr_client/proto/angzarr/v1;angzarr";
+option go_package = "github.com/benjaminabbitt/angzarr/client/go/proto/io/angzarr/v1;angzarr";
 option java_multiple_files = true;
-option java_package = "dev.angzarr";
+option java_package = "io.angzarr";
 option ruby_package = "Angzarr";
 
 message UUID {

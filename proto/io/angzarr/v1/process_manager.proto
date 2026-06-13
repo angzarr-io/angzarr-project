@@ -1,13 +1,13 @@
 syntax = "proto3";
-package angzarr_client.proto.angzarr.v1;
+package io.angzarr.v1;
 
-import "angzarr_client/proto/angzarr/v1/types.proto";
+import "io/angzarr/v1/types.proto";
 import "google/api/annotations.proto";
 
 option csharp_namespace = "Angzarr";
-option go_package = "github.com/benjaminabbitt/angzarr/client/go/proto/angzarr_client/proto/angzarr/v1;angzarr";
+option go_package = "github.com/benjaminabbitt/angzarr/client/go/proto/io/angzarr/v1;angzarr";
 option java_multiple_files = true;
-option java_package = "dev.angzarr";
+option java_package = "io.angzarr";
 option ruby_package = "Angzarr";
 
 // ProcessManagerService: stateful coordinator for long-running workflows across multiple aggregates.

@@ -1,10 +1,10 @@
 syntax = "proto3";
-package angzarr_client.proto.examples.v1;
+package io.angzarr.examples.v1;
 
 option csharp_namespace = "Angzarr.Examples";
-option go_package = "github.com/benjaminabbitt/angzarr/client/go/proto/angzarr_client/proto/examples/v1;examples";
+option go_package = "github.com/benjaminabbitt/angzarr/client/go/proto/io/angzarr/examples/v1;examples";
 option java_multiple_files = true;
-option java_package = "dev.angzarr.examples";
+option java_package = "io.angzarr.examples";
 option ruby_package = "Angzarr::Examples";
 
 // =============================================================================
