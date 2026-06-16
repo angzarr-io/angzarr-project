@@ -30,12 +30,13 @@ ENV UV_TOOL_DIR=/opt/uv-tools \
 RUN mkdir -p $UV_TOOL_DIR && \
     uv tool install black && \
     uv tool install ruff && \
+    uv tool install radon && \
     chmod -R a+rwX $UV_TOOL_DIR
 
 # Verify
 RUN python --version && uv --version && \
     python -c "import grpc_tools.protoc" && \
-    black --version && ruff --version
+    black --version && ruff --version && radon --version
 
 WORKDIR /workspace
 USER angzarr

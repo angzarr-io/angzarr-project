@@ -29,8 +29,18 @@ RUN curl -Lo /tmp/gradle.zip \
 
 ENV PATH=/opt/gradle/bin:$PATH
 
+# PMD (per-method cyclomatic complexity; `just complexity`). Standalone CLI —
+# no Gradle plugin needed. Symlinked onto PATH; world-readable for any uid.
+ARG PMD_VERSION=7.21.0
+RUN curl -fsSL -o /tmp/pmd.zip \
+        "https://github.com/pmd/pmd/releases/download/pmd_releases%2F${PMD_VERSION}/pmd-dist-${PMD_VERSION}-bin.zip" && \
+    unzip -q /tmp/pmd.zip -d /opt && \
+    ln -s /opt/pmd-bin-${PMD_VERSION}/bin/pmd /usr/local/bin/pmd && \
+    rm /tmp/pmd.zip && \
+    chmod -R a+rX /opt/pmd-bin-${PMD_VERSION}
+
 # Verify
-RUN java -version && gradle --version
+RUN java -version && gradle --version && pmd --version
 
 WORKDIR /workspace
 USER angzarr

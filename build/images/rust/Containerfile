@@ -63,8 +63,16 @@ RUN mkdir -p /usr/local/cargo && \
     printf '[target.x86_64-unknown-linux-gnu]\nlinker = "clang"\nrustflags = ["-C", "link-arg=-fuse-ld=mold"]\n\n[target.aarch64-unknown-linux-gnu]\nlinker = "clang"\nrustflags = ["-C", "link-arg=-fuse-ld=mold"]\n' \
         > /usr/local/cargo/config.toml
 
+# lizard (per-function cyclomatic complexity; `just complexity`) — the same
+# tool core/main uses for Rust. Python-based, so install python3 + pip
+# alongside it. --break-system-packages is needed under PEP 668.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3 python3-pip \
+    && rm -rf /var/lib/apt/lists/* \
+    && pip install --no-cache-dir --break-system-packages lizard
+
 # Verify
-RUN rustc --version && cargo --version && mold --version
+RUN rustc --version && cargo --version && mold --version && lizard --version
 
 # Make toolchain dirs world-writable so cargo can refresh its registry
 # cache from any runtime uid (fixuid remaps angzarr to whatever

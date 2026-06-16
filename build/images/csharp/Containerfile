@@ -30,8 +30,16 @@ RUN dotnet tool install csharpier --tool-path /usr/local/dotnet-tools && \
 
 ENV PATH=/usr/local/dotnet-tools:${PATH}
 
+# lizard (per-function cyclomatic complexity; `just complexity`). Python-based,
+# so install python3 + pip alongside it. --break-system-packages is needed
+# under PEP 668 (Debian externally-managed environment).
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3 python3-pip \
+    && rm -rf /var/lib/apt/lists/* \
+    && pip install --no-cache-dir --break-system-packages lizard
+
 # Verify
-RUN dotnet --version && csharpier --version
+RUN dotnet --version && csharpier --version && lizard --version
 
 WORKDIR /workspace
 USER angzarr
