@@ -2,11 +2,6 @@ syntax = "proto3";
 package io.angzarr.examples.v1;
 
 import "io/angzarr/v1/options.proto";
-import "io/angzarr/v1/command_handler.proto";
-import "io/angzarr/v1/saga.proto";
-import "io/angzarr/v1/types.proto";
-import "io/angzarr/examples/v1/hand.proto";
-import "io/angzarr/examples/v1/table.proto";
 
 option csharp_namespace = "Angzarr.Examples";
 option go_package = "github.com/benjaminabbitt/angzarr/client/go/proto/io/angzarr/examples/v1;examples";
@@ -14,52 +9,23 @@ option java_multiple_files = true;
 option java_package = "io.angzarr.examples";
 option ruby_package = "Angzarr::Examples";
 
-// Component declarations: each service carrying (io.angzarr.v1.component)
-// generates a strict handler interface + dispatch-table wiring in every
-// client language. The rpc input types ARE the registrations; rejection
-// rpcs name the FULLY-QUALIFIED rejected command. These services are
-// declarations only — no gRPC service code is generated for them; the
-// transport stays on the generic framework services.
-
-// Table aggregate: handles table commands against event-sourced TableState.
-service TableAggregate {
-  option (io.angzarr.v1.component) = {
-    kind: COMPONENT_KIND_AGGREGATE
-    input_domain: "table"
-    state: "io.angzarr.examples.v1.TableState"
-  };
-
-  rpc HandleCreateTable(CreateTable) returns (io.angzarr.v1.EventBook);
-  rpc HandleStartHand(StartHand) returns (io.angzarr.v1.EventBook);
-
-  rpc ApplyTableCreated(TableCreated) returns (TableState) {
-    option (io.angzarr.v1.applies) = true;
-  }
-  rpc ApplyHandStarted(HandStarted) returns (TableState) {
-    option (io.angzarr.v1.applies) = true;
-  }
-
-  // Compensate a rejected hand-domain DealCards issued downstream.
-  rpc OnDealCardsRejected(io.angzarr.v1.RejectionNotification) returns (io.angzarr.v1.BusinessResponse) {
-    option (io.angzarr.v1.rejected) = {
-      command: "io.angzarr.examples.v1.DealCards"
-    };
-  }
-}
-
-// Table→hand saga: translates HandStarted into hand-domain commands.
-service TableHandSaga {
+// Component declarations are message annotations now — no services, no rpcs.
+// The TableAggregate is declared on its state message (TableState, table.proto);
+// its commands (CreateTable, StartHand) and events (TableCreated, HandStarted)
+// are annotated on their own message definitions. HandStarted carries two
+// (event) entries — it folds into TableAggregate AND triggers the saga below.
+//
+// The stateless TableHandSaga has no state message to anchor on, so it is
+// declared on this marker message. Its reaction to HandStarted is wired by the
+// (event) entry on HandStarted; its compensation of a rejected DealCards by
+// the `compensates` entry here. The generator emits a strict handler interface
+// + dispatch wiring; no gRPC service code — transport stays on the generic
+// framework services and the Any envelope.
+message TableHandSaga {
   option (io.angzarr.v1.component) = {
     kind: COMPONENT_KIND_SAGA
     input_domain: "table"
     output_domain: "hand"
+    compensates: "io.angzarr.examples.v1.DealCards"
   };
-
-  rpc HandleHandStarted(HandStarted) returns (io.angzarr.v1.SagaResponse);
-
-  rpc OnDealCardsRejected(io.angzarr.v1.RejectionNotification) returns (io.angzarr.v1.SagaResponse) {
-    option (io.angzarr.v1.rejected) = {
-      command: "io.angzarr.examples.v1.DealCards"
-    };
-  }
 }

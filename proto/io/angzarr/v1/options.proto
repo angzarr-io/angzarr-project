@@ -11,16 +11,18 @@ option ruby_package = "Angzarr";
 
 // Custom options for declaring dispatch components in proto.
 //
-// A component (aggregate, saga, process manager, projector) is declared as a
-// proto service carrying (io.angzarr.v1.component); each rpc declares one handled
-// command or event, with its input type as the registration key. Rejection
-// handlers are rpcs carrying (io.angzarr.v1.rejected). Code generators read these
-// from descriptors and emit a strict per-component interface plus a local
-// dispatch table; they do NOT emit gRPC service code — transport stays on the
-// generic framework services and the Any envelope so the coordinator remains
-// domain-blind.
+// A component (aggregate, saga, process manager, projector) is declared by
+// annotating a MESSAGE — its state message for the stateful kinds, or a marker
+// message for the stateless saga — with (io.angzarr.v1.component). Its commands
+// and events are other messages carrying (io.angzarr.v1.command) /
+// (io.angzarr.v1.event) that point back at the anchor. There are no services
+// and no rpcs: the annotations ARE the declaration. Code generators read these
+// from descriptors and emit a strict per-component handler interface plus a
+// local dispatch table; they do NOT emit gRPC service code — transport stays on
+// the generic framework services and the Any envelope so the coordinator
+// remains domain-blind.
 
-// ComponentKind identifies which dispatch component a service declaration
+// ComponentKind identifies which dispatch component a message declaration
 // generates.
 enum ComponentKind {
   COMPONENT_KIND_UNSPECIFIED = 0;
@@ -30,45 +32,68 @@ enum ComponentKind {
   COMPONENT_KIND_PROJECTOR = 4;
 }
 
-// Component declaration carried on a service.
+// Component declaration carried on a message. The annotated message is the
+// component's anchor: for AGGREGATE / PROCESS_MANAGER / PROJECTOR it is the
+// event-sourced state (or per-delivery projection) message the rebuilder folds
+// into; for the stateless SAGA it is an empty marker message naming the saga.
 message ComponentOptions {
   ComponentKind kind = 1;
-  // Domain whose events/commands this component consumes. Process
-  // managers declare per-handler source domains via (reacts) instead.
+  // Domain whose events this component consumes (aggregate input; saga/
+  // projector input filter). Process managers source per-event domains via
+  // (event).domain instead.
   string input_domain = 2;
-  // Domain this component issues commands to (sagas/process managers).
+  // Domain this component issues commands to (sagas / process managers).
   string output_domain = 3;
-  // Fully-qualified state message name. Required for AGGREGATE and
-  // PROCESS_MANAGER (the event-sourced state the rebuilder folds into)
-  // and for PROJECTOR (the per-delivery projection instance). Must
-  // resolve in the compiled descriptor set; generation fails otherwise.
-  string state = 4;
+  // Generated handler/dispatch base name. Optional; defaults to the anchor
+  // message name (e.g. a "CounterState" anchor named "Counter" emits
+  // CounterHandler / NewCounterDispatch).
+  string name = 4;
+  // Fully-qualified command types whose rejection this component compensates.
+  // Declared on the COMPENSATOR (not the command) so a command's file stays
+  // decoupled from the cross-domain sagas/PMs that react to its rejection.
+  // Each generates an On<Command>Rejected method, in declaration order
+  // (C-0042). The handler takes the rejection envelope, not a typed command.
+  repeated string compensates = 5;
 }
 
-// Rejection-handler declaration carried on an rpc.
-message RejectedOptions {
-  // Fully-qualified command type name the rejection compensates
-  // (e.g. "io.angzarr.examples.v1.DealCards"). Rejection dispatch
-  // keys on the fully-qualified type; short names are rejected at
-  // generation time.
-  string command = 1;
+// Marks a message as a COMMAND. Generates one strict handler method on the
+// component that owns it, taking the typed command as input. A command is
+// owned by exactly one component; compensation for its rejection is declared
+// on the compensating component via ComponentOptions.compensates.
+message CommandOptions {
+  // The anchor message of the component that handles this command. Resolved
+  // against the compiled descriptor set; generation fails on an unknown or
+  // ambiguous reference.
+  string component = 1;
+  // Fully-qualified event type(s) this command emits. When set, the generated
+  // handler returns the typed events and the framework builds the EventBook and
+  // stamps sequences; when empty, the handler returns the raw EventBook (the
+  // escape hatch for multi-type emission, custom covers, snapshots).
+  repeated string emits = 2;
 }
 
-// Source-domain declaration for process-manager handler rpcs: names the
-// domain whose events this rpc reacts to (PMs source from multiple
-// domains, so the domain cannot live on the service-level options).
-message ReactsOptions {
-  string domain = 1;
+// Marks a message as an EVENT consumed by ONE component. The extension is
+// repeated, so an event consumed by several components (e.g. folded into its
+// aggregate AND triggering a saga) carries one (event) entry per consumer. For
+// an AGGREGATE — or a PROCESS_MANAGER's own state — an entry generates a state
+// applier (folded during rebuild); for a SAGA / PROJECTOR / PROCESS_MANAGER
+// trigger it generates a reaction handler. The component's kind (and `applies`)
+// select which.
+message EventConsumer {
+  // The anchor message of the component that consumes this event.
+  string component = 1;
+  // Source domain: the saga / projector input filter, or the process-manager
+  // trigger source domain. Unset for an aggregate's own applied events.
+  string domain = 2;
+  // PROCESS_MANAGER only: true marks this as a fold of the PM's OWN state
+  // (an applier); false (with a `domain`) marks it as a cross-domain trigger
+  // reaction. Aggregates always apply; saga/projector always react.
+  bool applies = 3;
 }
 
-extend google.protobuf.ServiceOptions {
+extend google.protobuf.MessageOptions {
   ComponentOptions component = 50100;
-}
-
-extend google.protobuf.MethodOptions {
-  RejectedOptions rejected = 50101;
-  // Marks an rpc as a state applier (event folded into state during
-  // rebuild) rather than a command/event handler.
-  bool applies = 50102;
-  ReactsOptions reacts = 50103;
+  CommandOptions command = 50104;
+  // Repeated: one entry per consuming component.
+  repeated EventConsumer event = 50105;
 }

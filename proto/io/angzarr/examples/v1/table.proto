@@ -2,6 +2,7 @@ syntax = "proto3";
 package io.angzarr.examples.v1;
 
 import "io/angzarr/v1/types.proto";
+import "io/angzarr/v1/options.proto";
 import "io/angzarr/examples/v1/poker_types.proto";
 import "google/protobuf/timestamp.proto";
 
@@ -19,6 +20,7 @@ option ruby_package = "Angzarr::Examples";
 // Commands
 
 message CreateTable {
+  option (io.angzarr.v1.command) = { component: "io.angzarr.examples.v1.TableState" };
   string table_name = 1;
   GameVariant game_variant = 2;
   int64 small_blind = 3;
@@ -43,6 +45,7 @@ message LeaveTable {
 // Table receives PlayerSatOut/PlayerSatIn as facts via saga
 
 message StartHand {
+  option (io.angzarr.v1.command) = { component: "io.angzarr.examples.v1.TableState" };
   // Dealer button advances automatically; no positional parameters.
   // ``players_on_penalty`` (TDA Rule 71C): players on a missed-hand or
   // missed-round penalty whose seats receive cards but whose hands are
@@ -86,6 +89,7 @@ message ChangeSeats {
 // Events
 
 message TableCreated {
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.TableState" };
   string table_name = 1;
   GameVariant game_variant = 2;
   int64 small_blind = 3;
@@ -123,6 +127,13 @@ message PlayerSatIn {
 }
 
 message HandStarted {
+  // Multi-consumer: folded into TableAggregate's state AND triggers the
+  // TableHandSaga — one (event) entry per consumer.
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.TableState" };
+  option (io.angzarr.v1.event) = {
+    component: "io.angzarr.examples.v1.TableHandSaga"
+    domain: "table"
+  };
   bytes hand_root = 1; // New hand aggregate root
   int64 hand_number = 2;
   int32 dealer_position = 3;
@@ -355,6 +366,12 @@ message TableHandForHandEnded {
 
 // State (for snapshots)
 message TableState {
+  option (io.angzarr.v1.component) = {
+    kind: COMPONENT_KIND_AGGREGATE
+    input_domain: "table"
+    name: "TableAggregate"
+    compensates: "io.angzarr.examples.v1.DealCards"
+  };
   string table_id = 1;
   string table_name = 2;
   GameVariant game_variant = 3;
