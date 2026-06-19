@@ -8,7 +8,7 @@
 ARG BASE_IMAGE
 # Pinned to the message-annotation recast branch tip (feat/codegen-message-
 # annotation-recast); repoint to a main tag once that branch merges.
-ARG ANGZARR_CLI_VERSION=d9ce579
+ARG ANGZARR_CLI_VERSION=9a357a1
 
 # angzarr CLI built in a throwaway Go stage and copied in — buf invokes it as
 # `angzarr codegen <lang>` / `angzarr scaffold <lang>`. The Python image has no
