@@ -4,12 +4,14 @@ metadata:
   name: angzarr-build-images
 
 # Build + publish the toolchain images consumed by every angzarr repo.
-# - base/    → ghcr.io/angzarr-io/angzarr-base   (just, buf, fixuid, angzarr user)
-# - rust/    → ghcr.io/angzarr-io/angzarr-rust
-# - python/  → ghcr.io/angzarr-io/angzarr-python
-# - go/      → ghcr.io/angzarr-io/angzarr-go
-# - java/    → ghcr.io/angzarr-io/angzarr-java
-# - csharp/  → ghcr.io/angzarr-io/angzarr-csharp
+# - base/       → ghcr.io/angzarr-io/angzarr-base   (just, buf, angzarr CLI, fixuid, angzarr user)
+# - rust/       → ghcr.io/angzarr-io/angzarr-rust
+# - python/     → ghcr.io/angzarr-io/angzarr-python
+# - go/         → ghcr.io/angzarr-io/angzarr-go
+# - java/       → ghcr.io/angzarr-io/angzarr-java
+# - csharp/     → ghcr.io/angzarr-io/angzarr-csharp
+# - cpp/        → ghcr.io/angzarr-io/angzarr-cpp
+# - typescript/ → ghcr.io/angzarr-io/angzarr-typescript
 #
 # Usage:
 #   skaffold build -f build/images/skaffold.yaml             # local
@@ -63,6 +65,22 @@ build:
 
     - image: ghcr.io/angzarr-io/angzarr-csharp
       context: csharp
+      docker:
+        dockerfile: Containerfile
+      requires:
+        - image: ghcr.io/angzarr-io/angzarr-base
+          alias: BASE_IMAGE
+
+    - image: ghcr.io/angzarr-io/angzarr-cpp
+      context: cpp
+      docker:
+        dockerfile: Containerfile
+      requires:
+        - image: ghcr.io/angzarr-io/angzarr-base
+          alias: BASE_IMAGE
+
+    - image: ghcr.io/angzarr-io/angzarr-typescript
+      context: typescript
       docker:
         dockerfile: Containerfile
       requires:

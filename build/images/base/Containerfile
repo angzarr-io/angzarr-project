@@ -1,13 +1,27 @@
 # syntax=docker/dockerfile:1.4
 # Base image for all angzarr language-specific build images.
 #
-# Provides: just, buf, fixuid (setuid runtime uid/gid remap), `angzarr`
-# non-root user (uid:gid 1000:1000) wired through `/etc/fixuid/config.yml`
-# so any consumer can `docker run --user "$(id -u):$(id -g)"` and have files
-# written through bind mounts owned by the host user.
+# Provides: just, buf, the `angzarr` CLI (codegen/scaffold protoc plugins),
+# fixuid (setuid runtime uid/gid remap), `angzarr` non-root user (uid:gid
+# 1000:1000) wired through `/etc/fixuid/config.yml` so any consumer can
+# `docker run --user "$(id -u):$(id -g)"` and have files written through bind
+# mounts owned by the host user.
 #
 # Based on: debian:bookworm-slim
 # Built/published: angzarr-project/.github/workflows/build-images.yml
+
+# Pinned to the message-annotation recast branch tip (feat/codegen-message-
+# annotation-recast); repoint to a main tag once that branch merges. The CLI
+# lives in BASE so every language image inherits one pinned version.
+ARG ANGZARR_CLI_VERSION=6145d1f
+
+# angzarr CLI built in a throwaway Go stage and copied into the base image —
+# buf invokes it as `angzarr codegen <lang>` / `angzarr scaffold <lang>`. Baked
+# once here so every downstream language image gets the same pinned CLI.
+FROM golang:1.25-bookworm AS angzarr-builder
+ARG ANGZARR_CLI_VERSION
+RUN GOBIN=/out go install github.com/angzarr-io/angzarr-cli@${ANGZARR_CLI_VERSION} \
+    && mv /out/angzarr-cli /out/angzarr
 
 FROM docker.io/library/debian:bookworm-slim AS base
 
@@ -72,8 +86,10 @@ RUN groupadd -g 1000 angzarr && \
 WORKDIR /workspace
 RUN chown angzarr:angzarr /workspace
 
+COPY --from=angzarr-builder /out/angzarr /usr/local/bin/angzarr
+
 # Verify (still as root, before downstream images switch USER)
-RUN just --version && buf --version && \
+RUN just --version && buf --version && angzarr codegen languages && \
     test -u /usr/local/bin/fixuid && test -x /usr/local/bin/fixuid
 
 ENTRYPOINT ["fixuid", "-q"]

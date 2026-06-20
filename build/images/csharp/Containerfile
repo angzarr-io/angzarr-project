@@ -1,7 +1,8 @@
 # syntax=docker/dockerfile:1.4
 # C# build image for angzarr.
 #
-# Provides: .NET SDK 8.0, csharpier formatter.
+# Provides: .NET SDK 8.0, csharpier formatter. angzarr (codegen/scaffold protoc
+# plugins) + buf are inherited from base.
 # Based on: ghcr.io/angzarr-io/angzarr-base (inherits fixuid + angzarr user)
 
 ARG BASE_IMAGE
@@ -39,7 +40,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && pip install --no-cache-dir --break-system-packages lizard
 
 # Verify
-RUN dotnet --version && csharpier --version && lizard --version
+RUN dotnet --version && csharpier --version && lizard --version && angzarr codegen languages
 
 WORKDIR /workspace
 USER angzarr

@@ -1,22 +1,9 @@
 # syntax=docker/dockerfile:1.4
 # Python build image for angzarr.
 #
-# Provides: Python 3.11, uv, grpcio-tools, black, ruff, angzarr
-# (codegen/scaffold protoc plugins).
+# Provides: Python 3.11, uv, grpcio-tools, black, ruff. angzarr
+# (codegen/scaffold protoc plugins) + buf are inherited from base.
 # Based on: ghcr.io/angzarr-io/angzarr-base (inherits fixuid + angzarr user)
-
-ARG BASE_IMAGE
-# Pinned to the message-annotation recast branch tip (feat/codegen-message-
-# annotation-recast); repoint to a main tag once that branch merges.
-ARG ANGZARR_CLI_VERSION=6145d1f
-
-# angzarr CLI built in a throwaway Go stage and copied in — buf invokes it as
-# `angzarr codegen <lang>` / `angzarr scaffold <lang>`. The Python image has no
-# Go toolchain, so it is compiled here and copied.
-FROM golang:1.25-bookworm AS angzarr-builder
-ARG ANGZARR_CLI_VERSION
-RUN GOBIN=/out go install github.com/angzarr-io/angzarr-cli@${ANGZARR_CLI_VERSION} \
-    && mv /out/angzarr-cli /out/angzarr
 
 ARG BASE_IMAGE
 FROM ${BASE_IMAGE}
@@ -46,8 +33,6 @@ RUN mkdir -p $UV_TOOL_DIR && \
     uv tool install ruff && \
     uv tool install radon && \
     chmod -R a+rwX $UV_TOOL_DIR
-
-COPY --from=angzarr-builder /out/angzarr /usr/local/bin/angzarr
 
 # Verify
 RUN python --version && uv --version && \

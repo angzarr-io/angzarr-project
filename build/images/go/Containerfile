@@ -1,21 +1,9 @@
 # syntax=docker/dockerfile:1.4
 # Go build image for angzarr.
 #
-# Provides: Go toolchain, protoc-gen-go, protoc-gen-go-grpc, goimports,
-# angzarr (codegen/scaffold protoc plugins).
+# Provides: Go toolchain, protoc-gen-go, protoc-gen-go-grpc, goimports.
+# angzarr (codegen/scaffold protoc plugins) + buf are inherited from base.
 # Based on: ghcr.io/angzarr-io/angzarr-base (inherits fixuid + angzarr user)
-
-ARG BASE_IMAGE
-# Pinned to the message-annotation recast branch tip (feat/codegen-message-
-# annotation-recast); repoint to a main tag once that branch merges.
-ARG ANGZARR_CLI_VERSION=6145d1f
-
-# angzarr CLI built in a throwaway Go stage and copied into the image — buf
-# invokes it as `angzarr codegen <lang>` / `angzarr scaffold <lang>`.
-FROM golang:1.25-bookworm AS angzarr-builder
-ARG ANGZARR_CLI_VERSION
-RUN GOBIN=/out go install github.com/angzarr-io/angzarr-cli@${ANGZARR_CLI_VERSION} \
-    && mv /out/angzarr-cli /out/angzarr
 
 ARG BASE_IMAGE
 FROM ${BASE_IMAGE}
@@ -41,8 +29,6 @@ RUN go install google.golang.org/protobuf/cmd/protoc-gen-go@v1.36.6 && \
     go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@v1.5.1 && \
     go install golang.org/x/tools/cmd/goimports@latest && \
     go install github.com/fzipp/gocyclo/cmd/gocyclo@v0.6.0  # cyclomatic complexity (just complexity)
-
-COPY --from=angzarr-builder /out/angzarr /usr/local/bin/angzarr
 
 # Verify
 RUN go version && protoc-gen-go --version && goimports -h 2>&1 | head -1 && angzarr codegen languages
