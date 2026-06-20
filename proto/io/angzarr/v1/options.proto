@@ -96,12 +96,4 @@ extend google.protobuf.MessageOptions {
   CommandOptions command = 50104;
   // Repeated: one entry per consuming component.
   repeated EventConsumer event = 50105;
-  // Stable WIRE identity for this message — the dispatch key and the Any
-  // type_url ("/" + type_id) derive from it. The message's fully-qualified
-  // proto name remains its SOURCE identity (generated symbols, and the
-  // component/command/event/compensates references that resolve at generation
-  // time), so renaming or moving a message is a refactor; the type_id is the
-  // contract persisted events are keyed on and must never change. Defaults to
-  // the fully-qualified name when unset.
-  string type_id = 50106;
 }
