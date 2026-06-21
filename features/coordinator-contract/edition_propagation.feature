@@ -1,3 +1,26 @@
+# Allocated: C-0138 .. C-0145
+#
+# Coordinator-contract feature: edition propagation across cross-domain
+# emissions. Audit #86 originally landed this as per-client framework
+# code (auto-stamping outgoing covers in `dispatch_saga` /
+# `dispatch_process_manager`). User direction 2026-04-29: edition
+# propagation belongs at the coordinator — one canonical
+# implementation, universally applied across all clients regardless of
+# language, rather than N copies of the same policy in N client
+# libraries.
+#
+# The CONTRACT below holds at the coordinator level: when a saga or
+# process-manager handler receives an event in edition X, the
+# coordinator stamps edition X onto every outgoing CommandBook /
+# EventBook (commands, events, facts, process_events) before
+# persistence / dispatch downstream. The full Edition struct
+# (name + divergences) propagates verbatim.
+#
+# **Always-override semantics:** the coordinator guarantees timeline
+# consistency on cross-domain emissions; saga/PM handlers cannot
+# escape into a different timeline by setting their own outgoing
+# edition. Cross-timeline emission would need a separate
+# fork-to-timeline mechanism out of scope here.
 Feature: Edition propagation across cross-domain emissions
   As a saga / process-manager author
   I want the framework to guarantee that emitted commands and events
