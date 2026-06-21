@@ -13,7 +13,7 @@
 # Pinned to the message-annotation recast branch tip (feat/codegen-message-
 # annotation-recast); repoint to a main tag once that branch merges. The CLI
 # lives in BASE so every language image inherits one pinned version.
-ARG ANGZARR_CLI_VERSION=6145d1f
+ARG ANGZARR_CLI_VERSION=796a53f
 
 # angzarr CLI built in a throwaway Go stage and copied into the base image —
 # buf invokes it as `angzarr codegen <lang>` / `angzarr scaffold <lang>`. Baked
