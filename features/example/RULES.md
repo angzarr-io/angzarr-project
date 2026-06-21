@@ -4,6 +4,12 @@ Every poker scenario in `features/example/poker/*.feature` and
 `features/example/acceptance/*.feature` cites the real-world poker rule it
 expresses via a `# Rule:` comment (framework-concept scenarios live in
 `features/example/framework/` and are out of scope for this catalog).
+
+Scenarios expressing an app/cardroom concept rather than a codified hand
+rule (player bankroll/registration; cross-service E2E acceptance) carry an
+explicit `# Rule: N/A — <reason>` exemption, which the checker counts as
+governed. Run `just check-rules` (features/example/check_rule_citations.py) to
+verify every in-scope scenario is cited or exempted.
 This document catalogues those citations bidirectionally so anyone reading
 a scenario can find the source rule, and anyone reading the rules can find
 which scenario(s) codify them.

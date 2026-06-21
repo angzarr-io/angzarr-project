@@ -1,6 +1,7 @@
 # Allocated: EA-0006 .. EA-0013
 
 Feature: Cluster Tournament Acceptance
+  # Rule: N/A — full-lifecycle tournament E2E acceptance; exercises many rules end-to-end rather than expressing one
   Tournament-scoped acceptance scenarios that exercise the full
   tournament lifecycle against a deployed poker cluster: creating a
   tournament, registering players, starting play, advancing blinds,

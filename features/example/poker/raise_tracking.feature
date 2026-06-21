@@ -22,6 +22,7 @@ Feature: Minimum raise tracking observable on TurnAssigned
   # Initial State — After Blinds Are Posted — TDA Rule 43
   # ==========================================================================
 
+  # Rule: TDA Rule 43 (2024) — a raise must be at least the largest prior full bet or raise of the current betting round
   @EU-1000
   Scenario: After BB posts, the next actor faces a call of BB and a min raise of BB
     Given a 3-handed Texas Hold'em hand with big_blind 10
@@ -88,6 +89,7 @@ Feature: Minimum raise tracking observable on TurnAssigned
   # ==========================================================================
   # min_raise resets to the big blind on each new street.
 
+  # Rule: TDA Rule 47A (2024) — on a new street the min raise resets to the prior bet/raise on that street; a short all-in does not reopen betting
   @EU-1006
   Scenario: A new betting round resets min_raise to the big blind
     Given a 3-handed Texas Hold'em hand with big_blind 10
