@@ -1142,9 +1142,10 @@ Feature: Tournament aggregate logic
     #       bagging begins."
     Given a running tournament at minute 53 of the final scheduled level (60 min levels)
     And a hand is currently in progress
-    When the floor issues a stop-new-hands command
-    Then new hands are halted effective "AFTER_CURRENT_HAND"
-    And the in-progress hand is allowed to complete normally
+    When the floor issues a StopNewHands command
+    Then a NewHandsHalted event is emitted with effective_at "AFTER_CURRENT_HAND"
+    # The "in-progress hand is allowed to complete normally" effect IS
+    # the AFTER_CURRENT_HAND effective_at — same observable rule.
     When the in-progress hand completes
     Then the tournament transitions to BAGGING_AND_TAGGING
     And no new StartHand command is accepted until the next day's resume

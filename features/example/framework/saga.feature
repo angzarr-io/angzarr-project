@@ -31,17 +31,24 @@ Feature: Cross-domain event translations
   # the table is told to end the round.
 
   @EU-0300
-  Scenario: When a hand starts at a table, cards are dealt
-    Given a hand "hand-1" begins as hand number 1 with TEXAS_HOLDEM and dealer at position 0
-    And the active players are:
+  Scenario: Table sync saga routes HandStarted to Shuffle + DealCards
+    Given a TableSyncSaga
+    And a HandStarted event from table domain with:
+      | hand_root   | hand_number | game_variant   | dealer_position |
+      | hand-1      | 1           | TEXAS_HOLDEM   | 0               |
+    And active players:
       | player_root | position | stack |
       | player-1    | 0        | 500   |
       | player-2    | 1        | 500   |
-    When the hand-start is translated for the hand
-    Then the hand is dealt as hand number 1 with TEXAS_HOLDEM for 2 players
-    # The deal is reproducible from the hand's identifier, so acceptance
-    # tests can assert specific cards across runs.
-    And the deal is reproducible from the hand's identifier
+    When the saga handles the event
+    # Saga emits Shuffle first (hand_root as seed for replay-
+    # deterministic per-hand deck order), then DealCards.
+    Then the saga emits a Shuffle command to hand domain
+    And the Shuffle command has seed equal to the hand_root
+    And the saga emits a DealCards command to hand domain
+    And the command has game_variant TEXAS_HOLDEM
+    And the command has 2 players
+    And the command has hand_number 1
 
   @EU-0301
   Scenario: When a hand finishes, the table is told to end the round

@@ -71,9 +71,9 @@ Feature: Cluster Acceptance
   # ===========================================================================
 
   # CLUSTER-ONLY: validated against deployed standalone.yaml
-  # Tagged @wip until an external read surface exists. The previous
+  # Tagged @wip until a ProjectorQuery surface exists. The previous
   # impl polled the in-test bookkeeping mirror (which the When step had
-  # already set), so the assertion never observed the actual read model
+  # already set), so the assertion never observed the actual projector
   # — see ACCEPTANCE_REMEDIATION_PLAN.md Pattern J.
   @projector @consistency @cluster @wip
   @EA-0004

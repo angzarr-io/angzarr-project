@@ -148,13 +148,16 @@ Feature: Player bankroll and table reservations
 
   # docs:start:reservation_scenario
   @EU-0210
-  Scenario: Reserving funds for a table buy-in
-    Given Alice is registered
-    And Alice has 1000 chips
-    When Alice reserves 500 chips for table "table-1"
-    Then Alice has reserved 500 chips for table "table-1"
-    And Alice's available balance is 500
-    And the reservation is timestamped
+  Scenario: Reserve funds for table buy-in
+    Given a PlayerRegistered event for "Alice"
+    And a FundsDeposited event with amount 1000
+    When I handle a ReserveFunds command with amount 500 for table "table-1"
+    Then the result is a angzarr_client.proto.examples.FundsReserved event
+    And the event has a timestamp reserved_at
+    And the player event has amount 500
+    And the player event has new_available_balance 500
+    And the player event has new_reserved_balance 500
+    And the player event has key "table-1"
 
   Scenario: A reservation of one chip is allowed
     Given Alice is registered
@@ -171,12 +174,14 @@ Feature: Player bankroll and table reservations
     Then the reservation is refused because Alice has 500 available but requested 600
 
   @EU-0212
-  Scenario: A player cannot reserve for the same table twice
-    Given Alice is registered
-    And Alice has 1000 chips
-    And Alice has reserved 500 chips for table "table-1"
-    When Alice reserves 200 chips for table "table-1"
-    Then the reservation is refused because Alice has already reserved for that table
+  Scenario: Cannot reserve for same table twice
+    Given a PlayerRegistered event for "Alice"
+    And a FundsDeposited event with amount 1000
+    And a FundsReserved event with amount 500 for table "table-1"
+    When I handle a ReserveFunds command with amount 200 for table "table-1"
+    Then the command fails with status "FAILED_PRECONDITION"
+    And the command is rejected with code "FUNDS_ALREADY_RESERVED_FOR_TABLE"
+    And the rejection field "table_root_hex" is the table_root_hex of "table-1"
 
   # ==========================================================================
   # Fund Release - Returning Reserved Funds
@@ -186,22 +191,26 @@ Feature: Player bankroll and table reservations
   # from the reservation if the player won or lost chips during play.
 
   @EU-0213
-  Scenario: Releasing reserved funds returns them to the available balance
-    Given Alice is registered
-    And Alice has 1000 chips
-    And Alice has reserved 500 chips for table "table-1"
-    When Alice's funds for table "table-1" are released
-    Then 500 chips are returned to Alice's available balance
-    And Alice's available balance is 1000
-    And Alice no longer has a reservation for table "table-1"
-    And the release is timestamped
+  Scenario: Release reserved funds back to bankroll
+    Given a PlayerRegistered event for "Alice"
+    And a FundsDeposited event with amount 1000
+    And a FundsReserved event with amount 500 for table "table-1"
+    When I handle a ReleaseFunds command for table "table-1"
+    Then the result is a angzarr_client.proto.examples.FundsReleased event
+    And the event has a timestamp released_at
+    And the player event has amount 500
+    And the player event has new_available_balance 1000
+    And the player event has new_reserved_balance 0
+    And the player event has key "table-1"
 
   @EU-0214
-  Scenario: A release without a reservation is refused
-    Given Alice is registered
-    And Alice has 1000 chips
-    When Alice's funds for table "table-1" are released
-    Then the release is refused because Alice has no reservation for that table
+  Scenario: Cannot release non-existent reservation
+    Given a PlayerRegistered event for "Alice"
+    And a FundsDeposited event with amount 1000
+    When I handle a ReleaseFunds command for table "table-1"
+    Then the command fails with status "FAILED_PRECONDITION"
+    And the command is rejected with code "NO_FUNDS_RESERVED_FOR_TABLE"
+    And the rejection field "table_root_hex" is the table_root_hex of "table-1"
 
   # ==========================================================================
   # State Reconstruction
