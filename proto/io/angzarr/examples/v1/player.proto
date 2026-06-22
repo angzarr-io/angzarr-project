@@ -1,5 +1,6 @@
 syntax = "proto3";
 package io.angzarr.examples.v1;
+import "io/angzarr/v1/options.proto";
 
 import "io/angzarr/examples/v1/poker_types.proto";
 import "google/protobuf/timestamp.proto";
@@ -18,6 +19,7 @@ option ruby_package = "Angzarr::Examples";
 // Commands
 
 message RegisterPlayer {
+  option (io.angzarr.v1.command) = { component: "io.angzarr.examples.v1.PlayerState" };
   string display_name = 1;
   string email = 2; // Used for root derivation
   PlayerType player_type = 3; // HUMAN or AI
@@ -25,10 +27,12 @@ message RegisterPlayer {
 }
 
 message DepositFunds {
+  option (io.angzarr.v1.command) = { component: "io.angzarr.examples.v1.PlayerState" };
   Currency amount = 1;
 }
 
 message WithdrawFunds {
+  option (io.angzarr.v1.command) = { component: "io.angzarr.examples.v1.PlayerState" };
   Currency amount = 1;
 }
 
@@ -37,12 +41,14 @@ message WithdrawFunds {
 // flows, a tournament_root for registration flows. Matches the ``key`` field on
 // ``DeductReservedFunds`` / ``FundsDeducted``.
 message ReserveFunds {
+  option (io.angzarr.v1.command) = { component: "io.angzarr.examples.v1.PlayerState" };
   Currency amount = 1;
   bytes key = 2;
 }
 
 // Release reserved funds back to bankroll (cancel / compensate).
 message ReleaseFunds {
+  option (io.angzarr.v1.command) = { component: "io.angzarr.examples.v1.PlayerState" };
   bytes key = 1;
 }
 
@@ -50,6 +56,7 @@ message ReleaseFunds {
 // Emitted by the reservation PM after a confirmed lifecycle action
 // (BuyInConfirmed / RebuyFeeConfirmed / RegistrationFeeConfirmed).
 message DeductReservedFunds {
+  option (io.angzarr.v1.command) = { component: "io.angzarr.examples.v1.PlayerState" };
   Currency amount = 1;
   bytes key = 2;
   bytes reservation_id = 3;
@@ -67,6 +74,7 @@ message SitIn {
 
 // Transfer funds from one player to another (pot award)
 message TransferFunds {
+  option (io.angzarr.v1.command) = { component: "io.angzarr.examples.v1.PlayerState" };
   bytes from_player_root = 1; // Source player (for reserved funds)
   Currency amount = 2;
   bytes hand_root = 3; // Which hand this transfer is for
@@ -90,6 +98,7 @@ message RequestAction {
 // Events
 
 message PlayerRegistered {
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.PlayerState" };
   string display_name = 1;
   string email = 2;
   PlayerType player_type = 3;
@@ -98,18 +107,21 @@ message PlayerRegistered {
 }
 
 message FundsDeposited {
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.PlayerState" };
   Currency amount = 1;
   Currency new_balance = 2; // Absolute value after deposit
   google.protobuf.Timestamp deposited_at = 3;
 }
 
 message FundsWithdrawn {
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.PlayerState" };
   Currency amount = 1;
   Currency new_balance = 2; // Absolute value after withdrawal
   google.protobuf.Timestamp withdrawn_at = 3;
 }
 
 message FundsReserved {
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.PlayerState" };
   Currency amount = 1;
   bytes key = 2;
   Currency new_available_balance = 3; // Bankroll minus reserved
@@ -118,6 +130,7 @@ message FundsReserved {
 }
 
 message FundsReleased {
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.PlayerState" };
   Currency amount = 1;
   bytes key = 2;
   Currency new_available_balance = 3;
@@ -126,6 +139,7 @@ message FundsReleased {
 }
 
 message FundsTransferred {
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.PlayerState" };
   bytes from_player_root = 1;
   bytes to_player_root = 2;
   Currency amount = 3;
@@ -137,6 +151,7 @@ message FundsTransferred {
 
 // Emitted after DeductReservedFunds — settles a reservation permanently.
 message FundsDeducted {
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.PlayerState" };
   Currency amount = 1;
   bytes key = 2;
   bytes reservation_id = 3;
@@ -163,18 +178,25 @@ message ActionRequested {
 
 // Player has chosen to sit out at a table
 message PlayerSittingOut {
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.PlayerTableSaga" domain: "player" };
   bytes table_root = 1;
   google.protobuf.Timestamp sat_out_at = 2;
 }
 
 // Player has chosen to return to play at a table
 message PlayerReturningToPlay {
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.PlayerTableSaga" domain: "player" };
   bytes table_root = 1;
   google.protobuf.Timestamp sat_in_at = 2;
 }
 
 // State (for snapshots)
 message PlayerState {
+  option (io.angzarr.v1.component) = {
+    kind: COMPONENT_KIND_AGGREGATE
+    input_domain: "player"
+    name: "PlayerAggregate"
+  };
   string player_id = 1;
   string display_name = 2;
   string email = 3;

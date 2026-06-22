@@ -1,5 +1,6 @@
 syntax = "proto3";
 package io.angzarr.examples.v1;
+import "io/angzarr/v1/options.proto";
 
 import "io/angzarr/examples/v1/poker_types.proto";
 import "google/protobuf/timestamp.proto";
@@ -75,6 +76,7 @@ message PlayerRegistration {
 // -----------------------------------------------------------------------------
 
 message CreateTournament {
+  option (io.angzarr.v1.command) = { component: "io.angzarr.examples.v1.TournamentState" };
   string name = 1;
   GameVariant game_variant = 2;
   int64 buy_in = 3;
@@ -94,15 +96,18 @@ message CreateTournament {
 }
 
 message OpenRegistration {
+  option (io.angzarr.v1.command) = { component: "io.angzarr.examples.v1.TournamentState" };
   // No parameters - uses tournament config
 }
 
 message CloseRegistration {
+  option (io.angzarr.v1.command) = { component: "io.angzarr.examples.v1.TournamentState" };
   // No parameters
 }
 
 // PM sends this command to register a player in tournament
 message EnrollPlayer {
+  option (io.angzarr.v1.command) = { component: "io.angzarr.examples.v1.TournamentState" };
   bytes player_root = 1;
   bytes reservation_id = 2; // Links to registration flow
 }
@@ -114,12 +119,14 @@ message UnregisterPlayer {
 
 // Start the tournament (requires min players)
 message StartTournament {
+  option (io.angzarr.v1.command) = { component: "io.angzarr.examples.v1.TournamentState" };
   // No parameters
 }
 
 // Complete the tournament — records the winner and closes the tournament.
 // Typically issued after the last elimination leaves one player remaining.
 message CompleteTournament {
+  option (io.angzarr.v1.command) = { component: "io.angzarr.examples.v1.TournamentState" };
   bytes winner_root = 1;
   // Players in finishing order (1st place, 2nd, ...). Used to populate
   // TournamentResult entries when payout_structure is configured.
@@ -242,6 +249,7 @@ message NotifyHandComplete {
 
 // PM sends this command to process a rebuy
 message ProcessRebuy {
+  option (io.angzarr.v1.command) = { component: "io.angzarr.examples.v1.TournamentState" };
   bytes player_root = 1;
   bytes reservation_id = 2; // Links to rebuy flow
 }
@@ -254,6 +262,7 @@ message ProcessAddon {
 
 // Advance to next blind level
 message AdvanceBlindLevel {
+  option (io.angzarr.v1.command) = { component: "io.angzarr.examples.v1.TournamentState" };
   // Optional chip-race fields (TDA Rule 24A). When ``retire_denomination``
   // is non-zero, the level advance includes a color-up: the named
   // denomination is removed from play and players' residual chips below
@@ -268,17 +277,20 @@ message AdvanceBlindLevel {
 
 // Eliminate a player (from table event via saga)
 message EliminatePlayer {
+  option (io.angzarr.v1.command) = { component: "io.angzarr.examples.v1.TournamentState" };
   bytes player_root = 1;
   bytes hand_root = 2; // Hand where elimination occurred
 }
 
 // Pause the tournament (break)
 message PauseTournament {
+  option (io.angzarr.v1.command) = { component: "io.angzarr.examples.v1.TournamentState" };
   string reason = 1;
 }
 
 // Resume the tournament
 message ResumeTournament {
+  option (io.angzarr.v1.command) = { component: "io.angzarr.examples.v1.TournamentState" };
   // No parameters
 }
 
@@ -374,6 +386,7 @@ message RotateMixedGameVariant {
 // -----------------------------------------------------------------------------
 
 message TournamentCreated {
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.TournamentState" };
   string name = 1;
   GameVariant game_variant = 2;
   int64 buy_in = 3;
@@ -390,15 +403,18 @@ message TournamentCreated {
 }
 
 message RegistrationOpened {
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.TournamentState" };
   google.protobuf.Timestamp opened_at = 1;
 }
 
 message RegistrationClosed {
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.TournamentState" };
   int32 total_registrations = 1;
   google.protobuf.Timestamp closed_at = 2;
 }
 
 message TournamentPlayerEnrolled {
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.TournamentState" };
   bytes player_root = 1;
   bytes reservation_id = 2;
   int64 fee_paid = 3;
@@ -408,6 +424,7 @@ message TournamentPlayerEnrolled {
 }
 
 message TournamentEnrollmentRejected {
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.TournamentState" };
   bytes player_root = 1;
   bytes reservation_id = 2;
   string reason = 3; // "full", "closed", "already_registered"
@@ -421,6 +438,7 @@ message PlayerUnregistered {
 }
 
 message TournamentStarted {
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.TournamentState" };
   int32 total_players = 1;
   int32 tables_created = 2;
   int64 total_prize_pool = 3;
@@ -428,6 +446,7 @@ message TournamentStarted {
 }
 
 message RebuyProcessed {
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.TournamentState" };
   bytes player_root = 1;
   bytes reservation_id = 2;
   int64 rebuy_cost = 3;
@@ -437,6 +456,7 @@ message RebuyProcessed {
 }
 
 message RebuyDenied {
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.TournamentState" };
   bytes player_root = 1;
   bytes reservation_id = 2;
   string reason = 3; // "window_closed", "stack_too_high", "max_reached"
@@ -452,6 +472,7 @@ message AddonProcessed {
 }
 
 message BlindLevelAdvanced {
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.TournamentState" };
   int32 level = 1;
   int64 small_blind = 2;
   int64 big_blind = 3;
@@ -460,6 +481,7 @@ message BlindLevelAdvanced {
 }
 
 message PlayerEliminated {
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.TournamentState" };
   bytes player_root = 1;
   int32 finish_position = 2;
   bytes hand_root = 3;
@@ -468,15 +490,18 @@ message PlayerEliminated {
 }
 
 message TournamentPaused {
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.TournamentState" };
   string reason = 1;
   google.protobuf.Timestamp paused_at = 2;
 }
 
 message TournamentResumed {
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.TournamentState" };
   google.protobuf.Timestamp resumed_at = 1;
 }
 
 message TournamentCompleted {
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.TournamentState" };
   bytes winner_root = 1;
   int64 total_prize_pool = 2;
   repeated TournamentResult results = 3;
@@ -756,6 +781,11 @@ message BlindLevel {
 // -----------------------------------------------------------------------------
 
 message TournamentState {
+  option (io.angzarr.v1.component) = {
+    kind: COMPONENT_KIND_AGGREGATE
+    input_domain: "tournament"
+    name: "TournamentAggregate"
+  };
   string tournament_id = 1;
   string name = 2;
   GameVariant game_variant = 3;

@@ -29,3 +29,37 @@ message TableHandSaga {
     compensates: "io.angzarr.examples.v1.DealCards"
   };
 }
+
+// Stateless saga markers. Reactions are wired by the (event) entries on the
+// triggering events (e.g. HandComplete carries an (event) naming HandTableSaga).
+message HandTableSaga {
+  option (io.angzarr.v1.component) = {
+    kind: COMPONENT_KIND_SAGA
+    input_domain: "hand"
+    output_domain: "table"
+  };
+}
+
+message HandPlayerSaga {
+  option (io.angzarr.v1.component) = {
+    kind: COMPONENT_KIND_SAGA
+    input_domain: "hand"
+    output_domain: "player"
+  };
+}
+
+message TablePlayerSaga {
+  option (io.angzarr.v1.component) = {
+    kind: COMPONENT_KIND_SAGA
+    input_domain: "table"
+    output_domain: "player"
+  };
+}
+
+message PlayerTableSaga {
+  option (io.angzarr.v1.component) = {
+    kind: COMPONENT_KIND_SAGA
+    input_domain: "player"
+    output_domain: "table"
+  };
+}

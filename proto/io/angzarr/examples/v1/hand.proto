@@ -1,5 +1,6 @@
 syntax = "proto3";
 package io.angzarr.examples.v1;
+import "io/angzarr/v1/options.proto";
 
 import "io/angzarr/examples/v1/poker_types.proto";
 import "google/protobuf/timestamp.proto";
@@ -38,6 +39,7 @@ message Shuffle {
 }
 
 message DealCards {
+  option (io.angzarr.v1.command) = { component: "io.angzarr.examples.v1.HandState" };
   bytes table_root = 1;
   int64 hand_number = 2;
   GameVariant game_variant = 3;
@@ -79,12 +81,14 @@ message PlayerInHand {
 }
 
 message PostBlind {
+  option (io.angzarr.v1.command) = { component: "io.angzarr.examples.v1.HandState" };
   bytes player_root = 1;
   string blind_type = 2; // "small", "big", "ante"
   int64 amount = 3;
 }
 
 message PlayerAction {
+  option (io.angzarr.v1.command) = { component: "io.angzarr.examples.v1.HandState" };
   bytes player_root = 1;
   ActionType action = 2;
   int64 amount = 3; // For bet/raise/call
@@ -182,15 +186,18 @@ message PriorChipPulledBack {
 }
 
 message DealCommunityCards {
+  option (io.angzarr.v1.command) = { component: "io.angzarr.examples.v1.HandState" };
   int32 count = 1; // 3 for flop, 1 for turn/river
 }
 
 message RequestDraw {
+  option (io.angzarr.v1.command) = { component: "io.angzarr.examples.v1.HandState" };
   bytes player_root = 1;
   repeated int32 card_indices = 2; // Which cards to discard (0-indexed)
 }
 
 message RevealCards {
+  option (io.angzarr.v1.command) = { component: "io.angzarr.examples.v1.HandState" };
   bytes player_root = 1;
   bool muck = 2; // True to hide cards (fold at showdown)
   // TDA Rule 13A — proper tabling shows ALL hole cards. When non-empty,
@@ -202,6 +209,7 @@ message RevealCards {
 }
 
 message AwardPot {
+  option (io.angzarr.v1.command) = { component: "io.angzarr.examples.v1.HandState" };
   repeated PotAward awards = 1;
 }
 
@@ -376,6 +384,7 @@ message CardBurned {
 }
 
 message CardsDealt {
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.HandState" };
   bytes table_root = 1;
   int64 hand_number = 2;
   GameVariant game_variant = 3;
@@ -410,6 +419,7 @@ message PlayerHoleCards {
 }
 
 message BlindPosted {
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.HandState" };
   bytes player_root = 1;
   string blind_type = 2;
   int64 amount = 3;
@@ -419,6 +429,7 @@ message BlindPosted {
 }
 
 message ActionTaken {
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.HandState" };
   bytes player_root = 1;
   ActionType action = 2;
   int64 amount = 3;
@@ -429,6 +440,7 @@ message ActionTaken {
 }
 
 message BettingRoundComplete {
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.HandState" };
   BettingPhase completed_phase = 1;
   int64 pot_total = 2;
   repeated PlayerStackSnapshot stacks = 3;
@@ -458,6 +470,7 @@ message PlayerStackSnapshot {
 }
 
 message CommunityCardsDealt {
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.HandState" };
   repeated Card cards = 1;
   BettingPhase phase = 2; // FLOP, TURN, or RIVER
   repeated Card all_community_cards = 3; // Full board so far
@@ -465,6 +478,7 @@ message CommunityCardsDealt {
 }
 
 message DrawCompleted {
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.HandState" };
   bytes player_root = 1;
   int32 cards_discarded = 2;
   int32 cards_drawn = 3;
@@ -489,6 +503,7 @@ message CardsMucked {
 }
 
 message ShowdownStarted {
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.HandState" };
   repeated bytes players_to_show = 1; // Order of revelation
   google.protobuf.Timestamp started_at = 2;
   // TDA Rule 16 — when at least one player is all-in and betting action
@@ -498,6 +513,8 @@ message ShowdownStarted {
 }
 
 message PotAwarded {
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.HandState" };
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.HandPlayerSaga" domain: "hand" };
   repeated PotWinner winners = 1;
   google.protobuf.Timestamp awarded_at = 2;
 }
@@ -510,6 +527,8 @@ message PotWinner {
 }
 
 message HandComplete {
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.HandState" };
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.HandTableSaga" domain: "hand" };
   bytes table_root = 1;
   int64 hand_number = 2;
   repeated PotWinner winners = 3;
@@ -822,6 +841,11 @@ message UnderbetAdjustment {
 
 // State (for snapshots)
 message HandState {
+  option (io.angzarr.v1.component) = {
+    kind: COMPONENT_KIND_AGGREGATE
+    input_domain: "hand"
+    name: "HandAggregate"
+  };
   string hand_id = 1;
   bytes table_root = 2;
   int64 hand_number = 3;

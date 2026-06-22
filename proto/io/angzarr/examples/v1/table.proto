@@ -32,12 +32,14 @@ message CreateTable {
 }
 
 message JoinTable {
+  option (io.angzarr.v1.command) = { component: "io.angzarr.examples.v1.TableState" };
   bytes player_root = 1;
   int32 preferred_seat = 2; // -1 for any available
   int64 buy_in_amount = 3;
 }
 
 message LeaveTable {
+  option (io.angzarr.v1.command) = { component: "io.angzarr.examples.v1.TableState" };
   bytes player_root = 1;
 }
 
@@ -59,6 +61,7 @@ message StartHand {
 }
 
 message EndHand {
+  option (io.angzarr.v1.command) = { component: "io.angzarr.examples.v1.TableState" };
   bytes hand_root = 1;
   repeated PotResult results = 2;
 }
@@ -102,6 +105,7 @@ message TableCreated {
 }
 
 message PlayerJoined {
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.TableState" };
   bytes player_root = 1;
   int32 seat_position = 2;
   int64 buy_in_amount = 3;
@@ -110,6 +114,7 @@ message PlayerJoined {
 }
 
 message PlayerLeft {
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.TableState" };
   bytes player_root = 1;
   int32 seat_position = 2;
   int64 chips_cashed_out = 3;
@@ -117,11 +122,13 @@ message PlayerLeft {
 }
 
 message PlayerSatOut {
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.TableState" };
   bytes player_root = 1;
   google.protobuf.Timestamp sat_out_at = 2;
 }
 
 message PlayerSatIn {
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.TableState" };
   bytes player_root = 1;
   google.protobuf.Timestamp sat_in_at = 2;
 }
@@ -157,6 +164,8 @@ message SeatSnapshot {
 }
 
 message HandEnded {
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.TableState" };
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.TablePlayerSaga" domain: "table" };
   bytes hand_root = 1;
   repeated PotResult results = 2;
   map<string, int64> stack_changes = 3; // player_root_hex -> delta
@@ -164,6 +173,7 @@ message HandEnded {
 }
 
 message ChipsAdded {
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.TableState" };
   bytes player_root = 1;
   int64 amount = 2;
   int64 new_stack = 3; // Absolute stack after add

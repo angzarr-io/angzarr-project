@@ -1,5 +1,6 @@
 syntax = "proto3";
 package io.angzarr.examples.v1;
+import "io/angzarr/v1/options.proto";
 
 import "io/angzarr/examples/v1/orchestration.proto";
 import "io/angzarr/examples/v1/poker_types.proto";
@@ -44,6 +45,7 @@ message ReleaseRebuyFee {
 
 // PM adds chips to player's stack (fact-like - no validation)
 message AddRebuyChips {
+  option (io.angzarr.v1.command) = { component: "io.angzarr.examples.v1.TableState" };
   bytes player_root = 1;
   bytes reservation_id = 2;
   int32 seat = 3;
@@ -93,6 +95,7 @@ message RebuyFeeReleased {
 
 // Emitted when rebuy chips are added to player's stack
 message RebuyChipsAdded {
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.TableState" };
   bytes player_root = 1;
   bytes reservation_id = 2;
   int32 seat = 3;

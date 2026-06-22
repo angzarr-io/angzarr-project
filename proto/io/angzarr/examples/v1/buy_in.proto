@@ -1,5 +1,6 @@
 syntax = "proto3";
 package io.angzarr.examples.v1;
+import "io/angzarr/v1/options.proto";
 
 import "io/angzarr/examples/v1/orchestration.proto";
 import "io/angzarr/examples/v1/poker_types.proto";
@@ -44,6 +45,7 @@ message ReleaseBuyIn {
 
 // PM seats player at table (separate from JoinTable for PM flow)
 message SeatPlayer {
+  option (io.angzarr.v1.command) = { component: "io.angzarr.examples.v1.TableState" };
   bytes player_root = 1;
   bytes reservation_id = 2; // Links to buy-in flow
   int32 seat = 3; // Preferred seat (-1 for any)
@@ -102,6 +104,7 @@ message BuyInReservationReleased {
 
 // Emitted when player is seated via PM flow
 message PlayerSeated {
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.TableState" };
   bytes player_root = 1;
   bytes reservation_id = 2;
   int32 seat_position = 3;
@@ -115,6 +118,7 @@ message PlayerSeated {
 
 // Emitted when seating is rejected
 message SeatingRejected {
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.TableState" };
   bytes player_root = 1;
   bytes reservation_id = 2;
   int32 requested_seat = 3;
