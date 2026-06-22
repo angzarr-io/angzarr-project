@@ -27,3 +27,7 @@ vendor:
 # Clean build artifacts
 clean:
     rm -rf {{SITE}}/dist {{SITE}}/.astro
+
+# Verify every poker/acceptance scenario is governed by a # Rule: citation
+check-rules:
+    python3 features/example/check_rule_citations.py

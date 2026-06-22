@@ -38,6 +38,7 @@ Feature: Betting round iteration logic
   # Correct Iteration After a Raise — TDA Rule 50
   # ==========================================================================
 
+  # Rule: TDA Rule 50 (2024) — action in turn is binding; the betting round completes only when every active seat has matched the current bet (or is all-in)
   @EU-0900
   Scenario: Round completes once every seat has matched the post-raise bet
     # Six-handed; UTG at seat 3 folds, seat 4 folds, seat 5 raises to 48,

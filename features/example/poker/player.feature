@@ -4,6 +4,7 @@
 
 # docs:start:feature_overview
 Feature: Player bankroll and table reservations
+  # Rule: N/A — player bankroll/registration is a cardroom/app concept, not a codified hand rule
   A player manages a bankroll and table reservations. The player is the source
   of truth for how much money the player has and where it is allocated.
 # docs:end:feature_overview

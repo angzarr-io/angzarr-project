@@ -1,5 +1,6 @@
 # Allocated: EA-0001 .. EA-0005
 Feature: Cluster Acceptance
+  # Rule: N/A — cross-service integration/E2E acceptance, not a single hand rule
   Cluster-tier acceptance scenarios. These are only meaningful when run
   against a deployed angzarr cluster (standalone docker-compose or k8s):
   they exercise network serialization, pod lifecycle, cross-service
