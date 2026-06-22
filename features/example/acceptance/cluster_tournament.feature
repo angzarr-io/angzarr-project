@@ -8,10 +8,10 @@ Feature: Cluster Tournament Acceptance
   tournament — together with the per-hand lifecycle that eliminations
   hang off of.
 
-  Hands are typically resolved by awarding the pot to a chosen winner
-  rather than scripted through every betting action; the tournament
-  lifecycle is what these scenarios pin down, while betting-round
-  correctness is covered by the hand feature.
+  Hand completion is fast-forwarded via AwardPot rather than scripted
+  through every betting action: the tournament lifecycle is what
+  these scenarios are pinning, and the betting-round correctness is
+  already covered by features/example/poker/hand.feature.
 
   # CLUSTER-ONLY: validated against a deployed cluster
 

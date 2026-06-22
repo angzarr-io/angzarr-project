@@ -1,8 +1,9 @@
 # Rule Reference
 
-Every poker scenario in `features/example/unit/*.feature` and
+Every poker scenario in `features/example/poker/*.feature` and
 `features/example/acceptance/*.feature` cites the real-world poker rule it
-expresses via a `# Rule:` comment (or sits in a framework-tier section).
+expresses via a `# Rule:` comment (framework-concept scenarios live in
+`features/example/framework/` and are out of scope for this catalog).
 This document catalogues those citations bidirectionally so anyone reading
 a scenario can find the source rule, and anyone reading the rules can find
 which scenario(s) codify them.
