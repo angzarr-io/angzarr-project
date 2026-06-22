@@ -63,3 +63,16 @@ message PlayerTableSaga {
     output_domain: "table"
   };
 }
+
+// OutputProjector is a genuinely stateless projector — it formats events into
+// log lines and holds no event-sourced state — so it anchors on an empty
+// marker (like the stateless sagas). The other PM/projector/aggregate
+// components carry real state messages in their own files (reservation.proto,
+// order_workflow.proto, hand.proto HandFlowState, projection.proto).
+message OutputProjection {
+  option (io.angzarr.v1.component) = {
+    kind: COMPONENT_KIND_PROJECTOR
+    input_domain: "hand"
+    name: "OutputProjector"
+  };
+}

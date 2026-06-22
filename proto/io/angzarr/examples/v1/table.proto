@@ -92,6 +92,7 @@ message ChangeSeats {
 // Events
 
 message TableCreated {
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.OutputProjection" domain: "table" };
   option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.TableState" };
   string table_name = 1;
   GameVariant game_variant = 2;
@@ -105,6 +106,7 @@ message TableCreated {
 }
 
 message PlayerJoined {
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.OutputProjection" domain: "table" };
   option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.TableState" };
   bytes player_root = 1;
   int32 seat_position = 2;
@@ -114,6 +116,7 @@ message PlayerJoined {
 }
 
 message PlayerLeft {
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.OutputProjection" domain: "table" };
   option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.TableState" };
   bytes player_root = 1;
   int32 seat_position = 2;
@@ -134,6 +137,8 @@ message PlayerSatIn {
 }
 
 message HandStarted {
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.HandFlowState" domain: "table" };
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.OutputProjection" domain: "table" };
   // Multi-consumer: folded into TableAggregate's state AND triggers the
   // TableHandSaga — one (event) entry per consumer.
   option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.TableState" };
@@ -164,6 +169,7 @@ message SeatSnapshot {
 }
 
 message HandEnded {
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.OutputProjection" domain: "table" };
   option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.TableState" };
   option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.TablePlayerSaga" domain: "table" };
   bytes hand_root = 1;

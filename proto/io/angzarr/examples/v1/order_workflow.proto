@@ -1,0 +1,68 @@
+syntax = "proto3";
+package io.angzarr.examples.v1;
+
+import "io/angzarr/v1/options.proto";
+import "google/protobuf/timestamp.proto";
+
+option csharp_namespace = "Angzarr.Examples";
+option go_package = "github.com/benjaminabbitt/angzarr/client/go/proto/io/angzarr/examples/v1;examples";
+option java_multiple_files = true;
+option java_package = "io.angzarr.examples";
+option ruby_package = "Angzarr::Examples";
+
+// Generic order-workflow process manager: coordinates an order across the
+// inventory and payment domains. It reacts to OrderCreated / InventoryReserved
+// / PaymentReceived and issues ReserveInventory / ProcessPayment. There are no
+// inventory/payment aggregates in this example — the commands are the PM's
+// observable output; the trigger events are its input.
+
+// Events the PM reacts to (one (event) entry each, naming the PM as consumer).
+message OrderCreated {
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.OrderWorkflowState" domain: "order" };
+  string order_id = 1;
+  string customer_id = 2;
+  int64 amount = 3;
+  google.protobuf.Timestamp created_at = 4;
+}
+
+message InventoryReserved {
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.OrderWorkflowState" domain: "inventory" };
+  string order_id = 1;
+  string sku = 2;
+  google.protobuf.Timestamp reserved_at = 3;
+}
+
+message PaymentReceived {
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.OrderWorkflowState" domain: "payment" };
+  string order_id = 1;
+  int64 amount = 2;
+  google.protobuf.Timestamp received_at = 3;
+}
+
+// Commands the PM emits to the inventory / payment domains.
+message ReserveInventory {
+  string order_id = 1;
+  string sku = 2;
+}
+
+message ProcessPayment {
+  string order_id = 1;
+  int64 amount = 2;
+}
+
+// Process-manager state.
+message OrderWorkflowState {
+  option (io.angzarr.v1.component) = {
+    kind: COMPONENT_KIND_PROCESS_MANAGER
+    output_domain: "inventory"
+    name: "OrderWorkflowProcessManager"
+  };
+  string order_id = 1;
+  string customer_id = 2;
+  int64 amount = 3;
+  bool inventory_reserved = 4;
+  bool payment_received = 5;
+  bool failed = 6;
+  string failure_reason = 7;
+  google.protobuf.Timestamp started_at = 8;
+}

@@ -384,6 +384,9 @@ message CardBurned {
 }
 
 message CardsDealt {
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.HandFlowState" domain: "hand" };
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.TrainingProjection" domain: "hand" };
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.OutputProjection" domain: "hand" };
   option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.HandState" };
   bytes table_root = 1;
   int64 hand_number = 2;
@@ -419,6 +422,8 @@ message PlayerHoleCards {
 }
 
 message BlindPosted {
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.TrainingProjection" domain: "hand" };
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.OutputProjection" domain: "hand" };
   option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.HandState" };
   bytes player_root = 1;
   string blind_type = 2;
@@ -429,6 +434,8 @@ message BlindPosted {
 }
 
 message ActionTaken {
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.TrainingProjection" domain: "hand" };
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.OutputProjection" domain: "hand" };
   option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.HandState" };
   bytes player_root = 1;
   ActionType action = 2;
@@ -440,6 +447,7 @@ message ActionTaken {
 }
 
 message BettingRoundComplete {
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.TrainingProjection" domain: "hand" };
   option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.HandState" };
   BettingPhase completed_phase = 1;
   int64 pot_total = 2;
@@ -470,6 +478,8 @@ message PlayerStackSnapshot {
 }
 
 message CommunityCardsDealt {
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.TrainingProjection" domain: "hand" };
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.OutputProjection" domain: "hand" };
   option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.HandState" };
   repeated Card cards = 1;
   BettingPhase phase = 2; // FLOP, TURN, or RIVER
@@ -487,6 +497,7 @@ message DrawCompleted {
 }
 
 message CardsRevealed {
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.OutputProjection" domain: "hand" };
   bytes player_root = 1;
   repeated Card cards = 2;
   HandRanking ranking = 3;
@@ -498,11 +509,13 @@ message CardsRevealed {
 }
 
 message CardsMucked {
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.OutputProjection" domain: "hand" };
   bytes player_root = 1;
   google.protobuf.Timestamp mucked_at = 2;
 }
 
 message ShowdownStarted {
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.OutputProjection" domain: "hand" };
   option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.HandState" };
   repeated bytes players_to_show = 1; // Order of revelation
   google.protobuf.Timestamp started_at = 2;
@@ -513,6 +526,8 @@ message ShowdownStarted {
 }
 
 message PotAwarded {
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.TrainingProjection" domain: "hand" };
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.OutputProjection" domain: "hand" };
   option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.HandState" };
   option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.HandPlayerSaga" domain: "hand" };
   repeated PotWinner winners = 1;
@@ -527,6 +542,9 @@ message PotWinner {
 }
 
 message HandComplete {
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.HandFlowState" domain: "hand" };
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.TrainingProjection" domain: "hand" };
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.OutputProjection" domain: "hand" };
   option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.HandState" };
   option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.HandTableSaga" domain: "hand" };
   bytes table_root = 1;
@@ -547,6 +565,7 @@ message RebuyObligation {
 }
 
 message PlayerTimedOut {
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.OutputProjection" domain: "hand" };
   bytes player_root = 1;
   ActionType default_action = 2; // Usually FOLD or CHECK
   google.protobuf.Timestamp timed_out_at = 3;
@@ -943,4 +962,27 @@ message PlayerHandState {
   // back a prior chip while facing a raise (TDA Rule 46B). Folds are
   // rejected with code BOUND_TO_CALL_OR_RAISE.
   bool bound_to_call_or_raise = 14;
+}
+
+// Batch "post all blinds for this hand" command emitted by the hand-flow
+// process manager. Distinct from PostBlind (singular): the HandAggregate
+// determines SB/BB from its own state and posts them in order.
+message PostBlinds {
+  option (io.angzarr.v1.command) = { component: "io.angzarr.examples.v1.HandState" };
+  bytes hand_root = 1;
+}
+
+// Hand-flow process-manager state: tracks workflow progress for one hand so
+// the PM can sequence deal -> blinds -> betting -> completion across the table
+// and hand domains. Its triggers (HandStarted, CardsDealt, HandComplete) carry
+// (event) entries naming this component.
+message HandFlowState {
+  option (io.angzarr.v1.component) = {
+    kind: COMPONENT_KIND_PROCESS_MANAGER
+    output_domain: "hand"
+    name: "HandFlowProcessManager"
+  };
+  bytes hand_root = 1;
+  int32 phase = 2; // 0=AWAITING_DEAL 1=DEALING 2=BLINDS 3=BETTING 4=COMPLETE
+  int32 player_count = 3;
 }

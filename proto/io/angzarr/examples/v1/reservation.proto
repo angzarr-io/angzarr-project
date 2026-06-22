@@ -1,0 +1,69 @@
+syntax = "proto3";
+package io.angzarr.examples.v1;
+
+import "io/angzarr/v1/options.proto";
+
+option csharp_namespace = "Angzarr.Examples";
+option go_package = "github.com/benjaminabbitt/angzarr/client/go/proto/io/angzarr/examples/v1;examples";
+option java_multiple_files = true;
+option java_package = "io.angzarr.examples";
+option ruby_package = "Angzarr::Examples";
+
+// Reservation domain state messages. The reservation AGGREGATE owns the
+// lifecycle records for buy-in / rebuy / tournament-registration (commands and
+// events are declared on their own messages in buy_in/rebuy/registration.proto,
+// pointing at ReservationState). The reservation PROCESS MANAGER orchestrates a
+// single in-flight reservation across player/table/tournament with a unified
+// state discriminated by `kind`.
+
+message PendingBuyIn {
+  bytes player_root = 1;
+  bytes table_root = 2;
+  int32 seat = 3;
+  int64 amount = 4;
+}
+
+message PendingRegistration {
+  bytes player_root = 1;
+  bytes tournament_root = 2;
+  int64 fee = 3;
+}
+
+message PendingRebuy {
+  bytes player_root = 1;
+  bytes tournament_root = 2;
+  bytes table_root = 3;
+  int32 seat = 4;
+  int64 fee = 5;
+}
+
+// Reservation aggregate state: pending records keyed by reservation_id hex.
+message ReservationState {
+  option (io.angzarr.v1.component) = {
+    kind: COMPONENT_KIND_AGGREGATE
+    input_domain: "reservation"
+    name: "ReservationAggregate"
+  };
+  map<string, PendingBuyIn> pending_buy_ins = 1;
+  map<string, PendingRegistration> pending_registrations = 2;
+  map<string, PendingRebuy> pending_rebuys = 3;
+}
+
+// Reservation process-manager state: one in-flight reservation, unified across
+// the three flows via `kind`. Roots/amounts are populated per kind.
+message ReservationProcessManagerState {
+  option (io.angzarr.v1.component) = {
+    kind: COMPONENT_KIND_PROCESS_MANAGER
+    output_domain: "player"
+    name: "ReservationProcessManager"
+  };
+  bytes reservation_id = 1;
+  string kind = 2; // "buy_in" | "rebuy" | "registration"
+  bytes player_root = 3;
+  bytes table_root = 4;
+  bytes tournament_root = 5;
+  int32 seat = 6;
+  int64 amount = 7;
+  int64 fee = 8;
+  int32 phase = 9; // BuyInPhase | RebuyPhase | RegistrationPhase, per kind
+}

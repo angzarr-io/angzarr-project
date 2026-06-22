@@ -22,6 +22,7 @@ option ruby_package = "Angzarr::Examples";
 
 // Client initiates buy-in - triggers PM orchestration
 message InitiateBuyIn {
+  option (io.angzarr.v1.command) = { component: "io.angzarr.examples.v1.ReservationState" };
   bytes table_root = 1;
   int32 seat = 2; // Preferred seat (-1 for any)
   Currency amount = 3;
@@ -30,11 +31,13 @@ message InitiateBuyIn {
 
 // PM confirms successful buy-in
 message ConfirmBuyIn {
+  option (io.angzarr.v1.command) = { component: "io.angzarr.examples.v1.ReservationState" };
   bytes reservation_id = 1;
 }
 
 // PM releases funds after failed seating
 message ReleaseBuyIn {
+  option (io.angzarr.v1.command) = { component: "io.angzarr.examples.v1.ReservationState" };
   bytes reservation_id = 1;
   string reason = 2;
 }
@@ -70,6 +73,8 @@ message SeatPlayer {
 
 // Emitted when buy-in is requested - triggers PM
 message BuyInRequested {
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.ReservationState" };
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.ReservationProcessManagerState" domain: "reservation" };
   bytes reservation_id = 1; // UUID for this buy-in flow
   bytes table_root = 2;
   int32 seat = 3;
@@ -80,6 +85,8 @@ message BuyInRequested {
 
 // Emitted when buy-in is confirmed
 message BuyInConfirmed {
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.ReservationState" };
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.ReservationProcessManagerState" domain: "reservation" };
   bytes reservation_id = 1;
   bytes table_root = 2;
   int32 seat = 3;
@@ -90,6 +97,8 @@ message BuyInConfirmed {
 
 // Emitted when buy-in reservation is released
 message BuyInReservationReleased {
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.ReservationState" };
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.ReservationProcessManagerState" domain: "reservation" };
   bytes reservation_id = 1;
   string reason = 2;
   google.protobuf.Timestamp released_at = 3;
@@ -104,6 +113,8 @@ message BuyInReservationReleased {
 
 // Emitted when player is seated via PM flow
 message PlayerSeated {
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.ReservationProcessManagerState" domain: "table" };
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.OutputProjection" domain: "table" };
   option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.TableState" };
   bytes player_root = 1;
   bytes reservation_id = 2;
@@ -118,6 +129,7 @@ message PlayerSeated {
 
 // Emitted when seating is rejected
 message SeatingRejected {
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.ReservationProcessManagerState" domain: "table" };
   option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.TableState" };
   bytes player_root = 1;
   bytes reservation_id = 2;
@@ -132,6 +144,7 @@ message SeatingRejected {
 
 // PM state: buy-in flow initiated
 message BuyInInitiated {
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.ReservationProcessManagerState" applies: true };
   bytes player_root = 1;
   bytes table_root = 2;
   bytes reservation_id = 3;
@@ -143,6 +156,7 @@ message BuyInInitiated {
 
 // PM state: buy-in flow completed successfully
 message BuyInCompleted {
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.ReservationProcessManagerState" applies: true };
   bytes player_root = 1;
   bytes table_root = 2;
   bytes reservation_id = 3;
@@ -153,6 +167,7 @@ message BuyInCompleted {
 
 // PM state: buy-in flow failed
 message BuyInFailed {
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.ReservationProcessManagerState" applies: true };
   bytes player_root = 1;
   bytes table_root = 2;
   bytes reservation_id = 3;

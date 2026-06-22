@@ -1,5 +1,6 @@
 syntax = "proto3";
 package io.angzarr.examples.v1;
+import "io/angzarr/v1/options.proto";
 
 import "io/angzarr/examples/v1/orchestration.proto";
 import "io/angzarr/examples/v1/poker_types.proto";
@@ -21,17 +22,20 @@ option ruby_package = "Angzarr::Examples";
 
 // Client initiates tournament registration - triggers PM orchestration
 message InitiateTournamentRegistration {
+  option (io.angzarr.v1.command) = { component: "io.angzarr.examples.v1.ReservationState" };
   bytes tournament_root = 1;
   bytes player_root = 2;
 }
 
 // PM confirms successful registration
 message ConfirmRegistrationFee {
+  option (io.angzarr.v1.command) = { component: "io.angzarr.examples.v1.ReservationState" };
   bytes reservation_id = 1;
 }
 
 // PM releases fee after failed registration
 message ReleaseRegistrationFee {
+  option (io.angzarr.v1.command) = { component: "io.angzarr.examples.v1.ReservationState" };
   bytes reservation_id = 1;
   string reason = 2;
 }
@@ -42,6 +46,8 @@ message ReleaseRegistrationFee {
 
 // Emitted when registration is requested - triggers PM
 message RegistrationRequested {
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.ReservationState" };
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.ReservationProcessManagerState" domain: "reservation" };
   bytes reservation_id = 1; // UUID for this registration flow
   bytes tournament_root = 2;
   Currency fee = 3; // Looked up from tournament
@@ -51,6 +57,8 @@ message RegistrationRequested {
 
 // Emitted when registration fee is confirmed
 message RegistrationFeeConfirmed {
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.ReservationState" };
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.ReservationProcessManagerState" domain: "reservation" };
   bytes reservation_id = 1;
   bytes tournament_root = 2;
   Currency fee = 3;
@@ -60,6 +68,8 @@ message RegistrationFeeConfirmed {
 
 // Emitted when registration fee is released
 message RegistrationFeeReleased {
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.ReservationState" };
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.ReservationProcessManagerState" domain: "reservation" };
   bytes reservation_id = 1;
   string reason = 2;
   google.protobuf.Timestamp released_at = 3;
@@ -74,6 +84,7 @@ message RegistrationFeeReleased {
 
 // PM state: registration flow initiated
 message RegistrationInitiated {
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.ReservationProcessManagerState" applies: true };
   bytes player_root = 1;
   bytes tournament_root = 2;
   bytes reservation_id = 3;
@@ -84,6 +95,7 @@ message RegistrationInitiated {
 
 // PM state: registration flow completed successfully
 message RegistrationCompleted {
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.ReservationProcessManagerState" applies: true };
   bytes player_root = 1;
   bytes tournament_root = 2;
   bytes reservation_id = 3;
@@ -94,6 +106,7 @@ message RegistrationCompleted {
 
 // PM state: registration flow failed
 message RegistrationFailed {
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.ReservationProcessManagerState" applies: true };
   bytes player_root = 1;
   bytes tournament_root = 2;
   bytes reservation_id = 3;

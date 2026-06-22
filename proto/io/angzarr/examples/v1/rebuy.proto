@@ -22,6 +22,7 @@ option ruby_package = "Angzarr::Examples";
 
 // Client initiates rebuy - triggers PM orchestration
 message InitiateRebuy {
+  option (io.angzarr.v1.command) = { component: "io.angzarr.examples.v1.ReservationState" };
   bytes tournament_root = 1;
   bytes table_root = 2;
   int32 seat = 3; // Player's seat at table
@@ -30,11 +31,13 @@ message InitiateRebuy {
 
 // PM confirms successful rebuy
 message ConfirmRebuyFee {
+  option (io.angzarr.v1.command) = { component: "io.angzarr.examples.v1.ReservationState" };
   bytes reservation_id = 1;
 }
 
 // PM releases fee after failed rebuy
 message ReleaseRebuyFee {
+  option (io.angzarr.v1.command) = { component: "io.angzarr.examples.v1.ReservationState" };
   bytes reservation_id = 1;
   string reason = 2;
 }
@@ -58,6 +61,8 @@ message AddRebuyChips {
 
 // Emitted when rebuy is requested - triggers PM
 message RebuyRequested {
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.ReservationState" };
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.ReservationProcessManagerState" domain: "reservation" };
   bytes reservation_id = 1; // UUID for this rebuy flow
   bytes tournament_root = 2;
   bytes table_root = 3;
@@ -69,6 +74,8 @@ message RebuyRequested {
 
 // Emitted when rebuy fee is confirmed
 message RebuyFeeConfirmed {
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.ReservationState" };
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.ReservationProcessManagerState" domain: "reservation" };
   bytes reservation_id = 1;
   bytes tournament_root = 2;
   Currency fee = 3;
@@ -80,6 +87,8 @@ message RebuyFeeConfirmed {
 
 // Emitted when rebuy fee is released
 message RebuyFeeReleased {
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.ReservationState" };
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.ReservationProcessManagerState" domain: "reservation" };
   bytes reservation_id = 1;
   string reason = 2;
   google.protobuf.Timestamp released_at = 3;
@@ -95,6 +104,7 @@ message RebuyFeeReleased {
 
 // Emitted when rebuy chips are added to player's stack
 message RebuyChipsAdded {
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.ReservationProcessManagerState" domain: "table" };
   option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.TableState" };
   bytes player_root = 1;
   bytes reservation_id = 2;
@@ -110,6 +120,7 @@ message RebuyChipsAdded {
 
 // PM state: rebuy flow initiated
 message RebuyInitiated {
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.ReservationProcessManagerState" applies: true };
   bytes player_root = 1;
   bytes tournament_root = 2;
   bytes table_root = 3;
@@ -123,6 +134,7 @@ message RebuyInitiated {
 
 // PM state: rebuy flow completed successfully
 message RebuyCompleted {
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.ReservationProcessManagerState" applies: true };
   bytes player_root = 1;
   bytes tournament_root = 2;
   bytes table_root = 3;
@@ -134,6 +146,7 @@ message RebuyCompleted {
 
 // PM state: rebuy flow failed
 message RebuyFailed {
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.ReservationProcessManagerState" applies: true };
   bytes player_root = 1;
   bytes tournament_root = 2;
   bytes reservation_id = 3;

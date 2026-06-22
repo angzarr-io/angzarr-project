@@ -414,6 +414,7 @@ message RegistrationClosed {
 }
 
 message TournamentPlayerEnrolled {
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.ReservationProcessManagerState" domain: "tournament" };
   option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.TournamentState" };
   bytes player_root = 1;
   bytes reservation_id = 2;
@@ -424,6 +425,7 @@ message TournamentPlayerEnrolled {
 }
 
 message TournamentEnrollmentRejected {
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.ReservationProcessManagerState" domain: "tournament" };
   option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.TournamentState" };
   bytes player_root = 1;
   bytes reservation_id = 2;
@@ -446,6 +448,7 @@ message TournamentStarted {
 }
 
 message RebuyProcessed {
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.ReservationProcessManagerState" domain: "tournament" };
   option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.TournamentState" };
   bytes player_root = 1;
   bytes reservation_id = 2;
@@ -456,6 +459,7 @@ message RebuyProcessed {
 }
 
 message RebuyDenied {
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.ReservationProcessManagerState" domain: "tournament" };
   option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.TournamentState" };
   bytes player_root = 1;
   bytes reservation_id = 2;

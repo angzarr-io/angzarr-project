@@ -1,0 +1,60 @@
+syntax = "proto3";
+package io.angzarr.examples.v1;
+
+import "io/angzarr/v1/options.proto";
+
+option csharp_namespace = "Angzarr.Examples";
+option go_package = "github.com/benjaminabbitt/angzarr/client/go/proto/io/angzarr/examples/v1;examples";
+option java_multiple_files = true;
+option java_package = "io.angzarr.examples";
+option ruby_package = "Angzarr::Examples";
+
+// TrainingProjector materializes one decision-point row per ActionTaken in a
+// hand (the supervised-learning record the v1 projector writes to the
+// training_states table). It consumes hand-domain events; the (event) triggers
+// are declared on those event messages in hand.proto.
+message TrainingProjection {
+  option (io.angzarr.v1.component) = {
+    kind: COMPONENT_KIND_PROJECTOR
+    input_domain: "hand"
+    name: "TrainingProjector"
+  };
+  string hand_root = 1;
+  uint32 sequence = 2;
+  bytes player_root = 3;
+  string edition = 4;
+
+  // Hole cards (encoded rank*4+suit, 0-51).
+  int32 hole_card_1 = 5;
+  int32 hole_card_2 = 6;
+
+  // Community cards.
+  int32 community_1 = 7;
+  int32 community_2 = 8;
+  int32 community_3 = 9;
+  int32 community_4 = 10;
+  int32 community_5 = 11;
+
+  // Betting state at the decision point.
+  int64 pot_size = 12;
+  int64 stack_size = 13;
+  int64 amount_to_call = 14;
+  int64 current_bet = 15;
+  int64 min_raise = 16;
+
+  // Position / phase.
+  int32 position = 17;
+  int32 phase = 18; // 1=preflop 2=flop 3=turn 4=river
+  int32 players_remaining = 19;
+  int32 players_to_act = 20;
+
+  // Action label + outcome.
+  int32 action = 21; // 1=FOLD 2=CHECK 3=CALL 4=BET 5=RAISE
+  int64 amount = 22;
+  float reward = 23;
+  bool terminal = 24;
+
+  // Metadata.
+  string game_variant = 25;
+  int64 big_blind = 26;
+}
