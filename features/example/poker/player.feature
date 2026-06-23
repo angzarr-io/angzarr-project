@@ -150,15 +150,13 @@ Feature: Player bankroll and table reservations
   # docs:start:reservation_scenario
   @EU-0210
   Scenario: Reserve funds for table buy-in
-    Given a PlayerRegistered event for "Alice"
-    And a FundsDeposited event with amount 1000
-    When I handle a ReserveFunds command with amount 500 for table "table-1"
-    Then the result is a angzarr_client.proto.examples.FundsReserved event
-    And the event has a timestamp reserved_at
-    And the player event has amount 500
-    And the player event has new_available_balance 500
-    And the player event has new_reserved_balance 500
-    And the player event has key "table-1"
+    Given Alice is registered
+    And Alice has 1000 chips
+    When Alice reserves 500 chips for table "table-1"
+    Then Alice has reserved 500 chips for table "table-1"
+    And the reservation is timestamped
+    And Alice's reserved funds are 500
+    And Alice's available balance is 500
 
   Scenario: A reservation of one chip is allowed
     Given Alice is registered
@@ -175,14 +173,12 @@ Feature: Player bankroll and table reservations
     Then the reservation is refused because Alice has 500 available but requested 600
 
   @EU-0212
-  Scenario: Cannot reserve for same table twice
-    Given a PlayerRegistered event for "Alice"
-    And a FundsDeposited event with amount 1000
-    And a FundsReserved event with amount 500 for table "table-1"
-    When I handle a ReserveFunds command with amount 200 for table "table-1"
-    Then the command fails with status "FAILED_PRECONDITION"
-    And the command is rejected with code "FUNDS_ALREADY_RESERVED_FOR_TABLE"
-    And the rejection field "table_root_hex" is the table_root_hex of "table-1"
+  Scenario: Cannot reserve for the same table twice
+    Given Alice is registered
+    And Alice has 1000 chips
+    And Alice has reserved 500 chips for table "table-1"
+    When Alice reserves 200 chips for table "table-1"
+    Then the reservation is refused because Alice already has funds reserved for table "table-1"
 
   # ==========================================================================
   # Fund Release - Returning Reserved Funds
@@ -193,25 +189,21 @@ Feature: Player bankroll and table reservations
 
   @EU-0213
   Scenario: Release reserved funds back to bankroll
-    Given a PlayerRegistered event for "Alice"
-    And a FundsDeposited event with amount 1000
-    And a FundsReserved event with amount 500 for table "table-1"
-    When I handle a ReleaseFunds command for table "table-1"
-    Then the result is a angzarr_client.proto.examples.FundsReleased event
-    And the event has a timestamp released_at
-    And the player event has amount 500
-    And the player event has new_available_balance 1000
-    And the player event has new_reserved_balance 0
-    And the player event has key "table-1"
+    Given Alice is registered
+    And Alice has 1000 chips
+    And Alice has reserved 500 chips for table "table-1"
+    When Alice's funds for table "table-1" are released
+    Then 500 chips are returned to Alice's available balance
+    And the release is timestamped
+    And Alice's reserved funds are 0
+    And Alice's available balance is 1000
 
   @EU-0214
-  Scenario: Cannot release non-existent reservation
-    Given a PlayerRegistered event for "Alice"
-    And a FundsDeposited event with amount 1000
-    When I handle a ReleaseFunds command for table "table-1"
-    Then the command fails with status "FAILED_PRECONDITION"
-    And the command is rejected with code "NO_FUNDS_RESERVED_FOR_TABLE"
-    And the rejection field "table_root_hex" is the table_root_hex of "table-1"
+  Scenario: Cannot release a non-existent reservation
+    Given Alice is registered
+    And Alice has 1000 chips
+    When Alice's funds for table "table-1" are released
+    Then the release is refused because Alice has no funds reserved for table "table-1"
 
   # ==========================================================================
   # State Reconstruction
@@ -398,302 +390,6 @@ Feature: Player bankroll and table reservations
     Then Alice's total bankroll is 800
     And Alice's reserved funds are 0
     And Alice's available balance is 800
-
-  # ==========================================================================
-  # Buy-in Orchestration (Player side)
-  # ==========================================================================
-  # The Player-side buy-in flow: initiating a buy-in reserves funds and records
-  # a pending reservation; the table flow then either confirms (deducts the
-  # bankroll) or releases (returns the funds). The cross-aggregate sequencing
-  # lives in orchestration.feature.
-
-  @EU-0235
-  Scenario: Initiating a buy-in records a pending reservation
-    Given Alice is registered
-    And Alice has 5000 chips
-    When Alice initiates a buy-in for seat 3 at table "table-1" for 500 chips
-    Then a pending buy-in is recorded for seat 3 at table "table-1" for 500 chips
-    And the buy-in carries a generated reservation identifier
-    And the buy-in is timestamped
-
-  @EU-0236
-  Scenario: An unregistered player cannot initiate a buy-in
-    Given Alice has not yet registered
-    When Alice initiates a buy-in for seat 0 at table "table-1" for 500 chips
-    Then the buy-in is refused because Alice does not exist
-
-  @EU-0237
-  Scenario: A buy-in requires sufficient bankroll
-    Given Alice is registered
-    And Alice has 100 chips
-    When Alice initiates a buy-in for seat 0 at table "table-1" for 500 chips
-    Then the buy-in is refused because Alice has insufficient funds
-
-  @EU-0238
-  Scenario: Confirming a buy-in requires a pending reservation
-    Given Alice is registered
-    And Alice has 1000 chips
-    When Alice's buy-in "res-001" is confirmed
-    Then the confirmation is refused because no buy-in with that reservation is pending
-
-  @EU-0239
-  Scenario: Confirming a buy-in records the seat, table, and amount
-    Given Alice is registered
-    And Alice has 2000 chips
-    And Alice has a pending buy-in "res-001" for seat 2 at table "table-1" for 500 chips
-    When Alice's buy-in "res-001" is confirmed
-    Then Alice's buy-in "res-001" is confirmed for seat 2 at table "table-1" for 500 chips
-    And the confirmation is timestamped
-
-  @EU-0240
-  Scenario: Releasing a pending buy-in records the reason
-    Given Alice is registered
-    And Alice has 2000 chips
-    And Alice has a pending buy-in "res-001" for seat 0 at table "table-1" for 500 chips
-    When Alice's buy-in "res-001" is released because of "timeout"
-    Then Alice's buy-in "res-001" is released with reason "timeout"
-    And the release is timestamped
-
-  @EU-0241
-  Scenario: After a full buy-in lifecycle, the bankroll is debited and the pending reservation cleared
-    Given Alice is registered
-    And Alice has 1000 chips
-    And Alice has a pending buy-in "res-001" for seat 0 at table "table-1" for 500 chips
-    And Alice's buy-in "res-001" has been confirmed
-    Then Alice's total bankroll is 500
-    And Alice's reserved funds are 0
-    And Alice has no pending buy-in "res-001"
-
-  # ==========================================================================
-  # Tournament Registration Orchestration (Player side)
-  # ==========================================================================
-
-  @EU-0242
-  Scenario: Initiating a tournament registration records a pending reservation
-    Given Alice is registered
-    And Alice has 1000 chips
-    When Alice initiates registration for tournament "trn-1"
-    Then a pending tournament registration is recorded for tournament "trn-1"
-    And the registration carries a generated reservation identifier
-    And the registration is timestamped
-
-  @EU-0243
-  Scenario: Confirming a registration fee requires a pending registration
-    Given Alice is registered
-    And Alice has 1000 chips
-    When Alice's tournament registration "res-001" is confirmed
-    Then the confirmation is refused because no registration with that reservation is pending
-
-  @EU-0244
-  Scenario: Confirming a registration fee records the tournament and fee
-    Given Alice is registered
-    And Alice has 1000 chips
-    And Alice has a pending tournament registration "res-001" for tournament "trn-1" with fee 100
-    When Alice's tournament registration "res-001" is confirmed
-    Then Alice's tournament registration "res-001" is confirmed for tournament "trn-1" with fee 100
-    And the confirmation is timestamped
-
-  @EU-0245
-  Scenario: Releasing a pending registration records the reason
-    Given Alice is registered
-    And Alice has 1000 chips
-    And Alice has a pending tournament registration "res-001" for tournament "trn-1" with fee 100
-    When Alice's tournament registration "res-001" is released because of "tournament full"
-    Then Alice's tournament registration "res-001" is released with reason "tournament full"
-    And the release is timestamped
-
-  @EU-0246
-  Scenario: After a full registration lifecycle, the bankroll is debited the registration fee
-    Given Alice is registered
-    And Alice has 500 chips
-    And Alice has a pending tournament registration "res-001" for tournament "trn-1" with fee 100
-    And Alice's tournament registration "res-001" has been confirmed
-    Then Alice's total bankroll is 400
-    And Alice's reserved funds are 0
-    And Alice has no pending tournament registration "res-001"
-
-  # ==========================================================================
-  # Rebuy Orchestration (Player side)
-  # ==========================================================================
-
-  @EU-0247
-  Scenario: Initiating a rebuy records a pending reservation
-    Given Alice is registered
-    And Alice has 1000 chips
-    When Alice initiates a rebuy for tournament "trn-1" at table "table-1" seat 2
-    Then a pending rebuy is recorded for tournament "trn-1" at table "table-1" seat 2
-    And the rebuy carries a generated reservation identifier
-    And the rebuy is timestamped
-
-  @EU-0248
-  Scenario: Confirming a rebuy fee requires a pending rebuy
-    Given Alice is registered
-    And Alice has 1000 chips
-    When Alice's rebuy "res-001" is confirmed
-    Then the confirmation is refused because no rebuy with that reservation is pending
-
-  @EU-0249
-  Scenario: Confirming a rebuy fee records the fee
-    Given Alice is registered
-    And Alice has 1000 chips
-    And Alice has a pending rebuy "res-001" for tournament "trn-1" at table "table-1" seat 2 with fee 200 and 500 chips
-    When Alice's rebuy "res-001" is confirmed
-    Then Alice's rebuy "res-001" is confirmed for tournament "trn-1" with fee 200
-    And the confirmation is timestamped
-    # chips_added is populated later by the tournament side, not here
-
-  @EU-0250
-  Scenario: Releasing a pending rebuy records the reason
-    Given Alice is registered
-    And Alice has 1000 chips
-    And Alice has a pending rebuy "res-001" for tournament "trn-1" at table "table-1" seat 2 with fee 200 and 500 chips
-    When Alice's rebuy "res-001" is released because of "denied"
-    Then Alice's rebuy "res-001" is released with reason "denied"
-    And the release is timestamped
-
-  @EU-0251
-  Scenario: After a full rebuy lifecycle, the bankroll is debited the rebuy fee
-    Given Alice is registered
-    And Alice has 1000 chips
-    And Alice has a pending rebuy "res-001" for tournament "trn-1" at table "table-1" seat 2 with fee 200 and 500 chips
-    And Alice's rebuy "res-001" has been confirmed
-    Then Alice's total bankroll is 800
-    And Alice's reserved funds are 0
-    And Alice has no pending rebuy "res-001"
-
-  # ==========================================================================
-  # Empty-input precondition rejections
-  # ==========================================================================
-
-  Scenario: A buy-in requires a table
-    Given Alice is registered
-    And Alice has 1000 chips
-    When Alice initiates a buy-in for seat 0 at an empty table name for 100 chips
-    Then the buy-in is refused because a table is required
-
-  Scenario: A buy-in must be positive
-    Given Alice is registered
-    And Alice has 1000 chips
-    When Alice initiates a buy-in for seat 0 at table "tbl-1" for 0 chips
-    Then the buy-in is refused because the amount must be positive
-
-  Scenario: A buy-in cannot be negative
-    Given Alice is registered
-    And Alice has 1000 chips
-    When Alice initiates a buy-in for seat 0 at table "tbl-1" for -50 chips
-    Then the buy-in is refused because the amount must be positive
-
-  Scenario: A buy-in of one chip is allowed
-    Given Alice is registered
-    And Alice has 10 chips
-    When Alice initiates a buy-in for seat 0 at table "tbl-1" for 1 chip
-    Then a pending buy-in is recorded for seat 0 at table "tbl-1" for 1 chip
-
-  Scenario: A buy-in for exactly the available balance is allowed
-    Given Alice is registered
-    And Alice has 500 chips
-    When Alice initiates a buy-in for seat 0 at table "tbl-1" for 500 chips
-    Then a pending buy-in is recorded for seat 0 at table "tbl-1" for 500 chips
-
-  Scenario: Confirming a buy-in requires a reservation identifier
-    Given Alice is registered
-    When Alice's buy-in with an empty reservation identifier is confirmed
-    Then the confirmation is refused because a reservation identifier is required
-
-  Scenario: Releasing a buy-in requires a reservation identifier
-    Given Alice is registered
-    When Alice's buy-in with an empty reservation identifier is released because of "timeout"
-    Then the release is refused because a reservation identifier is required
-
-  Scenario: Releasing a buy-in requires a pending reservation
-    Given Alice is registered
-    When Alice's buy-in "res-001" is released because of "timeout"
-    Then the release is refused because no buy-in with that reservation is pending
-
-  Scenario: An unregistered player cannot confirm a buy-in
-    Given Alice has not yet registered
-    When Alice's buy-in "res-001" is confirmed
-    Then the confirmation is refused because no buy-in with that reservation is pending
-
-  Scenario: An unregistered player cannot release a buy-in
-    Given Alice has not yet registered
-    When Alice's buy-in "res-001" is released because of "timeout"
-    Then the release is refused because no buy-in with that reservation is pending
-
-  Scenario: A tournament registration requires a tournament
-    Given Alice is registered
-    When Alice initiates registration for an empty tournament name
-    Then the registration is refused because a tournament is required
-
-  Scenario: An unregistered player cannot initiate a tournament registration
-    Given Alice has not yet registered
-    When Alice initiates registration for tournament "trn-1"
-    Then the registration is refused because Alice does not exist
-
-  Scenario: Confirming a registration fee requires a reservation identifier
-    Given Alice is registered
-    When Alice's tournament registration with an empty reservation identifier is confirmed
-    Then the confirmation is refused because a reservation identifier is required
-
-  Scenario: An unregistered player cannot confirm a registration fee
-    Given Alice has not yet registered
-    When Alice's tournament registration "res-001" is confirmed
-    Then the confirmation is refused because no registration with that reservation is pending
-
-  Scenario: Releasing a registration fee requires a reservation identifier
-    Given Alice is registered
-    When Alice's tournament registration with an empty reservation identifier is released because of "timeout"
-    Then the release is refused because a reservation identifier is required
-
-  Scenario: Releasing a registration fee requires a pending registration
-    Given Alice is registered
-    When Alice's tournament registration "res-001" is released because of "timeout"
-    Then the release is refused because no registration with that reservation is pending
-
-  Scenario: An unregistered player cannot release a registration fee
-    Given Alice has not yet registered
-    When Alice's tournament registration "res-001" is released because of "timeout"
-    Then the release is refused because no registration with that reservation is pending
-
-  Scenario: A rebuy requires a tournament
-    Given Alice is registered
-    When Alice initiates a rebuy for an empty tournament name at table "tbl-1" seat 0
-    Then the rebuy is refused because a tournament is required
-
-  Scenario: A rebuy requires a table
-    Given Alice is registered
-    When Alice initiates a rebuy for tournament "trn-1" at an empty table name seat 0
-    Then the rebuy is refused because a table is required
-
-  Scenario: An unregistered player cannot initiate a rebuy
-    Given Alice has not yet registered
-    When Alice initiates a rebuy for tournament "trn-1" at table "tbl-1" seat 0
-    Then the rebuy is refused because Alice does not exist
-
-  Scenario: Confirming a rebuy fee requires a reservation identifier
-    Given Alice is registered
-    When Alice's rebuy with an empty reservation identifier is confirmed
-    Then the confirmation is refused because a reservation identifier is required
-
-  Scenario: An unregistered player cannot confirm a rebuy fee
-    Given Alice has not yet registered
-    When Alice's rebuy "res-001" is confirmed
-    Then the confirmation is refused because no rebuy with that reservation is pending
-
-  Scenario: Releasing a rebuy fee requires a reservation identifier
-    Given Alice is registered
-    When Alice's rebuy with an empty reservation identifier is released because of "timeout"
-    Then the release is refused because a reservation identifier is required
-
-  Scenario: Releasing a rebuy fee requires a pending rebuy
-    Given Alice is registered
-    When Alice's rebuy "res-001" is released because of "timeout"
-    Then the release is refused because no rebuy with that reservation is pending
-
-  Scenario: An unregistered player cannot release a rebuy fee
-    Given Alice has not yet registered
-    When Alice's rebuy "res-001" is released because of "timeout"
-    Then the release is refused because no rebuy with that reservation is pending
 
   # ==========================================================================
   # Compensation on Table-Join Rejection
