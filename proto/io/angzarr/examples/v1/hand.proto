@@ -985,4 +985,20 @@ message HandFlowState {
   bytes hand_root = 1;
   int32 phase = 2; // 0=AWAITING_DEAL 1=DEALING 2=BLINDS 3=BETTING 4=COMPLETE
   int32 player_count = 3;
+  int32 dealer_position = 4; // Button seat captured when the hand started.
+}
+
+// HandFlowStarted is the HandFlowProcessManager's OWN event: it records that the
+// PM has begun tracking a hand (entering the dealing phase) in response to a
+// table-domain HandStarted trigger. The PM emits it and folds it into
+// HandFlowState (applies:true) — its event-sourced state, augmentable with
+// snapshots — rather than carrying state out-of-band.
+message HandFlowStarted {
+  option (io.angzarr.v1.event) = {
+    component: "io.angzarr.examples.v1.HandFlowState"
+    applies: true
+  };
+  bytes hand_root = 1;
+  int32 player_count = 2;
+  int32 dealer_position = 3;
 }
