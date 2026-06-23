@@ -64,6 +64,35 @@ message PlayerTableSaga {
   };
 }
 
+// TableTournamentSaga forwards per-table facts up to the owning tournament so
+// the tournament aggregate can run its cross-table coordination rules (Rule 11D
+// short-table halt, hand-for-hand round tracking, final-table sizing). Stateless:
+// reactions are wired by the (event) entries on the table events it forwards
+// (PlayerJoined, PlayerLeft, TableBBOnEmptyPredicted, TableBBOnEmptyResolved,
+// HandEnded, TableHandForHandRoundComplete). It routes to the right tournament
+// via the tournament_cover packed in the source event's Cover.ext (TableExt).
+message TableTournamentSaga {
+  option (io.angzarr.v1.component) = {
+    kind: COMPONENT_KIND_SAGA
+    input_domain: "table"
+    output_domain: "tournament"
+  };
+}
+
+// TournamentTableSaga fans the tournament's order-of-record events out to the
+// per-table commands that execute them (TableHaltOrdered -> HaltForBalancing,
+// TableResumeOrdered -> ResumePlayAtTable, FinalTableCombineOrdered ->
+// CombineFinalTable, HandForHandStarted -> EnterTableHandForHand,
+// HandForHandEnded -> EndTableHandForHand). Stateless field-by-field
+// translation; the coordination decision lives in the tournament aggregate.
+message TournamentTableSaga {
+  option (io.angzarr.v1.component) = {
+    kind: COMPONENT_KIND_SAGA
+    input_domain: "tournament"
+    output_domain: "table"
+  };
+}
+
 // OutputProjector is a genuinely stateless projector — it formats events into
 // log lines and holds no event-sourced state — so it anchors on an empty
 // marker (like the stateless sagas). The other PM/projector/aggregate

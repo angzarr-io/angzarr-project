@@ -155,6 +155,10 @@ message ColorUp {
 // pre-batch-16 behavior, retained for unit tests that don't model
 // the cross-coordinator move).
 message RebalanceTables {
+  // Records the move the source table already decided (forwarded by
+  // TableTournamentSaga from BalancingMoveDecided). The handler updates the
+  // per-table counts and emits PlayerMovedBetweenTables (record + dest order).
+  option (io.angzarr.v1.command) = { component: "io.angzarr.examples.v1.TournamentState" };
   bytes source_table_root = 1;
   bytes destination_table_root = 2;
   bytes player_root = 3;
@@ -546,6 +550,14 @@ message ChipRaceAward {
 // Player moved between tables for rebalancing (TDA Rule 14).
 // The moved player keeps their stack.
 message PlayerMovedBetweenTables {
+  // Tournament's record of the move. Folds into TournamentState (counts) AND
+  // is fanned out to the destination table as SeatPlayer (TournamentTableSaga
+  // → the dest table picks its own worst open seat, TDA Rule 10A).
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.TournamentState" };
+  option (io.angzarr.v1.event) = {
+    component: "io.angzarr.examples.v1.TournamentTableSaga"
+    domain: "tournament"
+  };
   bytes player_root = 1;
   bytes source_table_root = 2;
   bytes destination_table_root = 3;
@@ -877,12 +889,14 @@ message RecordTablePlayerLeft {
 // handler evaluates the deficit rule and ALSO emits TableHaltOrdered
 // if deficit ≥ 3 and this table is not already in pending_halt_orders.
 message RecordTableBBOnEmpty {
+  option (io.angzarr.v1.command) = { component: "io.angzarr.examples.v1.TournamentState" };
   bytes table_root = 1;
 }
 
 // Saga-issued: forwarded from table.TableBBOnEmptyResolved. The
 // handler ALSO emits TableResumeOrdered if the table was halted.
 message RecordTableBBOnEmptyCleared {
+  option (io.angzarr.v1.command) = { component: "io.angzarr.examples.v1.TournamentState" };
   bytes table_root = 1;
 }
 
@@ -890,12 +904,24 @@ message RecordTableBBOnEmptyCleared {
 // emit the per-table HaltForBalancing / ResumePlayAtTable commands.
 
 message TableHaltOrdered {
+  // Folds into the tournament's pending_halt_orders (so it does not re-order a
+  // halt for an already-halted table) AND is fanned out to the table.
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.TournamentState" };
+  option (io.angzarr.v1.event) = {
+    component: "io.angzarr.examples.v1.TournamentTableSaga"
+    domain: "tournament"
+  };
   bytes target_table_root = 1;
   int32 deficit = 2;
   google.protobuf.Timestamp ordered_at = 3;
 }
 
 message TableResumeOrdered {
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.TournamentState" };
+  option (io.angzarr.v1.event) = {
+    component: "io.angzarr.examples.v1.TournamentTableSaga"
+    domain: "tournament"
+  };
   bytes target_table_root = 1;
   google.protobuf.Timestamp ordered_at = 2;
 }

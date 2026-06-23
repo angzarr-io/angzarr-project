@@ -202,6 +202,9 @@ message PlayerHandKilledByPenalty {
 // player to be BB-next on the source table is moved to the worst
 // position (never SB) on the destination table.
 message BalanceTables {
+  // Issued to the SOURCE table (cover.root = source). The table picks its
+  // BB-next player locally (TDA Rule 11A) and emits BalancingMoveDecided.
+  option (io.angzarr.v1.command) = { component: "io.angzarr.examples.v1.TableState" };
   string source_table_name = 1;
   string destination_table_name = 2;
 }
@@ -229,15 +232,27 @@ message CombineFinalTable {
 // aggregate emits ``TableHaltedForBalancing`` in response and
 // subsequently refuses ``StartHand`` until ``ResumePlayAtTable``.
 message HaltForBalancing {
+  option (io.angzarr.v1.command) = { component: "io.angzarr.examples.v1.TableState" };
   int32 deficit = 1; // players-short relative to the largest table
 }
 
 // TDA Rule 11D — coordinator command to resume play at a previously
 // halted table once rebalancing has closed the deficit.
-message ResumePlayAtTable {}
+message ResumePlayAtTable {
+  option (io.angzarr.v1.command) = { component: "io.angzarr.examples.v1.TableState" };
+}
 
 // TDA Rule 11A emit — a balancing move emitted at the source table.
 message BalancingMoveDecided {
+  // Source table's BB-next decision. Folds into TableState (removes the moved
+  // player from the source seats) AND is forwarded to the owning tournament,
+  // which records the move and orders the destination seating (Option A —
+  // the tournament mediates; destination_seat is filled there/at the dest).
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.TableState" };
+  option (io.angzarr.v1.event) = {
+    component: "io.angzarr.examples.v1.TableTournamentSaga"
+    domain: "table"
+  };
   bytes player_root = 1;
   bytes source_table_root = 2;
   bytes destination_table_root = 3;
@@ -258,6 +273,7 @@ message FinalTableCombined {
 // the largest table and the BB on the next hand would land on an
 // empty seat.
 message TableHaltedForBalancing {
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.TableState" };
   bytes table_root = 1;
   int32 deficit = 2; // players-short relative to the largest table
   google.protobuf.Timestamp halted_at = 3;
@@ -266,6 +282,7 @@ message TableHaltedForBalancing {
 // TDA Rule 11D emit — table resumed play after the coordinator's
 // ``ResumePlayAtTable`` command closed the halted_for_balancing flag.
 message TableResumedForBalancing {
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.TableState" };
   bytes table_root = 1;
   google.protobuf.Timestamp resumed_at = 2;
 }
@@ -275,6 +292,13 @@ message TableResumedForBalancing {
 // transition. Consumed by saga-table-tournament which forwards into
 // the tournament aggregate for the cross-table deficit check.
 message TableBBOnEmptyPredicted {
+  // Folds into the table's own bb-on-empty flag (edge detection) AND is
+  // forwarded to the owning tournament for the cross-table deficit check.
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.TableState" };
+  option (io.angzarr.v1.event) = {
+    component: "io.angzarr.examples.v1.TableTournamentSaga"
+    domain: "table"
+  };
   bytes table_root = 1;
   google.protobuf.Timestamp predicted_at = 2;
 }
@@ -284,6 +308,11 @@ message TableBBOnEmptyPredicted {
 // player at the BB-next seat). Triggers the resume path at the
 // tournament side if the table is currently halted.
 message TableBBOnEmptyResolved {
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.TableState" };
+  option (io.angzarr.v1.event) = {
+    component: "io.angzarr.examples.v1.TableTournamentSaga"
+    domain: "table"
+  };
   bytes table_root = 1;
   google.protobuf.Timestamp resolved_at = 2;
 }
