@@ -114,6 +114,11 @@ message BuyInReservationReleased {
 // Emitted when player is seated via PM flow
 message PlayerSeated {
   option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.ReservationProcessManagerState" domain: "table" };
+  // Also folded (applies:true) so the reservation orchestrator's read model
+  // tracks which seats are occupied at the table — a buy-in for an already-taken
+  // seat (or at a full table) can then be refused before asking the table to
+  // seat (look-before-leap). An event may be both a trigger and an applier.
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.ReservationProcessManagerState" domain: "table" applies: true };
   option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.OutputProjection" domain: "table" };
   option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.TableState" };
   bytes player_root = 1;

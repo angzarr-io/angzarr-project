@@ -66,4 +66,23 @@ message ReservationProcessManagerState {
   int64 amount = 7;
   int64 fee = 8;
   int32 phase = 9; // BuyInPhase | RebuyPhase | RegistrationPhase, per kind
+  // Cross-domain read model (folded from other domains' events, applies:true)
+  // so the orchestrator can decide before committing — look-before-leap without
+  // a synchronous read. Zero means "not yet observed" (skip that check).
+  int64 table_min_buy_in = 10; // folded from table.TableCreated
+  int64 table_max_buy_in = 11; // folded from table.TableCreated
+  // Table seating read model (folded from table.TableCreated + table.PlayerSeated)
+  // so the orchestrator can refuse a buy-in for a taken seat or at a full table.
+  int32 table_max_players = 12; // folded from table.TableCreated (0 = not observed)
+  repeated int32 occupied_seats = 13; // folded from table.PlayerSeated.seat_position
+  // Tournament registration read model (folded from tournament events) so the
+  // orchestrator can refuse a registration when the tournament is full or closed.
+  int32 tournament_max_players = 14; // folded from tournament.TournamentCreated (0 = not observed)
+  int32 tournament_enrolled_count = 15; // folded from tournament.TournamentPlayerEnrolled
+  bool tournament_registration_open = 16; // RegistrationOpened seen, RegistrationClosed not yet
+  bool tournament_registration_observed = 17; // any registration-open/closed event seen
+  // Tournament rebuy-window read model: the rebuy window is open only while the
+  // tournament is RUNNING. 0 (UNSPECIFIED) means status not observed (skip check).
+  int32 tournament_status = 18; // folded from TournamentStarted/Paused/Resumed (TournamentStatus)
+  bool player_seated = 19; // folded from table.PlayerSeated (player is seated at a table)
 }

@@ -94,6 +94,10 @@ message ChangeSeats {
 message TableCreated {
   option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.OutputProjection" domain: "table" };
   option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.TableState" };
+  // The reservation orchestrator folds the table's buy-in range + capacity into
+  // its cross-domain read model, so it can accept/refuse a buy-in before asking
+  // the table to seat (look-before-leap without a synchronous read).
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.ReservationProcessManagerState" domain: "table" applies: true };
   string table_name = 1;
   GameVariant game_variant = 2;
   int64 small_blind = 3;

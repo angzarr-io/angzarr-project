@@ -391,6 +391,10 @@ message RotateMixedGameVariant {
 
 message TournamentCreated {
   option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.TournamentState" };
+  // The reservation orchestrator folds the tournament's capacity (max_players)
+  // into its cross-domain read model so a registration into a full tournament
+  // can be refused before asking the tournament to enroll (look-before-leap).
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.ReservationProcessManagerState" domain: "tournament" applies: true };
   string name = 1;
   GameVariant game_variant = 2;
   int64 buy_in = 3;
@@ -408,17 +412,27 @@ message TournamentCreated {
 
 message RegistrationOpened {
   option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.TournamentState" };
+  // Folded so the reservation orchestrator knows registration is open for a
+  // tournament before accepting a registration (look-before-leap).
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.ReservationProcessManagerState" domain: "tournament" applies: true };
   google.protobuf.Timestamp opened_at = 1;
 }
 
 message RegistrationClosed {
   option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.TournamentState" };
+  // Folded so the reservation orchestrator refuses a registration once the
+  // tournament has closed registration.
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.ReservationProcessManagerState" domain: "tournament" applies: true };
   int32 total_registrations = 1;
   google.protobuf.Timestamp closed_at = 2;
 }
 
 message TournamentPlayerEnrolled {
   option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.ReservationProcessManagerState" domain: "tournament" };
+  // Also folded (applies:true) so the orchestrator tracks the enrolled count and
+  // can refuse a registration once the tournament reaches capacity. An event may
+  // be both a PM trigger and an applier.
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.ReservationProcessManagerState" domain: "tournament" applies: true };
   option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.TournamentState" };
   bytes player_root = 1;
   bytes reservation_id = 2;
@@ -445,6 +459,9 @@ message PlayerUnregistered {
 
 message TournamentStarted {
   option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.TournamentState" };
+  // Folded so the reservation orchestrator knows the tournament is RUNNING — its
+  // rebuy window is open — before accepting a rebuy (look-before-leap).
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.ReservationProcessManagerState" domain: "tournament" applies: true };
   int32 total_players = 1;
   int32 tables_created = 2;
   int64 total_prize_pool = 3;
@@ -499,12 +516,18 @@ message PlayerEliminated {
 
 message TournamentPaused {
   option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.TournamentState" };
+  // Folded so the orchestrator's rebuy-window read model reflects a paused
+  // tournament (status no longer RUNNING).
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.ReservationProcessManagerState" domain: "tournament" applies: true };
   string reason = 1;
   google.protobuf.Timestamp paused_at = 2;
 }
 
 message TournamentResumed {
   option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.TournamentState" };
+  // Folded so the orchestrator's rebuy-window read model reflects a resumed
+  // (RUNNING) tournament.
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.ReservationProcessManagerState" domain: "tournament" applies: true };
   google.protobuf.Timestamp resumed_at = 1;
 }
 
