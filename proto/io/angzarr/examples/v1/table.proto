@@ -233,6 +233,9 @@ message BalanceTables {
 // (a balancing saga in production, the cucumber step in unit
 // tests) is responsible for collecting the active set.
 message CombineFinalTable {
+  // Issued to the FINAL table (cover.root = final). The aggregate seats the
+  // caller-collected active set and emits ``FinalTableCombined``.
+  option (io.angzarr.v1.command) = { component: "io.angzarr.examples.v1.TableState" };
   string final_table_name = 1;
   repeated string source_table_names = 2;
   int32 max_handed = 3; // 9 / 8 / 7 / 6
@@ -274,6 +277,9 @@ message BalancingMoveDecided {
 
 // TDA RP-9 / WSOP Rule 68 emit — final table combined.
 message FinalTableCombined {
+  // Folds into the final TableState — the collected players take positions
+  // 0..N-1 and the table is in play under its final-table identity.
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.TableState" };
   bytes final_table_root = 1;
   repeated bytes source_table_roots = 2;
   repeated SeatSnapshot active_players = 3;
