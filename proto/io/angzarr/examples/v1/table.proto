@@ -108,6 +108,10 @@ message TableCreated {
 message PlayerJoined {
   option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.OutputProjection" domain: "table" };
   option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.TableState" };
+  option (io.angzarr.v1.event) = {
+    component: "io.angzarr.examples.v1.TableTournamentSaga"
+    domain: "table"
+  };
   bytes player_root = 1;
   int32 seat_position = 2;
   int64 buy_in_amount = 3;
@@ -118,6 +122,10 @@ message PlayerJoined {
 message PlayerLeft {
   option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.OutputProjection" domain: "table" };
   option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.TableState" };
+  option (io.angzarr.v1.event) = {
+    component: "io.angzarr.examples.v1.TableTournamentSaga"
+    domain: "table"
+  };
   bytes player_root = 1;
   int32 seat_position = 2;
   int64 chips_cashed_out = 3;
@@ -418,6 +426,9 @@ message TableState {
     compensates: "io.angzarr.examples.v1.DealCards"
   };
   string table_id = 1;
+  // TDA Rule 11D: set while the table is halted for balancing; StartHand is
+  // refused until ResumePlayAtTable clears it.
+  bool halted_for_balancing = 15;
   string table_name = 2;
   GameVariant game_variant = 3;
   int64 small_blind = 4;

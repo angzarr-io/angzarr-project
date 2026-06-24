@@ -803,6 +803,10 @@ message TournamentState {
     name: "TournamentAggregate"
   };
   string tournament_id = 1;
+  // Per-table active-player counts (key = table_root hex), fed by the
+  // TableTournamentSaga forwarding PlayerJoined/PlayerLeft. The deficit for
+  // TDA Rule 11D is max(counts) - this_table_count.
+  map<string, int32> table_player_counts = 21;
   string name = 2;
   GameVariant game_variant = 3;
   TournamentStatus status = 4;
@@ -875,12 +879,14 @@ message ResumeShortTable {
 // Saga-issued: forwarded from table.PlayerJoined / buy_in.PlayerSeated
 // via saga-table-tournament. Tournament accumulates per-table counts.
 message RecordTablePlayerJoined {
+  option (io.angzarr.v1.command) = { component: "io.angzarr.examples.v1.TournamentState" };
   bytes table_root = 1;
   bytes player_root = 2;
 }
 
 // Saga-issued: forwarded from table.PlayerLeft.
 message RecordTablePlayerLeft {
+  option (io.angzarr.v1.command) = { component: "io.angzarr.examples.v1.TournamentState" };
   bytes table_root = 1;
   bytes player_root = 2;
 }
@@ -930,12 +936,14 @@ message TableResumeOrdered {
 // onto the tournament's per-table count / flag dictionaries.
 
 message TournamentTablePlayerJoined {
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.TournamentState" };
   bytes table_root = 1;
   bytes player_root = 2;
   google.protobuf.Timestamp recorded_at = 3;
 }
 
 message TournamentTablePlayerLeft {
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.TournamentState" };
   bytes table_root = 1;
   bytes player_root = 2;
   google.protobuf.Timestamp recorded_at = 3;
