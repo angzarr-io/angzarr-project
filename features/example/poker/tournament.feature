@@ -439,26 +439,26 @@ Feature: Tournament aggregate logic
     Then the rebuy is denied because of "not enabled"
 
   @EU-0838
-  Scenario: ProcessRebuy denies the rebuy when current level is past the cutoff
-    Given a running tournament with rebuy cutoff 2 and 1 enrolled player at level 5
+  Scenario: Rebuy denied when the current level is past the cutoff
+    Given a running tournament whose rebuy window closes after level 2, now at blind level 5, with 1 enrolled player
     When player "Alice" requests a rebuy
     Then the rebuy is denied because of "closed"
 
   @EU-0839
-  Scenario: ProcessRebuy denies the rebuy when player has reached max rebuys
-    Given a running tournament with max_rebuys 2 and player "Alice" who has used 2 rebuys
+  Scenario: Rebuy denied when the player has reached the rebuy limit
+    Given a running tournament allowing at most 2 rebuys per player, where Alice has used 2
     When player "Alice" requests a rebuy
     Then the rebuy is denied because of "Maximum"
 
   @EU-0840
-  Scenario: ProcessRebuy succeeds when rebuy_level_cutoff is 0 (cutoff check disabled)
-    Given a running tournament with rebuy cutoff 0 and 1 enrolled player at level 99
+  Scenario: Rebuy succeeds when there is no level cutoff
+    Given a running tournament with no rebuy level cutoff, now at blind level 99, with 1 enrolled player
     When player "Alice" requests a rebuy
     Then the rebuy is processed as rebuy 1
 
   @EU-0841
-  Scenario: ProcessRebuy succeeds when max_rebuys is 0 (unlimited rebuys)
-    Given a running tournament with max_rebuys 0 and player "Alice" who has used 100 rebuys
+  Scenario: Rebuy succeeds when rebuys are unlimited
+    Given a running tournament with unlimited rebuys, where Alice has used 100
     When player "Alice" requests a rebuy
     Then the rebuy is processed
 
@@ -479,23 +479,23 @@ Feature: Tournament aggregate logic
     # one, the rebuilt state has no levels and the next blind-level advance
     # rejects with BLIND_STRUCTURE_EXHAUSTED (see EU-0856).
     Given tournament "Spring Classic" exists with 500 buy-in, 10000 starting stack, max 9 players, min 2 players
-    When I rebuild the tournament state
-    Then the tournament state has tournament_id "tournament_Spring Classic"
-    And the tournament state has name "Spring Classic"
-    And the tournament state has status "Created"
-    And the tournament state has buy_in 500
-    And the tournament state has starting_stack 10000
-    And the tournament state has max_players 9
-    And the tournament state has min_players 2
-    And the tournament state has current_level 1
-    And the tournament state has blind_structure count 0
+    When the tournament state is rebuilt from its events
+    Then the rebuilt tournament is identified as "Spring Classic"
+    And the rebuilt tournament is named "Spring Classic"
+    And the rebuilt tournament is in the created phase
+    And the rebuilt buy-in is 500
+    And the rebuilt starting stack is 10000
+    And the rebuilt maximum is 9 players
+    And the rebuilt minimum is 2 players
+    And the rebuilt blind level is 1
+    And the rebuilt tournament has no blind levels
 
   @EU-0843
   Scenario: Rebuild state after registration opens transitions status
     Given tournament "Spring" exists with 500 buy-in, 10000 starting stack, max 9 players, min 2 players
     And registration has opened
-    When I rebuild the tournament state
-    Then the tournament state has status "RegistrationOpen"
+    When the tournament state is rebuilt from its events
+    Then the rebuilt tournament has registration open
 
   @EU-0844
   Scenario: Rebuild state after registration closes leaves pool and count unchanged
@@ -503,22 +503,22 @@ Feature: Tournament aggregate logic
     And registration has opened
     And player "Alice" was enrolled paying 500
     And registration has closed
-    When I rebuild the tournament state
-    Then the tournament state has status "RegistrationOpen"
-    And the tournament state has total_prize_pool 500
-    And the tournament state has registered_players count 1
-    And the tournament state has players_remaining 1
+    When the tournament state is rebuilt from its events
+    Then the rebuilt tournament has registration open
+    And the rebuilt prize pool is 500
+    And the rebuilt tournament has 1 registered players
+    And the rebuilt tournament has 1 players remaining
 
   @EU-0845
   Scenario: Rebuild state after a player is enrolled adds registration and grows pool
     Given tournament "Spring" exists with 500 buy-in, 10000 starting stack, max 9 players, min 2 players
     And registration has opened
     And player "Alice" was enrolled paying 500
-    When I rebuild the tournament state
-    Then the tournament state has registered_players count 1
-    And the tournament state has total_prize_pool 500
-    And the tournament state has players_remaining 1
-    And the tournament state has rebuys_used 0 for player "Alice"
+    When the tournament state is rebuilt from its events
+    Then the rebuilt tournament has 1 registered players
+    And the rebuilt prize pool is 500
+    And the rebuilt tournament has 1 players remaining
+    And the rebuilt tournament shows Alice has used 0 rebuys
 
   @EU-0846
   Scenario: Rebuild state after a rejected enrollment leaves pool and count unchanged
@@ -526,35 +526,35 @@ Feature: Tournament aggregate logic
     And registration has opened
     And player "Alice" was enrolled paying 500
     And player "Bob" was rejected from enrollment because of "full"
-    When I rebuild the tournament state
-    Then the tournament state has total_prize_pool 500
-    And the tournament state has registered_players count 1
-    And the tournament state has players_remaining 1
+    When the tournament state is rebuilt from its events
+    Then the rebuilt prize pool is 500
+    And the rebuilt tournament has 1 registered players
+    And the rebuilt tournament has 1 players remaining
 
   @EU-0847
   Scenario: Rebuild state after a rebuy for an unknown player still grows pool
     Given tournament "Spring" exists with 500 buy-in, 10000 starting stack, max 9 players, min 2 players
     And player "ghost" had a rebuy processed at cost 77 for rebuy 1
-    When I rebuild the tournament state
-    Then the tournament state has total_prize_pool 77
-    And the tournament state has registered_players count 0
+    When the tournament state is rebuilt from its events
+    Then the rebuilt prize pool is 77
+    And the rebuilt tournament has 0 registered players
 
   @EU-0848
   Scenario: Rebuild state after a denied rebuy is a no-op
     Given tournament "Spring" exists with 500 buy-in, 10000 starting stack, max 9 players, min 2 players
     And registration has opened
     And player "Alice" was enrolled paying 500
-    And player "Alice" was denied a rebuy because of "max_reached"
-    When I rebuild the tournament state
-    Then the tournament state has total_prize_pool 500
-    And the tournament state has registered_players count 1
+    And player "Alice" was denied a rebuy because the maximum was reached
+    When the tournament state is rebuilt from its events
+    Then the rebuilt prize pool is 500
+    And the rebuilt tournament has 1 registered players
 
   @EU-0849
   Scenario: Rebuild state after a blind level advance updates current_level
     Given tournament "Spring" exists with 500 buy-in, 10000 starting stack, max 9 players, min 2 players
     And the blind level was advanced to 7
-    When I rebuild the tournament state
-    Then the tournament state has current_level 7
+    When the tournament state is rebuilt from its events
+    Then the rebuilt blind level is 7
 
   @EU-0850
   Scenario: Rebuild state after an elimination removes the entry and decrements remaining
@@ -563,32 +563,32 @@ Feature: Tournament aggregate logic
     And player "Alice" was enrolled paying 500
     And player "Bob" was enrolled paying 500
     And player "Alice" was eliminated previously
-    When I rebuild the tournament state
-    Then the tournament state has registered_players count 1
-    And the tournament state has players_remaining 1
-    And the tournament state has no registered player "Alice"
+    When the tournament state is rebuilt from its events
+    Then the rebuilt tournament has 1 registered players
+    And the rebuilt tournament has 1 players remaining
+    And the rebuilt tournament has no registration for "Alice"
 
   @EU-0851
   Scenario: Rebuild state after the tournament was paused transitions to Paused
     Given tournament "Spring" exists with 500 buy-in, 10000 starting stack, max 9 players, min 2 players
     And the tournament was paused
-    When I rebuild the tournament state
-    Then the tournament state has status "Paused"
+    When the tournament state is rebuilt from its events
+    Then the rebuilt tournament is paused
 
   @EU-0852
   Scenario: Rebuild state after the tournament resumed transitions to Running
     Given tournament "Spring" exists with 500 buy-in, 10000 starting stack, max 9 players, min 2 players
     And the tournament was paused
     And the tournament was resumed
-    When I rebuild the tournament state
-    Then the tournament state has status "Running"
+    When the tournament state is rebuilt from its events
+    Then the rebuilt tournament is running
 
   @EU-0853
   Scenario: Rebuild state after the tournament completed transitions to Completed
     Given tournament "Spring" exists with 500 buy-in, 10000 starting stack, max 9 players, min 2 players
     And the tournament was completed
-    When I rebuild the tournament state
-    Then the tournament state has status "Completed"
+    When the tournament state is rebuilt from its events
+    Then the rebuilt tournament is completed
 
   @EU-0854
   Scenario: Rebuild state with two rebuys accumulates rebuys_used and prize pool
@@ -597,9 +597,9 @@ Feature: Tournament aggregate logic
     And player "Alice" was enrolled paying 500
     And player "Alice" had a rebuy processed at cost 100 for rebuy 1
     And player "Alice" had a rebuy processed at cost 150 for rebuy 2
-    When I rebuild the tournament state
-    Then the tournament state has total_prize_pool 750
-    And the tournament state has rebuys_used 2 for player "Alice"
+    When the tournament state is rebuilt from its events
+    Then the rebuilt prize pool is 750
+    And the rebuilt tournament shows Alice has used 2 rebuys
 
   # ==========================================================================
   # Late Registration
@@ -624,8 +624,8 @@ Feature: Tournament aggregate logic
     Given a running tournament with registration open and 2 enrolled players
     When player "Carol" enrolls with reservation "res-3"
     Then player "Carol" is enrolled paying a fee of 100
-    And the tournament state has registered_players count 3
-    And the tournament state has players_remaining 3
+    And the rebuilt tournament has 3 registered players
+    And the rebuilt tournament has 3 players remaining
 
   @EU-0858
   Scenario: Late-registered player receives the configured starting stack
