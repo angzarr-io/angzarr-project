@@ -27,6 +27,7 @@ option ruby_package = "Angzarr::Examples";
 // rejected with DECK_SOURCE_REQUIRED so the cluster never silently
 // chooses a non-deterministic shuffle in production paths.
 message Shuffle {
+  option (io.angzarr.v1.command) = { component: "io.angzarr.examples.v1.HandState" };
   // Optional: full 52-card deck in the order the cluster will draw
   // from it. Validated for no duplicates. When set, ``seed`` is
   // ignored.
@@ -369,6 +370,7 @@ message ReportPrematureStudCard {
 // the SplitMix64 shuffle output. Tests that pin a deck emit
 // Shuffle(deck=...); the field mirrors verbatim.
 message DeckShuffled {
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.HandState" };
   repeated Card deck = 1;
   google.protobuf.Timestamp shuffled_at = 2;
 }
