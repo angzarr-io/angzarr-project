@@ -85,25 +85,25 @@ Feature: Tournament aggregate logic
     Then the create-tournament is refused because the name is required
 
   @EU-0803
-  Scenario: Cannot create tournament with non-positive buy_in
+  Scenario: Cannot create a tournament with a non-positive buy-in
     Given the tournament has not yet been created
     When tournament "Test Tournament" is created with 0 buy-in, 1000 starting stack, max 100 players, min 10 players
-    Then the create-tournament is refused because buy_in must be positive
+    Then the create-tournament is refused because the buy-in must be positive
 
   @EU-0804
-  Scenario: Cannot create tournament with non-positive starting_stack
+  Scenario: Cannot create a tournament with a non-positive starting stack
     Given the tournament has not yet been created
     When tournament "Test Tournament" is created with 100 buy-in, 0 starting stack, max 100 players, min 10 players
-    Then the create-tournament is refused because starting_stack must be positive
+    Then the create-tournament is refused because the starting stack must be positive
 
   @EU-0805
-  Scenario: Cannot create tournament with min_players below 2
+  Scenario: Cannot create a tournament with a minimum below 2 players
     Given the tournament has not yet been created
     When tournament "Test Tournament" is created with 100 buy-in, 1000 starting stack, max 100 players, min 1 players
-    Then the create-tournament is refused because min_players must be at least 2
+    Then the create-tournament is refused because the minimum must be at least 2 players
 
   @EU-0806
-  Scenario: Cannot create tournament with min_players exceeding max_players
+  Scenario: Cannot create a tournament with a minimum greater than the maximum
     Given the tournament has not yet been created
     When tournament "Test Tournament" is created with 100 buy-in, 1000 starting stack, max 5 players, min 10 players
     Then the create-tournament is refused because the minimum of 10 players exceeds the maximum of 5
@@ -181,7 +181,7 @@ Feature: Tournament aggregate logic
 
   @EU-0815
   Scenario: Enrollment rejected when tournament is full
-    Given a tournament with max_players 2 and min_players 2 and registration open
+    Given a tournament for 2 to 2 players with registration open
     And player "Alice" is enrolled
     And player "Bob" is enrolled
     When player "Carol" enrolls with reservation ""
@@ -212,7 +212,7 @@ Feature: Tournament aggregate logic
 
   @EU-0818
   Scenario: Rebuy denied for unregistered player
-    Given a running tournament with min_players 2 and max_players 10 and 10 enrolled players
+    Given a running tournament for 2 to 10 players with 10 enrolled
     When player "unknown" requests a rebuy
     Then the rebuy is denied because of "not registered"
 
@@ -262,7 +262,7 @@ Feature: Tournament aggregate logic
 
   @EU-0822
   Scenario: Start tournament with enough players
-    Given a tournament with min_players 2 and max_players 10 and registration open
+    Given a tournament for 2 to 10 players with registration open
     And player "Alice" is enrolled
     And player "Bob" is enrolled
     When the tournament starts
@@ -270,7 +270,7 @@ Feature: Tournament aggregate logic
 
   @EU-0823
   Scenario: Cannot start without enough players
-    Given a tournament with min_players 2 and max_players 10 and registration open
+    Given a tournament for 2 to 10 players with registration open
     And player "Alice" is enrolled
     When the tournament starts
     Then the start is refused because there are not enough players
@@ -334,14 +334,14 @@ Feature: Tournament aggregate logic
   # Rules covered by Player Elimination section above.)
 
   @EU-0827
-  Scenario: EliminatePlayer records the supplied hand_root on the elimination
-    Given a running tournament with min_players 2 and max_players 10 and 2 enrolled players
+  Scenario: Elimination records the hand it occurred on
+    Given a running tournament for 2 to 10 players with 2 enrolled
     When player "Alice" is eliminated on hand "hand-01"
     Then the elimination records hand "hand-01"
 
   @EU-0828
   Scenario: EliminatePlayer rejects when the player is not registered
-    Given a running tournament with min_players 2 and max_players 10 and 2 enrolled players
+    Given a running tournament for 2 to 10 players with 2 enrolled
     When player "ghost" is eliminated
     Then the elimination is refused because the player is not registered
 
@@ -353,7 +353,7 @@ Feature: Tournament aggregate logic
 
   @EU-0829
   Scenario: PauseTournament on a running tournament records the reason
-    Given a running tournament with min_players 2 and max_players 10 and 2 enrolled players
+    Given a running tournament for 2 to 10 players with 2 enrolled
     When the tournament is paused with reason "dinner break"
     Then the tournament is paused with reason "dinner break"
 
@@ -382,7 +382,7 @@ Feature: Tournament aggregate logic
 
   @EU-0832
   Scenario: OpenRegistration rejects when tournament is running
-    Given a running tournament with min_players 2 and max_players 10 and 2 enrolled players
+    Given a running tournament for 2 to 10 players with 2 enrolled
     When registration opens
     Then opening registration is refused because the tournament is running
 
@@ -419,7 +419,7 @@ Feature: Tournament aggregate logic
 
   @EU-0836
   Scenario: ProcessRebuy denies the rebuy when rebuys are not enabled
-    Given a running tournament with min_players 2 and max_players 10 and 2 enrolled players
+    Given a running tournament for 2 to 10 players with 2 enrolled
     When player "Alice" requests a rebuy
     Then the rebuy is denied because of "not enabled"
 
@@ -591,7 +591,7 @@ Feature: Tournament aggregate logic
     Then the rebuilt tournament is completed
 
   @EU-0854
-  Scenario: Rebuild state with two rebuys accumulates rebuys_used and prize pool
+  Scenario: Rebuild state with two rebuys accumulates the rebuy count and prize pool
     Given tournament "Spring" exists with 500 buy-in, 10000 starting stack, max 9 players, min 2 players
     And registration has opened
     And player "Alice" was enrolled paying 500
@@ -632,7 +632,7 @@ Feature: Tournament aggregate logic
     # Late entries get the FULL starting stack regardless of how much is
     # already in play (TDA Rule 30 — late registrants do not receive a
     # discounted stack). Pin starting_stack on enrollment.
-    Given a running tournament with starting_stack 1500, registration open, and 2 enrolled players
+    Given a running tournament with a starting stack of 1500, registration open, and 2 enrolled players
     When player "Carol" enrolls with reservation "res-3"
     Then player "Carol" is enrolled with starting stack 1500
 
@@ -642,7 +642,7 @@ Feature: Tournament aggregate logic
     # advances to a level past the cutoff, registration auto-closes and a
     # subsequent enrollment is rejected with the "not open" reason — same
     # rejection path as an explicit close.
-    Given a running tournament with registration_cutoff_level 3 at level 4 and 2 enrolled players
+    Given a running tournament with a registration cutoff at level 3 at level 4 and 2 enrolled players
     When player "Carol" enrolls with reservation "res-3"
     Then the enrollment is rejected because of "not open"
 
@@ -682,7 +682,7 @@ Feature: Tournament aggregate logic
     And position 3 pays "Carol" 900
 
   @EU-0862
-  Scenario: Sum of payouts equals total_prize_pool
+  Scenario: Sum of payouts equals the prize pool
     # The aggregate must reject a completion whose payouts do not sum to
     # the prize pool. This guards the chip ledger from drift when the
     # payout schedule and pool are out of sync.
@@ -736,23 +736,23 @@ Feature: Tournament aggregate logic
   # to forfeit chips and buy a new stack, the forfeited chips will be
   # removed from play." This protects the chip-ledger conservation: a
   # re-entry adds a fresh starting stack to the player's seat AND removes
-  # the prior (forfeited) stack from total_chips_in_play. Without this, a
+  # the prior (forfeited) stack from total chips in play. Without this, a
   # re-entry would silently inflate the chip economy.
 
   @EU-1151
-  Scenario: Re-entry removes the player's prior forfeited chips from total_chips_in_play
+  Scenario: Re-entry removes the player's prior forfeited chips from total chips in play
     # Rule: TDA Rule 8B (2024) — re-entry forfeited chips removed from play.
     # Tournament with starting_stack=1500. player-A has been eliminated
     # earlier with 0 chips (busted) AND a separate scenario where they
     # forfeit 200 chips to re-enter. Total chips in play before the re-entry
     # is 6000 (4 players * 1500 starting). After the re-entry: 6000 - 200
     # forfeited + 1500 fresh = 7300.
-    Given a running tournament "Reentry" with starting_stack 1500 and 4 enrolled players
-    And total_chips_in_play is 6000
+    Given a running tournament "Reentry" with a starting stack of 1500 and 4 enrolled players
+    And total chips in play is 6000
     And player "Alice" has 200 chips remaining and elects to re-enter
     When player "Alice" re-enters forfeiting 200 chips
     Then player "Alice" forfeits 200 chips and receives 1500 chips
-    And total_chips_in_play is 7300
+    And total chips in play is 7300
 
   # ==========================================================================
   # Chip Race / Color-Up — TDA Rule 24
@@ -799,14 +799,14 @@ Feature: Tournament aggregate logic
     #       play will be removed without compensation." The rescue clause
     #       (24A) is the only legal chip-creation path during a race.
     # 3 players. Total chips before race = 6000. Race retires denom 25 to
-    # denom 100. After race: total_chips_in_play differs from before only
+    # denom 100. After race: total chips in play differs from before only
     # by the rescue clause and by removed odd-denomination chips that
     # didn't qualify; the difference must be auditable.
-    Given a running tournament "Race" with total_chips_in_play 6000
+    Given a running tournament "Race" with total chips in play 6000
     When the blind level advances with a chip-race retiring 25 to 100
     Then the color-up completes
     And the color-up records chips_added_by_rescue and chips_removed_by_race
-    And total_chips_in_play after race equals 6000 + chips_added_by_rescue - chips_removed_by_race
+    And total chips in play after race equals 6000 + chips_added_by_rescue - chips_removed_by_race
 
   # ==========================================================================
   # Hand-for-Hand — TDA RP-8
@@ -881,7 +881,7 @@ Feature: Tournament aggregate logic
   Scenario Outline: Penalty types — verbal warning, missed-hand, missed-round, disqualification
     # Rule: TDA Rule 71A (2024) — penalty options.
     # Rule: WSOP Rule 113 (2025) — penalty hierarchy.
-    Given a running tournament "Spring" with min_players 6, max_players 9, and 6 enrolled players
+    Given a running tournament "Spring" for 6 to 9 players with 6 enrolled
     And player "Alice" is at a table with 6 active players
     When player "Alice" is issued a "<type>" penalty for <rounds> rounds
     Then the penalty issued is of type "<type>" with <missed> missed hands
@@ -899,7 +899,7 @@ Feature: Tournament aggregate logic
     # Rule: TDA Rule 71C (2024) — "Players on penalty must be away from the
     #       table. Cards are dealt to their seats, their blinds and antes
     #       posted, their hands are killed after the initial deal."
-    Given a running tournament "Spring" with min_players 2 and max_players 9 and 2 enrolled players
+    Given a running tournament "Spring" for 2 to 9 players with 2 enrolled
     And player "Alice" is on a 1-round MISSED_ROUND penalty
     And the next hand at Alice's table has SB at Alice's seat
     When the next hand at Alice's table starts
@@ -913,12 +913,12 @@ Feature: Tournament aggregate logic
     # Rule: TDA Rule 71D (2024) — "Chips of a disqualified player shall be
     #       removed from play."
     # Rule: WSOP Rule 114 (2025) — same.
-    Given a running tournament "Spring" with min_players 2 and max_players 9 and 4 enrolled players
-    And player "Alice" has stack 1500 and tournament total_chips_in_play is 6000
+    Given a running tournament "Spring" for 2 to 9 players with 4 enrolled
+    And player "Alice" has stack 1500 and tournament total chips in play is 6000
     When player "Alice" is disqualified for "collusion"
     Then player "Alice" is disqualified forfeiting 1500 chips
-    And total_chips_in_play is 4500
-    And player "Alice" is no longer in registered_players
+    And total chips in play is 4500
+    And player "Alice" is no longer registered
 
   # ==========================================================================
   # Late Registration First-Hand Position — WSOP Rule 14
@@ -955,14 +955,14 @@ Feature: Tournament aggregate logic
   @EU-1314
   Scenario: No-show player after the first-break deadline has their chips removed
     # Rule: WSOP Rule 16 (2025) — no-show chip removal.
-    Given a running tournament "Spring" with starting_stack 1500
+    Given a running tournament "Spring" with a starting stack of 1500
     And player "Alice" enrolled but never took a hand before the first break ended
     And the new level after the first break has begun
     When the no-show deadline for "Spring" expires
     Then player "Alice" is marked a no-show
-    And player "Alice" chips are removed from total_chips_in_play
+    And player "Alice" chips are removed from total chips in play
     And player "Alice" buy-in 500 is held in safekeeping
-    And player "Alice" is not in players_remaining
+    And player "Alice" is no longer among the players remaining
 
   # ==========================================================================
   # Absent Player Blind Progression at Heads-Up — WSOP Rule 36
@@ -1118,7 +1118,7 @@ Feature: Tournament aggregate logic
     Given a running tournament with player "Carol" reported for soft play with player "Dave"
     When the floor disqualifies player "Carol" for soft play
     Then player "Carol" is disqualified for reason "SOFT_PLAY"
-    And player "Carol" chips are removed from total_chips_in_play
+    And player "Carol" chips are removed from total chips in play
 
   @EU-1375
   Scenario: End-of-day stop time pauses the tournament after the in-progress hand finishes
