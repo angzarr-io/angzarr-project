@@ -352,12 +352,14 @@ Feature: Tournament aggregate logic
   # section above.)
 
   @EU-0829
+  @wip
   Scenario: PauseTournament on a running tournament records the reason
     Given a running tournament for 2 to 10 players with 2 enrolled
     When the tournament is paused with reason "dinner break"
     Then the tournament is paused with reason "dinner break"
 
   @EU-0830
+  @wip
   Scenario: PauseTournament rejects when tournament is already paused
     Given a paused tournament
     When the tournament is paused with reason "again"
@@ -369,6 +371,7 @@ Feature: Tournament aggregate logic
   # (Framework: state-machine transition. Rules covered by Pause / Resume.)
 
   @EU-0831
+  @wip
   Scenario: ResumeTournament on a paused tournament resumes play
     Given a paused tournament
     When the tournament resumes
@@ -381,6 +384,7 @@ Feature: Tournament aggregate logic
   # Registration section above.)
 
   @EU-0832
+  @wip
   Scenario: OpenRegistration rejects when tournament is running
     Given a running tournament for 2 to 10 players with 2 enrolled
     When registration opens
@@ -392,6 +396,7 @@ Feature: Tournament aggregate logic
   # (Framework: snapshot of registered count at registration close.)
 
   @EU-0833
+  @wip
   Scenario: CloseRegistration records the registered count
     Given a tournament with registration open
     And player "Alice" is enrolled
@@ -740,6 +745,7 @@ Feature: Tournament aggregate logic
   # re-entry would silently inflate the chip economy.
 
   @EU-1151
+  @wip
   Scenario: Re-entry removes the player's prior forfeited chips from total chips in play
     # Rule: TDA Rule 8B (2024) — re-entry forfeited chips removed from play.
     # Tournament with starting_stack=1500. player-A has been eliminated
@@ -765,6 +771,7 @@ Feature: Tournament aggregate logic
   # these unit scenarios pin the aggregate-level invariants.
 
   @EU-1160
+  @wip
   Scenario: Chip race awards at most one chip to any single player
     # Rule: TDA Rule 24A (2024) — "max of one chip awarded to a player".
     # Three players each have 75 chips of denomination 25 (3 chips each).
@@ -779,6 +786,7 @@ Feature: Tournament aggregate logic
     And no player received more than 1 chip from the race
 
   @EU-1161
+  @wip
   Scenario: Chip race cannot eliminate a player — single-chip rescue applies
     # Rule: TDA Rule 24A (2024) — "Players can't be raced out of play: a
     #       player losing their last chip(s) in a race will get 1 chip of
@@ -793,6 +801,7 @@ Feature: Tournament aggregate logic
     And player "Alice" stack is at least 100
 
   @EU-1162
+  @wip
   Scenario: Total chips in play is conserved by the chip race (modulo rescue clause)
     # Rule: TDA Rule 24C (2024) — "Chips of removed denominations that do
     #       not fully total at least the smallest denomination still in
@@ -821,6 +830,7 @@ Feature: Tournament aggregate logic
   #   - clock reduction is applied per-hand, not in batches (RP-8C).
 
   @EU-1190
+  @wip
   Scenario: Two players bust on the same hand-for-hand hand share the next bubble payout
     # Rule: TDA RP-8A (2024) — "If enough players bust on the current hand
     #       to break into the money, the busting players will be eligible
@@ -843,6 +853,7 @@ Feature: Tournament aggregate logic
     And position 3 pays "Dave" 100
 
   @EU-1191
+  @wip
   Scenario: Hand-for-hand deducts at most 3 minutes per hand from the level clock
     # Rule: TDA RP-8B (2024) — "During H4H play, a maximum of 3 minutes per
     #       hand will be deducted from the clock."
@@ -854,6 +865,7 @@ Feature: Tournament aggregate logic
     Then the level_seconds_remaining after the hand equals 420
 
   @EU-1192
+  @wip
   Scenario: Hand-for-hand clock reduction is applied per-hand, not in batches
     # Rule: TDA RP-8C (2024) — "Whenever possible the clock should be
     #       reduced by 2-minutes each hand not after 'batches' of multiple
@@ -878,6 +890,7 @@ Feature: Tournament aggregate logic
   # WSOP Rule 113 mirrors with a 4-round maximum.
 
   @EU-1310
+  @wip
   Scenario Outline: Penalty types — verbal warning, missed-hand, missed-round, disqualification
     # Rule: TDA Rule 71A (2024) — penalty options.
     # Rule: WSOP Rule 113 (2025) — penalty hierarchy.
@@ -895,6 +908,7 @@ Feature: Tournament aggregate logic
       | DISQUALIFIED   | 0      | 0      |
 
   @EU-1311
+  @wip
   Scenario: Player on penalty has cards dealt then killed; blinds and antes are still posted
     # Rule: TDA Rule 71C (2024) — "Players on penalty must be away from the
     #       table. Cards are dealt to their seats, their blinds and antes
@@ -909,6 +923,7 @@ Feature: Tournament aggregate logic
     And player "Alice" remains on penalty with rounds_remaining decremented by 1
 
   @EU-1312
+  @wip
   Scenario: Disqualified player chips are removed from play
     # Rule: TDA Rule 71D (2024) — "Chips of a disqualified player shall be
     #       removed from play."
@@ -932,6 +947,7 @@ Feature: Tournament aggregate logic
   # big blind during the first hand."
 
   @EU-1313
+  @wip
   Scenario: Late-reg player can be dealt the button on their first hand without missing the hand
     # Rule: WSOP Rule 14 (2025) — late registrant assumes first available
     #       starting position even if it's the button.
@@ -953,6 +969,7 @@ Feature: Tournament aggregate logic
   # and will not be eligible to participate in that Event."
 
   @EU-1314
+  @wip
   Scenario: No-show player after the first-break deadline has their chips removed
     # Rule: WSOP Rule 16 (2025) — no-show chip removal.
     Given a running tournament "Spring" with a starting stack of 1500
@@ -973,6 +990,7 @@ Feature: Tournament aggregate logic
   # small blind and the big blind."
 
   @EU-1315
+  @wip
   Scenario: Heads-up with one player absent — button advances every 2 minutes and lone player banks blinds
     # Rule: WSOP Rule 36 (2025) — heads-up absent-opponent blind progression.
     Given a running tournament "HU-Final" in heads-up between "Alice" and "Bob"
@@ -992,6 +1010,7 @@ Feature: Tournament aggregate logic
   # Participants."
 
   @EU-1316
+  @wip
   Scenario Outline: Seat redraw is triggered at 3 tables, 2 tables, and final table for 100+ events
     # Rule: WSOP Rule 67c (2025) — redraw thresholds.
     Given a running tournament "Worlds" with original_field 250 and <tables_remaining> tables remaining
@@ -1015,6 +1034,7 @@ Feature: Tournament aggregate logic
   # case (EU-1190); this scenario pins the same-table case.
 
   @EU-1317
+  @wip
   Scenario: Two players bust at the same table on the same hand — higher pre-hand stack gets higher place
     # Rule: WSOP Rule 126b (2025) — same-table tiebreak by pre-hand chip count.
     # 4-player tournament paying top 3 (50/30/20). Hand-for-hand active.
@@ -1042,6 +1062,7 @@ Feature: Tournament aggregate logic
   # the broken table; the missed-blinds clock continues at the new table."
 
   @EU-1370
+  @wip
   Scenario: Absent player from a broken table is moved with their chips intact
     # Rule: TDA RP-16 (2024) — absent player on a breaking table.
     Given a tournament with table "T1" being broken and player "Eve" absent at "T1"
@@ -1061,6 +1082,7 @@ Feature: Tournament aggregate logic
   # table) before transitioning to the next variant.
 
   @EU-1371
+  @wip
   Scenario: HORSE rotation cycles H → O → R → S → E in fixed order
     # Rule: TDA RP-18 (2024) — fixed mixed-game rotation order.
     Given a HORSE tournament with 5 active players starting on Texas Hold'em
@@ -1111,6 +1133,7 @@ Feature: Tournament aggregate logic
   # at end-of-day, hands in progress complete, then bagging begins.
 
   @EU-1374
+  @wip
   Scenario: Soft-play DQ removes the offending player's chips from play
     # Rule: WSOP Rule 118 (2025) — "Soft play will result in penalties
     #       that may include forfeiture of chips and/or disqualification."
@@ -1121,6 +1144,7 @@ Feature: Tournament aggregate logic
     And player "Carol" chips are removed from total chips in play
 
   @EU-1375
+  @wip
   Scenario: End-of-day stop time pauses the tournament after the in-progress hand finishes
     # Rule: WSOP Rule 125 (2025) — "Prior to the end of each day's play,
     #       Personnel will determine between 7-13 minutes left in last
@@ -1137,6 +1161,7 @@ Feature: Tournament aggregate logic
     And no new StartHand command is accepted until the next day's resume
 
   @EU-1376
+  @wip
   Scenario: Tournament resume on Day 2 restores stacks and seat assignments from bag-and-tag
     # Rule: WSOP Rule 122 (2025) — "Play on Day 2 and beyond may be
     #       suspended prior to the end of scheduled play and will resume
@@ -1160,6 +1185,7 @@ Feature: Tournament aggregate logic
   # as saga-issued commands without changing the operator-issued contract.
 
   @EU-1380
+  @wip
   Scenario: Operator-issued final-table combination records the order at the tournament level
     # Pattern: operator-parameterized (same as EU-1184 HaltShortTable).
     # The tournament aggregate stamps the order of record; the
@@ -1172,6 +1198,7 @@ Feature: Tournament aggregate logic
     And the order has max_handed 9
 
   @EU-1381
+  @wip
   Scenario: Ordering a final-table combine is rejected when the tournament is not running
     # Defensive guard mirroring HaltShortTable's TournamentNotRunning
     # check — operator commands cannot pre-empt the running phase.

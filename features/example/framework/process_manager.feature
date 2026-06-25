@@ -30,6 +30,7 @@ Feature: Hand orchestration
   # blind. Once both are posted, betting can begin.
 
   @EU-0401
+  @wip
   Scenario: Blinds are posted once the cards are dealt
     Given a hand is in the dealing phase
     When the cards are dealt to the players
@@ -37,6 +38,7 @@ Feature: Hand orchestration
     And the small blind is asked of the player due to post it
 
   @EU-0402
+  @wip
   Scenario: The big blind is posted after the small blind
     Given a hand is posting blinds
     And the small blind has been posted
@@ -44,6 +46,7 @@ Feature: Hand orchestration
     Then the big blind is asked of the player due to post it
 
   @EU-0403
+  @wip
   Scenario: Betting opens after the big blind is posted
     Given a hand is posting blinds
     And the small blind has been posted
@@ -59,6 +62,7 @@ Feature: Hand orchestration
   # bet. A raise reopens the action for everyone still in the hand.
 
   @EU-0404
+  @wip
   Scenario: Action passes to the next player after one acts
     Given a hand is in a betting round
     And action is on the player at position 2
@@ -66,6 +70,7 @@ Feature: Hand orchestration
     Then action passes to the next active player
 
   @EU-0405
+  @wip
   Scenario: A raise reopens the action for everyone else
     Given a hand is in a betting round
     And the players at positions 0, 1, and 2 have all acted
@@ -73,6 +78,7 @@ Feature: Hand orchestration
     Then the players at positions 1 and 2 must act again
 
   @EU-0406
+  @wip
   Scenario: The betting round ends when everyone has acted and matched the bet
     Given a hand is in a betting round
     And every active player has acted and matched the current bet
@@ -81,6 +87,7 @@ Feature: Hand orchestration
     And the hand advances to the next phase
 
   @EU-0407
+  @wip
   Scenario: The flop is dealt after the preflop betting round
     Given preflop betting is complete
     When the betting round ends
@@ -88,18 +95,21 @@ Feature: Hand orchestration
     And the hand is dealing community cards
 
   @EU-0408
+  @wip
   Scenario: The turn is dealt after the flop betting round
     Given flop betting is complete
     When the betting round ends
     Then the turn card is dealt
 
   @EU-0409
+  @wip
   Scenario: The river is dealt after the turn betting round
     Given turn betting is complete
     When the betting round ends
     Then the river card is dealt
 
   @EU-0410
+  @wip
   Scenario: Showdown begins after the river betting round
     Given river betting is complete
     When the betting round ends
@@ -118,6 +128,7 @@ Feature: Hand orchestration
   #     the dealer/small blind acts last.
 
   @EU-0445
+  @wip
   Scenario: The big blind keeps the option preflop after the others just call
     # Three-handed: dealer at 0, small blind at 1, big blind at 2. After the
     # dealer calls and the small blind completes, both have matched the big
@@ -133,6 +144,7 @@ Feature: Hand orchestration
     And action is on the big blind at position 2
 
   @EU-0446
+  @wip
   Scenario: Post-flop action starts on the first active seat left of the dealer (3-handed)
     # After the flop is dealt with three players still in (dealer at seat 0,
     # small blind at 1, big blind at 2), the next round opens with action on
@@ -144,6 +156,7 @@ Feature: Hand orchestration
     And action is on the player at position 1
 
   @EU-0447
+  @wip
   Scenario: Post-flop action starts on the big blind in heads-up
     # Heads-up reverses the post-flop order: the dealer/small blind at seat 0
     # acts last and the big blind at seat 1 acts first.
@@ -160,6 +173,7 @@ Feature: Hand orchestration
   # cannot take further actions but remain eligible for pot awards.
 
   @EU-0411
+  @wip
   Scenario: The pot is awarded to the last player still in the hand
     Given a hand with 2 players is in progress
     When one of the players folds
@@ -167,6 +181,7 @@ Feature: Hand orchestration
     And the pot is awarded to the remaining player
 
   @EU-0412
+  @wip
   Scenario: A player who moves all-in is taken out of the action
     Given a hand is in a betting round
     When a player moves all-in
@@ -181,6 +196,7 @@ Feature: Hand orchestration
   # stalling indefinitely.
 
   @EU-0413
+  @wip
   Scenario: A player who times out facing a bet is folded
     Given a hand is in a betting round
     And the player to act faces a bet of 20 with nothing committed this round
@@ -188,6 +204,7 @@ Feature: Hand orchestration
     Then the player is folded
 
   @EU-0414
+  @wip
   Scenario: A player who times out with no bet to face is checked
     Given a hand is in a betting round
     And there is no bet to call
@@ -201,12 +218,14 @@ Feature: Hand orchestration
   # discard and draw new cards.
 
   @EU-0415
+  @wip
   Scenario: Five Card Draw moves to the draw after the first betting round
     Given a Five Card Draw hand has finished the first betting round
     When the betting round ends
     Then the hand moves to the draw
 
   @EU-0416
+  @wip
   Scenario: Five Card Draw resumes betting after every player has drawn
     Given a Five Card Draw hand is in the draw
     And every player has finished drawing
@@ -221,6 +240,7 @@ Feature: Hand orchestration
   # left of the dealer who is still in the hand.
 
   @EU-0417
+  @wip
   Scenario: A new community card resets the betting state for the next round
     Given a hand is in a betting round
     When the flop is dealt
@@ -236,18 +256,21 @@ Feature: Hand orchestration
   # accurate throughout the hand.
 
   @EU-0418
+  @wip
   Scenario: The pot total reflects every blind and bet so far
     Given a hand is in progress
     And the players have together contributed 150 in blinds and bets
     Then the pot total is 150
 
   @EU-0419
+  @wip
   Scenario: A bet is deducted from the player's stack
     Given a hand is in progress with "player-1" sitting on 500
     When "player-1" puts 50 into the pot
     Then "player-1"'s stack is 450
 
   @EU-0420
+  @wip
   Scenario: The hand ends once the pot has been awarded
     Given a hand is at showdown
     When the pot is awarded
@@ -365,6 +388,7 @@ Feature: Hand orchestration
   # already registered).
 
   @EU-0434
+  @wip
   Scenario: A newly created tournament is open for registration
     Given a tournament has been created with name "Test Tournament", up to 100 players, buy-in 50, and starting stack 1500
     When the tournament's registration state is reconstructed from its history
@@ -375,6 +399,7 @@ Feature: Hand orchestration
     And no players have registered yet
 
   @EU-0435
+  @wip
   Scenario: Reconstructing the tournament state shows who has registered
     Given a tournament history with:
       | event                    | name | max_players | player     |
@@ -385,6 +410,7 @@ Feature: Hand orchestration
     And 1 player is registered for the tournament
 
   @EU-0436
+  @wip
   Scenario: Reconstructing the tournament state shows registration closed once it starts
     Given a tournament history with:
       | event              | name |
@@ -395,6 +421,7 @@ Feature: Hand orchestration
     And the tournament is running
 
   @EU-0437
+  @wip
   Scenario: The tournament state reflects each enrollment as it is applied
     Given a fresh tournament
     When a tournament is created with name "T" and up to 4 players

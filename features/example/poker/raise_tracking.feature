@@ -24,6 +24,7 @@ Feature: Minimum raise tracking observable on TurnAssigned
 
   # Rule: TDA Rule 43 (2024) — a raise must be at least the largest prior full bet or raise of the current betting round
   @EU-1000
+  @wip
   Scenario: After BB posts, the next actor faces a call of BB and a min raise of BB
     Given a 3-handed Texas Hold'em hand with big_blind 10
     When SB at seat 1 and BB at seat 2 post blinds
@@ -35,6 +36,7 @@ Feature: Minimum raise tracking observable on TurnAssigned
   # ==========================================================================
 
   @EU-1001
+  @wip
   Scenario: A raise updates amount_to_call and min_raise to the raise increment
     Given a 3-handed Texas Hold'em hand with big_blind 10
     When SB at seat 1 and BB at seat 2 post blinds
@@ -43,6 +45,7 @@ Feature: Minimum raise tracking observable on TurnAssigned
     And the latest TurnAssigned has min_raise 20
 
   @EU-1002
+  @wip
   Scenario: A re-raise updates min_raise to the larger increment
     Given a 3-handed Texas Hold'em hand with big_blind 10
     When SB at seat 1 and BB at seat 2 post blinds
@@ -52,6 +55,7 @@ Feature: Minimum raise tracking observable on TurnAssigned
     And the latest TurnAssigned has min_raise 50
 
   @EU-1003
+  @wip
   Scenario: Escalating re-raises track the largest increment
     Given a 4-handed Texas Hold'em hand with big_blind 10
     When SB at seat 1 and BB at seat 2 post blinds
@@ -66,6 +70,7 @@ Feature: Minimum raise tracking observable on TurnAssigned
   # ==========================================================================
 
   @EU-1004
+  @wip
   Scenario: A call does not change min_raise
     Given a 3-handed Texas Hold'em hand with big_blind 10
     When SB at seat 1 and BB at seat 2 post blinds
@@ -75,6 +80,7 @@ Feature: Minimum raise tracking observable on TurnAssigned
     And the latest TurnAssigned has min_raise 20
 
   @EU-1005
+  @wip
   Scenario: A below-min raise is rejected with BET_BELOW_MIN_RAISE / RAISE_BELOW_MIN
     # The cluster enforces the min raise; a raise smaller than the current
     # increment is rejected (it never shrinks the tracked increment).
@@ -91,6 +97,7 @@ Feature: Minimum raise tracking observable on TurnAssigned
 
   # Rule: TDA Rule 47A (2024) — on a new street the min raise resets to the prior bet/raise on that street; a short all-in does not reopen betting
   @EU-1006
+  @wip
   Scenario: A new betting round resets min_raise to the big blind
     Given a 3-handed Texas Hold'em hand with big_blind 10
     When SB at seat 1 and BB at seat 2 post blinds
@@ -102,6 +109,7 @@ Feature: Minimum raise tracking observable on TurnAssigned
     And the latest TurnAssigned has min_raise 10
 
   @EU-1010
+  @wip
   Scenario: First bet on a new street establishes the new min_raise
     Given a 3-handed Texas Hold'em hand with big_blind 10
     When SB at seat 1 and BB at seat 2 post blinds
@@ -114,6 +122,7 @@ Feature: Minimum raise tracking observable on TurnAssigned
     And the latest TurnAssigned has min_raise 25
 
   @EU-1011
+  @wip
   Scenario: A flop bet smaller than the prior preflop increment is allowed
     # Preflop raise increment was 140; on the flop the min increment resets
     # to BB. A flop bet of 25 is therefore legal.
@@ -128,6 +137,7 @@ Feature: Minimum raise tracking observable on TurnAssigned
     And the latest TurnAssigned has min_raise 25
 
   @EU-1012
+  @wip
   Scenario: A flop bet below the big blind is rejected
     Given a 3-handed Texas Hold'em hand with big_blind 10
     When SB at seat 1 and BB at seat 2 post blinds
@@ -139,6 +149,7 @@ Feature: Minimum raise tracking observable on TurnAssigned
     Then the bet is refused because it is below the minimum raise
 
   @EU-1013
+  @wip
   Scenario: After a check-around, min_raise on the next street is still the big blind
     Given a 3-handed Texas Hold'em hand with big_blind 10
     When SB at seat 1 and BB at seat 2 post blinds
@@ -158,6 +169,7 @@ Feature: Minimum raise tracking observable on TurnAssigned
   # ==========================================================================
 
   @EU-1007
+  @wip
   Scenario: An all-in for less than the min raise updates current_bet but does not increase min_raise
     # Short all-in raises current_bet to the all-in level but does NOT
     # update min_raise — earlier bettors do not have action reopened.

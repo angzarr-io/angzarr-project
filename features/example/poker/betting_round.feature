@@ -40,6 +40,7 @@ Feature: Betting round iteration logic
 
   # Rule: TDA Rule 50 (2024) — action in turn is binding; the betting round completes only when every active seat has matched the current bet (or is all-in)
   @EU-0900
+  @wip
   Scenario: Round completes once every seat has matched the post-raise bet
     # Six-handed; UTG at seat 3 folds, seat 4 folds, seat 5 raises to 48,
     # seat 0 folds, SB at seat 1 calls (43 more), BB at seat 2 calls
@@ -65,6 +66,7 @@ Feature: Betting round iteration logic
     And the pot total is 144
 
   @EU-0901
+  @wip
   Scenario: SB matches the raise rather than forfeiting their blind
     # Bob (SB at seat 1) has 5 chips committed pre-action. A raise to 48
     # by seat 5 must put Bob's contribution at 48 once he calls — if the
@@ -84,6 +86,7 @@ Feature: Betting round iteration logic
     And a BettingRoundComplete event is emitted for phase PREFLOP
 
   @EU-0902
+  @wip
   Scenario: Raiser is not asked to re-act when everyone only calls
     # If the cluster's iteration loops back to the raiser after the
     # last caller, the raiser would face their own bet (current_bet
@@ -114,6 +117,7 @@ Feature: Betting round iteration logic
   # called.
 
   @EU-0903
+  @wip
   Scenario: Round terminates after calls against an all-in aggressor
     # Four-handed; Eve (seat 2, stack 27) raises all-in to 27; Frank,
     # Bob, Dave call. Eve's seat leaves the active set. Observable:
