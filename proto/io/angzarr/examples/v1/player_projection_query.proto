@@ -1,0 +1,38 @@
+syntax = "proto3";
+package io.angzarr.examples.v1;
+
+import "io/angzarr/examples/v1/poker_types.proto";
+
+option csharp_namespace = "Angzarr.Examples";
+option go_package = "github.com/benjaminabbitt/angzarr/client/go/proto/io/angzarr/examples/v1;examples";
+option java_multiple_files = true;
+option java_package = "io.angzarr.examples";
+option ruby_package = "Angzarr::Examples";
+
+// Read-model query for the PlayerBalanceProjection (projection.proto). This is
+// an EXAMPLE-specific read API, not part of the component dispatch model: the
+// read-model shape is example-specific, so it cannot ride the generic framework
+// services the way commands/events do. It mirrors the framework EventQueryService
+// in spirit — a side read surface — but serves the projector's materialized
+// bankroll read model rather than raw events. Served by the player projector
+// service process alongside the framework ProjectorService, so a client can
+// observe read-model eventual consistency from outside the write side
+// (cluster scenario EA-0004).
+service PlayerProjectionQueryService {
+  // The current materialized bankroll for a player, or found=false if the
+  // projection has not yet observed that player.
+  rpc GetPlayerBalance(GetPlayerBalanceRequest) returns (PlayerBalanceView);
+}
+
+message GetPlayerBalanceRequest {
+  bytes player_root = 1;
+}
+
+message PlayerBalanceView {
+  bytes player_root = 1;
+  string display_name = 2;
+  Currency balance = 3;
+  // False when the projection has not yet folded any event for this player_root
+  // (lets a caller distinguish "not seen yet" from a genuine zero balance).
+  bool found = 4;
+}

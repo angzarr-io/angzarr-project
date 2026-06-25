@@ -99,6 +99,7 @@ message RequestAction {
 
 message PlayerRegistered {
   option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.OutputProjection" domain: "player" };
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.PlayerBalanceProjection" domain: "player" };
   option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.PlayerState" };
   string display_name = 1;
   string email = 2;
@@ -109,6 +110,7 @@ message PlayerRegistered {
 
 message FundsDeposited {
   option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.OutputProjection" domain: "player" };
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.PlayerBalanceProjection" domain: "player" };
   option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.PlayerState" };
   Currency amount = 1;
   Currency new_balance = 2; // Absolute value after deposit
@@ -117,6 +119,7 @@ message FundsDeposited {
 
 message FundsWithdrawn {
   option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.OutputProjection" domain: "player" };
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.PlayerBalanceProjection" domain: "player" };
   option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.PlayerState" };
   Currency amount = 1;
   Currency new_balance = 2; // Absolute value after withdrawal

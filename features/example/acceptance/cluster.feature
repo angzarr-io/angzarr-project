@@ -72,11 +72,12 @@ Feature: Cluster Acceptance
   # ===========================================================================
 
   # CLUSTER-ONLY: validated against deployed standalone.yaml
-  # Tagged @wip until a ProjectorQuery surface exists. The previous
-  # impl polled the in-test bookkeeping mirror (which the When step had
-  # already set), so the assertion never observed the actual projector
-  # — see ACCEPTANCE_REMEDIATION_PLAN.md Pattern J.
-  @projector @consistency @cluster @wip
+  # The PlayerProjector folds player-domain funds events into a bankroll read
+  # model and serves it over PlayerProjectionQueryService; the Then step polls
+  # that deployed query surface, so the assertion observes the ACTUAL projector
+  # folding the deposit off the bus — not the in-test bookkeeping mirror the
+  # earlier impl re-read (remediation Pattern A).
+  @projector @consistency @cluster
   @EA-0004
   Scenario: Player display reflects a deposit within bound
     Given a registered player "Alice" with bankroll 0

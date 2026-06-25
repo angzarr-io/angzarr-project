@@ -2,6 +2,7 @@ syntax = "proto3";
 package io.angzarr.examples.v1;
 
 import "io/angzarr/v1/options.proto";
+import "io/angzarr/examples/v1/poker_types.proto";
 
 option csharp_namespace = "Angzarr.Examples";
 option go_package = "github.com/benjaminabbitt/angzarr/client/go/proto/io/angzarr/examples/v1;examples";
@@ -57,4 +58,25 @@ message TrainingProjection {
   // Metadata.
   string game_variant = 25;
   int64 big_blind = 26;
+}
+
+// PlayerBalanceProjection materializes a per-player bankroll read model — the
+// "player display" of available chips. It consumes player-domain funds events
+// (PlayerRegistered, FundsDeposited, FundsWithdrawn; the (event) triggers are
+// declared on those messages in player.proto) and keeps one row per player
+// keyed by player_root, upserting `balance` to the absolute value each funds
+// event carries. This is a read model SEPARATE from the player aggregate, so it
+// is observed for eventual-consistency bounds from outside the write side
+// (cluster scenario EA-0004). Queried via PlayerProjectionQueryService
+// (player_projection_query.proto). Distinct from the cross-domain OutputProjector
+// narrator, which stays an auxiliary rendered view.
+message PlayerBalanceProjection {
+  option (io.angzarr.v1.component) = {
+    kind: COMPONENT_KIND_PROJECTOR
+    input_domain: "player"
+    name: "PlayerProjector"
+  };
+  bytes player_root = 1;
+  string display_name = 2;
+  Currency balance = 3; // Absolute bankroll after the latest funds event
 }
