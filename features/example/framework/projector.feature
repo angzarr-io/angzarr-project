@@ -102,74 +102,70 @@ Feature: Game display rendering
   @EU-0509
   Scenario: Dealt hole cards appear in the display
     Given the game display knows Alice
-    When Alice is dealt As Kh
+    When the display records Alice dealt As Kh
     Then the display shows "Alice: [As Kh]"
 
-  # @wip: the "posts the small blind" phrasing is shared with the hand
-  # aggregate's step (dispatches to the hand domain, not the display); needs a
-  # display-specific phrasing before it can be rendered through the projector.
-  @wip
   @EU-0510
   Scenario: A posted blind appears in the display
     Given the game display knows Alice
-    When Alice posts the small blind of 5
+    When the display records Alice posting the small blind of 5
     Then the display shows "Alice posts SMALL $5"
 
   @EU-0511
   Scenario: A fold appears in the display
     Given the game display knows Alice
-    When Alice folds
+    When the display records Alice folding
     Then the display shows "Alice folds"
 
   @EU-0512
   Scenario: A call appears in the display with the pot total
     Given the game display knows Alice
-    When Alice calls 10 making the pot 25
+    When the display records Alice calling 10 with the pot at 25
     Then the display shows "Alice calls $10"
     And the display shows "pot: $25"
 
   @EU-0513
   Scenario: A raise appears in the display
     Given the game display knows Alice
-    When Alice raises to 30 making the pot 55
+    When the display records Alice raising to 30 with the pot at 55
     Then the display shows "Alice raises to $30"
 
   @EU-0514
   Scenario: An all-in appears in the display
     Given the game display knows Alice
-    When Alice goes all-in for 500 making the pot 600
+    When the display records Alice going all-in for 500 with the pot at 600
     Then the display shows "Alice all-in $500"
 
   @EU-0515
   Scenario: The flop appears in the display
     Given the game display
-    When the flop is dealt Ah Kd 7s
+    When the display records the flop Ah Kd 7s
     Then the display shows "Flop: [Ah Kd 7s]"
     And the display shows "Board:"
 
   @EU-0516
   Scenario: The turn appears in the display
     Given the game display
-    When the turn is dealt 2c
+    When the display records the turn 2c
     Then the display shows "Turn: [2c]"
 
   @EU-0517
   Scenario: The start of the showdown appears in the display
     Given the game display
-    When the showdown begins
+    When the display records the showdown beginning
     Then the display shows "SHOWDOWN"
 
   @EU-0518
   Scenario: Revealed cards appear in the display with the ranking
     Given the game display knows Alice
-    When Alice reveals As Ad with a pair
+    When the display records Alice revealing As Ad with a pair
     Then the display shows "Alice shows [As Ad]"
     And the display shows "Pair"
 
   @EU-0519
   Scenario: Mucked cards appear in the display
     Given the game display knows Alice
-    When Alice mucks her cards
+    When the display records Alice mucking
     Then the display shows "Alice mucks"
 
   @EU-0520
