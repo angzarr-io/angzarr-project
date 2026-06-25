@@ -348,6 +348,7 @@ message ReEntryPlayer {
 // out by another. Coordinator emits BountyAwarded; downstream player
 // aggregates receive funds.
 message AwardBounty {
+  option (io.angzarr.v1.command) = { component: "io.angzarr.examples.v1.TournamentState" };
   bytes eliminator_root = 1;
   bytes knocked_out_root = 2;
   int64 amount = 3;
@@ -408,6 +409,8 @@ message TournamentCreated {
   google.protobuf.Timestamp created_at = 11;
   int32 registration_cutoff_level = 12;
   repeated PayoutPosition payout_structure = 13;
+  // Per-knockout bounty (TDA RP-22 / WSOP Rule 39). 0 = no bounty.
+  int64 bounty_per_knockout = 14;
 }
 
 message RegistrationOpened {
@@ -718,6 +721,7 @@ message PlayerDisqualified {
 // TDA RP-22 / WSOP Rule 39 emit — bounty awarded to the player who
 // knocked an opponent out.
 message BountyAwarded {
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.TournamentState" };
   bytes eliminator_root = 1;
   bytes knocked_out_root = 2;
   int64 amount = 3;
