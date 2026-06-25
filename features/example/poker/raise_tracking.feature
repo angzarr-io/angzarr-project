@@ -82,7 +82,7 @@ Feature: Minimum raise tracking observable on TurnAssigned
     When SB at seat 1 and BB at seat 2 post blinds
     And seat 0 raises to 30
     And seat 1 attempts to raise to 35
-    Then the last raise command is rejected with code "RAISE_BELOW_MIN"
+    Then the raise is refused because it is below the minimum
 
   # ==========================================================================
   # Cross-Round Reset — TDA Rule 47A
@@ -136,7 +136,7 @@ Feature: Minimum raise tracking observable on TurnAssigned
     And seat 2 checks
     And the flop is dealt
     And seat 1 attempts to bet 5
-    Then the last bet command is rejected with code "BET_BELOW_MIN_RAISE"
+    Then the bet is refused because it is below the minimum raise
 
   @EU-1013
   Scenario: After a check-around, min_raise on the next street is still the big blind

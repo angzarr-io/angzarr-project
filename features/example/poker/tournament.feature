@@ -168,10 +168,10 @@ Feature: Tournament aggregate logic
     Then player "player1" is enrolled paying a fee of 100
 
   @EU-0813
-  Scenario: Enrollment rejected with empty player_root
+  Scenario: Enrollment rejected when no player identity is supplied
     Given a tournament with registration open
     When player "" enrolls with reservation ""
-    Then the enrollment is rejected because of "player_root"
+    Then the enrollment is rejected because a player identity is required
 
   @EU-0814
   Scenario: Enrollment rejected when registration is not open
@@ -182,9 +182,9 @@ Feature: Tournament aggregate logic
   @EU-0815
   Scenario: Enrollment rejected when tournament is full
     Given a tournament with max_players 2 and min_players 2 and registration open
-    And player "p1" is enrolled
-    And player "p2" is enrolled
-    When player "p3" enrolls with reservation ""
+    And player "Alice" is enrolled
+    And player "Bob" is enrolled
+    When player "Carol" enrolls with reservation ""
     Then the enrollment is rejected because of "full"
 
   @EU-0816
@@ -207,7 +207,7 @@ Feature: Tournament aggregate logic
   @EU-0817
   Scenario: Rebuy rejected when tournament is not running
     Given a tournament with registration open
-    When player "p1" requests a rebuy
+    When player "Alice" requests a rebuy
     Then the rebuy is refused because the tournament is not running
 
   @EU-0818
@@ -231,7 +231,7 @@ Feature: Tournament aggregate logic
   @EU-0819
   Scenario: Eliminate rejected when tournament is not running
     Given a tournament with registration open
-    When player "p1" is eliminated
+    When player "Alice" is eliminated
     Then the elimination is refused because the tournament is not running
 
   # ==========================================================================
@@ -263,15 +263,15 @@ Feature: Tournament aggregate logic
   @EU-0822
   Scenario: Start tournament with enough players
     Given a tournament with min_players 2 and max_players 10 and registration open
-    And player "p1" is enrolled
-    And player "p2" is enrolled
+    And player "Alice" is enrolled
+    And player "Bob" is enrolled
     When the tournament starts
     Then the tournament is running with 2 players
 
   @EU-0823
   Scenario: Cannot start without enough players
     Given a tournament with min_players 2 and max_players 10 and registration open
-    And player "p1" is enrolled
+    And player "Alice" is enrolled
     When the tournament starts
     Then the start is refused because there are not enough players
 
@@ -284,7 +284,7 @@ Feature: Tournament aggregate logic
   @EU-0824
   Scenario: EnrollPlayer rejects when the tournament does not exist
     Given the tournament has not yet been created
-    When player "p1" enrolls with reservation ""
+    When player "Alice" enrolls with reservation ""
     Then the enrollment is refused because the tournament does not exist
 
   # ==========================================================================
@@ -336,7 +336,7 @@ Feature: Tournament aggregate logic
   @EU-0827
   Scenario: EliminatePlayer records the supplied hand_root on the elimination
     Given a running tournament with min_players 2 and max_players 10 and 2 enrolled players
-    When player "p0" is eliminated on hand "hand-01"
+    When player "Alice" is eliminated on hand "hand-01"
     Then the elimination records hand "hand-01"
 
   @EU-0828
@@ -394,7 +394,7 @@ Feature: Tournament aggregate logic
   @EU-0833
   Scenario: CloseRegistration records the registered count
     Given a tournament with registration open
-    And player "p1" is enrolled
+    And player "Alice" is enrolled
     When registration closes
     Then registration is closed with 1 total registrations
 
@@ -408,19 +408,19 @@ Feature: Tournament aggregate logic
   @EU-0834
   Scenario: ProcessRebuy succeeds for an enrolled player with rebuys enabled
     Given a running tournament with rebuys enabled and 1 enrolled player
-    When player "p0" requests a rebuy
+    When player "Alice" requests a rebuy
     Then the rebuy is processed at cost 100 adding 1000 chips for rebuy 1
 
   @EU-0835
   Scenario: ProcessRebuy rejects when the tournament does not exist
     Given the tournament has not yet been created
-    When player "p0" requests a rebuy
+    When player "Alice" requests a rebuy
     Then the rebuy is refused because the tournament does not exist
 
   @EU-0836
   Scenario: ProcessRebuy denies the rebuy when rebuys are not enabled
     Given a running tournament with min_players 2 and max_players 10 and 2 enrolled players
-    When player "p0" requests a rebuy
+    When player "Alice" requests a rebuy
     Then the rebuy is denied because of "not enabled"
 
   # ==========================================================================
@@ -435,31 +435,31 @@ Feature: Tournament aggregate logic
   @EU-0837
   Scenario: ProcessRebuy denies the rebuy when rebuys are disabled in config
     Given a running tournament with rebuys disabled and 1 enrolled player
-    When player "p0" requests a rebuy
+    When player "Alice" requests a rebuy
     Then the rebuy is denied because of "not enabled"
 
   @EU-0838
   Scenario: ProcessRebuy denies the rebuy when current level is past the cutoff
     Given a running tournament with rebuy cutoff 2 and 1 enrolled player at level 5
-    When player "p0" requests a rebuy
+    When player "Alice" requests a rebuy
     Then the rebuy is denied because of "closed"
 
   @EU-0839
   Scenario: ProcessRebuy denies the rebuy when player has reached max rebuys
-    Given a running tournament with max_rebuys 2 and player "p0" who has used 2 rebuys
-    When player "p0" requests a rebuy
+    Given a running tournament with max_rebuys 2 and player "Alice" who has used 2 rebuys
+    When player "Alice" requests a rebuy
     Then the rebuy is denied because of "Maximum"
 
   @EU-0840
   Scenario: ProcessRebuy succeeds when rebuy_level_cutoff is 0 (cutoff check disabled)
     Given a running tournament with rebuy cutoff 0 and 1 enrolled player at level 99
-    When player "p0" requests a rebuy
+    When player "Alice" requests a rebuy
     Then the rebuy is processed as rebuy 1
 
   @EU-0841
   Scenario: ProcessRebuy succeeds when max_rebuys is 0 (unlimited rebuys)
-    Given a running tournament with max_rebuys 0 and player "p0" who has used 100 rebuys
-    When player "p0" requests a rebuy
+    Given a running tournament with max_rebuys 0 and player "Alice" who has used 100 rebuys
+    When player "Alice" requests a rebuy
     Then the rebuy is processed
 
   # ==========================================================================
@@ -501,7 +501,7 @@ Feature: Tournament aggregate logic
   Scenario: Rebuild state after registration closes leaves pool and count unchanged
     Given tournament "Spring" exists with 500 buy-in, 10000 starting stack, max 9 players, min 2 players
     And registration has opened
-    And player "p1" was enrolled paying 500
+    And player "Alice" was enrolled paying 500
     And registration has closed
     When I rebuild the tournament state
     Then the tournament state has status "RegistrationOpen"
@@ -513,19 +513,19 @@ Feature: Tournament aggregate logic
   Scenario: Rebuild state after a player is enrolled adds registration and grows pool
     Given tournament "Spring" exists with 500 buy-in, 10000 starting stack, max 9 players, min 2 players
     And registration has opened
-    And player "p1" was enrolled paying 500
+    And player "Alice" was enrolled paying 500
     When I rebuild the tournament state
     Then the tournament state has registered_players count 1
     And the tournament state has total_prize_pool 500
     And the tournament state has players_remaining 1
-    And the tournament state has rebuys_used 0 for player "p1"
+    And the tournament state has rebuys_used 0 for player "Alice"
 
   @EU-0846
   Scenario: Rebuild state after a rejected enrollment leaves pool and count unchanged
     Given tournament "Spring" exists with 500 buy-in, 10000 starting stack, max 9 players, min 2 players
     And registration has opened
-    And player "p1" was enrolled paying 500
-    And player "p2" was rejected from enrollment because of "full"
+    And player "Alice" was enrolled paying 500
+    And player "Bob" was rejected from enrollment because of "full"
     When I rebuild the tournament state
     Then the tournament state has total_prize_pool 500
     And the tournament state has registered_players count 1
@@ -543,8 +543,8 @@ Feature: Tournament aggregate logic
   Scenario: Rebuild state after a denied rebuy is a no-op
     Given tournament "Spring" exists with 500 buy-in, 10000 starting stack, max 9 players, min 2 players
     And registration has opened
-    And player "p1" was enrolled paying 500
-    And player "p1" was denied a rebuy because of "max_reached"
+    And player "Alice" was enrolled paying 500
+    And player "Alice" was denied a rebuy because of "max_reached"
     When I rebuild the tournament state
     Then the tournament state has total_prize_pool 500
     And the tournament state has registered_players count 1
@@ -560,13 +560,13 @@ Feature: Tournament aggregate logic
   Scenario: Rebuild state after an elimination removes the entry and decrements remaining
     Given tournament "Spring" exists with 500 buy-in, 10000 starting stack, max 9 players, min 2 players
     And registration has opened
-    And player "p1" was enrolled paying 500
-    And player "p2" was enrolled paying 500
-    And player "p1" was eliminated previously
+    And player "Alice" was enrolled paying 500
+    And player "Bob" was enrolled paying 500
+    And player "Alice" was eliminated previously
     When I rebuild the tournament state
     Then the tournament state has registered_players count 1
     And the tournament state has players_remaining 1
-    And the tournament state has no registered player "p1"
+    And the tournament state has no registered player "Alice"
 
   @EU-0851
   Scenario: Rebuild state after the tournament was paused transitions to Paused
@@ -594,12 +594,12 @@ Feature: Tournament aggregate logic
   Scenario: Rebuild state with two rebuys accumulates rebuys_used and prize pool
     Given tournament "Spring" exists with 500 buy-in, 10000 starting stack, max 9 players, min 2 players
     And registration has opened
-    And player "p1" was enrolled paying 500
-    And player "p1" had a rebuy processed at cost 100 for rebuy 1
-    And player "p1" had a rebuy processed at cost 150 for rebuy 2
+    And player "Alice" was enrolled paying 500
+    And player "Alice" had a rebuy processed at cost 100 for rebuy 1
+    And player "Alice" had a rebuy processed at cost 150 for rebuy 2
     When I rebuild the tournament state
     Then the tournament state has total_prize_pool 750
-    And the tournament state has rebuys_used 2 for player "p1"
+    And the tournament state has rebuys_used 2 for player "Alice"
 
   # ==========================================================================
   # Late Registration
@@ -622,8 +622,8 @@ Feature: Tournament aggregate logic
     # AFTER the start while registration is still open. They are enrolled and
     # added to the prize pool.
     Given a running tournament with registration open and 2 enrolled players
-    When player "p3" enrolls with reservation "res-3"
-    Then player "p3" is enrolled paying a fee of 100
+    When player "Carol" enrolls with reservation "res-3"
+    Then player "Carol" is enrolled paying a fee of 100
     And the tournament state has registered_players count 3
     And the tournament state has players_remaining 3
 
@@ -633,8 +633,8 @@ Feature: Tournament aggregate logic
     # already in play (TDA Rule 30 — late registrants do not receive a
     # discounted stack). Pin starting_stack on enrollment.
     Given a running tournament with starting_stack 1500, registration open, and 2 enrolled players
-    When player "p3" enrolls with reservation "res-3"
-    Then player "p3" is enrolled with starting stack 1500
+    When player "Carol" enrolls with reservation "res-3"
+    Then player "Carol" is enrolled with starting stack 1500
 
   @EU-0859
   Scenario: Registration auto-closes when the cutoff level is reached
@@ -643,7 +643,7 @@ Feature: Tournament aggregate logic
     # subsequent enrollment is rejected with the "not open" reason — same
     # rejection path as an explicit close.
     Given a running tournament with registration_cutoff_level 3 at level 4 and 2 enrolled players
-    When player "p3" enrolls with reservation "res-3"
+    When player "Carol" enrolls with reservation "res-3"
     Then the enrollment is rejected because of "not open"
 
   @EU-0860
@@ -653,7 +653,7 @@ Feature: Tournament aggregate logic
     # the tournament is still running.
     Given a running tournament with 2 enrolled players
     When registration closes
-    And player "p3" enrolls with reservation "res-3"
+    And player "Carol" enrolls with reservation "res-3"
     Then the enrollment is rejected because of "not open"
 
   # ==========================================================================
@@ -663,32 +663,32 @@ Feature: Tournament aggregate logic
   #       entrants and type of Event. Prizes are paid out as posted."
   # Rule: WSOP §III-37 (2025) — schedule cannot be modified once awarded.
   # Tournaments pay multiple finishing positions on a published payout
-  # schedule. The result carries (position, player_root, payout) — these
+  # schedule. Each result carries (position, player, payout) — these
   # scenarios pin the distribution. The payout schedule is supplied at
   # completion (or pre-configured at create time); the aggregate verifies
-  # payouts sum to total_prize_pool.
+  # payouts sum to the prize pool.
 
   @EU-0861
   Scenario: Completing the tournament emits results for the top-N finishers per the payout schedule
     # 9-player $500 buy-in. Pool = 4500. Schedule pays top 3 at 50/30/20.
-    Given a running tournament "Spring" with total_prize_pool 4500 and 9 enrolled players
-    And a payout_structure paying positions 1,2,3 at percentages 50,30,20
-    And finishing order "p1,p2,p3,p4,p5,p6,p7,p8,p9"
-    When the tournament completes with winner "p1"
-    Then the tournament is completed with winner "p1"
-    And there are 3 results
-    And TournamentResult 0 has position 1 player_root "p1" payout 2250
-    And TournamentResult 1 has position 2 player_root "p2" payout 1350
-    And TournamentResult 2 has position 3 player_root "p3" payout 900
+    Given a running tournament "Spring" with a prize pool of 4500 and 9 enrolled players
+    And a payout schedule paying positions 1,2,3 at percentages 50,30,20
+    And finishing order "Alice,Bob,Carol,Dave,Eve,Frank,Grace,Henry,Ivy"
+    When the tournament completes with winner "Alice"
+    Then the tournament is completed with winner "Alice"
+    And there are 3 paid positions
+    And position 1 pays "Alice" 2250
+    And position 2 pays "Bob" 1350
+    And position 3 pays "Carol" 900
 
   @EU-0862
   Scenario: Sum of payouts equals total_prize_pool
     # The aggregate must reject a completion whose payouts do not sum to
     # the prize pool. This guards the chip ledger from drift when the
     # payout schedule and pool are out of sync.
-    Given a running tournament "Spring" with total_prize_pool 1000 and 5 enrolled players
-    And a payout_structure paying positions 1,2 at percentages 50,30
-    When the tournament completes with winner "p1" and finishing order "p1,p2,p3,p4,p5"
+    Given a running tournament "Spring" with a prize pool of 1000 and 5 enrolled players
+    And a payout schedule paying positions 1,2 at percentages 50,30
+    When the tournament completes with winner "Alice" and finishing order "Alice,Bob,Carol,Dave,Eve"
     Then completing the tournament is refused because the payouts total 800 but the prize pool is 1000
 
   @EU-0863
@@ -696,37 +696,37 @@ Feature: Tournament aggregate logic
     # 10-player tournament paying top 3. The 4th-place finisher is the
     # "bubble" — they are recorded in finishing order but get no payout
     # entry. Only positions 1..3 appear in the results.
-    Given a running tournament "Spring" with total_prize_pool 1000 and 10 enrolled players
-    And a payout_structure paying positions 1,2,3 at percentages 50,30,20
-    And finishing order "p1,p2,p3,p4,p5,p6,p7,p8,p9,p10"
-    When the tournament completes with winner "p1"
+    Given a running tournament "Spring" with a prize pool of 1000 and 10 enrolled players
+    And a payout schedule paying positions 1,2,3 at percentages 50,30,20
+    And finishing order "Alice,Bob,Carol,Dave,Eve,Frank,Grace,Henry,Ivy,Jack"
+    When the tournament completes with winner "Alice"
     Then the tournament is completed
-    And there are 3 results
-    And no TournamentResult has player_root "p4"
+    And there are 3 paid positions
+    And "Dave" receives no payout
 
   @EU-0864
   Scenario: Heads-up split when the payout schedule pays first and second equally
     # Some tournaments allow a heads-up "chop" — payouts to top 2 at
     # configurable percentages (e.g. 50/50 if both stacks are equal at the
     # heads-up start). The aggregate just enforces the schedule it is given.
-    Given a running tournament "Spring" with total_prize_pool 1000 and 2 enrolled players
-    And a payout_structure paying positions 1,2 at percentages 50,50
-    And finishing order "p1,p2"
-    When the tournament completes with winner "p1"
+    Given a running tournament "Spring" with a prize pool of 1000 and 2 enrolled players
+    And a payout schedule paying positions 1,2 at percentages 50,50
+    And finishing order "Alice,Bob"
+    When the tournament completes with winner "Alice"
     Then the tournament is completed
-    And there are 2 results
-    And TournamentResult 0 has position 1 player_root "p1" payout 500
-    And TournamentResult 1 has position 2 player_root "p2" payout 500
+    And there are 2 paid positions
+    And position 1 pays "Alice" 500
+    And position 2 pays "Bob" 500
 
   @EU-0865
   Scenario: Completing the tournament is refused when the supplied finishing order is shorter than the paid positions
     # Schedule pays top 3 but only 2 finishing positions are supplied.
     # Reject so the operator decides explicitly (extend the order or trim
     # the schedule).
-    Given a running tournament "Spring" with total_prize_pool 1000 and 5 enrolled players
-    And a payout_structure paying positions 1,2,3 at percentages 50,30,20
-    And finishing order "p1,p2"
-    When the tournament completes with winner "p1"
+    Given a running tournament "Spring" with a prize pool of 1000 and 5 enrolled players
+    And a payout schedule paying positions 1,2,3 at percentages 50,30,20
+    And finishing order "Alice,Bob"
+    When the tournament completes with winner "Alice"
     Then completing the tournament is refused because the finishing order lists only 2 of the 3 paid positions
 
   # ==========================================================================
@@ -828,19 +828,19 @@ Feature: Tournament aggregate logic
     # 4-player tournament paying top 3 (50/30/20). Two players bust
     # simultaneously on the H4H hand: by RP-8A they share the 3rd-place
     # payout (the lowest paid position). Each gets half of position-3.
-    Given a running tournament "Bubble" with total_prize_pool 1000 and 4 enrolled players
-    And a payout_structure paying positions 1,2,3 at percentages 50,30,20
+    Given a running tournament "Bubble" with a prize pool of 1000 and 4 enrolled players
+    And a payout schedule paying positions 1,2,3 at percentages 50,30,20
     And hand-for-hand is active
     And finishing order "Alice,Bob,Carol,Dave"
     When players "Carol,Dave" both bust on the same hand-for-hand hand
     And the tournament completes with winner "Alice"
     Then the tournament is completed
-    And there are 4 results
-    And TournamentResult 0 has position 1 player_root "Alice" payout 500
-    And TournamentResult 1 has position 2 player_root "Bob" payout 300
+    And there are 4 paid positions
+    And position 1 pays "Alice" 500
+    And position 2 pays "Bob" 300
     # 3rd place is split 50/50 between the two simultaneous busts
-    And TournamentResult 2 has position 3 player_root "Carol" payout 100
-    And TournamentResult 3 has position 3 player_root "Dave" payout 100
+    And position 3 pays "Carol" 100
+    And position 3 pays "Dave" 100
 
   @EU-1191
   Scenario: Hand-for-hand deducts at most 3 minutes per hand from the level clock
@@ -1021,18 +1021,18 @@ Feature: Tournament aggregate logic
     # Carol started the hand with 800 chips. Dave started with 600. Both
     # bust on the same hand. By WSOP-126b, Carol > Dave: Carol gets 3rd
     # place (the paid bubble) and Dave gets 4th (no payout).
-    Given a running tournament "Bubble" with total_prize_pool 1000 and 4 enrolled players
-    And a payout_structure paying positions 1,2,3 at percentages 50,30,20
+    Given a running tournament "Bubble" with a prize pool of 1000 and 4 enrolled players
+    And a payout schedule paying positions 1,2,3 at percentages 50,30,20
     And hand-for-hand is active
     And the current hand started with stacks: Alice 2000, Bob 1600, Carol 800, Dave 600
     And finishing order "Alice,Bob,Carol,Dave"
     When players "Carol,Dave" both bust on the same hand at the same table
     And the tournament completes with winner "Alice"
     Then the tournament is completed
-    And TournamentResult 2 has position 3 player_root "Carol" payout 200
-    And no TournamentResult has player_root "Dave" with non-zero payout
+    And position 3 pays "Carol" 200
+    And "Dave" receives no payout
     # Carol's higher pre-hand stack (800 > 600) earns her the higher finish
-    And TournamentResult tiebreak_reason for position 3 is "PRE_HAND_STACK"
+    And the tie for position 3 is broken by pre-hand stack
 
   # ==========================================================================
   # Player Absent on Breaking Table — TDA RP-16
