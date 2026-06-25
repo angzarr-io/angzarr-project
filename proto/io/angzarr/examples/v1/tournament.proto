@@ -858,6 +858,17 @@ message TournamentState {
   // Bag-and-tag snapshots from the most recent end-of-day stop, keyed
   // by player_root_hex. Empty unless status == TOURNAMENT_BAGGED.
   map<string, PlayerBagSnapshot> bag_snapshots = 20;
+
+  // Prize-pool distribution schedule (folded from TournamentCreated), read at
+  // completion to populate TournamentResult entries.
+  repeated PayoutPosition payout_structure = 22;
+  // Late-registration cutoff (folded from TournamentCreated): 0 means
+  // registration auto-closes only on explicit CloseRegistration; N > 0 means
+  // it also auto-closes once current_level > N.
+  int32 registration_cutoff_level = 23;
+  // Registration has been explicitly closed. Late registration (enrolling while
+  // RUNNING) is allowed until this is set or the cutoff level is passed.
+  bool registration_closed = 24;
 }
 
 // =============================================================================
