@@ -106,10 +106,7 @@ Feature: Tournament aggregate logic
   Scenario: Cannot create tournament with min_players exceeding max_players
     Given the tournament has not yet been created
     When tournament "Test Tournament" is created with 100 buy-in, 1000 starting stack, max 5 players, min 10 players
-    Then the create-tournament is refused because min_players exceeds max_players
-    And the command is rejected with code "MIN_PLAYERS_EXCEEDS_MAX"
-    And the rejection field "lhs" equals "10"
-    And the rejection field "rhs" equals "5"
+    Then the create-tournament is refused because the minimum of 10 players exceeds the maximum of 5
 
   # ==========================================================================
   # Open / Close Registration
@@ -320,19 +317,14 @@ Feature: Tournament aggregate logic
     # tournament).
     Given a running tournament at the final defined blind level
     When the blind level advances
-    Then advancing the blind level is refused because the blind structure is exhausted
-    And the command is rejected with code "BLIND_STRUCTURE_EXHAUSTED"
-    And the rejection field "current" equals "2"
-    And the rejection field "max_value" equals "2"
+    Then advancing the blind level is refused because level 2 is the last of 2 defined levels
 
   @EU-0856
   Scenario: AdvanceBlindLevel rejects when no blind structure is defined
-    # Empty structure folds into BLIND_STRUCTURE_EXHAUSTED with max=0.
+    # Empty structure: there is no next level to advance to.
     Given a running tournament with no blind structure
     When the blind level advances
-    Then advancing the blind level is refused because the blind structure is exhausted
-    And the command is rejected with code "BLIND_STRUCTURE_EXHAUSTED"
-    And the rejection field "max_value" equals "0"
+    Then advancing the blind level is refused because no blind levels are defined
 
   # ==========================================================================
   # EliminatePlayer — Success and Unregistered Rejection
@@ -697,10 +689,7 @@ Feature: Tournament aggregate logic
     Given a running tournament "Spring" with total_prize_pool 1000 and 5 enrolled players
     And a payout_structure paying positions 1,2 at percentages 50,30
     When the tournament completes with winner "p1" and finishing order "p1,p2,p3,p4,p5"
-    Then completing the tournament is refused because payouts do not sum to the pool
-    And the command is rejected with code "PAYOUTS_DO_NOT_SUM_TO_POOL"
-    And the rejection field "got" equals "800"
-    And the rejection field "bound" equals "1000"
+    Then completing the tournament is refused because the payouts total 800 but the prize pool is 1000
 
   @EU-0863
   Scenario: Bubble — the player eliminated immediately before the money receives no payout
@@ -738,10 +727,7 @@ Feature: Tournament aggregate logic
     And a payout_structure paying positions 1,2,3 at percentages 50,30,20
     And finishing order "p1,p2"
     When the tournament completes with winner "p1"
-    Then completing the tournament is refused because finishing order is shorter than paid positions
-    And the command is rejected with code "FINISHING_ORDER_SHORTER_THAN_PAYOUT_POSITIONS"
-    And the rejection field "got" equals "2"
-    And the rejection field "bound" equals "3"
+    Then completing the tournament is refused because the finishing order lists only 2 of the 3 paid positions
 
   # ==========================================================================
   # Re-Entry Forfeited Chips — TDA Rule 8B
