@@ -1087,16 +1087,16 @@ Feature: Tournament aggregate logic
   Scenario: Bounty tournament — eliminator collects bounty on knockout
     # Rule: TDA RP-22 (2024) — bounty payout on knockout.
     # Rule: WSOP Rule 39 (2025) — bounty markers.
-    Given a bounty tournament with bounty_per_knockout 100
+    Given a bounty tournament paying 100 per knockout
     And player "Alice" eliminates player "Bob" by winning the showdown
     When the elimination is processed
     Then a bounty of 100 is awarded with eliminator "Alice" knocking out "Bob"
-    And player "Alice" bounty_total increases by 100
+    And "Alice"'s bounty total increases by 100
 
   @EU-1373
   Scenario: Bounty tournament — last-two simultaneous bust splits to higher pre-hand stack
     # Rule: TDA RP-22 (2024) — simultaneous-bust tiebreak by pre-hand stack.
-    Given a bounty tournament with bounty_per_knockout 200
+    Given a bounty tournament paying 200 per knockout
     And exactly 2 players left "Alice" stack 500 and "Bob" stack 400 pre-hand
     When both players go all-in and lose at the same showdown (split-pot push not applicable)
     And the higher pre-hand stack is "Alice" (500 > 400)
