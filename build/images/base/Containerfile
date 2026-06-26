@@ -10,10 +10,13 @@
 # Based on: debian:bookworm-slim
 # Built/published: angzarr-project/.github/workflows/build-images.yml
 
-# Pinned to the message-annotation recast branch tip (feat/codegen-message-
-# annotation-recast); repoint to a main tag once that branch merges. The CLI
-# lives in BASE so every language image inherits one pinned version.
-ARG ANGZARR_CLI_VERSION=b5920c4
+# Pinned to angzarr-cli main. 02a6b37 carries the Python codegen fixes the
+# prior pin (b5920c4) lacked: saga handlers passing source_cover and the
+# relative-import / readable-alias emitter. b5920c4 emitted broken Python
+# wiring — absolute `io.*` imports (shadowing stdlib io) and sagas missing
+# source_cover. The CLI lives in BASE so every language image inherits one
+# pinned version.
+ARG ANGZARR_CLI_VERSION=02a6b37
 
 # angzarr CLI built in a throwaway Go stage and copied into the base image —
 # buf invokes it as `angzarr codegen <lang>` / `angzarr scaffold <lang>`. Baked
