@@ -29,6 +29,8 @@ message Cover {
   string correlation_id = 3; // Workflow correlation - flows through all commands/events
   Edition edition = 4; // Edition for diverged timelines; empty name = main timeline
   // Field 5 removed: external_id moved to ExternalDeferredSequence in PageHeader
+  reserved 5;
+  reserved "external_id";
   // Client-supplied extension slot. Most consumers pack a nested
   // ``Cover`` here to express parent-aggregate relationships (e.g.
   // table events carry the tournament Cover; hand events carry the
@@ -68,6 +70,8 @@ message DomainDivergence {
 // region sync_mode
 // Controls synchronous processing behavior.
 //
+// Default: ASYNC (fire and forget). SYNC_MODE_UNSPECIFIED is treated as ASYNC.
+//
 // Impact ordering (lowest to highest):
 //   ASYNC  < DECISION < SIMPLE < CASCADE
 //
@@ -78,32 +82,39 @@ message DomainDivergence {
 // (events persisted + returned) and reject path (CommandRejectedError) are
 // both observable; everything downstream runs asynchronously.
 enum SyncMode {
-  SYNC_MODE_ASYNC = 0; // Async: fire and forget (default)
-  SYNC_MODE_SIMPLE = 1; // Sync projectors only, no saga cascade
-  SYNC_MODE_CASCADE = 2; // Full sync: projectors + saga cascade (expensive)
-  SYNC_MODE_DECISION = 3; // Sync aggregate accept/reject only; projectors + sagas run async
-  SYNC_MODE_ISOLATED = 4; // Sync accept/reject + persist; NO downstream (sync OR async). Replay / migration / recovery writes that must not trigger reactions. Distinct from DECISION (which still publishes to bus for async downstream).
+  SYNC_MODE_UNSPECIFIED = 0; // Unset/unknown — the server treats it as the documented default (Async)
+  SYNC_MODE_ASYNC = 1; // Async: fire and forget (default)
+  SYNC_MODE_SIMPLE = 2; // Sync projectors only, no saga cascade
+  SYNC_MODE_CASCADE = 3; // Full sync: projectors + saga cascade (expensive)
+  SYNC_MODE_DECISION = 4; // Sync aggregate accept/reject only; projectors + sagas run async
+  SYNC_MODE_ISOLATED = 5; // Sync accept/reject + persist; NO downstream (sync OR async). Replay / migration / recovery writes that must not trigger reactions. Distinct from DECISION (which still publishes to bus for async downstream).
 }
 // endregion
 
 // region cascade_error_mode
 // Controls how CASCADE mode handles errors from sagas/PMs.
 // Only relevant when sync_mode = CASCADE.
+// Default: FAIL_FAST (stop on first error, fail request).
+// CASCADE_ERROR_UNSPECIFIED is treated as FAIL_FAST.
 enum CascadeErrorMode {
-  CASCADE_ERROR_FAIL_FAST = 0; // Stop on first error, fail request (default)
-  CASCADE_ERROR_CONTINUE = 1; // Continue through all, return successes + errors
-  CASCADE_ERROR_COMPENSATE = 2; // On first error, compensate executed commands, fail request
-  CASCADE_ERROR_DEAD_LETTER = 3; // On error, send to DLQ and continue with remaining
+  CASCADE_ERROR_UNSPECIFIED = 0; // Unset/unknown — the server treats it as the documented default (FailFast)
+  CASCADE_ERROR_FAIL_FAST = 1; // Stop on first error, fail request (default)
+  CASCADE_ERROR_CONTINUE = 2; // Continue through all, return successes + errors
+  CASCADE_ERROR_COMPENSATE = 3; // On first error, compensate executed commands, fail request
+  CASCADE_ERROR_DEAD_LETTER = 4; // On error, send to DLQ and continue with remaining
 }
 // endregion
 
 // region merge_strategy
-// Controls how concurrent commands to the same aggregate are handled
+// Controls how concurrent commands to the same aggregate are handled.
+// Default: COMMUTATIVE (allow if state field mutations don't overlap).
+// MERGE_UNSPECIFIED is treated as COMMUTATIVE.
 enum MergeStrategy {
-  MERGE_COMMUTATIVE = 0; // Default: allow if state field mutations don't overlap
-  MERGE_STRICT = 1; // Reject if sequence mismatch (optimistic concurrency)
-  MERGE_AGGREGATE_HANDLES = 2; // Aggregate handles its own concurrency
-  MERGE_MANUAL = 3; // Send to DLQ for manual review on mismatch
+  MERGE_UNSPECIFIED = 0; // Unset/unknown — the server treats it as the documented default (Commutative)
+  MERGE_COMMUTATIVE = 1; // Default: allow if state field mutations don't overlap
+  MERGE_STRICT = 2; // Reject if sequence mismatch (optimistic concurrency)
+  MERGE_AGGREGATE_HANDLES = 3; // Aggregate handles its own concurrency
+  MERGE_MANUAL = 4; // Send to DLQ for manual review on mismatch
 }
 // endregion
 
@@ -189,6 +200,12 @@ message AngzarrDeferredSequence {
   // Framework-stamped from the emission order; disambiguates multiple
   // commands produced by one (source, source_seq) trigger.
   uint32 command_index = 4;
+  // The destination aggregate's head sequence (next_sequence) the saga
+  // observed when stamping this deferred command — the basis of its
+  // field-overlap concurrency window. 0/unset = no basis recorded (legacy
+  // commands): the framework conservatively diffs against the whole
+  // destination history.
+  uint32 basis_seq = 5;
 }
 // endregion
 
@@ -201,6 +218,8 @@ message EventPage {
     PayloadReference external = 4; // Claim check: payload stored externally
   }
   // Field 5 removed: FactSequence replaced by PageHeader.external_deferred
+  reserved 5;
+  reserved "fact_sequence";
 
   // Two-phase commit support (Phase 1: 2PC Storage Model)
   bool no_commit = 6;             // true = pending 2PC (cascade), needs Confirmation; false (default) = immediately committed
@@ -212,6 +231,8 @@ message EventPage {
 // Snapshot of aggregate state at a given sequence number.
 // State must be a protobuf Message to serialize into Any.
 message Snapshot {
+  // Field 1 removed pre-v0.1.0; original name not recorded.
+  reserved 1;
   uint32 sequence = 2;
   google.protobuf.Any state = 3;
   SnapshotRetention retention = 4; // Controls cleanup behavior
@@ -233,20 +254,30 @@ message EventBook {
   repeated EventPage pages = 3;
   // Field 4 removed: correlation_id moved to Cover
   // Field 5 removed: snapshot_state unified into snapshot field
+  reserved 4, 5;
+  reserved "correlation_id", "snapshot_state";
   uint32 next_sequence = 6; // Computed on load, never stored: (last page seq OR snapshot seq if no pages) + 1
 }
 // endregion
 
 // Request wrapper for event operations (fact injection).
-// Adds execution metadata (sync_mode, route_to_handler) to EventBook.
+// Adds execution metadata (sync_mode, skip_handler) to EventBook.
 message EventRequest {
   EventBook events = 1;
   SyncMode sync_mode = 2;
-  // For fact injection: when true (default), invokes command handler's handle_fact for
-  // validation/error checking before persistence. Facts cannot be rejected, but
-  // the handler can validate data integrity and log warnings.
-  // When false, facts are persisted directly without handler involvement.
-  bool route_to_handler = 3;
+  // Field 3 removed: route_to_handler (bool) claimed "default: true" but proto3
+  // bools default to false, so an omitted field silently bypassed handler/fact
+  // validation. Replaced by skip_handler (field 4) with an inverted, safe zero
+  // value. Tag 3 must not be reused: an inverted bool on the same tag would
+  // flip meaning for old wire bytes.
+  reserved 3;
+  reserved "route_to_handler";
+  // For fact injection: zero value (false/unset) routes the fact through the
+  // aggregate's handle_fact for validation/error checking before persistence
+  // (safe default). Facts cannot be rejected, but the handler can validate
+  // data integrity and log warnings. When true, facts are persisted directly
+  // without handler invocation (projector-originated writes).
+  bool skip_handler = 4;
 }
 
 message Projection {
@@ -271,6 +302,8 @@ message CommandBook {
   // Field 3 removed: correlation_id moved to Cover
   // Field 4 removed: saga_origin moved to PageHeader.angzarr_deferred
   // Field 5 removed: 'fact' was unused
+  reserved 3, 4, 5;
+  reserved "correlation_id", "saga_origin", "fact";
 }
 
 // Request wrapper for command operations.
@@ -320,6 +353,7 @@ message Query {
   // Query by correlation: Cover { domain, correlation_id }
   Cover cover = 1;
   // Field 2 removed: now use cover.root
+  reserved 2;
   oneof selection {
     SequenceRange range = 3;
     SequenceSet sequences = 4;
@@ -381,6 +415,7 @@ message RejectionNotification {
   CommandBook rejected_command = 1; // The command that was rejected (full context)
   string rejection_reason = 2; // Why: "insufficient_funds", "out_of_stock", etc.
   // Fields 3-6 removed: source info now in rejected_command.pages[].header.angzarr_deferred
+  reserved 3, 4, 5, 6;
 }
 // endregion
 
