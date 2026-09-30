@@ -55,7 +55,9 @@ service CommandHandlerCoordinatorService {
   }
   // Inject fact events - external realities that cannot be rejected.
   // Idempotent: subsequent requests with same external_id return original events.
-  // Use EventRequest.route_to_handler to control command handler invocation.
+  // By default (EventRequest.skip_handler unset/false) facts are routed through
+  // the aggregate's handle_fact for validation; set skip_handler = true to
+  // persist directly without handler invocation.
   rpc HandleEvent(EventRequest) returns (FactInjectionResponse) {
     option (google.api.http) = {
       post: "/v1/ch/{events.cover.domain}/events"
@@ -122,7 +124,8 @@ message SpeculateCommandHandlerRequest {
 // Request uses EventRequest with:
 // - events: EventBook containing fact events (with ExternalDeferredSequence markers in PageHeader)
 // - sync_mode: Controls sync processing (default: async)
-// - route_to_handler: Whether to invoke command handler's handle_fact (default: true)
+// - skip_handler: false/unset (default) routes facts through the command handler's
+//   handle_fact for validation; true persists facts directly without handler invocation
 //
 // IMPORTANT: Set PageHeader.external_deferred.external_id for idempotency. The coordinator
 // uses this to deduplicate fact injections - subsequent requests with the same external_id

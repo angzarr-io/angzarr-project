@@ -29,6 +29,8 @@ message Cover {
   string correlation_id = 3; // Workflow correlation - flows through all commands/events
   Edition edition = 4; // Edition for diverged timelines; empty name = main timeline
   // Field 5 removed: external_id moved to ExternalDeferredSequence in PageHeader
+  reserved 5;
+  reserved "external_id";
   // Client-supplied extension slot. Most consumers pack a nested
   // ``Cover`` here to express parent-aggregate relationships (e.g.
   // table events carry the tournament Cover; hand events carry the
@@ -68,8 +70,12 @@ message DomainDivergence {
 // region sync_mode
 // Controls synchronous processing behavior.
 //
+// Default: ASYNC — the zero value, so an unset field means fire-and-forget.
+//
 // Impact ordering (lowest to highest):
 //   ASYNC  < DECISION < SIMPLE < CASCADE
+// ISOLATED sits outside this ordering: it persists synchronously but
+// suppresses every downstream reaction, sync or async.
 //
 // Primary caller of DECISION is process managers coordinating cross-aggregate
 // flows: the PM issues a command to the target aggregate and needs to know
@@ -89,6 +95,7 @@ enum SyncMode {
 // region cascade_error_mode
 // Controls how CASCADE mode handles errors from sagas/PMs.
 // Only relevant when sync_mode = CASCADE.
+// Default: FAIL_FAST — the zero value (stop on first error, fail request).
 enum CascadeErrorMode {
   CASCADE_ERROR_FAIL_FAST = 0; // Stop on first error, fail request (default)
   CASCADE_ERROR_CONTINUE = 1; // Continue through all, return successes + errors
@@ -98,7 +105,13 @@ enum CascadeErrorMode {
 // endregion
 
 // region merge_strategy
-// Controls how concurrent commands to the same aggregate are handled
+// Controls how concurrent commands to the same aggregate are handled.
+// Default: COMMUTATIVE — the zero value.
+//
+// COMMUTATIVE: a command whose expected sequence is stale is still accepted
+// when the state fields it mutates do not overlap the fields changed by the
+// events it missed (the concurrency window since its basis sequence). Only an
+// overlap rejects, with a retryable FAILED_PRECONDITION.
 enum MergeStrategy {
   MERGE_COMMUTATIVE = 0; // Default: allow if state field mutations don't overlap
   MERGE_STRICT = 1; // Reject if sequence mismatch (optimistic concurrency)
@@ -189,6 +202,12 @@ message AngzarrDeferredSequence {
   // Framework-stamped from the emission order; disambiguates multiple
   // commands produced by one (source, source_seq) trigger.
   uint32 command_index = 4;
+  // The destination aggregate's head sequence (next_sequence) the saga
+  // observed when stamping this deferred command — the basis of its
+  // field-overlap concurrency window. 0/unset = no basis recorded (legacy
+  // commands): the framework conservatively diffs against the whole
+  // destination history.
+  uint32 basis_seq = 5;
 }
 // endregion
 
@@ -201,6 +220,8 @@ message EventPage {
     PayloadReference external = 4; // Claim check: payload stored externally
   }
   // Field 5 removed: FactSequence replaced by PageHeader.external_deferred
+  reserved 5;
+  reserved "fact_sequence";
 
   // Two-phase commit support (Phase 1: 2PC Storage Model)
   bool no_commit = 6;             // true = pending 2PC (cascade), needs Confirmation; false (default) = immediately committed
@@ -212,6 +233,8 @@ message EventPage {
 // Snapshot of aggregate state at a given sequence number.
 // State must be a protobuf Message to serialize into Any.
 message Snapshot {
+  // Field 1 removed pre-v0.1.0; original name not recorded.
+  reserved 1;
   uint32 sequence = 2;
   google.protobuf.Any state = 3;
   SnapshotRetention retention = 4; // Controls cleanup behavior
@@ -233,20 +256,27 @@ message EventBook {
   repeated EventPage pages = 3;
   // Field 4 removed: correlation_id moved to Cover
   // Field 5 removed: snapshot_state unified into snapshot field
+  reserved 4, 5;
+  reserved "correlation_id", "snapshot_state";
   uint32 next_sequence = 6; // Computed on load, never stored: (last page seq OR snapshot seq if no pages) + 1
 }
 // endregion
 
 // Request wrapper for event operations (fact injection).
-// Adds execution metadata (sync_mode, route_to_handler) to EventBook.
+// Adds execution metadata (sync_mode, skip_handler) to EventBook.
 message EventRequest {
   EventBook events = 1;
   SyncMode sync_mode = 2;
-  // For fact injection: when true (default), invokes command handler's handle_fact for
-  // validation/error checking before persistence. Facts cannot be rejected, but
-  // the handler can validate data integrity and log warnings.
-  // When false, facts are persisted directly without handler involvement.
-  bool route_to_handler = 3;
+  // Tag 3 (route_to_handler) must never be reused: skip_handler has the
+  // inverted meaning, so sharing a tag would flip it for old wire bytes.
+  reserved 3;
+  reserved "route_to_handler";
+  // For fact injection: zero value (false/unset) routes the fact through the
+  // aggregate's handle_fact for validation/error checking before persistence
+  // (safe default). Facts cannot be rejected, but the handler can validate
+  // data integrity and log warnings. When true, facts are persisted directly
+  // without handler invocation (projector-originated writes).
+  bool skip_handler = 4;
 }
 
 message Projection {
@@ -271,6 +301,8 @@ message CommandBook {
   // Field 3 removed: correlation_id moved to Cover
   // Field 4 removed: saga_origin moved to PageHeader.angzarr_deferred
   // Field 5 removed: 'fact' was unused
+  reserved 3, 4, 5;
+  reserved "correlation_id", "saga_origin", "fact";
 }
 
 // Request wrapper for command operations.
@@ -279,7 +311,7 @@ message CommandRequest {
   CommandBook command = 1;
   SyncMode sync_mode = 2;
   CascadeErrorMode cascade_error_mode = 3; // How to handle saga/PM errors in CASCADE mode
-  optional string cascade_id = 4;          // If set, enables 2PC: events written with committed=false
+  optional string cascade_id = 4;          // If set, enables 2PC: events written with no_commit=true
 }
 
 message ContextualCommand {
@@ -320,6 +352,7 @@ message Query {
   // Query by correlation: Cover { domain, correlation_id }
   Cover cover = 1;
   // Field 2 removed: now use cover.root
+  reserved 2;
   oneof selection {
     SequenceRange range = 3;
     SequenceSet sequences = 4;
@@ -381,6 +414,7 @@ message RejectionNotification {
   CommandBook rejected_command = 1; // The command that was rejected (full context)
   string rejection_reason = 2; // Why: "insufficient_funds", "out_of_stock", etc.
   // Fields 3-6 removed: source info now in rejected_command.pages[].header.angzarr_deferred
+  reserved 3, 4, 5, 6;
 }
 // endregion
 
@@ -509,6 +543,7 @@ message AngzarrDeadLetter {
     EventBook rejected_events = 9; // Events that failed (saga/projector failures)
   }
   string rejection_reason = 3; // Human-readable reason
+  reserved 4, 5, 6;
   oneof rejection_details {
     SequenceMismatchDetails sequence_mismatch = 12; // Sequence conflict details
     EventProcessingFailedDetails event_processing_failed = 13; // Handler failure details
