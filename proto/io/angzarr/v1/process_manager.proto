@@ -75,9 +75,10 @@ message ProcessManagerHandleRequest {
   EventBook trigger = 1;
   // Current process manager state (event-sourced).
   EventBook process_state = 2;
-  // Output domain → that domain's next_sequence as observed by the
-  // coordinator; copied into AngzarrDeferredSequence.basis_seq of commands
-  // targeting that domain. Absent entries mean basis_seq 0.
+  // Optional information: output domain → that domain's next_sequence as
+  // observed by the coordinator. Deferred commands do not use it; it is
+  // meaningful only to a PM that deliberately stamps an explicit
+  // PageHeader.sequence. May be empty.
   // PM should NOT rebuild destination state — use facts and let aggregates decide.
   map<string, uint32> destination_sequences = 3;
 }

@@ -9,7 +9,7 @@ implement it.
 
 | Feature | Covers |
 |---|---|
-| `merge_strategy.feature` | COMMUTATIVE field-overlap merge over the window basis..actual (explicit sequence or `basis_seq`), STRICT, AGGREGATE_HANDLES, MANUAL→DLQ |
+| `merge_strategy.feature` | COMMUTATIVE field-overlap merge over the window expected..actual, STRICT, AGGREGATE_HANDLES, MANUAL→DLQ for explicit-sequence commands; deferred saga/PM commands are never checked |
 | `fact_flow.feature` | Fact injection from sagas/PMs: 0-based sequencing, `external_deferred.external_id` idempotency, failure handling |
 | `state_building.feature` | Aggregate state reconstruction from snapshot + pages, `next_sequence` arithmetic |
 | `edition_propagation.feature` | Source/trigger edition stamped onto every saga/PM emission; main-timeline aliases (`""`, unset, `"angzarr"`) |

@@ -11,9 +11,10 @@ Feature: Cross-language wire-format parity
   Destinations.stamp_command turns a saga/PM-emitted CommandBook into a
   deferred command: every page header becomes angzarr_deferred with
   source = the triggering EventBook's cover, source_seq = the triggering
-  event's sequence, command_index = the command's emission position and
-  basis_seq = the destination's observed next_sequence. source_component is
-  left empty (the coordinator stamps it); no explicit sequence is set.
+  event's sequence and command_index = the command's emission position.
+  source_component is left empty (the coordinator stamps it). The command
+  has no expected version: no explicit sequence is set, and the supplied
+  destination head (5) appears nowhere in the output.
 
   Background:
     Given a source cover with domain "order", root bytes 00..0f and correlation_id "corr-1"
@@ -24,9 +25,9 @@ Feature: Cross-language wire-format parity
   @C-0182
   Scenario: Destinations.stamp_command on the first command of an invocation
     When I stamp the command for domain "inventory" from source event sequence 3 at command index 0
-    Then the deterministically-encoded CommandBook hashes to SHA-256 "513d0a16d0aca4b28c5ab7e1b48fd1d2e81852d6ff14ab7c8d5bae8eb6ce7d51"
+    Then the deterministically-encoded CommandBook hashes to SHA-256 "a79987223c3ece4657c21aa2b5c6f748a3032ba601d4f8f85e4bb9a0ac503758"
 
   @C-0183
   Scenario: Destinations.stamp_command on a later command of an invocation
     When I stamp the command for domain "inventory" from source event sequence 3 at command index 1
-    Then the deterministically-encoded CommandBook hashes to SHA-256 "97a7760b4a042c22d51161e48836ab24b03a97c3269e22f6a6c2a2ce35bdf2f0"
+    Then the deterministically-encoded CommandBook hashes to SHA-256 "a0ea9bae4f5492fe3a62aba851fe39c36dadc619cbe2702e1be0c1dd0b20efc1"

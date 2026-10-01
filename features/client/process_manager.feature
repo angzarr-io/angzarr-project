@@ -30,12 +30,10 @@ Feature: Process-manager dispatch
 
   @C-0181
   Scenario: PM command is deferred with the trigger as its source
-    Given destination sequences shipping=9
-    And the OrderCreated trigger is at sequence 2 of order root "order-1"
+    Given the OrderCreated trigger is at sequence 2 of order root "order-1"
     When the OrderCreated trigger is dispatched to the PM router
     Then the ReserveStock command carries an angzarr_deferred header
     And the deferred source cover is domain "order" root "order-1"
     And the deferred source_seq is 2
     And the deferred command_index is 0
-    And the deferred basis_seq is 9
     And no page of the ReserveStock command has an explicit sequence

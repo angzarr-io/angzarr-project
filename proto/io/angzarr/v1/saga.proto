@@ -15,17 +15,16 @@ option ruby_package = "Angzarr";
 //
 // Every emitted command carries PageHeader.angzarr_deferred (see
 // AngzarrDeferredSequence in types.proto): the saga records where the command
-// came from and which destination head it observed (basis_seq, taken from
-// destination_sequences). The framework assigns the concrete destination
-// sequence on delivery.
+// came from, the command has no expected version, and the destination appends
+// it at its head.
 service SagaService {
   // Translate source events into commands for target domains.
   rpc Handle(SagaHandleRequest) returns (SagaResponse);
 }
 
 // SagaCoordinatorService: orchestrates saga execution.
-// Fetches destination heads, stamps framework provenance onto the deferred
-// headers, delivers commands and retries retryable rejections.
+// Stamps framework provenance onto the deferred headers, delivers commands
+// and retries retryable failures.
 service SagaCoordinatorService {
   // Execute saga: translate source events → commands, deliver to targets
   rpc Execute(SagaHandleRequest) returns (SagaResponse) {
@@ -49,10 +48,11 @@ message SagaHandleRequest {
   EventBook source = 1; // Source events that triggered the saga
   SyncMode sync_mode = 2; // Propagate for CASCADE recursion
   CascadeErrorMode cascade_error_mode = 3; // How to handle errors in CASCADE mode
-  // Output domain → that domain's next_sequence as observed by the
-  // coordinator before invoking the saga. The saga copies the entry for a
-  // command's target domain into AngzarrDeferredSequence.basis_seq; it never
-  // becomes an explicit PageHeader.sequence.
+  // Optional information: output domain → that domain's next_sequence as
+  // observed by the coordinator. Deferred commands do not use it. It is
+  // meaningful only to a saga that deliberately stamps an explicit
+  // PageHeader.sequence (and so opts into merge-strategy validation and out
+  // of deferred provenance). May be empty.
   map<string, uint32> destination_sequences = 4;
 }
 

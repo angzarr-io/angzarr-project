@@ -6,11 +6,11 @@ Feature: Merge strategy - concurrency control for stale commands
   coordinator does when the command's expected sequence differs from the
   aggregate's next_sequence (a "stale" command). Four strategies exist:
 
-  - COMMUTATIVE (wire value 0, the default): field-overlap merge. The
-    coordinator runs the command against current state, then compares the
-    state fields its events change with the state fields changed by the
-    events the command did not see. Disjoint changes are persisted; any
-    overlap rejects with a retryable FAILED_PRECONDITION.
+  - COMMUTATIVE (the default; MERGE_UNSPECIFIED is treated as COMMUTATIVE):
+    field-overlap merge. The coordinator runs the command against current
+    state, then compares the state fields its events change with the state
+    fields changed by the events the command did not see. Disjoint changes
+    are persisted; any overlap rejects with a retryable FAILED_PRECONDITION.
   - STRICT: optimistic concurrency. Any mismatch rejects with a retryable
     FAILED_PRECONDITION; the caller reloads and resubmits.
   - AGGREGATE_HANDLES: the coordinator does not validate the sequence; the
@@ -18,16 +18,21 @@ Feature: Merge strategy - concurrency control for stale commands
   - MANUAL: a mismatch is dead-lettered for human review and rejected with
     a non-retryable ABORTED.
 
-  The concurrency window is the run of events the command did not see:
-  sequences basis .. actual-1, where actual is the aggregate's
-  next_sequence and basis is
-  - the explicit PageHeader.sequence of a client command, or
-  - AngzarrDeferredSequence.basis_seq of a saga/PM-emitted (deferred)
-    command. basis_seq 0 means no basis was recorded: the window is the
-    whole history.
+  Strategies apply only to commands with an explicit expected sequence
+  (PageHeader.sequence): external client commands, or a saga/PM command
+  that deliberately sets one. The concurrency window is the run of events
+  the command did not see: sequences expected .. actual-1, where actual is
+  the aggregate's next_sequence.
+
+  Saga/PM commands are deferred (PageHeader.angzarr_deferred) and carry no
+  expected version. They are never sequence- or merge-checked under any
+  strategy: the destination appends them at its head, its handler's own
+  validation is the only business guard, and the idempotency key
+  (source, source_seq, source_component, command_index) guards against
+  duplicates.
 
   Field changes are computed with the command handler's Replay RPC: the
-  coordinator replays state at basis, at actual, and at actual plus the
+  coordinator replays state at expected, at actual, and at actual plus the
   command's events, and diffs them field by field.
 
   Background:
@@ -72,7 +77,7 @@ Feature: Merge strategy - concurrency control for stale commands
 
   @merge_commutative
   @C-0152
-  Scenario: Commutative - only events after the basis count toward overlap
+  Scenario: Commutative - only events after the expected sequence count toward overlap
     # The window is sequence 2 only (notes); item_count changed at sequence 1,
     # which the command already saw.
     Given an AddItem command with merge_strategy COMMUTATIVE targeting sequence 2
@@ -108,43 +113,6 @@ Feature: Merge strategy - concurrency control for stale commands
     Then the command succeeds
     And a ShippingAddressChanged event is persisted at sequence 3
 
-  # ---------------------------------------------------------------------------
-  # Deferred (saga/PM-emitted) commands: the window starts at basis_seq
-  # ---------------------------------------------------------------------------
-
-  @merge_commutative @deferred
-  @C-0156
-  Scenario: Commutative - deferred command merges when nothing after its basis overlaps
-    Given a saga-emitted AddItem command with merge_strategy COMMUTATIVE and basis_seq 2
-    When the coordinator processes the command
-    Then the command succeeds
-    And an ItemAdded event is persisted at sequence 3
-
-  @merge_commutative @deferred
-  @C-0157
-  Scenario: Commutative - deferred command is rejected when an event after its basis overlaps
-    Given a saga-emitted AddItem command with merge_strategy COMMUTATIVE and basis_seq 1
-    When the coordinator processes the command
-    Then the command fails with FAILED_PRECONDITION status
-    And the error is marked as retryable
-    And no events are persisted
-
-  @merge_commutative @deferred
-  @C-0158
-  Scenario: Commutative - deferred command with basis_seq 0 is checked against the whole history
-    Given a saga-emitted AddItem command with merge_strategy COMMUTATIVE and basis_seq 0
-    When the coordinator processes the command
-    Then the command fails with FAILED_PRECONDITION status
-    And the overlapping fields reported are item_count
-
-  @merge_commutative @deferred
-  @C-0159
-  Scenario: Commutative - deferred command with basis_seq 0 merges when no historical event touched its fields
-    Given a saga-emitted ChangeShippingAddress command with merge_strategy COMMUTATIVE and basis_seq 0
-    When the coordinator processes the command
-    Then the command succeeds
-    And a ShippingAddressChanged event is persisted at sequence 3
-
   # ===========================================================================
   # MERGE_STRICT - optimistic concurrency
   # ===========================================================================
@@ -174,16 +142,6 @@ Feature: Merge strategy - concurrency control for stale commands
     When the coordinator processes the command
     Then the command fails with FAILED_PRECONDITION status
     And no events are persisted
-
-  @merge_strict @deferred
-  @C-0163
-  Scenario: Strict - deferred command is stamped at the destination head
-    # A deferred command claims no destination sequence, so there is no
-    # expected sequence to enforce; the framework assigns next_sequence.
-    Given a saga-emitted ChangeShippingAddress command with merge_strategy STRICT and basis_seq 1
-    When the coordinator processes the command
-    Then the command succeeds
-    And a ShippingAddressChanged event is persisted at sequence 3
 
   # ===========================================================================
   # MERGE_AGGREGATE_HANDLES - the command handler owns concurrency
@@ -242,32 +200,54 @@ Feature: Merge strategy - concurrency control for stale commands
       | actual_sequence   | 3            |
       | merge_strategy    | MERGE_MANUAL |
 
-  @merge_manual @deferred
-  @C-0169
-  Scenario: Manual - deferred command whose fields do not overlap after its basis is merged
-    Given a saga-emitted ChangeShippingAddress command with merge_strategy MANUAL and basis_seq 1
+  # ===========================================================================
+  # Deferred (saga/PM-emitted) commands: no expected version, no check
+  # ===========================================================================
+
+  @deferred
+  @C-0458
+  Scenario Outline: A deferred command is appended at the head under every strategy
+    # AddItem overlaps item_count, which changed at sequences 0 and 1; a
+    # client command at an old sequence would be rejected by most strategies.
+    Given a saga-emitted AddItem command with merge_strategy <strategy>
     When the coordinator processes the command
     Then the command succeeds
-    And a ShippingAddressChanged event is persisted at sequence 3
+    And an ItemAdded event is persisted at sequence 3
     And no dead letter is published
+    And the Replay RPC is not invoked
 
-  @merge_manual @deferred
-  @C-0170
-  Scenario: Manual - deferred command whose fields overlap after its basis is dead-lettered
-    Given a saga-emitted AddItem command with merge_strategy MANUAL and basis_seq 1
+    Examples:
+      | strategy          |
+      | COMMUTATIVE       |
+      | STRICT            |
+      | AGGREGATE_HANDLES |
+      | MANUAL            |
+
+  @deferred
+  @C-0459
+  Scenario: A deferred command is guarded only by the destination handler's validation
+    Given a saga-emitted AddItem command with merge_strategy STRICT
+    And the command handler rejects the command with reason "order is closed"
     When the coordinator processes the command
-    Then the command fails with ABORTED status
+    Then the command fails with the handler's rejection reason "order is closed"
     And no events are persisted
-    And a dead letter is published to "angzarr.dlq.order" carrying the rejected command
 
-  @merge_manual @deferred
-  @C-0171
-  Scenario: Manual - deferred command is dead-lettered when overlap cannot be computed
-    Given the command handler does not implement Replay
-    And a saga-emitted ChangeShippingAddress command with merge_strategy MANUAL and basis_seq 1
+  @deferred
+  @C-0460
+  Scenario: A redelivered deferred command is applied once
+    Given a saga-emitted AddItem command with source "order"/"order-9" source_seq 4, source_component "Restock" and command_index 0
     When the coordinator processes the command
-    Then the command fails with ABORTED status
-    And a dead letter is published to "angzarr.dlq.order" carrying the rejected command
+    And the coordinator processes the same command again
+    Then exactly one ItemAdded event is persisted
+    And the second delivery returns the events of the first
+
+  @deferred
+  @C-0461
+  Scenario: A saga command with an explicit sequence is validated like a client command
+    Given a saga-emitted AddItem command with merge_strategy STRICT and an explicit sequence 1
+    When the coordinator processes the command
+    Then the command fails with FAILED_PRECONDITION status
+    And no events are persisted
 
   # ===========================================================================
   # Cross-strategy

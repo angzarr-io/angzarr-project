@@ -117,25 +117,27 @@ enum CascadeErrorMode {
 // sequence differs from the aggregate's next_sequence (a stale command).
 // Default: COMMUTATIVE. MERGE_UNSPECIFIED (the zero value) is treated as COMMUTATIVE.
 //
+// Merge strategies apply only to commands that carry an explicit expected
+// sequence (PageHeader.sequence) — commands from external clients, or a
+// saga/PM command that deliberately sets one. Deferred commands
+// (PageHeader.angzarr_deferred) carry no expected version: they are never
+// sequence- or merge-checked under any strategy, are appended at the
+// destination head, and are guarded only by the destination handler's own
+// validation and by their idempotency key.
+//
 // The concurrency window is the run of events the command did not see:
-// sequences basis .. next_sequence-1, where basis is the command's explicit
-// PageHeader.sequence, or AngzarrDeferredSequence.basis_seq for a deferred
-// (saga/PM-emitted) command. basis_seq 0 makes the window the whole history.
+// sequences expected .. next_sequence-1.
 //
 // COMMUTATIVE: the command runs against current state; the state fields its
 // events change are compared (via CommandHandlerService.Replay) with the
 // fields changed inside the window. Disjoint changes are persisted; an
 // overlap rejects with a retryable FAILED_PRECONDITION. A handler without
 // Replay gets STRICT behaviour.
-// STRICT: any mismatch on a client command rejects with a retryable
-// FAILED_PRECONDITION. Deferred commands claim no sequence and are stamped
-// at the destination head.
+// STRICT: any mismatch rejects with a retryable FAILED_PRECONDITION.
 // AGGREGATE_HANDLES: no coordinator check; the handler receives the full
 // prior history and decides.
-// MANUAL: a mismatch on a client command is published to the dead letter
-// queue and rejected with a non-retryable ABORTED. A deferred command is
-// dead-lettered only when its fields overlap the window (or overlap cannot
-// be computed).
+// MANUAL: a mismatch is published to the dead letter queue and rejected
+// with a non-retryable ABORTED.
 enum MergeStrategy {
   MERGE_UNSPECIFIED = 0; // Unset — the server treats it as the documented default (Commutative)
   MERGE_COMMUTATIVE = 1; // Default: merge unless changed fields overlap the window
@@ -212,22 +214,23 @@ message ExternalDeferredSequence {
 }
 
 // Provenance header for commands (and facts) emitted by sagas and process
-// managers. Such commands never carry an explicit sequence: the framework
-// assigns the destination sequence on delivery, and rejections route back to
-// `source`.
+// managers. A deferred command has no expected version: the destination
+// appends it at its head with no sequence or merge-strategy check of any
+// kind; the destination handler's own validation is the only business
+// guard, and the idempotency key below is the duplicate guard. Rejections
+// route back to `source`.
 //
 // The emitter (the client router dispatching the saga/PM) sets:
 //   source        — cover of the EventBook that triggered the handler
 //   source_seq    — sequence of the triggering event
 //   command_index — position of the command in the invocation's output
-//   basis_seq     — destination_sequences[target domain] (0 when absent)
-// The coordinator fills `source` when empty and `basis_seq` when 0 (from its
-// own destination fetch), always stamps `source_component`, and re-stamps
-// `command_index` from the emission order.
+// The coordinator fills `source` when empty, always stamps
+// `source_component`, and re-stamps `command_index` from the emission order.
 //
-// A coordinator receiving a saga/PM command with an explicit
-// PageHeader.sequence validates it as an ordinary client command; that
-// command carries no provenance, so its rejection cannot be compensated.
+// A saga/PM command that sets an explicit PageHeader.sequence instead is
+// validated by the destination exactly like a client command under its merge
+// strategy. Such a command forgoes deferred provenance: it has no idempotency
+// key and its rejection cannot be routed back for compensation.
 //
 // The idempotency key is the full tuple (source, source_seq, source_component,
 // command_index). source/source_seq alone identify only the triggering event:
@@ -244,11 +247,8 @@ message AngzarrDeferredSequence {
   // disambiguates multiple commands produced by one (source, source_seq)
   // trigger.
   uint32 command_index = 4;
-  // The destination aggregate's next_sequence as observed when the command
-  // was emitted — the start of its merge-strategy concurrency window (see
-  // MergeStrategy). 0 = no basis recorded: the window is the whole
-  // destination history.
-  uint32 basis_seq = 5;
+  reserved 5;
+  reserved "basis_seq";
 }
 // endregion
 
@@ -465,8 +465,7 @@ message Notification {
 // one CommandPage whose command is the Notification packed in an Any (type
 // name io.angzarr.v1.Notification; consumers match on the segment after the
 // last '/') and whose header is angzarr_deferred carrying the rejected
-// command's source, source_seq, source_component and command_index with
-// basis_seq 0. That CommandBook is sent to the source domain's
+// command's source, source_seq, source_component and command_index. That CommandBook is sent to the source domain's
 // CommandHandlerCoordinatorService.HandleCompensation, which invokes
 // CommandHandlerService.Handle; the handler answers with a BusinessResponse
 // (compensation events, a RevocationResponse, or a Notification forwarded

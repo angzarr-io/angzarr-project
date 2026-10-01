@@ -1,9 +1,10 @@
 Feature: Destinations query surface
   Destinations is the per-saga / per-PM map from output domain to the
-  destination's next_sequence as observed by the coordinator. It supplies
-  AngzarrDeferredSequence.basis_seq for emitted commands (see
-  wire_parity.feature). Every client exposes the same query surface so
-  users can write the same code against any language.
+  destination's next_sequence as observed by the coordinator. It is
+  optional information: deferred commands do not use it, and it matters only
+  to a component that deliberately stamps an explicit sequence. Every client
+  exposes the same query surface so users can write the same code against
+  any language.
 
   These scenarios pin the canonical method names on the public API.
   Per-language implementation specifics (deprecated aliases, exact
