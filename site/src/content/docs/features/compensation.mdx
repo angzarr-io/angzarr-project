@@ -69,7 +69,14 @@ Register handlers for specific rejection scenarios:
 ```python file=vendor/examples/python/player/agg/rejected.py region=rejected_handler
 ```
 
-The framework routes rejections to the appropriate handler based on the rejected command's domain and type.
+The framework routes a rejection to the handler whose `compensates` entry matches the rejected command:
+
+| Entry | Matches |
+|-------|---------|
+| `"table.AddChips"` | A rejected `table.AddChips`, whatever domain it was sent to |
+| `"table:table.AddChips"` | A rejected `table.AddChips` sent to the `table` domain only |
+
+Use the unqualified form by default—it is how an aggregate, which has no output domains, declares compensation for commands its events caused. Qualify with `domain:` only when the same command type goes to more than one domain and each needs a different compensation. A type is listed either once unqualified or once per domain, never both. Aggregates and process managers declare `compensates`; sagas and projectors never receive rejections. A rejection that matches no entry produces no compensation.
 
 ---
 
@@ -200,7 +207,7 @@ An aggregate declares the commands it can undo with `undoes` on its component op
 
 | Declaration | Handles | Payload | Allowed on |
 |-------------|---------|---------|------------|
-| `compensates` | Rejection of a command this component caused | `RejectionNotification` | Components that emit commands |
+| `compensates` | Rejection of a command this component caused | `RejectionNotification` | Aggregates and process managers |
 | `undoes` | Undo of a command this aggregate executed | `Compensate` | Aggregates only |
 
 Process managers, sagas and projectors never execute commands, so they declare no `undoes`.

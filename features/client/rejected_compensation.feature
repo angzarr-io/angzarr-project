@@ -1,4 +1,3 @@
-# Allocated: C-0080 .. C-0084
 Feature: Rejection compensation details
   As a framework user
   I want compensation handlers to receive accurate state and routing
@@ -6,7 +5,12 @@ Feature: Rejection compensation details
 
   Builds on the basic rejection routing in rejection.feature. These scenarios
   cover state rebuild, routing across multiple compensation handlers on one
-  class, sequence stamping, and the empty-handler case.
+  class, sequence stamping, the empty-handler case, and the two forms of a
+  ComponentOptions.compensates entry: "compensates a rejected X from D" is
+  the domain-qualified entry "D:fq.X" (matches only X sent to D);
+  "compensates a rejected X from any domain" is the unqualified entry
+  "fq.X" (matches X sent to any domain, which is how an aggregate — which
+  has no output domains — declares compensation).
 
   @C-0080
   Scenario: State is rebuilt before the compensation handler runs
@@ -53,3 +57,22 @@ Feature: Rejection compensation details
     And Payment is configured
     When a rejection of ReserveStock arrives from inventory
     Then the response contains no events
+
+  @C-0481
+  Scenario: An unqualified compensates entry matches the command type sent to any domain
+    Given a command handler "Payment" for domain "payment" with stateful rejection
+    And Payment declares no output domains
+    And Payment compensates a rejected ReserveStock from any domain by emitting FundsReleased
+    And Payment is configured
+    When a rejection of ReserveStock arrives from warehouse
+    Then the response contains one FundsReleased event
+
+  @C-0482
+  Scenario: A domain-qualified compensates entry matches only rejections from its domain
+    Given a command handler "Payment" for domain "payment" with two compensation handlers
+    And Payment compensates a rejected ReserveStock from inventory by emitting FundsReleased
+    And Payment compensates a rejected ReserveStock from warehouse by emitting WorkflowFailed
+    And Payment is configured
+    When a rejection of ReserveStock arrives from warehouse
+    Then the response contains one WorkflowFailed event
+    And no FundsReleased event is emitted

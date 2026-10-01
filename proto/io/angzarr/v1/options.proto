@@ -43,11 +43,11 @@ enum ComponentKind {
 //   output_domain(s)  — domains it SENDS COMMANDS to
 //
 // Per kind (generation fails on a violation):
-//   kind             domain     input_domain               output_domain(s)
-//   AGGREGATE        required   empty                      empty
-//   PROCESS_MANAGER  required   empty (per-event domains)  command targets
-//   SAGA             forbidden  required                   command targets
-//   PROJECTOR        forbidden  optional (per-event dom.)  empty
+//   kind             domain     input_domain               output_domain(s)  compensates  undoes
+//   AGGREGATE        required   empty                      empty             optional     optional
+//   PROCESS_MANAGER  required   empty (per-event domains)  command targets   optional     empty
+//   SAGA             forbidden  required                   command targets   empty        empty
+//   PROJECTOR        forbidden  optional (per-event dom.)  empty             empty        empty
 // An aggregate owns its domain's stream and subscribes to nothing; a process
 // manager owns its own workflow stream (domain) and takes its trigger
 // domains from (event).domain; sagas and projectors own no stream.
@@ -78,16 +78,28 @@ message ComponentOptions {
   // message name (e.g. a "CounterState" anchor named "Counter" emits
   // CounterHandler / NewCounterDispatch).
   string name = 4;
-  // Fully-qualified command types whose rejection this component compensates.
-  // Declared on the COMPENSATOR (not the command) so a command's file stays
-  // decoupled from the cross-domain sagas/PMs that react to its rejection.
-  // Each generates an On<Command>Rejected method, in declaration order
-  // (C-0042). The handler takes the rejection envelope, not a typed command.
+  // Rejected commands this component compensates. A RejectionNotification is
+  // delivered to the component whose event caused the rejected command (its
+  // angzarr_deferred.source), so compensates is allowed on AGGREGATE and
+  // PROCESS_MANAGER and must be empty for SAGA and PROJECTOR, which own no
+  // stream and never receive a rejection. Declared on the COMPENSATOR (not
+  // the command) so a command's file stays decoupled from the components
+  // that react to its rejection. Each entry generates one rejection handler,
+  // in declaration order (C-0042); the handler takes the rejection envelope,
+  // not a typed command.
   //
-  // A rejection is dispatched by the pair (rejected command's target domain,
-  // fully-qualified command type): an entry here matches a rejected command
-  // of that type addressed to any of this component's output domains, so
-  // the same command type rejected by two domains is told apart by domain.
+  // Entry forms (same rule for every kind):
+  //   "fq.Type"         — matches a rejection of that command type, whatever
+  //                       domain the command was sent to
+  //   "domain:fq.Type"  — matches only a rejection of that command type sent
+  //                       to `domain` (rejected_command.cover.domain); use it
+  //                       when one command type is sent to more than one
+  //                       domain and each needs its own compensation
+  // A type is matched by its fully-qualified name (see Type URLs in
+  // types.proto). Domain names contain no ':'. A given type appears either
+  // once unqualified or qualified by distinct domains, never both
+  // (generation fails otherwise), so at most one entry matches a rejection.
+  // A rejection that matches no entry yields no compensation (C-0084).
   repeated string compensates = 5;
   // Additional domains this component issues commands to; see output_domain.
   repeated string output_domains = 6;
