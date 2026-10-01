@@ -47,8 +47,8 @@ Feature: Multi-handler dispatch
 
   @C-0012
   Scenario: Router accepts a single CommandHandler with multiple handled types
-    Given a command handler Player for domain "player" handling RegisterPlayer and DepositFunds
-    When the router is built with Player
+    Given a command handler Order for domain "order" handling CreateOrder and AddItem
+    When the router is built with Order
     Then the configuration is accepted
 
   # ==========================================================================

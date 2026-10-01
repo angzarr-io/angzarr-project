@@ -15,12 +15,12 @@ Feature: Testing helpers
     Then the 16 returned bytes match the hex "<hex>"
 
     Examples:
-      | name     | hex                              |
-      | alice    | 8e415de542f65dbc93694846af13f94b |
-      | player-1 | 6d9f1c70074953cf8330ccfdf16aa72f |
-      | table-1  | de2b7ae84b68570ba3e61cc8610dcfea |
-      | order-42 | bf1cb62ec5f35fd986552136859f9b17 |
-      | empty-str| 209192ada8d65340b7f90f0af561b918 |
+      | name        | hex                              |
+      | alice       | 8e415de542f65dbc93694846af13f94b |
+      | payment-1   | 4d9e369d4dd0592db5267aa09b8d890f |
+      | inventory-1 | ae7b95fee7a2551f83ba7665f604d52b |
+      | order-42    | bf1cb62ec5f35fd986552136859f9b17 |
+      | empty-str   | 209192ada8d65340b7f90f0af561b918 |
 
   @C-0117
   Scenario: uuid_for, uuid_str_for, and uuid_obj_for agree on the same name
@@ -32,21 +32,21 @@ Feature: Testing helpers
   @C-0118
   Scenario: make_cover stores domain, root, and correlation_id
     Given a 16-byte root derived from the name "alice"
-    When I call make_cover with domain "player" and correlation_id "corr-99"
-    Then the cover's domain is "player"
+    When I call make_cover with domain "order" and correlation_id "corr-99"
+    Then the cover's domain is "order"
     And the cover's correlation_id is "corr-99"
     And the cover's root bytes match the derived root
 
   @C-0119
   Scenario: make_event_book defaults next_sequence to the page count
     Given a 16-byte root derived from the name "alice"
-    And a cover with domain "player" for that root
+    And a cover with domain "order" for that root
     When I call make_event_book with that cover, no pages, and no explicit next_sequence
     Then the resulting event book has next_sequence equal to 0
 
   @C-0120
   Scenario: ScenarioContext.reset clears all state
-    Given a ScenarioContext with domain "player" and root bytes for "alice"
+    Given a ScenarioContext with domain "order" and root bytes for "alice"
     When I reset the scenario context
     Then the context's domain is empty
     And the context's root is empty

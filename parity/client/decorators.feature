@@ -21,7 +21,7 @@ Feature: Kind-declaration parity
 
   @C-0126
   Scenario: Applying @upcaster records name and domain
-    Given a class "PlayerUpcaster" decorated as an upcaster named "player-v1-to-v2" in domain "player"
+    Given a class "OrderUpcaster" decorated as an upcaster named "order-v1-to-v2" in domain "order"
     Then the class exposes a handler config of kind "upcaster"
-    And the handler config's upcaster name is "player-v1-to-v2"
-    And the handler config's upcaster domain is "player"
+    And the handler config's upcaster name is "order-v1-to-v2"
+    And the handler config's upcaster domain is "order"

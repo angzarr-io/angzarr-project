@@ -25,16 +25,27 @@ surface tight.
 
 ## Execution style
 
-Synchronous. Direct state. Factories invoked per dispatch.
+Synchronous and in-process. No sidecars, no network, no real time.
 
-- State is a plain in-memory object constructed in the scenario's `Given`
-- `EventBook` / `CommandBook` built in-process from proto types
-- No `CommandClient`, no sidecars, no gRPC, no `within N seconds`
-- One step = one handler invocation or one builder call
+Two kinds of file live here:
 
-If a scenario needs a real router, real bus, or real time — it's not in this
-tier. It's either `example/acceptance/` (if it's poker E2E) or pytest (if
-it's framework integration).
+- **Router / dispatch files** (`builder`, `command_handler`, `compensation`,
+  `multi_handler`, `process_manager`, `projector`, `rejected_compensation`,
+  `rejection`, `router`, `saga`, `upcaster`, `validation`): state is a plain
+  in-memory object built in the scenario's `Given`; `EventBook` /
+  `CommandBook` are built in-process from proto types; one step = one
+  handler invocation or one builder call.
+- **Client-surface files** (`aggregate_client`, `domain-client`,
+  `query_client`, `speculative_client`): exercise the client objects
+  (`CommandHandlerClient`, `QueryClient`, `SpeculativeClient`,
+  `DomainClient`) against the **test backend** — an in-process fake of the
+  coordinator gRPC stubs owned by each client repo. "A client connected to
+  the test backend", "the service is unavailable" and "does not respond in
+  time" are configurations of that fake; no coordinator runs.
+
+A scenario that needs a real coordinator, bus or clock is not in this tier.
+Coordinator behaviour belongs in [`../coordinator-contract/`](../coordinator-contract/);
+poker end-to-end belongs in `example/acceptance/`.
 
 ## Scenario IDs
 

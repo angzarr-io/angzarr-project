@@ -83,7 +83,7 @@ Feature: Connection - Client Connection Management
   Scenario: Multiple clients share channel
     Given an existing gRPC channel
     When I create QueryClient from the channel
-    And I create AggregateClient from the same channel
+    And I create CommandHandlerClient from the same channel
     Then both clients should share the connection
     And the connection should only be established once
 
@@ -95,8 +95,8 @@ Feature: Connection - Client Connection Management
     When I create a QueryClient connected to "localhost:1310"
     Then the client should be able to query events
 
-  Scenario: AggregateClient connects successfully
-    When I create an AggregateClient connected to "localhost:1310"
+  Scenario: CommandHandlerClient connects successfully
+    When I create a CommandHandlerClient connected to "localhost:1310"
     Then the client should be able to execute commands
 
   Scenario: SpeculativeClient connects successfully
@@ -107,10 +107,6 @@ Feature: Connection - Client Connection Management
     When I create a DomainClient connected to "localhost:1310"
     Then the client should have aggregate and query sub-clients
     And both should share the same connection
-
-  Scenario: Client combines all operations
-    When I create a Client connected to "localhost:1310"
-    Then the client should have aggregate, query, and speculative sub-clients
 
   # ==========================================================================
   # Connection Options

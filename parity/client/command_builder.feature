@@ -9,7 +9,7 @@ Feature: CommandBuilder - Fluent Command Construction
 # docs:end:command_builder_contract
 
   Background:
-    Given a mock GatewayClient for testing
+    Given a mock CommandHandlerClient for testing
 
   # ==========================================================================
   # Basic Command Construction
@@ -136,7 +136,7 @@ Feature: CommandBuilder - Fluent Command Construction
   # ==========================================================================
 
   Scenario: Client provides command builder shortcut
-    Given a GatewayClient implementation
+    Given a CommandHandlerClient implementation
     When I call client.command("orders", root)
     Then I should receive a CommandBuilder for that domain and root
 
@@ -144,6 +144,6 @@ Feature: CommandBuilder - Fluent Command Construction
     # Per finding #20 / P2.4a closed: command_new auto-generates a
     # client-side UUID v4 for the root in every language. Shortcut
     # returns a CommandBuilder with both domain and root populated.
-    Given a GatewayClient implementation
+    Given a CommandHandlerClient implementation
     When I call client.command_new("orders")
     Then I should receive a CommandBuilder for that domain and an auto-generated root

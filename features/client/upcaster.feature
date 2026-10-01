@@ -8,12 +8,12 @@ Feature: Event upcasting
 
   @C-0123
   Scenario: an upcaster declares its name and domain
-    Given an upcaster named "player-v1-to-v2" in domain "player"
+    Given an upcaster named "order-v1-to-v2" in domain "order"
     Then the declaration is accepted
 
   @C-0124
   Scenario: an upcasting rule declares its source and target event types
-    Given an upcasting rule from "PlayerRegisteredV1" to "PlayerRegisteredV2"
+    Given an upcasting rule from "OrderCreatedV1" to "OrderCreatedV2"
     Then the declaration is accepted
 
   @C-0125
