@@ -17,7 +17,7 @@ implement it.
 | `sync_modes.feature` | ASYNC, DECISION, SIMPLE, CASCADE, ISOLATED and the per-command `PageHeader.sync_mode` override |
 | `cascade_error_mode.feature` | FAIL_FAST, CONTINUE (`reaction_errors`), COMPENSATE (Compensate markers on executed reactions), DEAD_LETTER under CASCADE |
 | `dead_letter_queue.feature` | `angzarr.dlq.{domain}` routing and `AngzarrDeadLetter` contents per failure source |
-| `snapshot_retention.feature` | TRANSIENT / PERSIST / DEFAULT pruning rules |
+| `snapshot_retention.feature` | DEFAULT and TRANSIENT pruned by a newer snapshot; PERSIST kept |
 
 ## Who runs these
 

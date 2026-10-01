@@ -2,11 +2,10 @@ Feature: Snapshot retention
   Snapshot.retention decides which snapshots survive when a newer snapshot
   of the same aggregate (domain, edition, root) is written:
 
-  - RETENTION_TRANSIENT: deleted once a newer snapshot exists.
-  - RETENTION_PERSIST: kept indefinitely (business milestones).
-  - RETENTION_DEFAULT (zero value): a checkpoint every 16 events — kept when
-    it covers a whole number of 16-event blocks, i.e. (sequence + 1) is a
-    multiple of 16; otherwise treated as TRANSIENT.
+  - RETENTION_DEFAULT (zero value) and RETENTION_TRANSIENT: deleted once a
+    newer snapshot exists.
+  - RETENTION_PERSIST: kept indefinitely (business milestones). Only PERSIST
+    keeps snapshot history.
 
   The newest snapshot is never deleted. The retention a handler sets on the
   snapshot it returns is persisted unchanged. Reads use the newest snapshot
@@ -30,18 +29,17 @@ Feature: Snapshot retention
     Then "order-1" has a snapshot at sequence 20
 
   @C-0452
-  Scenario Outline: A default snapshot is kept only on a 16-event checkpoint
+  Scenario Outline: A default snapshot is deleted when a newer snapshot is written
     Given "order-1" has a RETENTION_DEFAULT snapshot at sequence <sequence>
     When a snapshot at sequence 90 is written
-    Then the snapshot at sequence <sequence> is <outcome>
+    Then "order-1" has no snapshot at sequence <sequence>
+    And "order-1" has a snapshot at sequence 90
 
     Examples:
-      | sequence | outcome |
-      | 15       | kept    |
-      | 31       | kept    |
-      | 20       | deleted |
-      | 47       | kept    |
-      | 50       | deleted |
+      | sequence |
+      | 15       |
+      | 20       |
+      | 47       |
 
   @C-0453
   Scenario: The newest snapshot is never deleted

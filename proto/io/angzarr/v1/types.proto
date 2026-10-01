@@ -153,7 +153,7 @@ enum MergeStrategy {
 // deleted, and reads always use the newest snapshot. The retention a handler
 // sets on its snapshot is persisted unchanged.
 enum SnapshotRetention {
-  RETENTION_DEFAULT = 0; // 16-event checkpoint: kept when (sequence + 1) % 16 == 0, otherwise treated as TRANSIENT
+  RETENTION_DEFAULT = 0; // Same as TRANSIENT: deleted when a newer snapshot is written
   RETENTION_PERSIST = 1; // Keep indefinitely (business milestone)
   RETENTION_TRANSIENT = 2; // Delete when a newer snapshot is written
 }
