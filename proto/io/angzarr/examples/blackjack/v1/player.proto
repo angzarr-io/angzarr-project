@@ -338,6 +338,9 @@ message RoundResult {
 //   undoes RecordRoundResult — a CASCADE request under
 //     CASCADE_ERROR_COMPENSATE failed after this player's round result was
 //     recorded; OnRecordRoundResultUndo emits RoundResultRetracted.
+//   facts TopUpSettled, CashOutCredited — injected by
+//     saga-table-player-settlement; handle_fact validates and flags them
+//     but cannot refuse them.
 message PlayerState {
   option (io.angzarr.v1.component) = {
     kind: COMPONENT_KIND_AGGREGATE
@@ -345,6 +348,8 @@ message PlayerState {
     name: "PlayerAggregate"
     compensates: "io.angzarr.examples.blackjack.v1.AddChips"
     undoes: "io.angzarr.examples.blackjack.v1.RecordRoundResult"
+    facts: "io.angzarr.examples.blackjack.v1.TopUpSettled"
+    facts: "io.angzarr.examples.blackjack.v1.CashOutCredited"
   };
   string display_name = 1;
   string email = 2;

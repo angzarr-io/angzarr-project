@@ -43,6 +43,8 @@ message TablePlayerSettlementSaga {
     kind: COMPONENT_KIND_SAGA
     input_domain: "table"
     output_domain: "player"
+    emits_facts: "io.angzarr.examples.blackjack.v1.TopUpSettled"
+    emits_facts: "io.angzarr.examples.blackjack.v1.CashOutCredited"
   };
 }
 
