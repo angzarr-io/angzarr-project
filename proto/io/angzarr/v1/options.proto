@@ -51,6 +51,16 @@ enum ComponentKind {
 // An aggregate owns its domain's stream and subscribes to nothing; a process
 // manager owns its own workflow stream (domain) and takes its trigger
 // domains from (event).domain; sagas and projectors own no stream.
+//
+// Two compensation declarations, never interchangeable:
+//   compensates — rejections of commands this component CAUSED elsewhere
+//                 (RejectionNotification payload)
+//   undoes      — undo of commands this component EXECUTED, requested by a
+//                 failed CASCADE_ERROR_COMPENSATE request (Compensate payload)
+// undoes is allowed only on AGGREGATE: commands are executed only by
+// aggregates. It must be empty for PROCESS_MANAGER (a PM issues commands but
+// never executes one; its own stream changes only through trigger
+// reactions), SAGA and PROJECTOR.
 message ComponentOptions {
   ComponentKind kind = 1;
   // Domain this component subscribes to: the saga's single source domain, or
@@ -81,6 +91,18 @@ message ComponentOptions {
   repeated string compensates = 5;
   // Additional domains this component issues commands to; see output_domain.
   repeated string output_domains = 6;
+  // Fully-qualified command types this aggregate can undo after executing
+  // them. Each entry must name a command the aggregate handles. Generation
+  // emits one On<Command>Undo handler per entry, in declaration order; the
+  // generated dispatch routes a Compensate notification (types.proto) to the
+  // handler for its Compensate.command_type, passing the Compensate (event
+  // sequences + reason) with the rebuilt state. Allowed only on AGGREGATE.
+  //
+  // A Compensate whose command_type has no undo handler is never dropped:
+  // the router answers HandleCompensation with UNIMPLEMENTED, which the
+  // coordinator treats as non-retryable and dead-letters the delivery
+  // envelope at once (compensation_delivery_failed details).
+  repeated string undoes = 8;
   // Domain of the event stream this component owns: the aggregate's domain,
   // or the process manager's own workflow domain (its events are persisted
   // there and its state is rebuilt from it). Required for AGGREGATE and

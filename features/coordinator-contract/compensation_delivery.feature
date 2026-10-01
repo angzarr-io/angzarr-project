@@ -15,7 +15,10 @@ Feature: Compensation delivery - Notifications through the coordinator outbox
   carries the provenance tuple (source, source_seq, source_component,
   command_index) of the command being compensated. Failed deliveries are
   retried with backoff and dead-lettered once the coordinator's configured
-  outbox retry budget is spent. The target deduplicates by (kind, source,
+  outbox retry budget is spent. A Compensate is routed to the target's undo
+  handler for its command_type (ComponentOptions.undoes); one with no undo
+  handler is answered UNIMPLEMENTED and dead-lettered at once, never
+  dropped. The target deduplicates by (kind, source,
   source_seq, source_component, command_index), kind being command,
   rejection-notification or compensate-notification, so a notification is
   never dropped as a duplicate of the command it concerns. A rejection
@@ -26,7 +29,8 @@ Feature: Compensation delivery - Notifications through the coordinator outbox
   Background:
     Given a saga "OrderFulfillment" reacting to OrderCreated on "order" by emitting ReserveStock to "inventory"
     And the order aggregate compensates a rejected ReserveStock by emitting OrderCancelled
-    And the inventory aggregate compensates a Compensate notification by emitting StockReleased
+    And the inventory aggregate undoes ReserveStock by emitting StockReleased
+    And every recorded Compensate notification undoes a ReserveStock command unless a scenario says otherwise
 
   # ---------------------------------------------------------------------------
   # Recording the obligation
@@ -138,6 +142,34 @@ Feature: Compensation delivery - Notifications through the coordinator outbox
     Then the inventory compensation handler is invoked once
     And exactly one StockReleased event is persisted to "inventory" aggregate "sku-1"
     And the second delivery returns the events of the first
+
+  # ---------------------------------------------------------------------------
+  # Undo routing
+  # ---------------------------------------------------------------------------
+
+  @C-0478
+  Scenario: A Compensate is routed to the undo handler for its command type
+    Given the inventory aggregate also undoes AdjustStock by emitting StockAdjustmentReverted
+    And a recorded Compensate notification addressed to the "inventory" aggregate "sku-1" with provenance source "order"/"order-1", source_seq 0, source_component "OrderFulfillment" and command_index 0
+    And the Compensate notification's command_type is "inventory.AdjustStock"
+    When the compensation outbox is processed
+    Then the inventory AdjustStock undo handler is invoked once
+    And the inventory ReserveStock undo handler is not invoked
+    And exactly one StockAdjustmentReverted event is persisted to "inventory" aggregate "sku-1"
+
+  @C-0479
+  Scenario: A Compensate for a command with no undo handler is dead-lettered, not dropped
+    Given a recorded Compensate notification addressed to the "inventory" aggregate "sku-1" with provenance source "order"/"order-1", source_seq 0, source_component "OrderFulfillment" and command_index 0
+    And the Compensate notification's command_type is "inventory.CountStock"
+    And the inventory aggregate declares no undo for CountStock
+    When the compensation outbox is processed
+    Then HandleCompensation on "inventory" answers UNIMPLEMENTED
+    And delivery is attempted once
+    And a dead letter is published to "angzarr.dlq.inventory"
+    And the dead letter carries the notification's delivery envelope as rejected_command
+    And the dead letter's compensation_delivery_failed details have attempts 1
+    And the outbox record is closed
+    And no event is persisted to "inventory" aggregate "sku-1"
 
   # ---------------------------------------------------------------------------
   # Exhaustion

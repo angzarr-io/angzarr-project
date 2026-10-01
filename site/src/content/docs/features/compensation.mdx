@@ -176,13 +176,15 @@ Events are immutable facts: the framework never hides or deletes an event to und
 
 ### Compensate flow
 
-When a `CASCADE` request with `CascadeErrorMode::COMPENSATE` fails, the coordinator raises one `Compensate` notification per reaction command that executed successfully (reactions run in no guaranteed order, so this can be any subset), addressed to that command's target aggregate. It is delivered exactly like a rejection notification (see [Delivery Guarantees](#delivery-guarantees)), and the target's compensation handler emits inverse events.
+When a `CASCADE` request with `CascadeErrorMode::COMPENSATE` fails, the coordinator raises one `Compensate` notification per reaction command that executed successfully (reactions run in no guaranteed order, so this can be any subset), addressed to that command's target aggregate. It is delivered exactly like a rejection notification (see [Delivery Guarantees](#delivery-guarantees)) and routed to the target aggregate's **undo handler** for the executed command's type, which emits inverse events.
 
 ```text title="Compensate flow"
-1. Coordinator records Notification(Compensate { sequences: [5], reason: "card declined" })
-   in its compensation outbox, then fails the CASCADE request
+1. Coordinator records Notification(Compensate { command_type: "inventory.ReserveStock",
+   sequences: [5], reason: "card declined" }) in its compensation outbox, then fails
+   the CASCADE request
 2. Outbox delivers it to the target's HandleCompensation
-3. Handler receives the compensated events, emits inverse (e.g., InventoryReleased)
+3. The ReserveStock undo handler receives the compensated events, emits inverse
+   (e.g., InventoryReleased)
 4. Original and compensating events are in the stream; the notification is not
 ```
 
@@ -192,19 +194,36 @@ Compensation fits because:
 - Explicit audit trail required (both events visible)
 - Third-party notifications or side effects need reversal
 
-### Example: Compensation Handler
+### Declaring Undo Handlers
 
-```python title="illustrative - compensation handler registration"
-@compensate("InventoryReserved")
-def compensate_reservation(self, original_event, reason):
-    # Original event remains visible
-    # Emit inverse event
-    return InventoryReleased(
-        sku=original_event.sku,
-        qty=original_event.qty,
-        reason=reason,
-    )
+An aggregate declares the commands it can undo with `undoes` on its component options. It is separate from `compensates`, which handles *rejections of commands the component caused elsewhere*:
+
+| Declaration | Handles | Payload | Allowed on |
+|-------------|---------|---------|------------|
+| `compensates` | Rejection of a command this component caused | `RejectionNotification` | Components that emit commands |
+| `undoes` | Undo of a command this aggregate executed | `Compensate` | Aggregates only |
+
+Process managers, sagas and projectors never execute commands, so they declare no `undoes`.
+
+```protobuf title="illustrative - undo declaration"
+message InventoryState {
+  option (io.angzarr.v1.component) = {
+    kind: COMPONENT_KIND_AGGREGATE
+    domain: "inventory"
+    undoes: "inventory.ReserveStock"
+  };
+}
 ```
+
+Code generation emits one undo handler per entry (e.g. `OnReserveStockUndo`), and the generated dispatch routes each `Compensate` by its `command_type`:
+
+```python title="illustrative - undo handler"
+def on_reserve_stock_undo(self, state, compensate):
+    # The compensated events remain visible; emit the inverse
+    return InventoryReleased(sku=state.sku, qty=state.reserved_qty, reason=compensate.reason)
+```
+
+A `Compensate` for a command with no undo handler is **never dropped**: the aggregate answers `UNIMPLEMENTED` and the coordinator dead-letters the delivery immediately (`compensation_delivery_failed`), so an operator sees every undo that could not run.
 
 ### What the Stream Holds
 

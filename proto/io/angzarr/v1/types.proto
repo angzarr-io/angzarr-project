@@ -472,8 +472,11 @@ message EventStreamFilter {
 //   described on RejectionNotification, to the target domain's
 //   CommandHandlerCoordinatorService.HandleCompensation; failed deliveries
 //   are retried with backoff and, once the coordinator's configured outbox
-//   retry budget is exhausted, the envelope is dead-lettered (AngzarrDeadLetter with
-//   compensation_delivery_failed details) and the obligation is closed.
+//   retry budget is exhausted, the envelope is dead-lettered
+//   (AngzarrDeadLetter with compensation_delivery_failed details) and the
+//   obligation is closed. A delivery answered UNIMPLEMENTED (the target has
+//   no handler for the notification) is not retried: it is dead-lettered on
+//   that attempt.
 // - The target deduplicates deliveries by (kind, source, source_seq,
 //   source_component, command_index) — see AngzarrDeferredSequence — with
 //   kind rejection-notification or compensate-notification: a redelivered
@@ -538,13 +541,17 @@ message RejectionNotification {
 // RejectionNotification (see Notification): the envelope's cover is the
 // aggregate that executed the command, and its angzarr_deferred header carries
 // that command's provenance tuple (deduplicated with kind
-// compensate-notification). The aggregate's compensation handler emits new
-// compensating events; the compensated events stay in the stream.
+// compensate-notification). The aggregate's undo handler for command_type
+// (declared by ComponentOptions.undoes in options.proto) emits new
+// compensating events; the compensated events stay in the stream. A
+// Compensate whose command_type has no undo handler is dead-lettered, never
+// dropped (see ComponentOptions.undoes).
 message Compensate {
   reserved 1;
   reserved "target";
   repeated uint32 sequences = 2;  // Sequences of the events the command produced
   string reason = 3;              // Why compensation is needed (the failure that aborted the request)
+  string command_type = 4;        // Fully-qualified type of the executed command being undone
 }
 // endregion
 

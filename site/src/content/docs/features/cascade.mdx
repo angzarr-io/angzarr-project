@@ -88,7 +88,7 @@ When a saga, process manager, or one of the commands it emits fails, `CascadeErr
 | `COMPENSATE` | Fail the request and send a `Compensate` notification to the target of each reaction command that executed successfully | Undo partial work |
 | `DEAD_LETTER` | Send each failure to the DLQ, run every other reaction, succeed | Best-effort with alerting |
 
-With `COMPENSATE`, the notifications are recorded in the coordinator's compensation outbox before the failure is returned and are delivered at least once; each affected aggregate's compensation handler emits compensating events, and the compensated events stay in the stream. In every mode, the rejected reaction command's `RejectionNotification` is also delivered to its source aggregate. See [Graceful Failure](./compensation#delivery-guarantees).
+With `COMPENSATE`, each target aggregate needs an undo handler (`undoes`) for every command type it may be asked to undo; a `Compensate` with no undo handler is dead-lettered. The notifications are recorded in the coordinator's compensation outbox before the failure is returned and are delivered at least once; each affected aggregate's compensation handler emits compensating events, and the compensated events stay in the stream. In every mode, the rejected reaction command's `RejectionNotification` is also delivered to its source aggregate. See [Graceful Failure](./compensation#delivery-guarantees).
 
 ---
 

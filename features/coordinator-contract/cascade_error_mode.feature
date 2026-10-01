@@ -39,6 +39,7 @@ Feature: Cascade error mode - failures of synchronous downstream reactions
       | ChargeSaga     | CapturePayment | payment   |
       | NotifySaga     | SendReceipt    | shipping  |
     And the payment aggregate rejects CapturePayment with reason "card declined"
+    And the inventory aggregate undoes ReserveStock and the shipping aggregate undoes SendReceipt
 
   @C-0436
   Scenario: FAIL_FAST fails the request with the failing reaction's reason
@@ -70,14 +71,23 @@ Feature: Cascade error mode - failures of synchronous downstream reactions
     When a CreateOrder command is handled with sync_mode CASCADE and cascade_error_mode COMPENSATE
     Then the request fails with reason "card declined"
     And every reaction command that its target executed successfully has exactly one Compensate notification recorded in the compensation outbox before the response is returned
-    And each Compensate notification is addressed to that command's target aggregate, carries the sequences of the events the command produced, and its page header carries the command's provenance
-    And each Compensate notification is delivered to its target's HandleCompensation
+    And each Compensate notification is addressed to that command's target aggregate, carries the command's type and the sequences of the events the command produced, and its page header carries the command's provenance
+    And each Compensate notification is delivered to its target's HandleCompensation and handled by the target's undo handler for that command type
     And each target's stream gains only its compensation handler's events
     And the compensated events remain visible
     And no Compensate notification is recorded for a reaction command that its target did not execute successfully
     And no Compensate notification is sent to the "payment" aggregate
     And a RejectionNotification for the rejected CapturePayment command with reason "card declined" is delivered to the "order" aggregate
     And the OrderCreated event remains persisted
+
+  @C-0480
+  Scenario: COMPENSATE dead-letters a Compensate its target cannot undo
+    Given the shipping aggregate declares no undo for SendReceipt
+    When a CreateOrder command is handled with sync_mode CASCADE and cascade_error_mode COMPENSATE
+    Then the request fails with reason "card declined"
+    And every reaction command that its target executed successfully has exactly one Compensate notification recorded, whether or not its target can undo it
+    And every Compensate notification for a SendReceipt command that shipping executed successfully is dead-lettered to "angzarr.dlq.shipping" with compensation_delivery_failed details
+    And no Compensate notification is dropped
 
   @C-0441
   Scenario: DEAD_LETTER dead-letters the failure and runs every other reaction
