@@ -280,8 +280,8 @@ message RoundResultRecorded {
   int64 net = 4;
 }
 
-// Compensation output: a CASCADE request that recorded this round result
-// failed under CASCADE_ERROR_COMPENSATE, so the record is withdrawn. The
+// Undo output: a CASCADE request that recorded this round result failed
+// under CASCADE_ERROR_COMPENSATE, so the record is withdrawn. The
 // original RoundResultRecorded stays in history; this event cancels it.
 message RoundResultRetracted {
   option (io.angzarr.v1.event) = { component: "io.angzarr.examples.blackjack.v1.PlayerState" };
@@ -331,19 +331,19 @@ message RoundResult {
   bool retracted = 5;
 }
 
-// The PlayerAggregate. Compensates:
-//   AddChips — the table refused a top-up (saga-player-table's command); the
-//     handler emits TopUpRefused, releasing the hold.
-//   RecordRoundResult — a CASCADE request under CASCADE_ERROR_COMPENSATE
-//     failed after this player's round result was recorded; the handler
-//     emits RoundResultRetracted.
+// The PlayerAggregate.
+//   compensates AddChips — the table refused a top-up (saga-player-table's
+//     command); OnAddChipsRejected emits TopUpRefused, releasing the hold.
+//   undoes RecordRoundResult — a CASCADE request under
+//     CASCADE_ERROR_COMPENSATE failed after this player's round result was
+//     recorded; OnRecordRoundResultUndo emits RoundResultRetracted.
 message PlayerState {
   option (io.angzarr.v1.component) = {
     kind: COMPONENT_KIND_AGGREGATE
-    input_domain: "player"
+    domain: "player"
     name: "PlayerAggregate"
     compensates: "io.angzarr.examples.blackjack.v1.AddChips"
-    compensates: "io.angzarr.examples.blackjack.v1.RecordRoundResult"
+    undoes: "io.angzarr.examples.blackjack.v1.RecordRoundResult"
   };
   string display_name = 1;
   string email = 2;

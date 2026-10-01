@@ -380,7 +380,7 @@ message TableSeatHold {
 message TableState {
   option (io.angzarr.v1.component) = {
     kind: COMPONENT_KIND_AGGREGATE
-    input_domain: "table"
+    domain: "table"
     name: "TableAggregate"
   };
   enum Phase {

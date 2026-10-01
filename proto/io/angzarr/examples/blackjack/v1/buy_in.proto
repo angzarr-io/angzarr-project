@@ -77,12 +77,15 @@ message BuyInFailed {
   string reason = 3; // Rejection reason of the refused command
 }
 
-// The BuyInProcessManager. Commands go to "player" (HoldFunds, CaptureFunds,
-// ReleaseHold) and "table" (ConfirmSeat, ReleaseSeat).
+// The BuyInProcessManager. Owns the "buy-in" stream. Triggers come from
+// "table" and "player" (each (event) entry's domain); commands go to
+// "player" (HoldFunds, CaptureFunds, ReleaseHold) and "table" (ConfirmSeat,
+// ReleaseSeat).
 message BuyInState {
   option (io.angzarr.v1.component) = {
     kind: COMPONENT_KIND_PROCESS_MANAGER
-    output_domain: "player"
+    domain: "buy-in"
+    output_domains: "player"
     output_domains: "table"
     name: "BuyInProcessManager"
     compensates: "io.angzarr.examples.blackjack.v1.HoldFunds"
