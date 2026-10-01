@@ -43,11 +43,11 @@ enum ComponentKind {
 //   output_domain(s)  — domains it SENDS COMMANDS to
 //
 // Per kind (generation fails on a violation):
-//   kind             domain     input_domain               output_domain(s)  compensates  undoes
-//   AGGREGATE        required   empty                      empty             optional     optional
-//   PROCESS_MANAGER  required   empty (per-event domains)  command targets   optional     empty
-//   SAGA             forbidden  required                   command targets   empty        empty
-//   PROJECTOR        forbidden  optional (per-event dom.)  empty             empty        empty
+//   kind             domain     input_domain               output_domain(s)  compensates  undoes    facts     emits_facts
+//   AGGREGATE        required   empty                      empty             optional     optional  optional  empty
+//   PROCESS_MANAGER  required   empty (per-event domains)  command targets   optional     empty     empty     optional
+//   SAGA             forbidden  required                   command targets   empty        empty     empty     optional
+//   PROJECTOR        forbidden  optional (per-event dom.)  empty             empty        empty     empty     empty
 // An aggregate owns its domain's stream and subscribes to nothing; a process
 // manager owns its own workflow stream (domain) and takes its trigger
 // domains from (event).domain; sagas and projectors own no stream.
@@ -115,6 +115,30 @@ message ComponentOptions {
   // coordinator treats as non-retryable and dead-letters the delivery
   // envelope at once (compensation_delivery_failed details).
   repeated string undoes = 8;
+  // Fully-qualified event types this aggregate accepts as FACTS (external
+  // realities injected via CommandHandlerCoordinatorService.HandleEvent or
+  // emitted by a saga/PM). Allowed only on AGGREGATE; must be empty for
+  // PROCESS_MANAGER, SAGA and PROJECTOR.
+  //
+  // A fact is recorded, never rejected: it already happened elsewhere and
+  // the aggregate has no authority to refuse it. Generation emits one fact
+  // handler per entry (On<Event>Fact), in declaration order; the generated
+  // dispatch routes CommandHandlerService.HandleFact to the handler for the
+  // fact's fully-qualified type. The handler receives the fact and the
+  // rebuilt state and returns the events to persist: the fact itself,
+  // optionally followed by events that flag it (e.g. a discrepancy with the
+  // aggregate's own view). It has no way to refuse the fact.
+  //
+  // A fact whose type is not declared here is refused by the router as a
+  // wiring error, not a business rejection: HandleFact answers
+  // INVALID_ARGUMENT with angzarr error code NO_FACT_HANDLER, and the
+  // coordinator persists nothing.
+  repeated string facts = 9;
+  // Fully-qualified event types this saga / process manager injects as
+  // facts into its output domains. Allowed on SAGA and PROCESS_MANAGER only.
+  // Lint fails when an entry is not declared in `facts` by an aggregate
+  // that owns (domain) one of the component's output domains.
+  repeated string emits_facts = 10;
   // Domain of the event stream this component owns: the aggregate's domain,
   // or the process manager's own workflow domain (its events are persisted
   // there and its state is rebuilt from it). Required for AGGREGATE and

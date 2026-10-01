@@ -80,7 +80,7 @@ The `external_deferred` variant is **transient**—after processing, it's replac
 The coordinator handles facts in five steps:
 
 1. Checks idempotency via `external_id` in `ExternalDeferredSequence`
-2. Routes to aggregate for state update (if configured)
+2. Routes the fact to the aggregate's **fact handler** for its type (refused with `NO_FACT_HANDLER` if the aggregate does not declare the type)
 3. **Replaces** the `external_deferred` with a real `sequence` number
 4. Persists the event
 5. Publishes to downstream consumers
@@ -118,17 +118,39 @@ Webhook retries? Network hiccups? Duplicate deliveries? The coordinator checks `
 
 ---
 
-## Configuration
+## Declaring Facts
 
-By default, facts route to the aggregate before persistence:
+An aggregate declares the event types it accepts as facts with `facts` on its component options. Code generation emits one fact handler per entry, and the generated dispatch routes each fact to the handler for its fully-qualified type.
 
-```yaml title="illustrative - fact routing config"
-route_facts_to_aggregate: true
+```protobuf title="illustrative - fact declaration"
+message OrderState {
+  option (io.angzarr.v1.component) = {
+    kind: COMPONENT_KIND_AGGREGATE
+    domain: "order"
+    facts: "shipping.ShipmentDispatched"
+    facts: "payment.PaymentCaptured"
+  };
+}
 ```
 
-This allows the aggregate to update its state and potentially emit additional events in response to the fact.
+A fact handler **records** the fact; it cannot refuse it. It receives the fact and the rebuilt state and returns the events to persist—the fact itself, optionally followed by events that flag it (for example a `ShipmentDiscrepancy` when the order was not expecting a shipment).
 
-Set to `false` if facts should persist directly without aggregate processing.
+```python title="illustrative - fact handler"
+def on_shipment_dispatched_fact(self, state, fact):
+    events = [fact]
+    if not state.awaiting_shipment:
+        events.append(ShipmentDiscrepancy(order_id=state.order_id, reason="not awaiting shipment"))
+    return events
+```
+
+| Situation | Result |
+|-----------|--------|
+| Fact type declared in `facts` | Routed to its fact handler; recorded |
+| Fact type not declared | Refused as a wiring error: `INVALID_ARGUMENT`, error code `NO_FACT_HANDLER`; nothing persisted |
+
+`facts` is allowed only on aggregates. Sagas and process managers that inject facts declare the types in `emits_facts`; `angzarr lint` fails when an emitted fact type is not declared in `facts` by an aggregate that owns one of the component's output domains, so the mismatch surfaces at build time instead of as a refused fact at run time.
+
+An operator replaying or repairing a stream can set `EventRequest.skip_handler` to persist facts directly without handler invocation.
 
 ---
 

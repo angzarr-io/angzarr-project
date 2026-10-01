@@ -5,9 +5,15 @@ Feature: Fact injection from sagas and process managers
   Facts ARE sequenced and persisted to the event store - they differ from
   commands only in that they bypass validation and cannot be rejected.
 
+  The receiving aggregate declares which event types it accepts as facts
+  (ComponentOptions.facts); each is handled by its fact handler, which
+  records the fact and may add events that flag it but cannot refuse it.
+  A fact of an undeclared type is a wiring error: refused with
+  INVALID_ARGUMENT / NO_FACT_HANDLER and nothing is persisted.
+
   Facts vs Commands vs Notifications:
   - Commands: Sequenced, validated, can be rejected
-  - Facts: Sequenced, NOT validated, cannot be rejected
+  - Facts: Sequenced, recorded by a declared fact handler, cannot be rejected
   - Notifications: NOT sequenced, used for coordination (e.g., compensation)
 
   Facts represent external realities:
@@ -16,6 +22,10 @@ Feature: Fact injection from sagas and process managers
   - Cross-domain propagation where validation doesn't apply
 
   Sequences are 0-based: an aggregate with N events has next_sequence N.
+
+  Background:
+    Given the order aggregate declares facts ShipmentDispatched and PaymentCaptured
+    And the inventory aggregate declares fact StockHoldRequested
 
   # ---------------------------------------------------------------------------
   # Cross-domain reality: the receiving aggregate records, never rejects
@@ -75,6 +85,23 @@ Feature: Fact injection from sagas and process managers
     When the saga processes an event
     Then the saga fails because the target domain does not exist
     And no commands from that saga are executed
+
+  @C-0492
+  Scenario: A fact of a type the aggregate does not declare is refused and nothing is persisted
+    Given an "order" aggregate with 3 existing events
+    When an OrderRefunded fact with external_id "refund-R1" is injected into the "order" aggregate
+    Then the injection fails with INVALID_ARGUMENT and angzarr error code NO_FACT_HANDLER
+    And the "order" aggregate still has 3 events
+    And external_id "refund-R1" is not recorded as processed
+
+  @C-0493
+  Scenario: A saga's refused fact fails the saga without retries
+    Given a saga "ShippingToOrder" translating from "shipping" to "order" that emits an OrderRefunded fact
+    When the shipping aggregate emits ShipmentReturned for order "order-1"
+    Then the saga handler is attempted once
+    And a dead letter is published to "angzarr.dlq.shipping"
+    And the dead letter's event_processing_failed details have is_transient false and retry_count 0
+    And no event is persisted to "order" aggregate "order-1"
 
   @C-0190
   Scenario: Duplicate fact with same external_id is idempotent

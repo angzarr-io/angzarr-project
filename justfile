@@ -95,7 +95,7 @@ proto-breaking:
         breaking proto --against "$gitdir#ref={{BREAKING_AGAINST}},subdir=proto"
 
 # Every scenario carries exactly one unique @<TIER>-NNNN tag
-check-feature-ids *dirs="features/client features/coordinator-contract parity":
+check-feature-ids *dirs="features/client features/coordinator-contract features/codegen parity":
     python3 scripts/check_feature_ids.py {{dirs}}
 
 # Required contract gates (proto-breaking is optional and run by hand)

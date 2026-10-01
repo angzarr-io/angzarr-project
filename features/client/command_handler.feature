@@ -1,4 +1,3 @@
-# Allocated: C-0001 .. C-0006, C-0085, C-0146 .. C-0148
 Feature: Command handler dispatch
   As an aggregate author
   I want commands routed to @handles methods with state rebuilt from prior events
@@ -84,3 +83,25 @@ Feature: Command handler dispatch
     Given the incoming command's cover has no ext field set
     When CreateOrder(order_id="o-1") is dispatched
     Then the response's EventBook cover has no ext field set
+
+  # ==========================================================================
+  # Facts (ComponentOptions.facts)
+  # ==========================================================================
+  # A fact is recorded, never rejected. A declared fact type is routed to its
+  # fact handler; an undeclared type is a wiring error refused by the router.
+
+  @C-0490
+  Scenario: A declared fact is routed to its fact handler and recorded
+    Given Order declares ShipmentDispatched as a fact whose handler records it and flags a ShipmentDiscrepancy when the order is not awaiting shipment
+    And a prior history with an OrderCreated event at sequence 0
+    When a ShipmentDispatched fact is dispatched to HandleFact
+    Then the response contains the ShipmentDispatched event
+    And the response contains a ShipmentDiscrepancy event after it
+    And the response is not an error
+
+  @C-0491
+  Scenario: A fact of an undeclared type is refused with NO_FACT_HANDLER
+    When a PaymentCaptured fact is dispatched to HandleFact
+    Then HandleFact fails with INVALID_ARGUMENT and angzarr error code NO_FACT_HANDLER
+    And no events are returned
+
