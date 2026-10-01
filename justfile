@@ -39,7 +39,7 @@ check-rules:
 
 BUF_IMAGE := "bufbuild/buf:1.47.2"
 
-# Branch/ref the proto-breaking gate compares against.
+# Branch/ref the optional proto-breaking check compares against.
 BREAKING_AGAINST := env_var_or_default("BREAKING_AGAINST", "origin/main")
 
 # Lint the protos under proto/ with the repo's buf.yaml
@@ -50,7 +50,9 @@ proto-lint:
     docker run --rm -e BUF_CACHE_DIR=/tmp/buf-cache \
         -v "$root:$root:ro" -w "$root/proto" {{BUF_IMAGE}} lint
 
-# Check proto changes for wire breakage against BREAKING_AGAINST (git input)
+# Optional manual check (not part of `contracts` or CI): report wire/JSON
+# breakage against BREAKING_AGAINST via buf's git input. Stored data is wiped
+# across schema changes during active development, so breakage is allowed.
 proto-breaking:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -67,8 +69,8 @@ proto-breaking:
 check-feature-ids *dirs="features/client features/coordinator-contract parity":
     python3 scripts/check_feature_ids.py {{dirs}}
 
-# All contract gates
-contracts: proto-lint proto-breaking test-check-feature-ids check-feature-ids
+# Required contract gates (proto-breaking is optional and run by hand)
+contracts: proto-lint test-check-feature-ids check-feature-ids
 
 # Unit tests for the scenario-ID checker
 test-check-feature-ids:

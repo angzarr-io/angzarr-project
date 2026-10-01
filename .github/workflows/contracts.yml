@@ -1,8 +1,9 @@
 name: Contracts
 
-# Gates the spec surface: buf lint + wire/JSON breaking check on the protos,
-# and scenario-ID hygiene on the framework feature tiers. All logic lives in
-# justfile recipes; this workflow only invokes them.
+# Gates the spec surface: buf lint on the protos and scenario-ID hygiene on
+# the framework feature tiers. Wire compatibility is not gated (stored data
+# is wiped across schema changes); `just proto-breaking` is a manual check.
+# All logic lives in justfile recipes; this workflow only invokes them.
 
 on:
   pull_request:
@@ -24,18 +25,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
       - uses: extractions/setup-just@v2
 
       - name: proto-lint
         run: just proto-lint
-
-      - name: proto-breaking
-        run: just proto-breaking
-        env:
-          BREAKING_AGAINST: origin/${{ github.base_ref }}
 
       - name: check-feature-ids
         run: just test-check-feature-ids check-feature-ids
