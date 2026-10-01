@@ -49,11 +49,12 @@ poker end-to-end belongs in `example/acceptance/`.
 
 ## Scenario IDs
 
-Tag format: `@C-NNNN`. Allocated sequentially in authoring order, never
-reused. To allocate the next:
+Tag format: `@C-NNNN`, shared with `coordinator-contract/` and
+`../../parity/`. Allocated sequentially in authoring order, never reused.
+To allocate the next:
 
 ```bash
-git grep -hoE '@C-[0-9]{4}' features/client/ | sort -u | tail -1
+git grep -hoE '@C-[0-9]{4}' -- features parity | sort -u | tail -1
 ```
 
 Take `max + 1`. Concurrent PRs race; later-merger rebases.

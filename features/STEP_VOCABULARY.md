@@ -1,7 +1,8 @@
 # Step phrasing conventions
 
-Advisory rules for authoring Gherkin scenarios across all three tiers.
-Not CI-enforced — code review is the feedback loop.
+Rules for authoring Gherkin scenarios across all tiers. Rule 16 (scenario
+IDs) is CI-enforced by `just check-feature-ids`; the rest are advisory and
+code review is the feedback loop.
 
 Each rule below gives the **rule**, the **rationale**, a **good** example,
 and a **bad** example. When a reviewer cites a rule, they cite the number.
@@ -117,8 +118,12 @@ Name the element by key.
 
 ## 16. Scenario ID tag is mandatory
 
-Every `Scenario:` has a `@<tier>-NNNN` tag immediately above it. Format is
-fixed: uppercase tier code, dash, four digits with leading zeros.
+Every `Scenario:` / `Scenario Outline:` has exactly one `@<tier>-NNNN` tag
+on the tag lines immediately above it, and no ID appears twice. Format is
+fixed: uppercase tier code (`C`, `EU`, `EA`), dash, four digits with leading
+zeros. Enforced by `just check-feature-ids` (`scripts/check_feature_ids.py`)
+in the Contracts workflow for `features/client`,
+`features/coordinator-contract` and `parity`.
 
 - Good: `@C-0042`
 - Bad: `@C-42`, `@c-0042`, `@C_0042`

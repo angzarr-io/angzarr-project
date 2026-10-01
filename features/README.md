@@ -34,12 +34,16 @@ Shared vocabulary conventions across all tiers and all languages:
 
 ## Scenario IDs
 
-Every scenario carries a tag `@<tier-code>-NNNN` where:
+Every scenario carries exactly one tag `@<tier-code>-NNNN`, unique across
+the repo, where:
 
-- `C` — client tier
+- `C` — framework tiers (`client/`, `coordinator-contract/`, `../parity/`)
 - `EU` — example unit tier
 - `EA` — example acceptance tier
 - `NNNN` — zero-padded 4-digit number, assigned in authoring order, never reused
+
+`just check-feature-ids [dirs...]` verifies presence, format and uniqueness;
+the Contracts workflow runs it on the framework tiers.
 
 IDs survive file renames and reorderings. Promoting a scenario across tiers
 gets a new ID in the new tier's namespace; the old ID is retired.
@@ -47,7 +51,7 @@ gets a new ID in the new tier's namespace; the old ID is retired.
 To allocate the next ID in a tier:
 
 ```bash
-git grep -hE '@C-[0-9]{4}' features/client/ | grep -oE '@C-[0-9]{4}' | sort -u | tail -1
+git grep -hoE '@C-[0-9]{4}' -- features parity | sort -u | tail -1
 ```
 
 Take `max + 1`. If two concurrent PRs both allocate the same number, the

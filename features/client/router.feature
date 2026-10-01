@@ -15,24 +15,28 @@ Feature: Router - Command and Event Routing
   # Aggregate Router
   # ==========================================================================
 
+  @C-0246
   Scenario: Aggregate router dispatches by command type
     Given an aggregate router with handlers for "CreateOrder" and "AddItem"
     When I receive a "CreateOrder" command
     Then the CreateOrder handler should be invoked
     And the AddItem handler should NOT be invoked
 
+  @C-0247
   Scenario: Command handlers see previously recorded history
     Given an aggregate router
     And an aggregate with existing events
     When I receive a command for that aggregate
     Then the handler should receive state reflecting all previously recorded events
 
+  @C-0248
   Scenario: Aggregate router returns emitted events
     Given an aggregate router
     When a handler emits 2 events
     Then the router should return those events
     And the events should carry consecutive sequences continuing the aggregate's history
 
+  @C-0249
   Scenario: Unknown command type returns error
     Given an aggregate router with handlers for "CreateOrder"
     When I receive an "UnknownCommand" command
@@ -43,23 +47,27 @@ Feature: Router - Command and Event Routing
   # Saga Router
   # ==========================================================================
 
+  @C-0250
   Scenario: Saga router dispatches by event type
     Given a saga router with handlers for "OrderCreated" and "OrderShipped"
     When I receive an "OrderCreated" event
     Then the OrderCreated handler should be invoked
     And the OrderShipped handler should NOT be invoked
 
+  @C-0251
   Scenario: Saga commands are sequenced for their destination
     Given a saga router
     When I receive an event that triggers command to "inventory"
     Then the emitted command should be sequenced to follow the current history of "inventory"
 
+  @C-0252
   Scenario: Saga router handles rejection
     Given a saga router with a rejected command
     When the router processes the rejection
     Then a rejection notification should be emitted
     And compensation should be initiated for the rejected command
 
+  @C-0253
   Scenario: Saga router is stateless
     Given a saga router
     When I process two events with same type
@@ -70,11 +78,13 @@ Feature: Router - Command and Event Routing
   # Projector Router
   # ==========================================================================
 
+  @C-0254
   Scenario: Projector router dispatches by event type
     Given a projector router with handlers for "OrderCreated"
     When I receive an "OrderCreated" event
     Then the OrderCreated handler should be invoked
 
+  @C-0255
   Scenario: Projector router processes event batches
     Given a projector router
     When I receive 5 events in a batch
@@ -85,6 +95,7 @@ Feature: Router - Command and Event Routing
   # Process Manager Router
   # ==========================================================================
 
+  @C-0256
   Scenario: PM router dispatches by event type across domains
     Given a PM router with handlers for "OrderCreated" and "InventoryReserved"
     When I receive an "OrderCreated" event from domain "orders"
@@ -96,12 +107,14 @@ Feature: Router - Command and Event Routing
   # Handler Registration
   # ==========================================================================
 
+  @C-0257
   Scenario: Register multiple handlers
     Given a router
     When I register handlers for "TypeA", "TypeB", and "TypeC"
     Then all three types should be routable
     And each should invoke its specific handler
 
+  @C-0258
   Scenario: Handler receives typed message
     Given a router with handler for protobuf message type
     When I receive an event with that type
@@ -111,6 +124,7 @@ Feature: Router - Command and Event Routing
   # State Building
   # ==========================================================================
 
+  @C-0259
   Scenario: State is built from events
     Given an aggregate router
     And events: OrderCreated, ItemAdded, ItemAdded
@@ -118,6 +132,7 @@ Feature: Router - Command and Event Routing
     Then the state should reflect all three events applied
     And the state should have 2 items
 
+  @C-0260
   Scenario: Empty aggregate has default state
     Given an aggregate router
     And no events for the aggregate
@@ -128,12 +143,14 @@ Feature: Router - Command and Event Routing
   # Error Handling in Routers
   # ==========================================================================
 
+  @C-0261
   Scenario: Handler failure yields no events
     Given a router
     When a handler returns an error
     Then the caller should be informed of the failure
     And no events should be emitted
 
+  @C-0262
   Scenario: Malformed payload is rejected
     Given a router
     When I receive an event with invalid payload
@@ -144,18 +161,21 @@ Feature: Router - Command and Event Routing
   # Guard/Validate/Compute Pattern
   # ==========================================================================
 
+  @C-0263
   Scenario: Guard checks preconditions
     Given an aggregate with guard checking aggregate exists
     When I send command to non-existent aggregate
     Then guard should reject
     And no event should be emitted
 
+  @C-0264
   Scenario: Validate checks command validity
     Given an aggregate handler with validation
     When I send command with invalid data
     Then validate should reject
     And rejection reason should describe the issue
 
+  @C-0265
   Scenario: Compute produces events
     Given an aggregate handler
     When guard and validate pass

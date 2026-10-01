@@ -31,3 +31,45 @@ clean:
 # Verify every poker/acceptance scenario is governed by a # Rule: citation
 check-rules:
     python3 features/example/check_rule_citations.py
+
+# ---------------------------------------------------------------------------
+# Contract gates (proto + feature specs). buf runs in a pinned container so
+# the host needs only docker; CI calls these recipes and nothing else.
+# ---------------------------------------------------------------------------
+
+BUF_IMAGE := "bufbuild/buf:1.47.2"
+
+# Branch/ref the proto-breaking gate compares against.
+BREAKING_AGAINST := env_var_or_default("BREAKING_AGAINST", "origin/main")
+
+# Lint the protos under proto/ with the repo's buf.yaml
+proto-lint:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    root="$(git rev-parse --show-toplevel)"
+    docker run --rm -e BUF_CACHE_DIR=/tmp/buf-cache \
+        -v "$root:$root:ro" -w "$root/proto" {{BUF_IMAGE}} lint
+
+# Check proto changes for wire breakage against BREAKING_AGAINST (git input)
+proto-breaking:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    root="$(git rev-parse --show-toplevel)"
+    # The common git dir is the real repository even from a linked
+    # worktree; mount it at the same path so buf's git input resolves.
+    gitdir="$(git rev-parse --path-format=absolute --git-common-dir)"
+    docker run --rm -e BUF_CACHE_DIR=/tmp/buf-cache \
+        -e GIT_CONFIG_COUNT=1 -e GIT_CONFIG_KEY_0=safe.directory -e GIT_CONFIG_VALUE_0="*" \
+        -v "$root:$root:ro" -v "$gitdir:$gitdir:ro" -w "$root" {{BUF_IMAGE}} \
+        breaking proto --against "$gitdir#ref={{BREAKING_AGAINST}},subdir=proto"
+
+# Every scenario carries exactly one unique @<TIER>-NNNN tag
+check-feature-ids *dirs="features/client features/coordinator-contract parity":
+    python3 scripts/check_feature_ids.py {{dirs}}
+
+# All contract gates
+contracts: proto-lint proto-breaking test-check-feature-ids check-feature-ids
+
+# Unit tests for the scenario-ID checker
+test-check-feature-ids:
+    python3 -m unittest scripts/test_check_feature_ids.py

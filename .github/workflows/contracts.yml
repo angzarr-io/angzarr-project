@@ -1,0 +1,41 @@
+name: Contracts
+
+# Gates the spec surface: buf lint + wire/JSON breaking check on the protos,
+# and scenario-ID hygiene on the framework feature tiers. All logic lives in
+# justfile recipes; this workflow only invokes them.
+
+on:
+  pull_request:
+    paths:
+      - 'proto/**'
+      - 'features/**'
+      - 'parity/**'
+      - 'scripts/check_feature_ids.py'
+      - 'scripts/test_check_feature_ids.py'
+      - 'justfile'
+      - '.github/workflows/contracts.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  contracts:
+    name: Proto + feature contracts
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: extractions/setup-just@v2
+
+      - name: proto-lint
+        run: just proto-lint
+
+      - name: proto-breaking
+        run: just proto-breaking
+        env:
+          BREAKING_AGAINST: origin/${{ github.base_ref }}
+
+      - name: check-feature-ids
+        run: just test-check-feature-ids check-feature-ids
