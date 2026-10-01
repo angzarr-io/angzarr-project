@@ -22,29 +22,7 @@ The advent of managed runtimes like GCP Cloud Run and AWS Lambda—and tools lik
 
 The payoff: business logic becomes remarkably small. A command handler receives state and a command, validates business rules, and returns events. No database connections. No message bus configuration. No retry logic. No serialization code. Just pure domain logic. The infrastructure complexity doesn't disappear; it moves to the framework where it belongs.
 
-See for yourself—the customer aggregate (create customer, add/redeem loyalty points) is one of the simpler examples:
-
-| Language | LOC | Implementation |
-|----------|-----|----------------|
-| Go | 173 | [examples/go/customer/logic/](https://github.com/benjaminabbitt/angzarr/tree/main/examples/go/customer/logic/) |
-| Python | 209 | [examples/python/customer/](https://github.com/benjaminabbitt/angzarr/tree/main/examples/python/customer/) |
-| Rust | 303 | [examples/rust/customer/src/](https://github.com/benjaminabbitt/angzarr/tree/main/examples/rust/customer/src/) |
-
-*LOC counted via scripts/render_docs.py — non-blank, non-comment lines in business logic files.*
-
-The Angzarr project uses Gherkin feature files to specify business behavior—these are *not* a requirement for your applications. We use them to keep business rules consistent across all example implementations (Go, Python, Rust) and to provide executable specification that runs on every commit:
-
-| Domain | Scenarios | Feature File |
-|--------|-----------|--------------|
-| Cart | 27 | [cart.feature](https://github.com/benjaminabbitt/angzarr/tree/main/examples/features/cart.feature) |
-| Customer | 15 | [customer.feature](https://github.com/benjaminabbitt/angzarr/tree/main/examples/features/customer.feature) |
-| Fulfillment | 19 | [fulfillment.feature](https://github.com/benjaminabbitt/angzarr/tree/main/examples/features/fulfillment.feature) |
-| Inventory | 19 | [inventory.feature](https://github.com/benjaminabbitt/angzarr/tree/main/examples/features/inventory.feature) |
-| Order | 22 | [order.feature](https://github.com/benjaminabbitt/angzarr/tree/main/examples/features/order.feature) |
-| Product | 18 | [product.feature](https://github.com/benjaminabbitt/angzarr/tree/main/examples/features/product.feature) |
-| Saga Cancellation | 5 | [saga_cancellation.feature](https://github.com/benjaminabbitt/angzarr/tree/main/examples/features/saga_cancellation.feature) |
-| Saga Fulfillment | 4 | [saga_fulfillment.feature](https://github.com/benjaminabbitt/angzarr/tree/main/examples/features/saga_fulfillment.feature) |
-| Saga Loyalty Earn | 4 | [saga_loyalty_earn.feature](https://github.com/benjaminabbitt/angzarr/tree/main/examples/features/saga_loyalty_earn.feature) |
+The Angzarr project uses Gherkin feature files to specify behavior—these are *not* a requirement for your applications. We use them to keep the framework, the six client libraries, and the example implementations consistent, and to provide an executable specification that runs on every commit. The specs live in [`features/`](https://github.com/angzarr-io/angzarr-project/tree/main/features) in angzarr-project.
 
 Your acceptance testing strategy is your own. Use whatever works for your team—unit tests, integration tests, property-based testing, or yes, Cucumber/Gherkin if that fits your workflow.
 
