@@ -96,7 +96,7 @@ scenarios in main without a tracking issue.
 ## 12. Domain vocabulary is tier-bound
 
 - `features/client/` — only `Order`, `Payment`, `Inventory`, `Shipping`. No poker.
-- `features/example/` — only poker types.
+- `features/example/` — only example types (poker, blackjack); one example per file.
 
 Mixing poisons the shared vocabulary for consumer repos.
 
@@ -130,7 +130,7 @@ in the Contracts workflow for `features/client`,
 
 ## 17. Tier domain purity
 
-Client tier feature files import zero poker concepts. Example tier feature
+Client tier feature files import zero example (poker or blackjack) concepts. Example tier feature
 files import zero generic `Order`/`Payment` concepts. A scenario that
 genuinely spans both belongs in a different test — probably pytest/unit
 integration — not cucumber.

@@ -1,7 +1,8 @@
 name: Contracts
 
-# Gates the spec surface: buf lint on the protos and scenario-ID hygiene on
-# the framework feature tiers. Wire compatibility is not gated (stored data
+# Gates the spec surface: buf lint on the protos, Gherkin syntax and
+# scenario-ID hygiene on the feature tiers, and rule citations on the
+# example rule tiers. Wire compatibility is not gated (stored data
 # is wiped across schema changes); `just proto-breaking` is a manual check.
 # All logic lives in justfile recipes; this workflow only invokes them.
 
@@ -13,6 +14,7 @@ on:
       - 'parity/**'
       - 'scripts/check_feature_ids.py'
       - 'scripts/test_check_feature_ids.py'
+      - 'scripts/check_gherkin_parse.py'
       - 'justfile'
       - '.github/workflows/contracts.yml'
 
@@ -33,3 +35,9 @@ jobs:
 
       - name: check-feature-ids
         run: just test-check-feature-ids check-feature-ids
+
+      - name: check-gherkin
+        run: just check-gherkin
+
+      - name: check-rules
+        run: just check-rules

@@ -4,7 +4,15 @@ Cucumber specs for the canonical angzarr example — a poker domain spanning
 player, table, and hand aggregates with cross-domain sagas and process
 managers.
 
-Three sibling directories:
+The blackjack example (protos in `proto/io/angzarr/examples/blackjack/v1/`)
+is replacing poker and has three sibling directories of its own:
+
+- **[`blackjack/`](blackjack/)** — house rules (AHR) and ledger rules, in-process.
+- **[`blackjack-framework/`](blackjack-framework/)** — framework concepts through
+  the blackjack components, in-process.
+- **[`blackjack-acceptance/`](blackjack-acceptance/)** — cluster-only scenarios.
+
+Poker has three sibling directories:
 
 - **[`poker/`](poker/)** — TDA / WSOP / Robert's rule scenarios.
   **Run at both tiers** (in-process via aggregate handlers AND cluster via
