@@ -55,9 +55,10 @@ A compensation notification is a durable obligation of the coordinator that rais
 
 1. **Recorded before acknowledgement.** The coordinator writes the notification to its compensation outbox before it acknowledges the trigger—the triggering event's delivery for a saga or process manager, or the response to a `CASCADE` request. If the outbox write fails, the trigger is not acknowledged and is redelivered.
 2. **Delivered at least once.** The outbox delivers the notification to the target domain's `HandleCompensation`, including after a coordinator restart. Failed deliveries are retried with backoff.
-3. **Deduplicated by the target.** The delivery carries the compensated command's provenance tuple (`source`, `source_seq`, `source_component`, `command_index`). A redelivery with the same tuple does not run the compensation handler again; it returns the first delivery's result.
-4. **Dead-lettered on exhaustion.** When the retry budget is spent, the delivery is published to `angzarr.dlq.{target domain}` with `compensation_delivery_failed` details (attempts and last error) for manual recovery.
-5. **Never in the stream.** The notification itself is not persisted to the target's event stream. Only the events the compensation handler emits are.
+3. **Deduplicated by the target.** The delivery carries the compensated command's provenance tuple (`source`, `source_seq`, `source_component`, `command_index`). The target's deduplication key is that tuple plus the kind — command, rejection notification or compensate notification — so a redelivered notification does not run the compensation handler again (it returns the first delivery's result), while a notification is never dropped as a duplicate of the command it concerns.
+4. **Dead-lettered on exhaustion.** When the coordinator's configured outbox retry budget is spent, the delivery is published to `angzarr.dlq.{target domain}` with `compensation_delivery_failed` details (attempts and last error) for manual recovery.
+5. **Rejections always reach their source.** In every sync mode — including a `CASCADE` request in `COMPENSATE` mode — a rejected saga/PM command's notification is delivered to its source aggregate.
+6. **Never in the stream.** The notification itself is not persisted to the target's event stream. Only the events the compensation handler emits are.
 
 ---
 

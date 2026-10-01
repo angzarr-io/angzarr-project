@@ -77,8 +77,9 @@ service CommandHandlerCoordinatorService {
   // The coordinator rebuilds the target's state, invokes
   // CommandHandlerService.Handle and persists only the events the handler
   // returns; the Notification itself is never written to the stream.
-  // Deliveries are deduplicated by the envelope's angzarr_deferred provenance
-  // tuple: a redelivery does not invoke the handler again and returns the
+  // Deliveries are deduplicated by the notification kind plus the envelope's
+  // angzarr_deferred provenance tuple (never against a command with the same
+  // tuple): a redelivery does not invoke the handler again and returns the
   // first delivery's result. The caller acts on a RevocationResponse and
   // forwards a returned Notification upstream.
   rpc HandleCompensation(CommandRequest) returns (BusinessResponse) {

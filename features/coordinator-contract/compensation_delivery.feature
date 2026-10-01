@@ -14,8 +14,12 @@ Feature: Compensation delivery - Notifications through the coordinator outbox
   whose command is the Notification and whose angzarr_deferred header
   carries the provenance tuple (source, source_seq, source_component,
   command_index) of the command being compensated. Failed deliveries are
-  retried with backoff and dead-lettered once the retry budget is spent.
-  The target deduplicates deliveries by the provenance tuple. The
+  retried with backoff and dead-lettered once the coordinator's configured
+  outbox retry budget is spent. The target deduplicates by (kind, source,
+  source_seq, source_component, command_index), kind being command,
+  rejection-notification or compensate-notification, so a notification is
+  never dropped as a duplicate of the command it concerns. A rejection
+  reaches its source in every sync mode. The
   Notification is never written to the target's stream; only the events its
   compensation handler emits are.
 
@@ -35,6 +39,19 @@ Feature: Compensation delivery - Notifications through the coordinator outbox
     Then a RejectionNotification addressed to the "order" aggregate "order-1" is recorded in the compensation outbox
     And the outbox record is written before the OrderCreated delivery is acknowledged
     And the recorded notification carries the rejected ReserveStock command and rejection_reason "out of stock"
+
+  @C-0472
+  Scenario Outline: A rejected saga command's notification reaches its source in every sync mode
+    Given the inventory aggregate rejects ReserveStock with reason "out of stock"
+    When a CreateOrder command for "order-1" is handled with sync_mode <sync_mode>
+    Then a RejectionNotification for the rejected ReserveStock command with reason "out of stock" is delivered to the "order" aggregate "order-1"
+
+    Examples:
+      | sync_mode |
+      | ASYNC     |
+      | DECISION  |
+      | SIMPLE    |
+      | CASCADE   |
 
   @C-0463
   Scenario: A notification that cannot be recorded leaves the trigger unacknowledged
@@ -112,6 +129,16 @@ Feature: Compensation delivery - Notifications through the coordinator outbox
     Then the order compensation handler is invoked twice
     And exactly two OrderCancelled events are persisted to "order" aggregate "order-1"
 
+  @C-0473
+  Scenario: A Compensate sharing an applied command's provenance is delivered, and its redelivery is deduplicated
+    Given the "inventory" aggregate "sku-1" has applied a deferred ReserveStock command with provenance source "order"/"order-1", source_seq 0, source_component "OrderFulfillment" and command_index 0
+    And a recorded Compensate notification addressed to the "inventory" aggregate "sku-1" with provenance source "order"/"order-1", source_seq 0, source_component "OrderFulfillment" and command_index 0
+    When the compensation outbox is processed
+    And the same Compensate notification is delivered again
+    Then the inventory compensation handler is invoked once
+    And exactly one StockReleased event is persisted to "inventory" aggregate "sku-1"
+    And the second delivery returns the events of the first
+
   # ---------------------------------------------------------------------------
   # Exhaustion
   # ---------------------------------------------------------------------------
@@ -119,7 +146,7 @@ Feature: Compensation delivery - Notifications through the coordinator outbox
   @C-0469
   Scenario Outline: A notification whose delivery keeps failing is dead-lettered
     Given a recorded <payload> notification addressed to the "<domain>" aggregate "<root>" with provenance source "order"/"order-1", source_seq 0, source_component "OrderFulfillment" and command_index 0
-    And the compensation delivery retry budget is 3 attempts
+    And the coordinator's configured outbox retry budget is 3 attempts
     And HandleCompensation on "<domain>" always fails with "<domain> service down"
     When the compensation outbox is processed
     Then delivery is attempted 3 times

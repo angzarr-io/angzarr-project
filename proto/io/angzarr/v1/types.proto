@@ -110,7 +110,8 @@ enum CascadeErrorMode {
   // On first error, fail the request and compensate every reaction command
   // that already executed: one Compensate notification per executed command,
   // delivered to its target aggregate through the coordinator's compensation
-  // outbox (see Notification).
+  // outbox (see Notification). A rejected reaction command's
+  // RejectionNotification is still delivered to its source.
   CASCADE_ERROR_COMPENSATE = 3;
   CASCADE_ERROR_DEAD_LETTER = 4; // On error, send to DLQ and continue with remaining
 }
@@ -236,11 +237,17 @@ message ExternalDeferredSequence {
 // strategy. Such a command forgoes deferred provenance: it has no idempotency
 // key and its rejection cannot be routed back for compensation.
 //
-// The idempotency key is the full tuple (source, source_seq, source_component,
-// command_index). source/source_seq alone identify only the triggering event:
-// one invocation emitting several commands at the same destination — or two
-// components reacting to the same event — would collide and silently drop all
-// but the first command on redelivery.
+// The idempotency key at the destination is (kind, source, source_seq,
+// source_component, command_index), where kind is what the header is attached
+// to: command (a deferred command), rejection-notification or
+// compensate-notification (a Notification delivery envelope carrying that
+// payload; see Notification). source/source_seq alone identify only the
+// triggering event: one invocation emitting several commands at the same
+// destination — or two components reacting to the same event — would collide
+// and silently drop all but the first command on redelivery. kind keeps a
+// notification about a command distinct from the command itself: a Compensate
+// envelope carries the provenance tuple of the command it undoes and must
+// never be dropped as a duplicate of that command.
 message AngzarrDeferredSequence {
   Cover source = 1; // Full source aggregate (domain + root + edition) - rejection routes here
   uint32 source_seq = 2; // Sequence of the triggering event
@@ -447,13 +454,20 @@ message EventStreamFilter {
 // - It is delivered at least once, as the delivery-envelope CommandBook
 //   described on RejectionNotification, to the target domain's
 //   CommandHandlerCoordinatorService.HandleCompensation; failed deliveries
-//   are retried with backoff and, after the retry budget is exhausted, the
-//   envelope is dead-lettered (AngzarrDeadLetter with
+//   are retried with backoff and, once the coordinator's configured outbox
+//   retry budget is exhausted, the envelope is dead-lettered (AngzarrDeadLetter with
 //   compensation_delivery_failed details) and the obligation is closed.
-// - The target deduplicates deliveries by the envelope's provenance tuple
-//   (source, source_seq, source_component, command_index): a redelivered
+// - The target deduplicates deliveries by (kind, source, source_seq,
+//   source_component, command_index) — see AngzarrDeferredSequence — with
+//   kind rejection-notification or compensate-notification: a redelivered
 //   notification does not invoke the compensation handler again and returns
-//   the events of the first delivery.
+//   the events of the first delivery. A notification is never deduplicated
+//   against a command with the same provenance tuple.
+// - A rejection always reaches its source, in every sync mode. Under
+//   CASCADE_ERROR_COMPENSATE a failed CASCADE request raises both the
+//   rejected reaction command's RejectionNotification (to its source) and a
+//   Compensate notification for every reaction command that already executed
+//   (to that command's target).
 //
 // Notifications reuse Cover for routing (domain, root, correlation_id) but
 // lack EventPage's sequence semantics.
@@ -485,8 +499,8 @@ message Notification {
 // one CommandPage whose command is the Notification packed in an Any (type
 // name io.angzarr.v1.Notification; consumers match on the segment after the
 // last '/') and whose header is angzarr_deferred carrying the rejected
-// command's source, source_seq, source_component and command_index. That
-// tuple is the delivery's deduplication key. The CommandBook is delivered
+// command's source, source_seq, source_component and command_index. With
+// kind rejection-notification, that tuple is the delivery's deduplication key. The CommandBook is delivered
 // from the compensation outbox (see Notification) to the source domain's
 // CommandHandlerCoordinatorService.HandleCompensation, which invokes
 // CommandHandlerService.Handle; the handler answers with a BusinessResponse
@@ -504,12 +518,14 @@ message RejectionNotification {
 // Notification payload asking an aggregate to undo the effects of a reaction
 // command it already executed — raised when a CASCADE request with
 // CASCADE_ERROR_COMPENSATE fails after that command ran. Delivered like a
-// RejectionNotification (see Notification) with the envelope addressed to
-// `target` and its angzarr_deferred header carrying the executed command's
-// provenance tuple. The aggregate's compensation handler emits new
+// RejectionNotification (see Notification): the envelope's cover is the
+// aggregate that executed the command, and its angzarr_deferred header carries
+// that command's provenance tuple (deduplicated with kind
+// compensate-notification). The aggregate's compensation handler emits new
 // compensating events; the compensated events stay in the stream.
 message Compensate {
-  Cover target = 1;               // Domain + root of the aggregate that executed the command
+  reserved 1;
+  reserved "target";
   repeated uint32 sequences = 2;  // Sequences of the events the command produced
   string reason = 3;              // Why compensation is needed (the failure that aborted the request)
 }

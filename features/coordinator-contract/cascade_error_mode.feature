@@ -14,6 +14,9 @@ Feature: Cascade error mode - failures of synchronous downstream reactions
     notifications are delivered through the compensation outbox (see
     compensation_delivery.feature): each target's compensation handler emits
     compensating events, and nothing else is written to its stream.
+
+  In every mode, a rejected reaction command's RejectionNotification is
+  delivered to its source aggregate: a rejection always reaches its source.
   - DEAD_LETTER: dead-letter the failed reaction and continue with the rest;
     the request succeeds.
 
@@ -65,6 +68,7 @@ Feature: Cascade error mode - failures of synchronous downstream reactions
     And the StockReserved event remains visible
     And the inventory stream gains only the compensation handler's events
     And no Compensate notification is sent to the "payment" or "shipping" aggregates
+    And a RejectionNotification for the rejected CapturePayment command with reason "card declined" is delivered to the "order" aggregate
     And SendReceipt has not been handled by "shipping"
     And the OrderCreated event remains persisted
 
@@ -90,3 +94,16 @@ Feature: Cascade error mode - failures of synchronous downstream reactions
       | DECISION  |
       | SIMPLE    |
       | ISOLATED  |
+
+  @C-0471
+  Scenario Outline: A rejected reaction command's notification reaches its source under every cascade_error_mode
+    When a CreateOrder command is handled with sync_mode CASCADE and cascade_error_mode <mode>
+    Then a RejectionNotification for the rejected CapturePayment command with reason "card declined" is recorded in the compensation outbox
+    And the RejectionNotification is delivered to the "order" aggregate's HandleCompensation
+
+    Examples:
+      | mode        |
+      | FAIL_FAST   |
+      | CONTINUE    |
+      | COMPENSATE  |
+      | DEAD_LETTER |
