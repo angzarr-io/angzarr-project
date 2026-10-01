@@ -7,9 +7,10 @@ package io.angzarr.v1;
 
 import "google/protobuf/any.proto";
 import "google/protobuf/timestamp.proto";
-// Sentry-compat structured stack-trace + error-chain capture lives in
-// the sererr project (sererr.fyi). Build chains include sererr's
-// proto root via -I so this import resolves.
+// Sentry-compat structured stack-trace + error-chain capture from the sererr
+// project (sererr.fyi). The schema is vendored in this repo at
+// proto/sererr/v1/sererr.proto and resolves from the same proto root as
+// this file.
 import "sererr/v1/sererr.proto";
 
 option csharp_namespace = "Angzarr";
@@ -439,6 +440,20 @@ message Notification {
 // Source info for compensation is in rejected_command.pages[].header.angzarr_deferred:
 // - source.domain, source.root, source.edition → where to route rejection
 // - source_seq → which event triggered the command
+//
+// Delivery envelope: the coordinator wraps the Notification in a CommandBook
+// addressed to the source aggregate — cover = angzarr_deferred.source (with
+// the rejected command's correlation_id when the source cover has none) and
+// one CommandPage whose command is the Notification packed in an Any (type
+// name io.angzarr.v1.Notification; consumers match on the segment after the
+// last '/') and whose header is angzarr_deferred carrying the rejected
+// command's source, source_seq, source_component and command_index with
+// basis_seq 0. That CommandBook is sent to the source domain's
+// CommandHandlerCoordinatorService.HandleCompensation, which invokes
+// CommandHandlerService.Handle; the handler answers with a BusinessResponse
+// (compensation events, a RevocationResponse, or a Notification forwarded
+// upstream). Handlers select compensation logic by the pair
+// (rejected_command.cover.domain, rejected command type).
 message RejectionNotification {
   CommandBook rejected_command = 1; // The command that was rejected (full context)
   string rejection_reason = 2; // Why: "insufficient_funds", "out_of_stock", etc.
@@ -601,6 +616,3 @@ message ComponentDescriptor {
   string component_type = 2;
   repeated Target inputs = 3; // Domains I subscribe to (event types I consume)
 }
-
-// Request for GetDescriptor RPC.
-message GetDescriptorRequest {}

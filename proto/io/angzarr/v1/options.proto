@@ -43,6 +43,8 @@ message ComponentOptions {
   // (event).domain instead.
   string input_domain = 2;
   // Domain this component issues commands to (sagas / process managers).
+  // Single-target shorthand: the component's output domains are
+  // output_domain (when set) together with every entry of output_domains.
   string output_domain = 3;
   // Generated handler/dispatch base name. Optional; defaults to the anchor
   // message name (e.g. a "CounterState" anchor named "Counter" emits
@@ -53,7 +55,14 @@ message ComponentOptions {
   // decoupled from the cross-domain sagas/PMs that react to its rejection.
   // Each generates an On<Command>Rejected method, in declaration order
   // (C-0042). The handler takes the rejection envelope, not a typed command.
+  //
+  // A rejection is dispatched by the pair (rejected command's target domain,
+  // fully-qualified command type): an entry here matches a rejected command
+  // of that type addressed to any of this component's output domains, so
+  // the same command type rejected by two domains is told apart by domain.
   repeated string compensates = 5;
+  // Additional domains this component issues commands to; see output_domain.
+  repeated string output_domains = 6;
 }
 
 // Marks a message as a COMMAND. Generates one strict handler method on the
