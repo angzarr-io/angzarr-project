@@ -319,14 +319,18 @@ Feature: Player wallet
     And "Alice" has 1 recorded round result
 
   @EU-1436
-  Scenario: A recorded round result is retracted when its round's follow-up is undone
+  Scenario: Undoing a recorded round result retracts exactly that result
     # When a round's follow-up fails and the caller asked for compensation,
-    # each recorded result is withdrawn; the original record stays in history.
+    # the undo names the recording it reverses by the events that recorded
+    # it; only that result is withdrawn, and the original record stays in
+    # history.
     Given player "Alice" is registered
     And the result of round 1 at table "Main" was recorded for "Alice" as a net 20 on a wager of 20
-    When the recording of round 1 at table "Main" for "Alice" is compensated
+    And the result of round 2 at table "Main" was recorded for "Alice" as a net -20 on a wager of 20
+    When the recording of round 1 at table "Main" for "Alice" is undone, identified by the events that recorded it
     Then the result of round 1 at table "Main" is retracted for "Alice"
-    And "Alice" has 0 standing round results
+    And the result of round 2 at table "Main" still stands for "Alice"
+    And "Alice" has 1 standing round result
 
   # ==========================================================================
   # History written by older versions

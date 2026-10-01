@@ -30,8 +30,11 @@ Feature: Table and wallet snapshots
     Given table "Main"'s first shoe was shuffled from seed 42 and has 10 cards left
     And "Alice" sits at seat 0 of table "Main" and has bet 20
     When the round is dealt
+    # The new shoe is shuffled and the round dealt in the same step, so the
+    # snapshot is the table as that step left it.
     Then table "Main" is saved as a snapshot that is kept for good
-    And the snapshot holds shoe 2 before any of its cards were dealt
+    And the snapshot holds shoe 2, shuffled from seed 13679457532755275413, with the round's 4 opening cards dealt and 48 cards left
+    And the snapshot shows round 1 waiting on seat 0
 
   @EU-1593
   Scenario: A routine snapshot is replaced by the next one
