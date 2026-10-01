@@ -201,7 +201,7 @@ message PlayerReturningToPlay {
 message PlayerState {
   option (io.angzarr.v1.component) = {
     kind: COMPONENT_KIND_AGGREGATE
-    input_domain: "player"
+    domain: "player"
     name: "PlayerAggregate"
   };
   string player_id = 1;

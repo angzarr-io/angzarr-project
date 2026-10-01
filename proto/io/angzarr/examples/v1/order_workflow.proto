@@ -54,7 +54,9 @@ message ProcessPayment {
 message OrderWorkflowState {
   option (io.angzarr.v1.component) = {
     kind: COMPONENT_KIND_PROCESS_MANAGER
+    domain: "order-workflow"
     output_domain: "inventory"
+    output_domains: "payment"
     name: "OrderWorkflowProcessManager"
   };
   string order_id = 1;
