@@ -6,8 +6,8 @@ Feature: Cascade error mode - failures of synchronous downstream reactions
   and ignores it.
 
   - FAIL_FAST (zero value): stop at the first failure and fail the request.
-  - CONTINUE: run every reaction; the request succeeds with the reactions
-    that succeeded.
+  - CONTINUE: run every reaction; the request succeeds and its response
+    lists each reaction that failed.
   - COMPENSATE: at the first failure, compensate the downstream commands
     already executed in this cascade, then fail the request.
   - DEAD_LETTER: dead-letter the failed reaction and continue with the rest;
@@ -47,6 +47,8 @@ Feature: Cascade error mode - failures of synchronous downstream reactions
     Then the request succeeds
     And ReserveStock has been handled by "inventory"
     And SendReceipt has been handled by "shipping"
+    And the response reports exactly one failed reaction
+    And the failed reaction is ChargeSaga's CapturePayment to "payment" with reason "card declined"
     And no dead letter is published
 
   @C-0439
@@ -72,6 +74,7 @@ Feature: Cascade error mode - failures of synchronous downstream reactions
     And a dead letter is published to "angzarr.dlq.payment" carrying the rejected CapturePayment command
     And the dead letter's rejection_reason is "card declined"
     And the dead letter's source_component is "ChargeSaga" with source_component_type "saga"
+    And the response reports no failed reactions
 
   @C-0442
   Scenario Outline: cascade_error_mode is ignored outside CASCADE

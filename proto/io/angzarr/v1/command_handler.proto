@@ -87,6 +87,19 @@ message CommandResponse {
   repeated Projection projections = 2; // Synchronous projector results
   reserved 3;
   reserved "cascade_errors";
+  // Reactions that failed under CASCADE_ERROR_CONTINUE. Empty for every
+  // other mode: FAIL_FAST and COMPENSATE fail the request instead, and
+  // DEAD_LETTER records failures in the dead-letter queue.
+  repeated CascadeReactionError reaction_errors = 4;
+}
+
+// One failed downstream reaction in a CASCADE request.
+message CascadeReactionError {
+  string component = 1;    // Registered name of the saga or process manager
+  Cover target = 2;        // Aggregate the reaction's command was sent to (unset for handler errors)
+  string command_type = 3; // Fully qualified type of the failed command (empty for handler errors)
+  int32 code = 4;          // gRPC status code of the failure
+  string message = 5;      // Failure reason
 }
 
 // client logic requests framework to handle revocation
