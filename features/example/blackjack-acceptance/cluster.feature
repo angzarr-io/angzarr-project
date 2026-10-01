@@ -237,9 +237,10 @@ Feature: Blackjack on a deployed cluster
   #
   # Seed 7 with bets of 20 (Alice, seat 0) and 30 (Bob, seat 1): both stand
   # and both lose. "Alice" never joined the loyalty programme, so her points
-  # are refused; "Bob" is a member. Round results are recorded before
-  # loyalty points are awarded, seat by seat. Bob's stand ends the round and
-  # waits for every follow-up.
+  # are refused; "Bob" is a member. Bob's stand ends the round and waits for
+  # every follow-up. The round-history and loyalty follow-ups react to the
+  # same settled round in no guaranteed order, so these scenarios assert only
+  # outcomes that hold whichever runs first.
 
   @cascade @cluster @needs-core-X-012
   @EA-0032
@@ -247,8 +248,7 @@ Feature: Blackjack on a deployed cluster
     Given the loyalty round at table "Main" is ready for "Bob"'s final stand
     When "Bob" stands and waits for every follow-up, stopping at the first failure
     Then the answer is a failure because "Alice" is not a loyalty member
-    And round 1 at "Main" is settled
-    And "Bob" was not awarded loyalty points for round 1
+    And the round's own history at table "Main" is kept: the final stand, the dealer's play and the settlement of round 1
 
   @cascade @cluster @needs-core-X-012
   @EA-0033
@@ -266,8 +266,9 @@ Feature: Blackjack on a deployed cluster
     Given the loyalty round at table "Main" is ready for "Bob"'s final stand
     When "Bob" stands and waits for every follow-up, undoing them if one fails
     Then the answer is a failure because "Alice" is not a loyalty member
-    And within 10 seconds round 1 results for "Alice" and "Bob" are recorded and then retracted
-    And "Bob" was not awarded loyalty points for round 1
+    And within 10 seconds every round 1 result recorded for "Alice" or "Bob" has been retracted
+    And neither "Alice" nor "Bob" has a round 1 result standing
+    And the refusal of "Alice"'s loyalty award has been delivered back to table "Main"
     And round 1 at "Main" is still settled
 
   @cascade @dlq @cluster @needs-core-X-012 @needs-core-X-110

@@ -48,8 +48,8 @@ message TablePlayerSettlementSaga {
 
 // saga-table-player-history. RoundSettled -> one RecordRoundResult{table_root,
 // round, wager, net} per outcome, to that outcome's player_root, in seat
-// order. Registered before the loyalty saga, so in a CASCADE request it runs
-// first.
+// order. It and the loyalty saga react to the same RoundSettled in no
+// guaranteed order.
 message TablePlayerHistorySaga {
   option (io.angzarr.v1.component) = {
     kind: COMPONENT_KIND_SAGA
