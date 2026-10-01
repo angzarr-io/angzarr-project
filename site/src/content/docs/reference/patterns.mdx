@@ -249,7 +249,7 @@ Controls how snapshots are managed during compaction:
 
 | Retention | Use Case | Example |
 |-----------|----------|---------|
-| **DEFAULT** | Normal operation | Most events |
+| **DEFAULT** | Normal operation; deleted when a newer snapshot is written | Most events |
 | **PERSIST** | Business milestones | End-of-day balance, audit checkpoints |
 | **TRANSIENT** | Temporary optimization | Intermediate computation state |
 

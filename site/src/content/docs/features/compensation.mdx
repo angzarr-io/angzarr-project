@@ -157,33 +157,13 @@ No silent failures. No unexplained state changes.
 
 ---
 
-## Revocation vs Compensate
+## Compensate
 
-The framework provides two mechanisms for undoing events:
+Events are immutable facts: the framework never hides or deletes an event to undo it. Undo is business logic — a compensation handler emits new events that reverse the effect, and both the original and the compensating events stay in the stream.
 
-| Mechanism | Original Event | Client Code | Use Case |
-|-----------|----------------|-------------|----------|
-| **Revocation** | Hidden (becomes NoOp) | None needed | Full undo, clean state |
-| **Compensate** | Visible | Handler implements inverse | Partial undo, business logic |
+### Compensate flow
 
-### Revocation (Framework-Only)
-
-Revocation hides the original event at read time. No client code required.
-
-```text title="Revocation flow"
-1. Framework writes Revocation { sequences: [5, 6], reason: "timeout" }
-2. At read time, events 5 and 6 become NoOp
-3. Business logic never sees the original events
-```
-
-Use revocation when:
-- Full undo is needed, "never happened" semantics
-- No business logic required for the undo
-- Events came from a failed cascade or timeout
-
-### Compensate (Client-Implemented)
-
-Compensate keeps the original event visible and routes to a client handler. The handler emits inverse events.
+The framework writes a `Compensate` marker (for example when a `CASCADE` request with `CascadeErrorMode::COMPENSATE` fails after some reactions ran) and routes it to the aggregate's compensation handler. The handler emits inverse events.
 
 ```text title="Compensate flow"
 1. Framework writes Compensate { sequences: [5], reason: "order_cancelled" }
@@ -192,7 +172,7 @@ Compensate keeps the original event visible and routes to a client handler. The 
 4. Both original and compensation events visible in stream
 ```
 
-Use compensate when:
+Compensation fits because:
 - Business logic must decide how to undo
 - Partial undo based on context
 - Explicit audit trail required (both events visible)
@@ -216,16 +196,15 @@ def compensate_reservation(self, original_event, reason):
 
 | Event Type | At Read Time |
 |------------|--------------|
-| Revocation marker | NoOp |
-| Revoked event | NoOp |
 | Compensate marker | NoOp |
-| Compensated event | **Visible** (key difference) |
+| Compensated event | **Visible** |
+| Compensating events | Visible |
 
 ---
 
 ## See Also
 
-- [Cascade Execution](./cascade) — Atomic transactions and 2PC
+- [Cascade Execution](./cascade) — Synchronous fan-out and cascade error modes
 - [Error recovery operations](../operations/error-recovery) — DLQ, retries, and escalation
 - [Saga component](../components/saga) — Building sagas
 - [Why Poker](../examples/why-poker) — Full example with compensation flows

@@ -15,7 +15,7 @@ By default, Angzarr snapshots every 16 events. This balances:
 
 | Policy | Behavior | Use Case |
 |--------|----------|----------|
-| `RETENTION_DEFAULT` | Persist every 16 events | Normal operation |
+| `RETENTION_DEFAULT` | Delete when newer written (same as TRANSIENT) | Normal operation |
 | `RETENTION_PERSIST` | Keep indefinitely | Business milestones |
 | `RETENTION_TRANSIENT` | Delete when newer written | Temporary checkpoints |
 

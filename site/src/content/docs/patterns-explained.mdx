@@ -165,7 +165,7 @@ Angzarr's ambition is narrower and, we think, honest: **we cannot make CQRS-ES t
 |---|---|
 | Hand-rolled event store, coordinator, projection runner (our observation) | Framework ships all of it — aggregates, sagas, projectors, process managers, snapshots, DLQ, replay, upcasters — tested across six language SDKs. |
 | Model drift between write and read sides (our observation) | One proto source of truth; generated types everywhere; [upcasters](/features/upcasting) for schema evolution. |
-| Consistency, retry, and idempotency solved piecemeal (our observation) | Coordinator owns sequencing, optimistic concurrency, idempotency keys on external facts, cascade 2PC, dead-letter capture. |
+| Consistency, retry, and idempotency solved piecemeal (our observation) | Coordinator owns sequencing, optimistic concurrency, idempotency keys on external facts and saga commands, synchronous cascades with compensation, dead-letter capture. |
 | Ceremony overhead for every change (our observation) | `@handles` / `@applies` on a single class; no routers to compose; Gherkin specs drive all six language implementations identically. |
 | "significant drag on productivity … even in the hands of a capable team" (Fowler) <sup>[1](#ref-fowler-cqrs)</sup> | You write domain logic. Framework owns everything else. The [small-footprint principle](/features/small-footprint) is the explicit design goal. |
 

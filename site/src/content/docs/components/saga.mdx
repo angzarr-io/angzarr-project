@@ -142,7 +142,7 @@ Commands go through the target aggregate's `@handles` command methods and can be
 def handle_hand_started(event: HandStarted, destinations: list[EventBook]):
     return CommandBook(
         cover=Cover(domain="player", root=event.player_id),
-        pages=[CommandPage(sequence=dest_seq, command=DeductBlinds(amount=50))],
+        pages=[CommandPage(command=DeductBlinds(amount=50))],  # deferred: no sequence
     )
 
 # Fact: assert reality (cannot be rejected)
@@ -159,40 +159,21 @@ Use facts when the source domain has authority the target must accept—tourname
 
 ## Sequence Handling
 
-**Sagas MUST set correct sequence numbers on commands.** The framework validates sequences for optimistic concurrency.
+**Sagas do not set sequence numbers.** Every command a saga emits is *deferred*: its page header carries `angzarr_deferred` provenance instead of an expected sequence.
 
-### Two-Phase Saga Flow
-
-The saga coordinator uses a two-phase flow to provide target domain context:
-
-```text title="illustrative - two-phase flow"
-Phase 1: Coordinator receives source event
-         ↓
-         Coordinator calls prepare handler to get destination covers
-         ↓
-         Coordinator fetches EventBooks for declared destinations
-         ↓
-Phase 2: Coordinator invokes your saga handler with:
-         - Source event
-         - Destination EventBooks (target domain states)
+```text title="deferred command provenance"
+source         — cover of the event book that triggered the saga
+source_seq     — sequence of the triggering event
+command_index  — position of the command in the saga's output
+source_component (stamped by the coordinator) — the saga's registered name
 ```
 
-The `SagaContext` contains the **target domain(s)** aggregate states—not the source domain. This allows your saga to:
-- Get correct sequence numbers for optimistic concurrency
-- Make routing decisions based on target state
-- Avoid stale sequence errors
+The destination appends a deferred command at its current head. There is no expected version, so no sequence or merge-strategy check runs, under any merge strategy:
 
-```python title="illustrative"
-# SagaContext contains target domain state (table), not source (player)
-# Fetched by coordinator before invoking your handler
+- **Business guard:** the destination aggregate's own command handler. If the command no longer makes sense for the current state, the handler rejects it and the rejection routes back to `source` for compensation.
+- **Duplicate guard:** the provenance tuple is the idempotency key, so a redelivered trigger event does not apply the same command twice.
 
-target_seq = context.get_sequence("table", table_id)
-
-# Use in command
-CommandPage(sequence=target_seq, command=cmd_any)
-```
-
-Commands with incorrect sequences are rejected, triggering automatic retry with fresh state.
+Sagas therefore never need to load target state just to obtain a sequence. The coordinator may pass the target domains' current heads (`destination_sequences`) as optional information; a saga that deliberately sets an explicit `sequence` instead opts into the destination's merge-strategy validation, exactly like an external client, and gives up deferred provenance (no idempotency key, no rejection routing).
 
 ---
 
