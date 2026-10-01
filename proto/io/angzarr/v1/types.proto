@@ -268,13 +268,10 @@ message Snapshot {
   uint32 sequence = 2;
   google.protobuf.Any state = 3;
   SnapshotRetention retention = 4; // Controls cleanup behavior
-  // Wall-clock timestamp the snapshot was persisted. Used by
-  // temporal-by-time queries to decide whether the snapshot's
-  // event coverage predates the target timestamp (snapshot is safe
-  // to use iff created_at <= target). Absent on snapshots persisted
-  // before this field existed; readers MUST treat absent as
-  // "do not use this snapshot for temporal-by-time" (safe full-replay
-  // fallback).
+  // Wall-clock timestamp the snapshot was persisted. A TemporalQuery
+  // as_of_time T may start from this snapshot iff created_at is set and
+  // <= T (see TemporalQuery). Readers treat an absent created_at as "not
+  // usable for as_of_time".
   google.protobuf.Timestamp created_at = 5;
 }
 // endregion
@@ -368,7 +365,17 @@ message SequenceSet {
 }
 
 // Temporal query: retrieve aggregate state at a point in history.
-// Replays events from sequence 0 (no snapshots) to the specified point.
+//
+// The returned EventBook may start from a snapshot instead of sequence 0,
+// but only from one that cannot contain state from after the point:
+// - as_of_sequence N: a snapshot with sequence <= N, followed by pages
+//   snapshot.sequence+1 .. N.
+// - as_of_time T: a snapshot whose created_at is set and <= T, followed by
+//   pages after snapshot.sequence with created_at <= T. A snapshot without
+//   created_at is never used for as_of_time.
+// Without a qualifying snapshot the book carries no snapshot and every page
+// from 0 up to the point. Either way, folding the book yields the same state
+// as a full replay to the point.
 message TemporalQuery {
   oneof point_in_time {
     google.protobuf.Timestamp as_of_time = 1; // Events with created_at <= this
