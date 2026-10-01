@@ -41,7 +41,7 @@ message PendingRebuy {
 message ReservationState {
   option (io.angzarr.v1.component) = {
     kind: COMPONENT_KIND_AGGREGATE
-    domain: "reservation"
+    input_domain: "reservation"
     name: "ReservationAggregate"
   };
   map<string, PendingBuyIn> pending_buy_ins = 1;
@@ -54,7 +54,6 @@ message ReservationState {
 message ReservationProcessManagerState {
   option (io.angzarr.v1.component) = {
     kind: COMPONENT_KIND_PROCESS_MANAGER
-    domain: "pmg-reservation"
     output_domain: "player"
     name: "ReservationProcessManager"
   };

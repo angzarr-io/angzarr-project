@@ -431,7 +431,7 @@ message TableHandForHandEnded {
 message TableState {
   option (io.angzarr.v1.component) = {
     kind: COMPONENT_KIND_AGGREGATE
-    domain: "table"
+    input_domain: "table"
     name: "TableAggregate"
     compensates: "io.angzarr.examples.v1.DealCards"
   };

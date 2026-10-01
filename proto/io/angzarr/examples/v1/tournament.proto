@@ -826,7 +826,7 @@ message BlindLevel {
 message TournamentState {
   option (io.angzarr.v1.component) = {
     kind: COMPONENT_KIND_AGGREGATE
-    domain: "tournament"
+    input_domain: "tournament"
     name: "TournamentAggregate"
   };
   string tournament_id = 1;

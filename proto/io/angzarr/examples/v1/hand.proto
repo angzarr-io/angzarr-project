@@ -864,7 +864,7 @@ message UnderbetAdjustment {
 message HandState {
   option (io.angzarr.v1.component) = {
     kind: COMPONENT_KIND_AGGREGATE
-    domain: "hand"
+    input_domain: "hand"
     name: "HandAggregate"
   };
   string hand_id = 1;
@@ -981,7 +981,6 @@ message PostBlinds {
 message HandFlowState {
   option (io.angzarr.v1.component) = {
     kind: COMPONENT_KIND_PROCESS_MANAGER
-    domain: "hand-flow"
     output_domain: "hand"
     name: "HandFlowProcessManager"
   };
