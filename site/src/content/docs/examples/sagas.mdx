@@ -14,7 +14,7 @@ The blackjack implementations are being written. Until the Python one lands, thi
 
 A **top-up** starts in the wallet: `TopUpRequested{hold_id, table_root, amount}` becomes the table's `AddChips{player_root, hold_id, amount}`. The table may refuse — for example while the player has a bet in play.
 
-```protobuf title="proto/io/angzarr/examples/blackjack/v1/sagas.proto (excerpt)"
+```protobuf title="proto/io/angzarr/examples/v1/sagas.proto (excerpt)"
 message PlayerTableSaga {
   option (io.angzarr.v1.component) = {
     kind: COMPONENT_KIND_SAGA
@@ -28,7 +28,7 @@ message PlayerTableSaga {
 
 ## Saga: Compensation
 
-When the table refuses `AddChips`, the refusal is delivered back to the wallet, which releases its hold. The wallet declares it with `compensates: "io.angzarr.examples.blackjack.v1.AddChips"`, which generates an `OnAddChipsRejected` handler.
+When the table refuses `AddChips`, the refusal is delivered back to the wallet, which releases its hold. The wallet declares it with `compensates: "io.angzarr.examples.v1.AddChips"`, which generates an `OnAddChipsRejected` handler.
 
 ```gherkin title="features/example/blackjack-framework/saga.feature (excerpt)"
 Scenario: A top-up the table refuses is undone in the wallet

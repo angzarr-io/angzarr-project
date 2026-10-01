@@ -16,4 +16,4 @@ and lives in [`../blackjack-acceptance/`](../blackjack-acceptance/).
 Every scenario cites a house rule or ledger invariant from
 [`RULES.md`](RULES.md) with `# Rule:`; `just check-rules` enforces it.
 
-Protos: `proto/io/angzarr/examples/blackjack/v1/`.
+Protos: `proto/io/angzarr/examples/v1/`.

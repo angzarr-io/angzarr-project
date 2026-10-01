@@ -16,10 +16,10 @@ All aggregates in all six languages use the **OO pattern**: a class derived from
 
 A command names the aggregate state message that handles it; an event names every component that consumes it. The player wallet's hold commands, from `player.proto`:
 
-```protobuf title="proto/io/angzarr/examples/blackjack/v1/player.proto (excerpt)"
+```protobuf title="proto/io/angzarr/examples/v1/player.proto (excerpt)"
 // Earmark funds for a buy-in. hold_id is the buy_in_id.
 message HoldFunds {
-  option (io.angzarr.v1.command) = { component: "io.angzarr.examples.blackjack.v1.PlayerState" };
+  option (io.angzarr.v1.command) = { component: "io.angzarr.examples.v1.PlayerState" };
   bytes hold_id = 1;
   bytes table_root = 2;
   int64 amount = 3;
@@ -27,9 +27,9 @@ message HoldFunds {
 
 // A buy-in hold was opened.
 message FundsHeld {
-  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.blackjack.v1.PlayerState" };
-  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.blackjack.v1.BuyInState" domain: "player" };
-  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.blackjack.v1.LedgerProjection" domain: "player" };
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.PlayerState" };
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.BuyInState" domain: "player" };
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.LedgerProjection" domain: "player" };
   bytes hold_id = 1;
   bytes table_root = 2;
   int64 amount = 3;

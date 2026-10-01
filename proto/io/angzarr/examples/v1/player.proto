@@ -1,13 +1,13 @@
 syntax = "proto3";
-package io.angzarr.examples.blackjack.v1;
+package io.angzarr.examples.v1;
 
 import "io/angzarr/v1/options.proto";
 
-option csharp_namespace = "Angzarr.Examples.Blackjack";
-option go_package = "github.com/benjaminabbitt/angzarr/client/go/proto/io/angzarr/examples/blackjack/v1;blackjack";
+option csharp_namespace = "Angzarr.Examples";
+option go_package = "github.com/benjaminabbitt/angzarr/examples/go/proto/io/angzarr/examples/v1;examples";
 option java_multiple_files = true;
-option java_package = "io.angzarr.examples.blackjack";
-option ruby_package = "Angzarr::Examples::Blackjack";
+option java_package = "io.angzarr.examples";
+option ruby_package = "Angzarr::Examples";
 
 // =============================================================================
 // Player domain ("player") — the wallet
@@ -51,7 +51,7 @@ option ruby_package = "Angzarr::Examples::Blackjack";
 // Open a wallet. Field tags 1 and 2 are stable: core's acceptance harness
 // sends this command by tag.
 message RegisterPlayer {
-  option (io.angzarr.v1.command) = { component: "io.angzarr.examples.blackjack.v1.PlayerState" };
+  option (io.angzarr.v1.command) = { component: "io.angzarr.examples.v1.PlayerState" };
   string display_name = 1;
   string email = 2;
 }
@@ -59,7 +59,7 @@ message RegisterPlayer {
 // Admin migration of a player from a legacy system: identity only, no
 // balance. Sent with SYNC_MODE_ISOLATED so the write triggers no reactions.
 message ImportPlayer {
-  option (io.angzarr.v1.command) = { component: "io.angzarr.examples.blackjack.v1.PlayerState" };
+  option (io.angzarr.v1.command) = { component: "io.angzarr.examples.v1.PlayerState" };
   string display_name = 1;
   string email = 2;
   string legacy_id = 3; // Identifier in the system being migrated from
@@ -68,18 +68,18 @@ message ImportPlayer {
 // Rename the player. Touches only display_name, so it commutes with money
 // movements.
 message UpdateProfile {
-  option (io.angzarr.v1.command) = { component: "io.angzarr.examples.blackjack.v1.PlayerState" };
+  option (io.angzarr.v1.command) = { component: "io.angzarr.examples.v1.PlayerState" };
   string display_name = 1;
 }
 
 message DepositFunds {
-  option (io.angzarr.v1.command) = { component: "io.angzarr.examples.blackjack.v1.PlayerState" };
+  option (io.angzarr.v1.command) = { component: "io.angzarr.examples.v1.PlayerState" };
   int64 amount = 1;
 }
 
 // Withdraw from the available balance (bankroll minus open holds).
 message WithdrawFunds {
-  option (io.angzarr.v1.command) = { component: "io.angzarr.examples.blackjack.v1.PlayerState" };
+  option (io.angzarr.v1.command) = { component: "io.angzarr.examples.v1.PlayerState" };
   int64 amount = 1;
 }
 
@@ -87,14 +87,14 @@ message WithdrawFunds {
 // keyed by request_id (hold_id = request_id) and emits TopUpRequested, which
 // saga-player-table turns into AddChips at the table.
 message RequestTopUp {
-  option (io.angzarr.v1.command) = { component: "io.angzarr.examples.blackjack.v1.PlayerState" };
+  option (io.angzarr.v1.command) = { component: "io.angzarr.examples.v1.PlayerState" };
   bytes table_root = 1;
   int64 amount = 2;
   bytes request_id = 3; // Client-chosen idempotency key; becomes the hold_id
 }
 
 message EnrollLoyalty {
-  option (io.angzarr.v1.command) = { component: "io.angzarr.examples.blackjack.v1.PlayerState" };
+  option (io.angzarr.v1.command) = { component: "io.angzarr.examples.v1.PlayerState" };
 }
 
 // -----------------------------------------------------------------------------
@@ -103,7 +103,7 @@ message EnrollLoyalty {
 
 // Earmark funds for a buy-in. hold_id is the buy_in_id.
 message HoldFunds {
-  option (io.angzarr.v1.command) = { component: "io.angzarr.examples.blackjack.v1.PlayerState" };
+  option (io.angzarr.v1.command) = { component: "io.angzarr.examples.v1.PlayerState" };
   bytes hold_id = 1;
   bytes table_root = 2;
   int64 amount = 3;
@@ -111,13 +111,13 @@ message HoldFunds {
 
 // Spend an open buy-in hold: bankroll and the hold both drop by its amount.
 message CaptureFunds {
-  option (io.angzarr.v1.command) = { component: "io.angzarr.examples.blackjack.v1.PlayerState" };
+  option (io.angzarr.v1.command) = { component: "io.angzarr.examples.v1.PlayerState" };
   bytes hold_id = 1;
 }
 
 // Close an open hold without spending it.
 message ReleaseHold {
-  option (io.angzarr.v1.command) = { component: "io.angzarr.examples.blackjack.v1.PlayerState" };
+  option (io.angzarr.v1.command) = { component: "io.angzarr.examples.v1.PlayerState" };
   bytes hold_id = 1;
   string reason = 2;
 }
@@ -129,7 +129,7 @@ message ReleaseHold {
 // From saga-table-player-history, one per settled seat. Recording the same
 // (table_root, round) twice succeeds with no events.
 message RecordRoundResult {
-  option (io.angzarr.v1.command) = { component: "io.angzarr.examples.blackjack.v1.PlayerState" };
+  option (io.angzarr.v1.command) = { component: "io.angzarr.examples.v1.PlayerState" };
   bytes table_root = 1;
   uint32 round = 2;
   int64 wager = 3;
@@ -140,7 +140,7 @@ message RecordRoundResult {
 // LOYALTY_NOT_ENROLLED when the player has not enrolled. Awarding the same
 // (table_root, round) twice succeeds with no events.
 message AwardLoyaltyPoints {
-  option (io.angzarr.v1.command) = { component: "io.angzarr.examples.blackjack.v1.PlayerState" };
+  option (io.angzarr.v1.command) = { component: "io.angzarr.examples.v1.PlayerState" };
   bytes table_root = 1;
   uint32 round = 2;
   int64 points = 3;
@@ -151,8 +151,8 @@ message AwardLoyaltyPoints {
 // -----------------------------------------------------------------------------
 
 message PlayerRegistered {
-  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.blackjack.v1.PlayerState" };
-  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.blackjack.v1.LedgerProjection" domain: "player" };
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.PlayerState" };
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.LedgerProjection" domain: "player" };
   string display_name = 1;
   string email = 2;
 }
@@ -160,22 +160,22 @@ message PlayerRegistered {
 // Identity migrated from a legacy system; the wallet starts empty. Written
 // with SYNC_MODE_ISOLATED, so the ledger projector only sees it on a rebuild.
 message PlayerImported {
-  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.blackjack.v1.PlayerState" };
-  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.blackjack.v1.LedgerProjection" domain: "player" };
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.PlayerState" };
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.LedgerProjection" domain: "player" };
   string display_name = 1;
   string email = 2;
   string legacy_id = 3;
 }
 
 message ProfileUpdated {
-  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.blackjack.v1.PlayerState" };
-  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.blackjack.v1.LedgerProjection" domain: "player" };
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.PlayerState" };
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.LedgerProjection" domain: "player" };
   string display_name = 1;
 }
 
 message FundsDeposited {
-  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.blackjack.v1.PlayerState" };
-  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.blackjack.v1.LedgerProjection" domain: "player" };
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.PlayerState" };
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.LedgerProjection" domain: "player" };
   int64 amount = 1;
 }
 
@@ -189,16 +189,16 @@ message FundsDepositedV1 {
 }
 
 message FundsWithdrawn {
-  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.blackjack.v1.PlayerState" };
-  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.blackjack.v1.LedgerProjection" domain: "player" };
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.PlayerState" };
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.LedgerProjection" domain: "player" };
   int64 amount = 1;
 }
 
 // A buy-in hold was opened.
 message FundsHeld {
-  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.blackjack.v1.PlayerState" };
-  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.blackjack.v1.BuyInState" domain: "player" };
-  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.blackjack.v1.LedgerProjection" domain: "player" };
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.PlayerState" };
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.BuyInState" domain: "player" };
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.LedgerProjection" domain: "player" };
   bytes hold_id = 1;
   bytes table_root = 2;
   int64 amount = 3;
@@ -206,9 +206,9 @@ message FundsHeld {
 
 // A buy-in hold was spent: the chips now belong to the table.
 message FundsCaptured {
-  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.blackjack.v1.PlayerState" };
-  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.blackjack.v1.BuyInState" domain: "player" };
-  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.blackjack.v1.LedgerProjection" domain: "player" };
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.PlayerState" };
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.BuyInState" domain: "player" };
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.LedgerProjection" domain: "player" };
   bytes hold_id = 1;
   bytes table_root = 2;
   int64 amount = 3;
@@ -216,8 +216,8 @@ message FundsCaptured {
 
 // A hold was closed without spending it.
 message HoldReleased {
-  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.blackjack.v1.PlayerState" };
-  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.blackjack.v1.LedgerProjection" domain: "player" };
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.PlayerState" };
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.LedgerProjection" domain: "player" };
   bytes hold_id = 1;
   int64 amount = 2;
   string reason = 3;
@@ -225,9 +225,9 @@ message HoldReleased {
 
 // A top-up hold was opened; triggers saga-player-table.
 message TopUpRequested {
-  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.blackjack.v1.PlayerState" };
-  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.blackjack.v1.PlayerTableSaga" domain: "player" };
-  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.blackjack.v1.LedgerProjection" domain: "player" };
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.PlayerState" };
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.PlayerTableSaga" domain: "player" };
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.LedgerProjection" domain: "player" };
   bytes hold_id = 1;
   bytes table_root = 2;
   int64 amount = 3;
@@ -236,8 +236,8 @@ message TopUpRequested {
 // Compensation output: the table refused the AddChips for this top-up, so its
 // hold is released. Emitted by the player's OnAddChipsRejected handler.
 message TopUpRefused {
-  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.blackjack.v1.PlayerState" };
-  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.blackjack.v1.LedgerProjection" domain: "player" };
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.PlayerState" };
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.LedgerProjection" domain: "player" };
   bytes hold_id = 1;
   int64 amount = 2;
   string reason = 3; // The table's rejection reason, e.g. WAGER_IN_PLAY
@@ -248,8 +248,8 @@ message TopUpRefused {
 // refuse it; when no open top-up hold matches hold_id and amount it records
 // the fact with `anomaly` set for review, and the money still moves.
 message TopUpSettled {
-  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.blackjack.v1.PlayerState" };
-  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.blackjack.v1.LedgerProjection" domain: "player" };
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.PlayerState" };
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.LedgerProjection" domain: "player" };
   bytes hold_id = 1;
   bytes table_root = 2;
   int64 amount = 3;
@@ -259,21 +259,21 @@ message TopUpSettled {
 // FACT from saga-table-player-settlement (external_id = hex(cashout_id)): the
 // player left a table with `amount` chips; the bankroll is credited.
 message CashOutCredited {
-  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.blackjack.v1.PlayerState" };
-  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.blackjack.v1.LedgerProjection" domain: "player" };
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.PlayerState" };
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.LedgerProjection" domain: "player" };
   bytes cashout_id = 1;
   bytes table_root = 2;
   int64 amount = 3;
 }
 
 message LoyaltyEnrolled {
-  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.blackjack.v1.PlayerState" };
-  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.blackjack.v1.LedgerProjection" domain: "player" };
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.PlayerState" };
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.LedgerProjection" domain: "player" };
 }
 
 message RoundResultRecorded {
-  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.blackjack.v1.PlayerState" };
-  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.blackjack.v1.LedgerProjection" domain: "player" };
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.PlayerState" };
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.LedgerProjection" domain: "player" };
   bytes table_root = 1;
   uint32 round = 2;
   int64 wager = 3;
@@ -284,16 +284,16 @@ message RoundResultRecorded {
 // under CASCADE_ERROR_COMPENSATE, so the record is withdrawn. The
 // original RoundResultRecorded stays in history; this event cancels it.
 message RoundResultRetracted {
-  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.blackjack.v1.PlayerState" };
-  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.blackjack.v1.LedgerProjection" domain: "player" };
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.PlayerState" };
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.LedgerProjection" domain: "player" };
   bytes table_root = 1;
   uint32 round = 2;
   int64 net = 3;
 }
 
 message LoyaltyPointsAwarded {
-  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.blackjack.v1.PlayerState" };
-  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.blackjack.v1.LedgerProjection" domain: "player" };
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.PlayerState" };
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.LedgerProjection" domain: "player" };
   bytes table_root = 1;
   uint32 round = 2;
   int64 points = 3;
@@ -346,10 +346,10 @@ message PlayerState {
     kind: COMPONENT_KIND_AGGREGATE
     domain: "player"
     name: "PlayerAggregate"
-    compensates: "io.angzarr.examples.blackjack.v1.AddChips"
-    undoes: "io.angzarr.examples.blackjack.v1.RecordRoundResult"
-    facts: "io.angzarr.examples.blackjack.v1.TopUpSettled"
-    facts: "io.angzarr.examples.blackjack.v1.CashOutCredited"
+    compensates: "io.angzarr.examples.v1.AddChips"
+    undoes: "io.angzarr.examples.v1.RecordRoundResult"
+    facts: "io.angzarr.examples.v1.TopUpSettled"
+    facts: "io.angzarr.examples.v1.CashOutCredited"
   };
   string display_name = 1;
   string email = 2;

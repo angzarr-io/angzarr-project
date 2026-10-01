@@ -71,7 +71,7 @@ PMs extend the client library's `ProcessManager` base class; handler methods are
 <Tabs>
 <TabItem label="Python">
 
-```protobuf title="proto/io/angzarr/examples/blackjack/v1/buy_in.proto (excerpt)"
+```protobuf title="proto/io/angzarr/examples/v1/buy_in.proto (excerpt)"
 message BuyInState {
   option (io.angzarr.v1.component) = {
     kind: COMPONENT_KIND_PROCESS_MANAGER
@@ -79,8 +79,8 @@ message BuyInState {
     output_domains: "player"
     output_domains: "table"
     name: "BuyInProcessManager"
-    compensates: "io.angzarr.examples.blackjack.v1.HoldFunds"
-    compensates: "io.angzarr.examples.blackjack.v1.ConfirmSeat"
+    compensates: "io.angzarr.examples.v1.HoldFunds"
+    compensates: "io.angzarr.examples.v1.ConfirmSeat"
   };
   enum Phase {
     PHASE_UNSPECIFIED = 0;

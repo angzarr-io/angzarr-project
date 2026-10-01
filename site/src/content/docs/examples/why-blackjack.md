@@ -3,7 +3,7 @@ title: Why Blackjack
 ---
 The ⍼ Angzarr example is a small blackjack table. It is chosen because it exercises every event sourcing and CQRS pattern the framework supports, while staying small enough to read in one sitting and concrete enough that every outcome is a number you can check.
 
-The full specification — protos and Gherkin scenarios shared by all six language implementations — lives in the [angzarr-project repository](https://github.com/angzarr-io/angzarr-project): protos under `proto/io/angzarr/examples/blackjack/v1/`, scenarios under `features/example/`.
+The full specification — protos and Gherkin scenarios shared by all six language implementations — lives in the [angzarr-project repository](https://github.com/angzarr-io/angzarr-project): protos under `proto/io/angzarr/examples/v1/`, scenarios under `features/example/`.
 
 ---
 

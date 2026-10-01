@@ -1,11 +1,11 @@
 syntax = "proto3";
-package io.angzarr.examples.blackjack.v1;
+package io.angzarr.examples.v1;
 
-option csharp_namespace = "Angzarr.Examples.Blackjack";
-option go_package = "github.com/benjaminabbitt/angzarr/client/go/proto/io/angzarr/examples/blackjack/v1;blackjack";
+option csharp_namespace = "Angzarr.Examples";
+option go_package = "github.com/benjaminabbitt/angzarr/examples/go/proto/io/angzarr/examples/v1;examples";
 option java_multiple_files = true;
-option java_package = "io.angzarr.examples.blackjack";
-option ruby_package = "Angzarr::Examples::Blackjack";
+option java_package = "io.angzarr.examples";
+option ruby_package = "Angzarr::Examples";
 
 // =============================================================================
 // Cards and the deterministic shoe (house rules AHR-2, AHR-3)

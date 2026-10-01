@@ -1,7 +1,7 @@
 # Tier group: example
 
 Cucumber specs for the canonical angzarr example — a small blackjack table.
-Protos live in `proto/io/angzarr/examples/blackjack/v1/`.
+Protos live in `proto/io/angzarr/examples/v1/`.
 
 - **[`blackjack/`](blackjack/)** — house rules (AHR-1..13) and ledger rules
   (L1, L2) for the wallet, the table, a round and the deterministic shoe.

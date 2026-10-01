@@ -1,13 +1,13 @@
 syntax = "proto3";
-package io.angzarr.examples.blackjack.v1;
+package io.angzarr.examples.v1;
 
 import "io/angzarr/v1/options.proto";
 
-option csharp_namespace = "Angzarr.Examples.Blackjack";
-option go_package = "github.com/benjaminabbitt/angzarr/client/go/proto/io/angzarr/examples/blackjack/v1;blackjack";
+option csharp_namespace = "Angzarr.Examples";
+option go_package = "github.com/benjaminabbitt/angzarr/examples/go/proto/io/angzarr/examples/v1;examples";
 option java_multiple_files = true;
-option java_package = "io.angzarr.examples.blackjack";
-option ruby_package = "Angzarr::Examples::Blackjack";
+option java_package = "io.angzarr.examples";
+option ruby_package = "Angzarr::Examples";
 
 // =============================================================================
 // pmg-buy-in — the buy-in process manager (domain "buy-in")
@@ -46,7 +46,7 @@ option ruby_package = "Angzarr::Examples::Blackjack";
 // FundsCaptured(B, X).
 
 message BuyInStarted {
-  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.blackjack.v1.BuyInState" applies: true };
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.BuyInState" applies: true };
   bytes buy_in_id = 1;
   bytes player_root = 2;
   bytes table_root = 3;
@@ -55,23 +55,23 @@ message BuyInStarted {
 }
 
 message BuyInFundsHeld {
-  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.blackjack.v1.BuyInState" applies: true };
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.BuyInState" applies: true };
   bytes buy_in_id = 1;
 }
 
 message BuyInSeated {
-  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.blackjack.v1.BuyInState" applies: true };
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.BuyInState" applies: true };
   bytes buy_in_id = 1;
   int64 stack = 2;
 }
 
 message BuyInCompleted {
-  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.blackjack.v1.BuyInState" applies: true };
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.BuyInState" applies: true };
   bytes buy_in_id = 1;
 }
 
 message BuyInFailed {
-  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.blackjack.v1.BuyInState" applies: true };
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.BuyInState" applies: true };
   bytes buy_in_id = 1;
   BuyInState.Phase failed_in = 2; // Phase the buy-in was in when it failed
   string reason = 3; // Rejection reason of the refused command
@@ -88,8 +88,8 @@ message BuyInState {
     output_domains: "player"
     output_domains: "table"
     name: "BuyInProcessManager"
-    compensates: "io.angzarr.examples.blackjack.v1.HoldFunds"
-    compensates: "io.angzarr.examples.blackjack.v1.ConfirmSeat"
+    compensates: "io.angzarr.examples.v1.HoldFunds"
+    compensates: "io.angzarr.examples.v1.ConfirmSeat"
   };
   enum Phase {
     PHASE_UNSPECIFIED = 0; // No buy-in started under this correlation
