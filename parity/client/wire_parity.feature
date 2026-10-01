@@ -13,20 +13,22 @@ Feature: Cross-language wire-format parity
   source = the triggering EventBook's cover, source_seq = the triggering
   event's sequence and command_index = the command's emission position.
   source_component is left empty (the coordinator stamps it). The command
-  has no expected version: no explicit sequence is set.
+  has no expected version: no explicit sequence is set. The command payload
+  is packed the way every client emits an Any: type URL TYPE_URL_PREFIX ("/")
+  + the fully-qualified message name.
 
   Background:
     Given a source cover with domain "order", root bytes 00..0f and correlation_id "corr-1"
     And a CommandBook with cover.domain "inventory", cover.root bytes 10..1f and correlation_id "corr-1"
-    And a single CommandPage with command type_url "type.googleapis.com/example.Foo" and payload bytes 01020304
+    And a single CommandPage with command type_url "/example.Foo" and payload bytes 01020304
     And a Destinations for a component declaring output domain "inventory"
 
   @C-0182
   Scenario: Destinations.stamp_command on the first command of an invocation
     When I stamp the command for domain "inventory" from source event sequence 3 at command index 0
-    Then the deterministically-encoded CommandBook hashes to SHA-256 "a79987223c3ece4657c21aa2b5c6f748a3032ba601d4f8f85e4bb9a0ac503758"
+    Then the deterministically-encoded CommandBook hashes to SHA-256 "10b1ce23a470f107662591a7da41830c724fdc0c9562824130f09b0a12f011f5"
 
   @C-0183
   Scenario: Destinations.stamp_command on a later command of an invocation
     When I stamp the command for domain "inventory" from source event sequence 3 at command index 1
-    Then the deterministically-encoded CommandBook hashes to SHA-256 "a0ea9bae4f5492fe3a62aba851fe39c36dadc619cbe2702e1be0c1dd0b20efc1"
+    Then the deterministically-encoded CommandBook hashes to SHA-256 "a028d427e91c0e03b63b50dabe7c5184417ed7aaf558d62dfdb9baed1e3affd0"

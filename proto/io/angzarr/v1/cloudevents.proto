@@ -21,7 +21,8 @@ option ruby_package = "Angzarr";
 // proto message that omits sensitive fields.
 message CloudEvent {
   // Event type (e.g., "com.example.order.created").
-  // Default: proto type_url suffix from original event.
+  // Default: the original event's fully-qualified message name (the text
+  // after the last "/" of its type_url).
   string type = 1;
 
   // Event payload as proto Any.
@@ -42,7 +43,8 @@ message CloudEvent {
 
 // CloudEventsResponse is returned by client projectors in Projection.projection.
 //
-// Framework detects this type by checking projection.type_url and routes
+// Framework detects this type by the message name after the last "/" of
+// projection.type_url (any prefix is accepted) and routes
 // the events to configured sinks (HTTP webhook, Kafka).
 //
 // Client may return 0 events (skip), 1 event (typical), or N events

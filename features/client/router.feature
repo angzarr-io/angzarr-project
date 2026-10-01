@@ -43,6 +43,24 @@ Feature: Router - Command and Event Routing
     Then the router should return an error
     And the error should indicate unknown command type
 
+  @C-0475
+  Scenario Outline: Aggregate router dispatches by full type name whatever the type URL prefix
+    Given an aggregate router with a handler for "orders.CreateOrder"
+    When I receive a command with type_url "<type_url>"
+    Then the orders.CreateOrder handler should be invoked
+
+    Examples:
+      | type_url                               |
+      | /orders.CreateOrder                    |
+      | type.googleapis.com/orders.CreateOrder |
+
+  @C-0476
+  Scenario: Aggregate router does not dispatch a different full type name with the same short name
+    Given an aggregate router with a handler for "orders.CreateOrder"
+    When I receive a command with type_url "/orders.v2.CreateOrder"
+    Then the router should return an error
+    And the error should indicate unknown command type
+
   # ==========================================================================
   # Saga Router
   # ==========================================================================

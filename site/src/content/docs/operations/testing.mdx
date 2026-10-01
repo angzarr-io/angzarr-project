@@ -364,7 +364,7 @@ def test_deposit_full_cycle():
 
     # 3. Wrap in Any (what framework does for persistence)
     event_any = Any()
-    event_any.Pack(event, type_url_prefix="type.googleapis.com/")
+    event_any.Pack(event, type_url_prefix="/")
 
     # 4. build_state applies Any-wrapped events → new state
     new_state = build_state(state, [event_any])

@@ -26,7 +26,7 @@ client = DomainClient.connect("localhost:1310")
 response = client.command("orders", root_id) \
     .with_correlation_id("order-123") \
     .with_sequence(5) \
-    .with_command("type.googleapis.com/examples.UpdateOrder", update_cmd) \
+    .with_command("/examples.UpdateOrder", update_cmd) \
     .execute()
 ```
 
@@ -44,7 +44,7 @@ When creating a new aggregate, omit the root UUID. The coordinator generates one
 # Create a new aggregate
 response = client.command_new("orders") \
     .with_correlation_id("order-123") \
-    .with_command("type.googleapis.com/examples.CreateOrder", create_cmd) \
+    .with_command("/examples.CreateOrder", create_cmd) \
     .execute()
 
 # Extract the generated root ID

@@ -33,7 +33,7 @@ from google.protobuf.timestamp_pb2 import Timestamp
 
 # Packing events
 event_any = Any()
-event_any.Pack(event, type_url_prefix="type.googleapis.com/")
+event_any.Pack(event, type_url_prefix="/")  # emits "/<full.name>"
 
 # Unpacking events
 if event_any.Is(PlayerRegistered.DESCRIPTOR):

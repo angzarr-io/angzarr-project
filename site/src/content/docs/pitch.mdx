@@ -269,8 +269,9 @@ func (s *ProductAggregate) Handle(ctx context.Context, cmd *angzarr.ContextualCo
 }
 
 func (s *ProductAggregate) processCommand(state *ProductState, cmd *anypb.Any) ([]*angzarr.EventPage, error) {
-    switch cmd.TypeUrl {
-    case "type.googleapis.com/inventory.CreateProduct":
+    // Match the fully-qualified name after the last "/"; any prefix is accepted.
+    switch cmd.TypeUrl[strings.LastIndex(cmd.TypeUrl, "/")+1:] {
+    case "inventory.CreateProduct":
         var create inventory.CreateProduct
         if err := cmd.UnmarshalTo(&create); err != nil {
             return nil, err
@@ -281,7 +282,7 @@ func (s *ProductAggregate) processCommand(state *ProductState, cmd *anypb.Any) (
         }
         return []*angzarr.EventPage, nil
 
-    case "type.googleapis.com/inventory.AdjustInventory":
+    case "inventory.AdjustInventory":
         // ... handle adjustment
     }
     return nil, errors.New("unknown command type")

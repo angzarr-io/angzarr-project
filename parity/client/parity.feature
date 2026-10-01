@@ -88,7 +88,7 @@ Feature: Public API parity
     And the "META_ANGZARR_DOMAIN" constant is exported
     And the "PROJECTION_DOMAIN_PREFIX" constant is exported
     And the "PROJECTION_TYPE_URL" constant is exported
-    And the "TYPE_URL_PREFIX" constant is exported
+    And the "TYPE_URL_PREFIX" constant is exported with value "/"
     And the "INVENTORY_PRODUCT_NAMESPACE" constant is exported
 
   @C-0098

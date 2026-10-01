@@ -19,6 +19,15 @@ option java_multiple_files = true;
 option java_package = "io.angzarr";
 option ruby_package = "Angzarr";
 
+// Type URLs. Every google.protobuf.Any an Angzarr implementation emits uses
+// the type URL "/" + the message's fully-qualified name (TYPE_URL_PREFIX =
+// "/"), e.g. "/io.angzarr.v1.Notification", "/orders.OrderCreated". Readers
+// accept any prefix: a type URL identifies the message whose fully-qualified
+// name is the text after its last "/", so "type.googleapis.com/orders.OrderCreated",
+// "/orders.OrderCreated" and "orders.OrderCreated" all name the same message.
+// Matching compares full names exactly: "orders.OrderCreated" never matches
+// "OrderCreated" or "orders.v2.OrderCreated".
+
 message UUID {
   bytes value = 1;
 }
@@ -475,7 +484,7 @@ message EventStreamFilter {
 // region notification
 // Compensation signal addressed to one aggregate. Routed by cover; never
 // persisted to the aggregate's event stream. Type discrimination via
-// payload.type_url (standard Any behavior).
+// the message name after the last "/" of payload.type_url.
 message Notification {
   Cover cover = 1; // Routing: domain, root, correlation_id
   google.protobuf.Any payload = 2; // RejectionNotification or Compensate
@@ -497,8 +506,8 @@ message Notification {
 // addressed to the source aggregate — cover = angzarr_deferred.source (with
 // the rejected command's correlation_id when the source cover has none) and
 // one CommandPage whose command is the Notification packed in an Any (type
-// name io.angzarr.v1.Notification; consumers match on the segment after the
-// last '/') and whose header is angzarr_deferred carrying the rejected
+// URL "/io.angzarr.v1.Notification"; consumers match the name after the last
+// '/') and whose header is angzarr_deferred carrying the rejected
 // command's source, source_seq, source_component and command_index. With
 // kind rejection-notification, that tuple is the delivery's deduplication key. The CommandBook is delivered
 // from the compensation outbox (see Notification) to the source domain's
