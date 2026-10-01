@@ -14,7 +14,8 @@ option ruby_package = "Angzarr";
 // ============================================================================
 
 // Delete all events for an edition+domain combination.
-// Main timeline ('angzarr' or empty edition name) cannot be deleted.
+// The main timeline (edition "" or its canonical name "angzarr"; see Edition
+// in types.proto) cannot be deleted.
 message DeleteEditionEvents {
   string edition = 1; // Edition name to delete from
   string domain = 2; // Domain to delete from

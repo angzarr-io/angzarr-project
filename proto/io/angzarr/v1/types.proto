@@ -28,7 +28,7 @@ message Cover {
   string domain = 2;
   UUID root = 1;
   string correlation_id = 3; // Workflow correlation - flows through all commands/events
-  Edition edition = 4; // Edition for diverged timelines; empty name = main timeline
+  Edition edition = 4; // Edition for diverged timelines; unset or empty name = main timeline
   // Field 5 removed: external_id moved to ExternalDeferredSequence in PageHeader
   reserved 5;
   reserved "external_id";
@@ -51,12 +51,17 @@ message Cover {
 // region edition
 // Edition identifier with optional explicit divergence points.
 //
+// Main timeline: its canonical name is "angzarr" (the DEFAULT_EDITION
+// constant). On the wire it is sent as an unset Edition or an empty name;
+// every reader treats "", unset and "angzarr" as the same timeline, and
+// storage keys all three identically.
+//
 // Two modes:
 // - Implicit (divergences empty): Divergence derived from first edition event's sequence
 // - Explicit (divergences populated): Per-domain divergence points for historical branching,
 //  saga coordination, or speculative execution
 message Edition {
-  string name = 1; // Edition name, e.g., "v2"; empty = main timeline
+  string name = 1; // Edition name, e.g., "v2"; empty (or "angzarr") = main timeline
   repeated DomainDivergence divergences = 2; // Optional: explicit per-domain divergence points
 }
 
