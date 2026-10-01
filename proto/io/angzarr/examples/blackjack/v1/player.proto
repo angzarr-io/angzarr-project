@@ -329,6 +329,7 @@ message RoundResult {
   int64 wager = 3;
   int64 net = 4;
   bool retracted = 5;
+  uint64 sequence = 6; // Page sequence of the RoundResultRecorded event that recorded this result
 }
 
 // The PlayerAggregate.
