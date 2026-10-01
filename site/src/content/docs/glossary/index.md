@@ -38,7 +38,7 @@ Understanding the differences is critical:
 |------|-------|-----------|------------|---------|
 | [Command](/glossary/command) | Imperative | No | Yes | `CreateOrder` |
 | [Event](/glossary/event) | Past | Yes | No | `OrderCreated` |
-| [Notification](/glossary/notification) | Present | No | N/A | `CompensationRequired` |
+| [Notification](/glossary/notification) | Present | No | N/A | `RejectionNotification` |
 
 ## Event Sourcing
 
@@ -132,7 +132,7 @@ The table below maps terminology across Domain-Driven Design, CQRS/Event Sourcin
 | **Cover** | - | Identity envelope: domain + root + correlation + edition |
 | **Edition** | - | Timeline branching for speculative execution |
 | **Fact** | Event | Event without preceding command; receiving domain assigns sequence; retains source traceability |
-| **Notification** | - | Transient coordination message (not persisted) |
+| **Notification** | - | Compensation signal delivered at least once from the coordinator outbox; never in the event stream |
 | **Coordinator** | - | Sidecar handling infrastructure (routing, storage, bus) |
 | **Target** | - | Subscription filter: domain + event types |
 | **CommandBook** | - | Command collection with concurrency metadata |

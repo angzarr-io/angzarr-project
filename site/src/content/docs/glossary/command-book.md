@@ -11,7 +11,6 @@ A collection of commands to be sent to aggregates. The CommandBook is the output
 message CommandBook {
   Cover cover = 1;           // Target aggregate identity
   repeated CommandPage pages = 2;  // Commands to execute
-  SagaCommandOrigin saga_origin = 3;  // For compensation tracking
 }
 ```
 
@@ -19,7 +18,7 @@ message CommandBook {
 
 Each page contains:
 - **Command payload:** The actual command (Any type)
-- **Sequence:** Expected aggregate sequence (for concurrency)
+- **Header:** an explicit expected sequence (client commands), or `angzarr_deferred` provenance (saga/PM commands, appended at the destination head with no expected version)
 - **Merge strategy:** How to handle conflicts
 
 ## Merge Strategies
@@ -31,11 +30,12 @@ Each page contains:
 | `MERGE_AGGREGATE_HANDLES` | Aggregate decides |
 | `MERGE_MANUAL` | Route to DLQ for review |
 
-## Saga Origin
+## Deferred Provenance
 
-Tracks the source of saga-issued commands for compensation:
-- Saga name
-- Triggering aggregate (domain, root)
-- Triggering event sequence
+A saga/PM command's page header carries `angzarr_deferred`:
+- `source` — the aggregate whose event triggered the saga/PM
+- `source_seq` — the triggering event's sequence
+- `source_component` — the saga/PM's registered name (coordinator-stamped)
+- `command_index` — the command's position in the emitted output
 
-If the command is rejected, a [RejectionNotification](/glossary/notification) is sent back to the saga.
+The tuple is the command's idempotency key. If the command is rejected, a [RejectionNotification](/glossary/notification) is delivered to the `source` aggregate's compensation handler.

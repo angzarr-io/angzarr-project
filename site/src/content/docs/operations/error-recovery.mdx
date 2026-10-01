@@ -209,8 +209,10 @@ When a saga-issued command is rejected, angzarr notifies the original aggregate 
 ```
 1. Saga emits command to target aggregate
 2. Target aggregate rejects (business rule violation)
-3. Framework builds RejectionNotification
-4. Framework sends Notification to source aggregate
+3. Coordinator records a RejectionNotification in its compensation outbox,
+   then acknowledges the triggering event
+4. Outbox delivers the Notification to the source aggregate
+   (at least once; retried with backoff; dead-lettered on exhaustion)
 5. Source aggregate emits compensation events
    OR
    Source aggregate returns RevocationResponse flags
@@ -220,12 +222,12 @@ When a saga-issued command is rejected, angzarr notifies the original aggregate 
 
 | Aspect | Notification | Event |
 |--------|--------------|-------|
-| Persisted? | No | Yes |
+| In the event stream? | Never | Yes |
 | Sequence? | No | Yes |
-| Replay? | No | Yes |
-| Purpose | Signaling | State change |
+| Delivery | Coordinator outbox, at least once | Bus, from the stream |
+| Purpose | Compensation | State change |
 
-Notifications are ephemeral signals — they trigger behavior but aren't part of the event stream.
+Notifications trigger behavior but aren't part of the event stream. Their delivery is durable: see [Delivery Guarantees](/features/compensation#delivery-guarantees).
 
 ### RejectionNotification
 

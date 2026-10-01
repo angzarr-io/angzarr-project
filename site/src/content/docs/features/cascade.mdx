@@ -83,10 +83,10 @@ When a saga, process manager, or one of the commands it emits fails, `CascadeErr
 |------|------------|-------------|
 | `FAIL_FAST` | Stop at the first failure, fail the request | Default, most operations |
 | `CONTINUE` | Run every reaction; succeed and list failures in `CommandResponse.reaction_errors` | Batch validation |
-| `COMPENSATE` | Write a `Compensate` marker to each aggregate whose reaction already ran, then fail the request | Undo partial work |
+| `COMPENSATE` | Send a `Compensate` notification to the target of each reaction command that already ran, then fail the request | Undo partial work |
 | `DEAD_LETTER` | Send the failure to the DLQ, continue, succeed | Best-effort with alerting |
 
-With `COMPENSATE`, each affected aggregate's compensation handler emits compensating events; the compensated events stay in the stream. See [Graceful Failure](./compensation).
+With `COMPENSATE`, the notifications are recorded in the coordinator's compensation outbox before the failure is returned and are delivered at least once; each affected aggregate's compensation handler emits compensating events, and the compensated events stay in the stream. See [Graceful Failure](./compensation#delivery-guarantees).
 
 ---
 

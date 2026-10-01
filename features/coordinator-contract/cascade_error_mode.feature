@@ -8,10 +8,12 @@ Feature: Cascade error mode - failures of synchronous downstream reactions
   - FAIL_FAST (also what an unset mode means): stop at the first failure and fail the request.
   - CONTINUE: run every reaction; the request succeeds and its response
     lists each reaction that failed.
-  - COMPENSATE: at the first failure, append a Compensate marker to each
-    aggregate whose downstream command already executed in this request
-    (its compensation handler emits compensating events), then fail the
-    request.
+  - COMPENSATE: at the first failure, record one Compensate notification
+    per reaction command that already executed in this request, addressed
+    to that command's target aggregate, then fail the request. The
+    notifications are delivered through the compensation outbox (see
+    compensation_delivery.feature): each target's compensation handler emits
+    compensating events, and nothing else is written to its stream.
   - DEAD_LETTER: dead-letter the failed reaction and continue with the rest;
     the request succeeds.
 
@@ -53,13 +55,16 @@ Feature: Cascade error mode - failures of synchronous downstream reactions
     And no dead letter is published
 
   @C-0439
-  Scenario: COMPENSATE compensates executed commands and fails the request
+  Scenario: COMPENSATE sends compensation notifications to executed reactions' targets and fails the request
     When a CreateOrder command is handled with sync_mode CASCADE and cascade_error_mode COMPENSATE
     Then the request fails with reason "card declined"
-    And a Compensate marker is written to the "inventory" aggregate for the StockReserved event
+    And a Compensate notification addressed to the "inventory" aggregate for the StockReserved event is recorded in the compensation outbox before the response is returned
+    And the notification's page header carries ReserveStock's provenance: source "order", source_component "ReserveSaga" and command_index 0
+    And the Compensate notification is delivered to the "inventory" aggregate's HandleCompensation
     And the inventory compensation handler is invoked for the StockReserved event
     And the StockReserved event remains visible
-    And no Compensate marker is written to the "payment" or "shipping" aggregates
+    And the inventory stream gains only the compensation handler's events
+    And no Compensate notification is sent to the "payment" or "shipping" aggregates
     And SendReceipt has not been handled by "shipping"
     And the OrderCreated event remains persisted
 

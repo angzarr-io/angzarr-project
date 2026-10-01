@@ -17,6 +17,8 @@ Feature: Dead letter queue routing
   - CASCADE requests with cascade_error_mode DEAD_LETTER
   - compensation handlers answering RevocationResponse with
     send_to_dead_letter_queue
+  - compensation notifications whose delivery exhausts its retries
+    (compensation_delivery_failed details; see compensation_delivery.feature)
 
   @C-0443
   Scenario: A MANUAL sequence conflict is dead-lettered with mismatch details

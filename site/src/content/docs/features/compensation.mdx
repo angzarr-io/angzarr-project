@@ -49,6 +49,18 @@ The rejection notification bypasses the saga entirely. The framework routes it d
 
 ---
 
+## Delivery Guarantees
+
+A compensation notification is a durable obligation of the coordinator that raises it, never a fire-and-forget message:
+
+1. **Recorded before acknowledgement.** The coordinator writes the notification to its compensation outbox before it acknowledges the trigger—the triggering event's delivery for a saga or process manager, or the response to a `CASCADE` request. If the outbox write fails, the trigger is not acknowledged and is redelivered.
+2. **Delivered at least once.** The outbox delivers the notification to the target domain's `HandleCompensation`, including after a coordinator restart. Failed deliveries are retried with backoff.
+3. **Deduplicated by the target.** The delivery carries the compensated command's provenance tuple (`source`, `source_seq`, `source_component`, `command_index`). A redelivery with the same tuple does not run the compensation handler again; it returns the first delivery's result.
+4. **Dead-lettered on exhaustion.** When the retry budget is spent, the delivery is published to `angzarr.dlq.{target domain}` with `compensation_delivery_failed` details (attempts and last error) for manual recovery.
+5. **Never in the stream.** The notification itself is not persisted to the target's event stream. Only the events the compensation handler emits are.
+
+---
+
 ## Handling Rejections
 
 Register handlers for specific rejection scenarios:
@@ -72,7 +84,7 @@ Different failures require different responses:
 | Table closed during hand | Refund all pots, end hand |
 | Timer expired | Auto-check or auto-fold |
 
-The aggregate decides the business response. The framework ensures the notification arrives.
+The aggregate decides the business response. The framework ensures the notification arrives—at least once, and applied once.
 
 ---
 
@@ -163,13 +175,14 @@ Events are immutable facts: the framework never hides or deletes an event to und
 
 ### Compensate flow
 
-The framework writes a `Compensate` marker (for example when a `CASCADE` request with `CascadeErrorMode::COMPENSATE` fails after some reactions ran) and routes it to the aggregate's compensation handler. The handler emits inverse events.
+When a `CASCADE` request with `CascadeErrorMode::COMPENSATE` fails after some reactions ran, the coordinator raises one `Compensate` notification per reaction command that already executed, addressed to that command's target aggregate. It is delivered exactly like a rejection notification (see [Delivery Guarantees](#delivery-guarantees)), and the target's compensation handler emits inverse events.
 
 ```text title="Compensate flow"
-1. Framework writes Compensate { sequences: [5], reason: "order_cancelled" }
-2. Framework routes to client's compensation handler
-3. Handler receives original event, emits inverse (e.g., InventoryReleased)
-4. Both original and compensation events visible in stream
+1. Coordinator records Notification(Compensate { sequences: [5], reason: "card declined" })
+   in its compensation outbox, then fails the CASCADE request
+2. Outbox delivers it to the target's HandleCompensation
+3. Handler receives the compensated events, emits inverse (e.g., InventoryReleased)
+4. Original and compensating events are in the stream; the notification is not
 ```
 
 Compensation fits because:
@@ -192,11 +205,11 @@ def compensate_reservation(self, original_event, reason):
     )
 ```
 
-### Read-Time Behavior
+### What the Stream Holds
 
-| Event Type | At Read Time |
-|------------|--------------|
-| Compensate marker | NoOp |
+| Item | In the target's stream |
+|------|------------------------|
+| `Compensate` / `RejectionNotification` notification | Never written |
 | Compensated event | **Visible** |
 | Compensating events | Visible |
 

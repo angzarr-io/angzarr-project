@@ -8,15 +8,17 @@ A destination for messages that cannot be processed automatically. Messages are 
 1. **Sequence mismatch** with `MERGE_MANUAL` strategy
 2. **Processing failures** after retry exhaustion
 3. **Payload retrieval failures** (external storage unavailable)
-4. **Unrecoverable errors** in handlers
+4. **Compensation delivery failures** after the notification's retries are exhausted
+5. **Unrecoverable errors** in handlers
 
 ## DLQ Entry Types
 
-Each entry carries one of three detail messages:
+Each entry carries one of four detail messages:
 
 - **SequenceMismatchDetails** — expected vs. actual sequence and the merge strategy that routed the command to the DLQ.
 - **EventProcessingFailedDetails** — why a saga, projector, or process manager failed to process events, with retry count, transience, and a structured stack trace.
 - **PayloadRetrievalFailedDetails** — claim-check failures when an externally stored payload cannot be retrieved.
+- **CompensationDeliveryFailedDetails** — a compensation notification that could not be delivered; the entry's `rejected_command` is the notification's delivery envelope.
 
 ```protobuf file=proto/io/angzarr/v1/types.proto region=dlq_details
 ```

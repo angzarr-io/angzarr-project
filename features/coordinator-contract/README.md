@@ -15,7 +15,8 @@ implement it.
 | `edition_propagation.feature` | Source/trigger edition stamped onto every saga/PM emission; main-timeline aliases (`""`, unset, `"angzarr"`) |
 | `temporal_query.feature` | `TemporalQuery` as_of_sequence / as_of_time and when a snapshot may start the result |
 | `sync_modes.feature` | ASYNC, DECISION, SIMPLE, CASCADE, ISOLATED and the per-command `PageHeader.sync_mode` override |
-| `cascade_error_mode.feature` | FAIL_FAST, CONTINUE (`reaction_errors`), COMPENSATE (Compensate markers on executed reactions), DEAD_LETTER under CASCADE |
+| `cascade_error_mode.feature` | FAIL_FAST, CONTINUE (`reaction_errors`), COMPENSATE (Compensate notifications to executed reactions' targets), DEAD_LETTER under CASCADE |
+| `compensation_delivery.feature` | RejectionNotification / Compensate delivery through the coordinator outbox: recorded before ack, at-least-once with backoff, dedup by provenance tuple, dead-lettered on exhaustion, never in the stream |
 | `dead_letter_queue.feature` | `angzarr.dlq.{domain}` routing and `AngzarrDeadLetter` contents per failure source |
 | `snapshot_retention.feature` | DEFAULT and TRANSIENT pruned by a newer snapshot; PERSIST kept |
 

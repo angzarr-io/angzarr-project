@@ -71,8 +71,16 @@ service CommandHandlerCoordinatorService {
       body: "*"
     };
   }
-  // Compensation flow - returns BusinessResponse for saga compensation handling.
-  // If business returns events, persists them. Caller handles revocation flags.
+  // Compensation delivery. The request's command is a Notification delivery
+  // envelope (see Notification in types.proto) carrying a RejectionNotification
+  // or a Compensate payload, sent from a coordinator's compensation outbox.
+  // The coordinator rebuilds the target's state, invokes
+  // CommandHandlerService.Handle and persists only the events the handler
+  // returns; the Notification itself is never written to the stream.
+  // Deliveries are deduplicated by the envelope's angzarr_deferred provenance
+  // tuple: a redelivery does not invoke the handler again and returns the
+  // first delivery's result. The caller acts on a RevocationResponse and
+  // forwards a returned Notification upstream.
   rpc HandleCompensation(CommandRequest) returns (BusinessResponse) {
     option (google.api.http) = {
       post: "/v1/ch/{command.cover.domain}/compensation"
@@ -111,7 +119,8 @@ message RevocationResponse {
   string reason = 5; // Context/reason
 }
 
-// Wrapper response for BusinessLogic.Handle
+// Response of CommandHandlerService.Handle. A compensation delivery may be
+// answered with any variant; an ordinary command is answered with events.
 message BusinessResponse {
   oneof result {
     EventBook events = 1; // Business provides compensation events

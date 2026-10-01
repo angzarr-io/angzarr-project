@@ -320,7 +320,7 @@ The framework stamps `angzarr_deferred` on saga-produced commands with source ag
 
 - [Command](/glossary/command) — Requests that may be rejected
 - [Event](/glossary/event) — Immutable facts (internal or external)
-- [Notification](/glossary/notification) — Transient signals (not persisted)
+- [Notification](/glossary/notification) — Compensation signals (never in the event stream)
 - [Saga](/glossary/saga) — Domain bridges that emit commands (with angzarr_deferred)
 - [Sequence](/glossary/sequence) — Optimistic concurrency for commands
 

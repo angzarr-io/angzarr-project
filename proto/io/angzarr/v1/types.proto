@@ -107,7 +107,11 @@ enum CascadeErrorMode {
   CASCADE_ERROR_UNSPECIFIED = 0; // Unset — the server treats it as the documented default (FailFast)
   CASCADE_ERROR_FAIL_FAST = 1; // Stop on first error, fail request (default)
   CASCADE_ERROR_CONTINUE = 2; // Continue through all, return successes + errors
-  CASCADE_ERROR_COMPENSATE = 3; // On first error, compensate executed commands, fail request
+  // On first error, fail the request and compensate every reaction command
+  // that already executed: one Compensate notification per executed command,
+  // delivered to its target aggregate through the coordinator's compensation
+  // outbox (see Notification).
+  CASCADE_ERROR_COMPENSATE = 3;
   CASCADE_ERROR_DEAD_LETTER = 4; // On error, send to DLQ and continue with remaining
 }
 // endregion
@@ -420,31 +424,47 @@ message EventStreamFilter {
 }
 // endregion
 
-// SagaCommandOrigin removed - replaced by AngzarrDeferredSequence in PageHeader
-// - triggering_aggregate → PageHeader.angzarr_deferred.source
-// - triggering_event_sequence → PageHeader.angzarr_deferred.source_seq
-// - saga_name removed (source aggregate handles compensation)
-
 // ============================================================================
-// Notifications - Non-persisted messages for signaling
+// Notifications - compensation signals delivered to aggregates
 // ============================================================================
 //
 // Notifications differ from Events in key ways:
-// - NOT persisted to event store (ephemeral)
+// - NEVER persisted to the target's event stream; only the events its
+//   compensation handler emits in response are persisted
 // - NO sequence numbers (not ordered within an aggregate)
-// - NO event sourcing replay (fire-and-forget)
-// - Used for: compensation signals, real-time alerts, system warnings
+// - NO event sourcing replay
+//
+// Compensation delivery. A Notification is a durable obligation of the
+// coordinator that raises it:
+// - Raised when a saga/PM command is rejected (payload RejectionNotification,
+//   target = the command's angzarr_deferred.source) or when a CASCADE
+//   request with CASCADE_ERROR_COMPENSATE must undo a reaction command that
+//   already executed (payload Compensate, target = that command's cover).
+// - The coordinator records the obligation in its compensation outbox before
+//   it acknowledges the trigger (the triggering event delivery, or the
+//   CASCADE request's response). A recorded obligation survives a
+//   coordinator restart.
+// - It is delivered at least once, as the delivery-envelope CommandBook
+//   described on RejectionNotification, to the target domain's
+//   CommandHandlerCoordinatorService.HandleCompensation; failed deliveries
+//   are retried with backoff and, after the retry budget is exhausted, the
+//   envelope is dead-lettered (AngzarrDeadLetter with
+//   compensation_delivery_failed details) and the obligation is closed.
+// - The target deduplicates deliveries by the envelope's provenance tuple
+//   (source, source_seq, source_component, command_index): a redelivered
+//   notification does not invoke the compensation handler again and returns
+//   the events of the first delivery.
 //
 // Notifications reuse Cover for routing (domain, root, correlation_id) but
 // lack EventPage's sequence semantics.
 
 // region notification
-// Base notification message for transient system signals.
-// Contains routing info via Cover but no persistence semantics.
-// Type discrimination via payload.type_url (standard Any behavior).
+// Compensation signal addressed to one aggregate. Routed by cover; never
+// persisted to the aggregate's event stream. Type discrimination via
+// payload.type_url (standard Any behavior).
 message Notification {
   Cover cover = 1; // Routing: domain, root, correlation_id
-  google.protobuf.Any payload = 2; // Type-specific content (RejectionNotification, etc.)
+  google.protobuf.Any payload = 2; // RejectionNotification or Compensate
   google.protobuf.Timestamp sent_at = 3; // When notification was created
   reserved 4;
   reserved "metadata";
@@ -465,7 +485,9 @@ message Notification {
 // one CommandPage whose command is the Notification packed in an Any (type
 // name io.angzarr.v1.Notification; consumers match on the segment after the
 // last '/') and whose header is angzarr_deferred carrying the rejected
-// command's source, source_seq, source_component and command_index. That CommandBook is sent to the source domain's
+// command's source, source_seq, source_component and command_index. That
+// tuple is the delivery's deduplication key. The CommandBook is delivered
+// from the compensation outbox (see Notification) to the source domain's
 // CommandHandlerCoordinatorService.HandleCompensation, which invokes
 // CommandHandlerService.Handle; the handler answers with a BusinessResponse
 // (compensation events, a RevocationResponse, or a Notification forwarded
@@ -474,38 +496,22 @@ message Notification {
 message RejectionNotification {
   CommandBook rejected_command = 1; // The command that was rejected (full context)
   string rejection_reason = 2; // Why: "insufficient_funds", "out_of_stock", etc.
-  // Fields 3-6 removed: source info now in rejected_command.pages[].header.angzarr_deferred
   reserved 3, 4, 5, 6;
 }
 // endregion
 
-// ============================================================================
-// Framework stream markers
-// ============================================================================
-
 // region compensate
-// Marker the framework appends to an aggregate whose events must be undone
-// by business logic — e.g. the downstream commands already executed when a
-// CASCADE request with CASCADE_ERROR_COMPENSATE fails. It routes to the
-// aggregate's client-implemented compensation handler, which emits new
-// compensating events. Events are immutable facts: the compensated events
-// stay visible, and the marker itself reads back as NoOp.
+// Notification payload asking an aggregate to undo the effects of a reaction
+// command it already executed — raised when a CASCADE request with
+// CASCADE_ERROR_COMPENSATE fails after that command ran. Delivered like a
+// RejectionNotification (see Notification) with the envelope addressed to
+// `target` and its angzarr_deferred header carrying the executed command's
+// provenance tuple. The aggregate's compensation handler emits new
+// compensating events; the compensated events stay in the stream.
 message Compensate {
-  Cover target = 1;               // Domain + root of aggregate
-  repeated uint32 sequences = 2;  // Sequences to compensate
-  string reason = 3;              // Why compensation is needed
-}
-// endregion
-
-// region noop
-// Placeholder the coordinator returns, at read time, in place of a framework
-// marker (Compensate) so business logic never sees framework events. Never
-// persisted itself.
-message NoOp {
-  uint32 original_sequence = 1;   // Sequence of the filtered marker
-  reserved 2;
-  reserved "cascade_id";
-  string reason = 3;              // "framework_event"
+  Cover target = 1;               // Domain + root of the aggregate that executed the command
+  repeated uint32 sequences = 2;  // Sequences of the events the command produced
+  string reason = 3;              // Why compensation is needed (the failure that aborted the request)
 }
 // endregion
 
@@ -546,6 +552,13 @@ message PayloadRetrievalFailedDetails {
   uint64 original_size = 4; // Original payload size in bytes
   string error = 5; // Error message from the retrieval attempt
 }
+
+// Compensation delivery failure details for DLQ entries.
+// The dead letter's rejected_command is the Notification delivery envelope.
+message CompensationDeliveryFailedDetails {
+  uint32 attempts = 1; // Delivery attempts made before dead-lettering
+  string last_error = 2; // Error returned by the last attempt
+}
 // endregion
 
 // region dead_letter
@@ -563,6 +576,7 @@ message AngzarrDeadLetter {
     SequenceMismatchDetails sequence_mismatch = 12; // Sequence conflict details
     EventProcessingFailedDetails event_processing_failed = 13; // Handler failure details
     PayloadRetrievalFailedDetails payload_retrieval_failed = 14; // Payload store failure details
+    CompensationDeliveryFailedDetails compensation_delivery_failed = 15; // Notification delivery exhausted its retries
   }
   google.protobuf.Timestamp occurred_at = 7;
   map<string, string> metadata = 8; // Additional context
