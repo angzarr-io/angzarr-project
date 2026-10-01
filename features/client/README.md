@@ -1,51 +1,46 @@
 # Tier: unit-client
 
-Framework-harness cucumber. Exercises the angzarr client surface in isolation,
-across every `client-*-lang` repo.
+Client-surface cucumber, run by every `client-*-lang` repo.
+
+## The rule: dispatch is specified by the router, not here
+
+Dispatch behaviour — routing by type, state rebuild, command/fact/
+rejection/compensation/undo dispatch, saga and process-manager handling —
+is specified **only** by angzarr-router's conformance suite
+([`angzarr-router/conformance`](https://github.com/angzarr-io/angzarr-router/tree/main/conformance)).
+Every client repo's CI must run that suite against its router binding.
+This tier never restates dispatch behaviour; a scenario that would is added
+to the conformance suite instead.
 
 ## What lives here
 
-Scenarios that verify the framework machinery:
+Scenarios about what a client itself provides:
 
-- `Router` construction and build-time validation
-- `@command_handler`, `@saga`, `@process_manager`, `@projector` class decorators
-- `@handles`, `@applies`, `@rejected`, `@state_factory` method decorators
-- Dispatch semantics: state rebuild from prior events, multi-handler merge,
-  sequence increment, rejection compensation
+- consumer clients — `CommandHandlerClient`, `QueryClient`,
+  `SpeculativeClient`, `DomainClient` (`aggregate_client`, `query_client`,
+  `speculative_client`, `domain-client`)
+- builders, connection, errors, retry, identity (`compute_root`), event
+  decoding, the `testing` namespace, the component host and the public
+  surface — in [`../../parity/client/`](../../parity/client/)
 
 ## Domain vocabulary
 
 **Generic only.** `Order`, `Payment`, `Inventory`, `Shipping`, `Fulfillment`.
-No poker concepts. See [STEP_VOCABULARY.md §12, §17](../STEP_VOCABULARY.md).
-
-This tier's scenarios are run by every `client-*-lang` repo. Poker types
-would force every language client to depend on poker proto definitions just
-to exercise the framework — which would be absurd. Generic domains keep the
-surface tight.
+No example concepts. See [STEP_VOCABULARY.md §12, §17](../STEP_VOCABULARY.md).
+Clients contain no example or business-specific types or services, so
+neither do their scenarios.
 
 ## Execution style
 
-Synchronous and in-process. No sidecars, no network, no real time.
-
-Two kinds of file live here:
-
-- **Router / dispatch files** (`builder`, `command_handler`, `compensation`,
-  `multi_handler`, `process_manager`, `projector`, `rejected_compensation`,
-  `rejection`, `router`, `saga`, `upcaster`, `validation`): state is a plain
-  in-memory object built in the scenario's `Given`; `EventBook` /
-  `CommandBook` are built in-process from proto types; one step = one
-  handler invocation or one builder call.
-- **Client-surface files** (`aggregate_client`, `domain-client`,
-  `query_client`, `speculative_client`): exercise the client objects
-  (`CommandHandlerClient`, `QueryClient`, `SpeculativeClient`,
-  `DomainClient`) against the **test backend** — an in-process fake of the
-  coordinator gRPC stubs owned by each client repo. "A client connected to
-  the test backend", "the service is unavailable" and "does not respond in
-  time" are configurations of that fake; no coordinator runs.
+Synchronous and in-process. The consumer-client files exercise the client
+objects against the **test backend** — an in-process fake of the
+coordinator gRPC stubs owned by each client repo. "A client connected to
+the test backend", "the service is unavailable" and "does not respond in
+time" are configurations of that fake; no coordinator runs.
 
 A scenario that needs a real coordinator, bus or clock is not in this tier.
 Coordinator behaviour belongs in [`../coordinator-contract/`](../coordinator-contract/);
-poker end-to-end belongs in `example/acceptance/`.
+example end-to-end belongs in `example/acceptance/`.
 
 ## Scenario IDs
 

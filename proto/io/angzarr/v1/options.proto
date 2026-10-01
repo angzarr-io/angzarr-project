@@ -85,7 +85,7 @@ message ComponentOptions {
   // stream and never receive a rejection. Declared on the COMPENSATOR (not
   // the command) so a command's file stays decoupled from the components
   // that react to its rejection. Each entry generates one rejection handler,
-  // in declaration order (C-0042); the handler takes the rejection envelope,
+  // in declaration order; the handler takes the rejection envelope,
   // not a typed command.
   //
   // Entry forms (same rule for every kind):
@@ -99,7 +99,7 @@ message ComponentOptions {
   // types.proto). Domain names contain no ':'. A given type appears either
   // once unqualified or qualified by distinct domains, never both
   // (generation fails otherwise), so at most one entry matches a rejection.
-  // A rejection that matches no entry yields no compensation (C-0084).
+  // A rejection that matches no entry yields no compensation.
   repeated string compensates = 5;
   // Additional domains this component issues commands to; see output_domain.
   repeated string output_domains = 6;

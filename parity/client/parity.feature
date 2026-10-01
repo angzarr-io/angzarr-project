@@ -1,8 +1,15 @@
-# Allocated: C-0089 .. C-0106
 Feature: Public API parity
   As a maintainer of angzarr's client libraries
   I want every language-idiomatic binding to export the same canonical set of public names
   So that cross-language documentation, examples, and mental models transfer without translation
+
+  A client library provides: thin consumer clients (CommandHandlerClient,
+  QueryClient, SpeculativeClient, DomainClient) and their fluent builders;
+  errors and retry policy; compute_root; the `testing` namespace; access to
+  the angzarr-router binding for generated component code; and a reusable
+  gRPC component host. It does not provide a dispatch engine of its own
+  (decorators, Router builders, handler adapters, compensation helpers):
+  dispatch is the router's, specified by angzarr-router's conformance suite.
 
   The scenarios below describe the canonical cross-language public surface.
   Each language may render a symbol in its idiomatic form (class vs enum
@@ -21,47 +28,6 @@ Feature: Public API parity
     And the "QueryClient" symbol is exported
     And the "SpeculativeClient" symbol is exported
     And the "DomainClient" symbol is exported
-
-  @C-0090
-  Scenario: Router runtime types are exported
-    Then the "Router" symbol is exported
-    And the "BuildError" symbol is exported
-    And the "DispatchError" symbol is exported
-    And the "CommandHandlerRouter" symbol is exported
-    And the "SagaRouter" symbol is exported
-    And the "ProcessManagerRouter" symbol is exported
-    And the "ProjectorRouter" symbol is exported
-    And the "UpcasterRouter" symbol is exported
-
-  @C-0091
-  Scenario: Handler kind declarations are exported
-    Then the "command_handler" kind declaration is exported
-    And the "saga" kind declaration is exported
-    And the "process_manager" kind declaration is exported
-    And the "projector" kind declaration is exported
-    And the "upcaster" kind declaration is exported
-
-  @C-0092
-  Scenario: Method markers are exported
-    Then the "handles" method marker is exported
-    And the "applies" method marker is exported
-    And the "rejected" method marker is exported
-    And the "state_factory" method marker is exported
-    And the "upcasts" method marker is exported
-
-  @C-0093
-  Scenario: Handler response types are exported
-    Then the "SagaHandlerResponse" symbol is exported
-    And the "ProcessManagerResponse" symbol is exported
-    And the "RejectionHandlerResponse" symbol is exported
-
-  @C-0094
-  Scenario: gRPC server adapters are exported
-    Then the "CommandHandlerGrpc" symbol is exported
-    And the "SagaGrpc" symbol is exported
-    And the "ProcessManagerGrpc" symbol is exported
-    And the "ProjectorGrpc" symbol is exported
-    And the "UpcasterGrpc" symbol is exported
 
   @C-0095
   Scenario: Canonical error types are exported
@@ -122,45 +88,30 @@ Feature: Public API parity
     And the "ExponentialBackoffRetry" symbol is exported
     And the "default_retry_policy" symbol is exported
 
-  @C-0101
-  Scenario: Validation helpers are exported
-    Then the "require_exists" symbol is exported
-    And the "require_not_exists" symbol is exported
-    And the "require_positive" symbol is exported
-    And the "require_non_negative" symbol is exported
-    And the "require_not_empty" symbol is exported
-    And the "require_not_empty_str" symbol is exported
-    And the "require_status" symbol is exported
-    And the "require_status_not" symbol is exported
-
-  @C-0102
-  Scenario: Compensation helpers are exported
-    Then the "CompensationContext" symbol is exported
-    And the "delegate_to_framework" symbol is exported
-    And the "emit_compensation_events" symbol is exported
-    And the "pm_delegate_to_framework" symbol is exported
-    And the "pm_emit_compensation_events" symbol is exported
-
-  # @C-0103 (Event-packing helpers) was removed: `new_event_book` /
-  # `new_event_book_multi` had no production callers in any client or
-  # example. Audit finding #57 already removed `pack_event` / `pack_events`
-  # for the same reason; this completes that cleanup. User code returns
-  # events via the proc-macro / decorator-driven dispatch, not these
-  # helpers. Slot intentionally vacant — do not reuse.
-
   @C-0104
   Scenario: Fluent builders are exported
     Then the "CommandBuilder" symbol is exported
     And the "QueryBuilder" symbol is exported
 
-  @C-0105
-  Scenario: Destinations type is exported
-    Then the "Destinations" symbol is exported
+  @C-0494
+  Scenario: The router binding is reachable for generated component code
+    # Generated component code (angzarr-cli codegen) registers handlers with
+    # the angzarr-router binding through the client; the binding is reached
+    # through the client's `router` module/namespace.
+    Then the router binding is exported from the router module
+    And the client's root exports no dispatch-engine API: no handler decorators, Router builders, handler gRPC adapters or compensation helpers
 
-  @C-0106
-  Scenario: Server utilities are exported
-    Then the "configure_logging" symbol is exported
+  @C-0495
+  Scenario: The component host is exported
+    Then the "ComponentHost" symbol is exported
+    And the "configure_logging" symbol is exported
     And the "get_transport_config" symbol is exported
-    And the "create_server" symbol is exported
-    And the "run_server" symbol is exported
-    And the "cleanup_socket" symbol is exported
+
+  @C-0496
+  Scenario: The client contains no example or business-specific types or services
+    # The client is generic framework code. Application and example types,
+    # domain-specific helpers and application gRPC services live in the
+    # application; an application plugs its extra services into the host
+    # (see hosting.feature).
+    Then no exported symbol, module or gRPC service of the client names an example or business concept
+    And the component host serves only framework services and the services an application registers
