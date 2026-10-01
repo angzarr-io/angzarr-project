@@ -5,7 +5,7 @@ Feature: Cascade error mode - failures of synchronous downstream reactions
   sync_mode is CASCADE; every other sync mode runs reactions asynchronously
   and ignores it.
 
-  - FAIL_FAST (zero value): stop at the first failure and fail the request.
+  - FAIL_FAST (also what an unset mode means): stop at the first failure and fail the request.
   - CONTINUE: run every reaction; the request succeeds and its response
     lists each reaction that failed.
   - COMPENSATE: at the first failure, compensate the downstream commands

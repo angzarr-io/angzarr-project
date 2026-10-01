@@ -76,7 +76,7 @@ message DomainDivergence {
 // region sync_mode
 // Controls synchronous processing behavior.
 //
-// Default: ASYNC — the zero value, so an unset field means fire-and-forget.
+// Default: ASYNC. SYNC_MODE_UNSPECIFIED (the zero value) is treated as ASYNC.
 //
 // Impact ordering (lowest to highest):
 //   ASYNC  < DECISION < SIMPLE < CASCADE
@@ -90,30 +90,32 @@ message DomainDivergence {
 // (events persisted + returned) and reject path (CommandRejectedError) are
 // both observable; everything downstream runs asynchronously.
 enum SyncMode {
-  SYNC_MODE_ASYNC = 0; // Async: fire and forget (default)
-  SYNC_MODE_SIMPLE = 1; // Sync projectors only, no saga cascade
-  SYNC_MODE_CASCADE = 2; // Full sync: projectors + saga cascade (expensive)
-  SYNC_MODE_DECISION = 3; // Sync aggregate accept/reject only; projectors + sagas run async
-  SYNC_MODE_ISOLATED = 4; // Sync accept/reject + persist; NO downstream (sync OR async). Replay / migration / recovery writes that must not trigger reactions. Distinct from DECISION (which still publishes to bus for async downstream).
+  SYNC_MODE_UNSPECIFIED = 0; // Unset — the server treats it as the documented default (Async)
+  SYNC_MODE_ASYNC = 1; // Async: fire and forget (default)
+  SYNC_MODE_SIMPLE = 2; // Sync projectors only, no saga cascade
+  SYNC_MODE_CASCADE = 3; // Full sync: projectors + saga cascade (expensive)
+  SYNC_MODE_DECISION = 4; // Sync aggregate accept/reject only; projectors + sagas run async
+  SYNC_MODE_ISOLATED = 5; // Sync accept/reject + persist; NO downstream (sync OR async). Replay / migration / recovery writes that must not trigger reactions. Distinct from DECISION (which still publishes to bus for async downstream).
 }
 // endregion
 
 // region cascade_error_mode
 // Controls how CASCADE mode handles errors from sagas/PMs.
 // Only relevant when sync_mode = CASCADE.
-// Default: FAIL_FAST — the zero value (stop on first error, fail request).
+// Default: FAIL_FAST. CASCADE_ERROR_UNSPECIFIED (the zero value) is treated as FAIL_FAST.
 enum CascadeErrorMode {
-  CASCADE_ERROR_FAIL_FAST = 0; // Stop on first error, fail request (default)
-  CASCADE_ERROR_CONTINUE = 1; // Continue through all, return successes + errors
-  CASCADE_ERROR_COMPENSATE = 2; // On first error, compensate executed commands, fail request
-  CASCADE_ERROR_DEAD_LETTER = 3; // On error, send to DLQ and continue with remaining
+  CASCADE_ERROR_UNSPECIFIED = 0; // Unset — the server treats it as the documented default (FailFast)
+  CASCADE_ERROR_FAIL_FAST = 1; // Stop on first error, fail request (default)
+  CASCADE_ERROR_CONTINUE = 2; // Continue through all, return successes + errors
+  CASCADE_ERROR_COMPENSATE = 3; // On first error, compensate executed commands, fail request
+  CASCADE_ERROR_DEAD_LETTER = 4; // On error, send to DLQ and continue with remaining
 }
 // endregion
 
 // region merge_strategy
 // Controls how the aggregate coordinator treats a command whose expected
 // sequence differs from the aggregate's next_sequence (a stale command).
-// Default: COMMUTATIVE — the zero value.
+// Default: COMMUTATIVE. MERGE_UNSPECIFIED (the zero value) is treated as COMMUTATIVE.
 //
 // The concurrency window is the run of events the command did not see:
 // sequences basis .. next_sequence-1, where basis is the command's explicit
@@ -135,10 +137,11 @@ enum CascadeErrorMode {
 // dead-lettered only when its fields overlap the window (or overlap cannot
 // be computed).
 enum MergeStrategy {
-  MERGE_COMMUTATIVE = 0; // Default: merge unless changed fields overlap the window
-  MERGE_STRICT = 1; // Reject on sequence mismatch (optimistic concurrency)
-  MERGE_AGGREGATE_HANDLES = 2; // Aggregate handles its own concurrency
-  MERGE_MANUAL = 3; // Dead-letter for manual review on mismatch
+  MERGE_UNSPECIFIED = 0; // Unset — the server treats it as the documented default (Commutative)
+  MERGE_COMMUTATIVE = 1; // Default: merge unless changed fields overlap the window
+  MERGE_STRICT = 2; // Reject on sequence mismatch (optimistic concurrency)
+  MERGE_AGGREGATE_HANDLES = 3; // Aggregate handles its own concurrency
+  MERGE_MANUAL = 4; // Dead-letter for manual review on mismatch
 }
 // endregion
 

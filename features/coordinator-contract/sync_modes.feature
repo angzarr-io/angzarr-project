@@ -13,7 +13,7 @@ Feature: Sync modes - how much downstream work a command waits for
   - ISOLATED: nothing downstream runs, sync or async; events are not
     published to the bus.
 
-  ASYNC is the zero value. DECISION exists for callers (typically process
+  An unset sync_mode (SYNC_MODE_UNSPECIFIED) is ASYNC. DECISION exists for callers (typically process
   managers) that need only the accept/reject outcome synchronously.
   PageHeader.sync_mode on a CommandPage overrides the request's mode for
   that command; when unset the request's mode applies.
