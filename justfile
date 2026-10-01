@@ -3,30 +3,59 @@
 SITE := "site"
 
 # Run dev server for the docs site
-dev:
+dev: vendor proto-docs
     cd {{SITE}} && npm run dev
 
-# Build the docs site to site/dist
-build:
+# Build the docs site to site/dist. Code snippets resolve strictly: a
+# missing file or region fails the build.
+build: vendor proto-docs
     cd {{SITE}} && npm run build
+
+# Install exact site dependencies, then build (what CI runs)
+site-ci: install build
 
 # Preview the built site locally
 preview:
     cd {{SITE}} && npm run preview
 
-# Install site dependencies
+# Install site dependencies from the lockfile
 install:
-    cd {{SITE}} && npm install
+    cd {{SITE}} && npm ci
 
-# Vendor sibling repos used by remark-code-region (Python only for now)
+# Shallow-clone the sibling repos that remark-code-region reads snippets from
 vendor:
     mkdir -p vendor/examples vendor/client
-    [ -d vendor/examples/python ] || git clone --depth=1 git@github.com:angzarr-io/angzarr-examples-python.git vendor/examples/python
-    [ -d vendor/client/python ]   || git clone --depth=1 git@github.com:angzarr-io/angzarr-client-python.git   vendor/client/python
+    [ -d vendor/examples/python ] || git clone --depth=1 https://github.com/angzarr-io/angzarr-examples-python.git vendor/examples/python
+    [ -d vendor/client/python ]   || git clone --depth=1 https://github.com/angzarr-io/angzarr-client-python.git   vendor/client/python
 
 # Clean build artifacts
 clean:
-    rm -rf {{SITE}}/dist {{SITE}}/.astro
+    rm -rf {{SITE}}/dist {{SITE}}/.astro {{PROTO_DOCS_OUT}}
+
+# ---------------------------------------------------------------------------
+# Proto API reference: protoc-gen-doc renders the framework protos to a
+# Starlight page under Reference. The page is generated, not committed.
+# ---------------------------------------------------------------------------
+
+PROTOC_GEN_DOC_IMAGE := "docker.io/pseudomuto/protoc-gen-doc:1.5.1@sha256:779263a6dc01fbe375298c4e556d784640539e7b2bd433a50588285da88b74d5"
+PROTO_DOCS_OUT := "site/src/content/docs/reference/proto-api.md"
+
+# Generate the Proto API reference page from proto/ (framework + sererr; examples excluded)
+proto-docs:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    root="$(git rev-parse --show-toplevel)"
+    tmp="$(mktemp -d)"
+    trap 'rm -rf "$tmp"' EXIT
+    protos=$(cd "$root/proto" && find io/angzarr sererr -name '*.proto' ! -path 'io/angzarr/examples/*' | sort)
+    docker run --rm -v "$root/proto:/protos:ro" -v "$tmp:/out" {{PROTOC_GEN_DOC_IMAGE}} \
+        --doc_opt=markdown,proto-api.md $protos
+    {
+        printf -- '---\ntitle: Proto API\ndescription: Generated reference for the Angzarr protobuf API.\n---\n\n'
+        # protoc-gen-doc emits its own H1; the frontmatter title replaces it.
+        sed '0,/^# /{/^# /d}' "$tmp/proto-api.md"
+    } > "$root/{{PROTO_DOCS_OUT}}"
+    echo "wrote {{PROTO_DOCS_OUT}}"
 
 # Verify every poker/acceptance scenario is governed by a # Rule: citation
 check-rules:

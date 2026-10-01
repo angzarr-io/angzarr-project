@@ -30,3 +30,6 @@ pnpm-debug.log*
 
 # Python bytecode from scripts/
 __pycache__/
+
+# Sibling repos cloned by `just vendor`
+vendor/
