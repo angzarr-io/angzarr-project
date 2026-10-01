@@ -1,0 +1,106 @@
+syntax = "proto3";
+package io.angzarr.examples.blackjack.v1;
+
+import "io/angzarr/v1/options.proto";
+
+option csharp_namespace = "Angzarr.Examples.Blackjack";
+option go_package = "github.com/benjaminabbitt/angzarr/client/go/proto/io/angzarr/examples/blackjack/v1;blackjack";
+option java_multiple_files = true;
+option java_package = "io.angzarr.examples.blackjack";
+option ruby_package = "Angzarr::Examples::Blackjack";
+
+// =============================================================================
+// pmg-buy-in — the buy-in process manager (domain "buy-in")
+// =============================================================================
+//
+// A buy-in must secure two resources in two domains — a held seat at the
+// table and held funds in the wallet — and confirm or release each depending
+// on the other. It is the example's only process manager.
+//
+// State is keyed by the correlation id (the PM root is derived from it by
+// core). Flow:
+//
+//   trigger                    phase change                  PM event        sends
+//   table  SeatHeld            (new) -> AWAITING_HOLD         BuyInStarted    player HoldFunds
+//   player FundsHeld           AWAITING_HOLD -> AWAITING_SEAT BuyInFundsHeld  table  ConfirmSeat
+//   table  PlayerSeated        AWAITING_SEAT -> AWAITING_CAPTURE BuyInSeated  player CaptureFunds
+//   player FundsCaptured       AWAITING_CAPTURE -> COMPLETED  BuyInCompleted  —
+//   HoldFunds rejected         AWAITING_HOLD -> FAILED        BuyInFailed     table  ReleaseSeat
+//   ConfirmSeat rejected       AWAITING_SEAT -> FAILED        BuyInFailed     player ReleaseHold, table ReleaseSeat
+//
+// Rejections arrive as Notifications delivered durably to the PM's
+// compensation handlers (OnHoldFundsRejected, OnConfirmSeatRejected).
+//
+// Rules for every emitted command:
+//   - angzarr_deferred: no expected sequence; the destination deduplicates by
+//     provenance (source, source_seq, source_component, command_index).
+//   - SYNC_MODE_DECISION: each next step depends on the previous outcome.
+//   - correlation_id left empty; core stamps the trigger's correlation.
+//   - type URLs come from generated code only.
+// Every handler first checks that the trigger's id (buy_in_id, or hold_id for
+// player events, which equals the buy_in_id) matches state.buy_in_id and that
+// the phase is the expected one; anything else is a no-op. The PM makes no
+// business decisions: validation lives in the two aggregates.
+//
+// Invariant L3 (buy-in half): each PlayerSeated(B, X) pairs with exactly one
+// FundsCaptured(B, X).
+
+message BuyInStarted {
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.blackjack.v1.BuyInState" applies: true };
+  bytes buy_in_id = 1;
+  bytes player_root = 2;
+  bytes table_root = 3;
+  int32 seat = 4;
+  int64 amount = 5;
+}
+
+message BuyInFundsHeld {
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.blackjack.v1.BuyInState" applies: true };
+  bytes buy_in_id = 1;
+}
+
+message BuyInSeated {
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.blackjack.v1.BuyInState" applies: true };
+  bytes buy_in_id = 1;
+  int64 stack = 2;
+}
+
+message BuyInCompleted {
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.blackjack.v1.BuyInState" applies: true };
+  bytes buy_in_id = 1;
+}
+
+message BuyInFailed {
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.blackjack.v1.BuyInState" applies: true };
+  bytes buy_in_id = 1;
+  BuyInState.Phase failed_in = 2; // Phase the buy-in was in when it failed
+  string reason = 3; // Rejection reason of the refused command
+}
+
+// The BuyInProcessManager. Commands go to "player" (HoldFunds, CaptureFunds,
+// ReleaseHold) and "table" (ConfirmSeat, ReleaseSeat).
+message BuyInState {
+  option (io.angzarr.v1.component) = {
+    kind: COMPONENT_KIND_PROCESS_MANAGER
+    output_domain: "player"
+    output_domains: "table"
+    name: "BuyInProcessManager"
+    compensates: "io.angzarr.examples.blackjack.v1.HoldFunds"
+    compensates: "io.angzarr.examples.blackjack.v1.ConfirmSeat"
+  };
+  enum Phase {
+    PHASE_UNSPECIFIED = 0; // No buy-in started under this correlation
+    PHASE_AWAITING_HOLD = 1;
+    PHASE_AWAITING_SEAT = 2;
+    PHASE_AWAITING_CAPTURE = 3;
+    PHASE_COMPLETED = 4;
+    PHASE_FAILED = 5;
+  }
+  bytes buy_in_id = 1;
+  bytes player_root = 2;
+  bytes table_root = 3;
+  int32 seat = 4;
+  int64 amount = 5;
+  Phase phase = 6;
+  string failure_reason = 7;
+}

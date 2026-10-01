@@ -1,0 +1,413 @@
+syntax = "proto3";
+package io.angzarr.examples.blackjack.v1;
+
+import "io/angzarr/v1/options.proto";
+import "io/angzarr/examples/blackjack/v1/cards.proto";
+
+option csharp_namespace = "Angzarr.Examples.Blackjack";
+option go_package = "github.com/benjaminabbitt/angzarr/client/go/proto/io/angzarr/examples/blackjack/v1;blackjack";
+option java_multiple_files = true;
+option java_package = "io.angzarr.examples.blackjack";
+option ruby_package = "Angzarr::Examples::Blackjack";
+
+// =============================================================================
+// Table domain ("table") — seats, shoe, rounds, settlement, house
+// =============================================================================
+//
+// The table aggregate owns every chip on the table: seat stacks, wagers in the
+// current round and the house result. The whole round lifecycle (bets, deal,
+// player turns, dealer play, settlement) happens inside this one aggregate:
+// commands may emit several events, and the action that finishes the last hand
+// also emits DealerPlayed + RoundSettled in the same EventBook. House rules
+// AHR-1..13 are catalogued in features/example/blackjack/RULES.md.
+//
+// Seats are numbered 0 .. seats-1. A turn or next_turn of -1 means no seat is
+// left to act.
+//
+// Invariant L2 (after every event):
+//   sum(stacks) + sum(wagers) + house_result = chips_in - chips_out
+// where chips_in counts buy-ins (PlayerSeated) and top-ups (ChipsAdded) and
+// chips_out counts cash-outs (PlayerCashedOut).
+//
+// Rejections (gRPC status, reason code):
+//   FAILED_PRECONDITION: TABLE_ALREADY_EXISTS, TABLE_NOT_FOUND, SEAT_TAKEN,
+//     PLAYER_ALREADY_SEATED, SEAT_HOLD_NOT_FOUND, NOT_SEATED, WAGER_IN_PLAY,
+//     ROUND_IN_PROGRESS, ALREADY_BET, INSUFFICIENT_STACK, NO_BETS,
+//     NO_ROUND_IN_PROGRESS, NOT_YOUR_TURN, DOUBLE_NOT_ALLOWED.
+//   INVALID_ARGUMENT: INVALID_TABLE_CONFIG, SEAT_OUT_OF_RANGE,
+//     BUY_IN_OUT_OF_RANGE, TOP_UP_EXCEEDS_MAX, BET_OUT_OF_RANGE, BET_NOT_EVEN.
+//
+// Concurrency (client-chosen merge strategy):
+//   PlaceBet            — MERGE_AGGREGATE_HANDLES: the handler receives the
+//                         full history and refuses a second bet on the same
+//                         seat itself (ALREADY_BET); bets on different seats
+//                         prepared from the same view all land.
+//   Hit / Stand / DoubleDown — sent with an explicit expected sequence and
+//                         MERGE_STRICT: of two actions prepared from the same
+//                         view exactly one lands; the other is refused as
+//                         retryable and is re-decided against the new state.
+// AddChips (saga-player-table), ConfirmSeat and ReleaseSeat (pmg-buy-in) are
+// angzarr_deferred and deduplicated by provenance.
+//
+// Speculative execution is never offered on this aggregate: its state holds
+// the undealt shoe, so a speculative Hit would reveal the next card.
+//
+// Snapshots: a routine snapshot (RETENTION_DEFAULT) every N events per the
+// deployment's snapshot interval, plus a snapshot marked RETENTION_PERSIST in
+// every EventBook that contains a ShoeShuffled event, so each shoe's starting
+// point is kept as a lasting milestone.
+
+// -----------------------------------------------------------------------------
+// Commands — client
+// -----------------------------------------------------------------------------
+
+// Create the table and shuffle its first shoe (TableCreated + ShoeShuffled).
+// Valid configuration (AHR-1, AHR-5, AHR-13): 1 <= seats <= 7, 1 <= decks <= 8,
+// 0 < min_bet <= max_bet with both even, 0 < min_buy_in <= max_buy_in,
+// min_bet <= min_buy_in.
+message CreateTable {
+  option (io.angzarr.v1.command) = { component: "io.angzarr.examples.blackjack.v1.TableState" };
+  string name = 1;
+  int64 min_bet = 2;
+  int64 max_bet = 3;
+  int64 min_buy_in = 4;
+  int64 max_buy_in = 5;
+  int32 seats = 6;
+  int32 decks = 7;
+  uint64 shoe_seed = 8;
+}
+
+// Hold a seat for a buy-in (SeatHeld), which starts pmg-buy-in. Sent with
+// SYNC_MODE_CASCADE so the reply arrives once the buy-in has finished.
+// buy_in_id = request_id. Refused when the seat is seated or held, the player
+// is already seated at this table, or amount is outside
+// [min_buy_in, max_buy_in]. A player may have buy-ins pending for several
+// seats; only the first to be confirmed seats them.
+message RequestSeat {
+  option (io.angzarr.v1.command) = { component: "io.angzarr.examples.blackjack.v1.TableState" };
+  bytes player_root = 1;
+  int32 seat = 2;
+  int64 amount = 3;
+  bytes request_id = 4; // Client-chosen idempotency key; becomes the buy_in_id
+}
+
+// Cash out the whole stack and free the seat (PlayerCashedOut). Refused while
+// the seat has a wager in the current round. Sent with SYNC_MODE_CASCADE so
+// the reply arrives once the bankroll has been credited.
+message LeaveTable {
+  option (io.angzarr.v1.command) = { component: "io.angzarr.examples.blackjack.v1.TableState" };
+  int32 seat = 1;
+}
+
+// Wager on the next round (AHR-5). Sent with MERGE_AGGREGATE_HANDLES.
+message PlaceBet {
+  option (io.angzarr.v1.command) = { component: "io.angzarr.examples.blackjack.v1.TableState" };
+  int32 seat = 1;
+  int64 amount = 2;
+}
+
+// Deal the round to every seat with a wager: [ShoeShuffled] + RoundDealt, and
+// DealerPlayed + RoundSettled as well when no seat can act (dealer blackjack,
+// or every wagered hand is a blackjack).
+message DealRound {
+  option (io.angzarr.v1.command) = { component: "io.angzarr.examples.blackjack.v1.TableState" };
+}
+
+// Player turn actions (AHR-9, AHR-10). Only the seat on turn may act. The
+// action that finishes the last hand also emits DealerPlayed + RoundSettled.
+message Hit {
+  option (io.angzarr.v1.command) = { component: "io.angzarr.examples.blackjack.v1.TableState" };
+  int32 seat = 1;
+}
+
+message Stand {
+  option (io.angzarr.v1.command) = { component: "io.angzarr.examples.blackjack.v1.TableState" };
+  int32 seat = 1;
+}
+
+message DoubleDown {
+  option (io.angzarr.v1.command) = { component: "io.angzarr.examples.blackjack.v1.TableState" };
+  int32 seat = 1;
+}
+
+// -----------------------------------------------------------------------------
+// Commands — pmg-buy-in (SYNC_MODE_DECISION, angzarr_deferred)
+// -----------------------------------------------------------------------------
+
+// Seat the player on a held seat with the buy-in as stack (PlayerSeated).
+// Refused with SEAT_HOLD_NOT_FOUND when the hold is gone and
+// PLAYER_ALREADY_SEATED when the player took another seat meanwhile.
+// Repeating a confirmation already applied succeeds with no events.
+message ConfirmSeat {
+  option (io.angzarr.v1.command) = { component: "io.angzarr.examples.blackjack.v1.TableState" };
+  bytes buy_in_id = 1;
+}
+
+// Free a held seat (SeatReleased). Releasing a hold that no longer exists
+// succeeds with no events.
+message ReleaseSeat {
+  option (io.angzarr.v1.command) = { component: "io.angzarr.examples.blackjack.v1.TableState" };
+  bytes buy_in_id = 1;
+  string reason = 2;
+}
+
+// -----------------------------------------------------------------------------
+// Commands — saga-player-table (angzarr_deferred)
+// -----------------------------------------------------------------------------
+
+// Add a top-up to the player's stack (ChipsAdded). Refused with WAGER_IN_PLAY
+// while the player's seat has a wager in the current round, NOT_SEATED when
+// the player has no seat, TOP_UP_EXCEEDS_MAX when the stack would exceed
+// max_buy_in. The rejection is compensated by the player (TopUpRefused).
+// Repeating an AddChips whose hold_id was already added succeeds with no
+// events.
+message AddChips {
+  option (io.angzarr.v1.command) = { component: "io.angzarr.examples.blackjack.v1.TableState" };
+  bytes player_root = 1;
+  bytes hold_id = 2;
+  int64 amount = 3;
+}
+
+// -----------------------------------------------------------------------------
+// Events
+// -----------------------------------------------------------------------------
+
+message TableCreated {
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.blackjack.v1.TableState" };
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.blackjack.v1.LedgerProjection" domain: "table" };
+  string name = 1;
+  int64 min_bet = 2;
+  int64 max_bet = 3;
+  int64 min_buy_in = 4;
+  int64 max_buy_in = 5;
+  int32 seats = 6;
+  int32 decks = 7;
+}
+
+// A new shoe, recorded in full deal order (AHR-3). shoe_number starts at 1.
+// Shoe 1 uses CreateTable.shoe_seed; shoe k+1 uses next_seed(seed of shoe k)
+// (cards.proto). Emitted by CreateTable, and by DealRound before RoundDealt
+// when fewer than 11 * (wagered seats + 1) cards remain (AHR-4).
+message ShoeShuffled {
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.blackjack.v1.TableState" };
+  uint32 shoe_number = 1;
+  uint64 seed = 2;
+  int32 decks = 3;
+  repeated Card cards = 4;
+}
+
+// A seat is held for a buy-in; triggers pmg-buy-in.
+message SeatHeld {
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.blackjack.v1.TableState" };
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.blackjack.v1.BuyInState" domain: "table" };
+  bytes buy_in_id = 1;
+  bytes player_root = 2;
+  int32 seat = 3;
+  int64 amount = 4;
+}
+
+message SeatReleased {
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.blackjack.v1.TableState" };
+  bytes buy_in_id = 1;
+  bytes player_root = 2;
+  int32 seat = 3;
+  string reason = 4;
+}
+
+// The buy-in chips arrived: the player sits with `stack`.
+message PlayerSeated {
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.blackjack.v1.TableState" };
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.blackjack.v1.BuyInState" domain: "table" };
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.blackjack.v1.LedgerProjection" domain: "table" };
+  bytes buy_in_id = 1;
+  bytes player_root = 2;
+  int32 seat = 3;
+  int64 stack = 4;
+}
+
+// A top-up landed; triggers the TopUpSettled fact for the player.
+message ChipsAdded {
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.blackjack.v1.TableState" };
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.blackjack.v1.TablePlayerSettlementSaga" domain: "table" };
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.blackjack.v1.LedgerProjection" domain: "table" };
+  bytes hold_id = 1;
+  bytes player_root = 2;
+  int32 seat = 3;
+  int64 amount = 4;
+  int64 stack_after = 5;
+}
+
+// The player left with `amount` chips; triggers the CashOutCredited fact.
+// cashout_id = UUIDv5(namespace = the table root read as a UUID,
+// name = "cashout/" + decimal sequence of this event), as 16 bytes, so replay
+// and redelivery always produce the same id.
+message PlayerCashedOut {
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.blackjack.v1.TableState" };
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.blackjack.v1.TablePlayerSettlementSaga" domain: "table" };
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.blackjack.v1.LedgerProjection" domain: "table" };
+  bytes cashout_id = 1;
+  bytes player_root = 2;
+  int32 seat = 3;
+  int64 amount = 4;
+}
+
+message BetPlaced {
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.blackjack.v1.TableState" };
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.blackjack.v1.LedgerProjection" domain: "table" };
+  uint32 round = 1;
+  int32 seat = 2;
+  bytes player_root = 3;
+  int64 amount = 4;
+  int64 stack_after = 5;
+}
+
+// Cards of one seat's hand with its value (AHR-2).
+message SeatHand {
+  int32 seat = 1;
+  repeated Card cards = 2;
+  uint32 total = 3;
+  bool soft = 4;
+  bool blackjack = 5;
+}
+
+// The opening deal (AHR-6): each wagered seat ascending, the dealer's up-card,
+// each seat again, the dealer's hole card. dealer_hole is recorded for replay
+// and is not shown to players until DealerPlayed.
+message RoundDealt {
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.blackjack.v1.TableState" };
+  uint32 round = 1;
+  repeated SeatHand hands = 2;
+  Card dealer_up = 3;
+  Card dealer_hole = 4;
+  int32 turn = 5; // First seat that can act, or -1
+}
+
+// A Hit drew `card` for `seat`.
+message CardDealt {
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.blackjack.v1.TableState" };
+  int32 seat = 1;
+  Card card = 2;
+  uint32 total = 3;
+  bool soft = 4;
+  bool busted = 5;
+  int32 next_turn = 6;
+}
+
+message HandStood {
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.blackjack.v1.TableState" };
+  int32 seat = 1;
+  uint32 total = 2;
+  int32 next_turn = 3;
+}
+
+// The wager was doubled (`added` moved from stack to wager) and exactly one
+// card drawn; the hand is finished.
+message HandDoubled {
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.blackjack.v1.TableState" };
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.blackjack.v1.LedgerProjection" domain: "table" };
+  int32 seat = 1;
+  int64 added = 2;
+  Card card = 3;
+  uint32 total = 4;
+  bool busted = 5;
+  int32 next_turn = 6;
+  int64 stack_after = 7;
+}
+
+// The dealer revealed the hole card and drew (AHR-7, AHR-11).
+message DealerPlayed {
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.blackjack.v1.TableState" };
+  uint32 round = 1;
+  Card hole = 2;
+  repeated Card drawn = 3;
+  uint32 total = 4;
+  bool soft = 5;
+  bool busted = 6;
+  bool blackjack = 7;
+}
+
+// Settlement of one seat (AHR-12). net = returned - wager.
+message SeatOutcome {
+  enum Outcome {
+    OUTCOME_UNSPECIFIED = 0;
+    OUTCOME_LOSE = 1;      // returned 0
+    OUTCOME_PUSH = 2;      // returned = wager
+    OUTCOME_WIN = 3;       // returned = 2 * wager
+    OUTCOME_BLACKJACK = 4; // returned = wager + wager * 3 / 2
+  }
+  int32 seat = 1;
+  bytes player_root = 2;
+  int64 wager = 3; // Including any double
+  Outcome outcome = 4;
+  int64 returned = 5;
+  int64 net = 6;
+  int64 stack_after = 7;
+}
+
+// The round is over. house_delta = sum(wagers) - sum(returned). One event,
+// several consumers: the table folds it, saga-table-player-history and
+// saga-table-player-loyalty react to it, and the ledger projects it.
+message RoundSettled {
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.blackjack.v1.TableState" };
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.blackjack.v1.TablePlayerHistorySaga" domain: "table" };
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.blackjack.v1.TablePlayerLoyaltySaga" domain: "table" };
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.blackjack.v1.LedgerProjection" domain: "table" };
+  uint32 round = 1;
+  repeated SeatOutcome outcomes = 2; // Ascending by seat
+  int64 house_delta = 3;
+  int64 house_result_after = 4;
+}
+
+// -----------------------------------------------------------------------------
+// State
+// -----------------------------------------------------------------------------
+
+message TableSeat {
+  bytes player_root = 1;
+  int64 stack = 2;
+  int64 wager = 3; // Wager in the current round, 0 when none
+  SeatHand hand = 4;
+  bool finished = 5; // Hand finished this round (stood, doubled, busted, blackjack)
+}
+
+message TableSeatHold {
+  bytes player_root = 1;
+  int32 seat = 2;
+  int64 amount = 3;
+}
+
+// The TableAggregate.
+message TableState {
+  option (io.angzarr.v1.component) = {
+    kind: COMPONENT_KIND_AGGREGATE
+    input_domain: "table"
+    name: "TableAggregate"
+  };
+  enum Phase {
+    PHASE_UNSPECIFIED = 0; // Table not created
+    PHASE_IDLE = 1;        // No wager placed for the next round
+    PHASE_BETTING = 2;     // At least one wager placed, not yet dealt
+    PHASE_PLAYER_TURNS = 3; // Dealt; a seat is on turn
+  }
+  string name = 1;
+  int64 min_bet = 2;
+  int64 max_bet = 3;
+  int64 min_buy_in = 4;
+  int64 max_buy_in = 5;
+  int32 seats = 6;
+  int32 decks = 7;
+  Phase phase = 8;
+  uint32 shoe_number = 9;
+  uint64 shoe_seed = 10;
+  repeated Card shoe = 11; // Undealt cards, next card first
+  map<int32, TableSeat> seated = 12; // key = seat number
+  map<string, TableSeatHold> seat_holds = 13; // key = lowercase hex(buy_in_id)
+  uint32 round = 14; // Number of the current (or last settled) round
+  repeated Card dealer_cards = 15;
+  int32 turn = 16;
+  int64 house_result = 17;
+  int64 chips_in = 18;
+  int64 chips_out = 19;
+  repeated string confirmed_buy_ins = 20; // hex(buy_in_id), for idempotent ConfirmSeat
+  repeated string added_holds = 21; // hex(hold_id), for idempotent AddChips
+}
