@@ -176,7 +176,7 @@ Events are immutable facts: the framework never hides or deletes an event to und
 
 ### Compensate flow
 
-When a `CASCADE` request with `CascadeErrorMode::COMPENSATE` fails after some reactions ran, the coordinator raises one `Compensate` notification per reaction command that already executed, addressed to that command's target aggregate. It is delivered exactly like a rejection notification (see [Delivery Guarantees](#delivery-guarantees)), and the target's compensation handler emits inverse events.
+When a `CASCADE` request with `CascadeErrorMode::COMPENSATE` fails, the coordinator raises one `Compensate` notification per reaction command that executed successfully (reactions run in no guaranteed order, so this can be any subset), addressed to that command's target aggregate. It is delivered exactly like a rejection notification (see [Delivery Guarantees](#delivery-guarantees)), and the target's compensation handler emits inverse events.
 
 ```text title="Compensate flow"
 1. Coordinator records Notification(Compensate { sequences: [5], reason: "card declined" })

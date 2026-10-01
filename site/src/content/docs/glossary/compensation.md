@@ -13,7 +13,7 @@ The process of handling failures in distributed workflows by emitting events tha
 4. The outbox delivers the notification to the source aggregate (at least once; deduplicated by the target)
 5. Source aggregate emits compensation events
 
-A `CASCADE` request in `COMPENSATE` mode follows the same delivery path with a `Compensate` notification, addressed to each aggregate whose reaction command already executed.
+A `CASCADE` request in `COMPENSATE` mode follows the same delivery path with a `Compensate` notification, addressed to each aggregate whose reaction command executed successfully.
 
 ## Flow Diagram
 

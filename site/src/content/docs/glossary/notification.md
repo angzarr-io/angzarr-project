@@ -22,7 +22,7 @@ Delivered to the source aggregate (`angzarr_deferred.source`) when a saga/PM com
 - Rejection reason
 
 ### Compensate
-Delivered to the target of each reaction command that already executed when a `CASCADE` request with `CASCADE_ERROR_COMPENSATE` fails. Contains the sequences of the events the command produced and the failure reason; the target is the envelope's cover.
+Delivered to the target of each reaction command that executed successfully when a `CASCADE` request with `CASCADE_ERROR_COMPENSATE` fails. Contains the sequences of the events the command produced and the failure reason; the target is the envelope's cover.
 
 ## When to Use
 

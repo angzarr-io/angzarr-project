@@ -112,17 +112,25 @@ enum SyncMode {
 // Controls how CASCADE mode handles errors from sagas/PMs.
 // Only relevant when sync_mode = CASCADE.
 // Default: FAIL_FAST. CASCADE_ERROR_UNSPECIFIED (the zero value) is treated as FAIL_FAST.
+//
+// Ordering: CASCADE gives no ordering guarantee among the reactions to one
+// event, in-process or in-cluster. Reactions may run in any order or
+// concurrently, so which reactions have executed when one fails is not
+// defined; every mode is specified only by order-independent outcomes.
+// In every mode a rejected reaction command's RejectionNotification is
+// delivered to its source.
 enum CascadeErrorMode {
   CASCADE_ERROR_UNSPECIFIED = 0; // Unset — the server treats it as the documented default (FailFast)
-  CASCADE_ERROR_FAIL_FAST = 1; // Stop on first error, fail request (default)
-  CASCADE_ERROR_CONTINUE = 2; // Continue through all, return successes + errors
-  // On first error, fail the request and compensate every reaction command
-  // that already executed: one Compensate notification per executed command,
-  // delivered to its target aggregate through the coordinator's compensation
-  // outbox (see Notification). A rejected reaction command's
-  // RejectionNotification is still delivered to its source.
+  // Fail the request with the failure's reason (default). Reactions not yet
+  // started may be skipped; reactions that ran keep their effects.
+  CASCADE_ERROR_FAIL_FAST = 1;
+  CASCADE_ERROR_CONTINUE = 2; // Run every reaction; succeed and report each failure
+  // Fail the request and compensate every reaction command that executed
+  // successfully in it: one Compensate notification per such command,
+  // recorded before the response and delivered to the command's target
+  // through the coordinator's compensation outbox (see Notification).
   CASCADE_ERROR_COMPENSATE = 3;
-  CASCADE_ERROR_DEAD_LETTER = 4; // On error, send to DLQ and continue with remaining
+  CASCADE_ERROR_DEAD_LETTER = 4; // Dead-letter each failure, run every other reaction, succeed
 }
 // endregion
 
@@ -455,7 +463,7 @@ message EventStreamFilter {
 // - Raised when a saga/PM command is rejected (payload RejectionNotification,
 //   target = the command's angzarr_deferred.source) or when a CASCADE
 //   request with CASCADE_ERROR_COMPENSATE must undo a reaction command that
-//   already executed (payload Compensate, target = that command's cover).
+//   executed successfully (payload Compensate, target = that command's cover).
 // - The coordinator records the obligation in its compensation outbox before
 //   it acknowledges the trigger (the triggering event delivery, or the
 //   CASCADE request's response). A recorded obligation survives a
@@ -475,8 +483,8 @@ message EventStreamFilter {
 // - A rejection always reaches its source, in every sync mode. Under
 //   CASCADE_ERROR_COMPENSATE a failed CASCADE request raises both the
 //   rejected reaction command's RejectionNotification (to its source) and a
-//   Compensate notification for every reaction command that already executed
-//   (to that command's target).
+//   Compensate notification for every reaction command that executed
+//   successfully (to that command's target).
 //
 // Notifications reuse Cover for routing (domain, root, correlation_id) but
 // lack EventPage's sequence semantics.
@@ -525,8 +533,8 @@ message RejectionNotification {
 
 // region compensate
 // Notification payload asking an aggregate to undo the effects of a reaction
-// command it already executed — raised when a CASCADE request with
-// CASCADE_ERROR_COMPENSATE fails after that command ran. Delivered like a
+// command it executed successfully — raised when a CASCADE request with
+// CASCADE_ERROR_COMPENSATE fails. Delivered like a
 // RejectionNotification (see Notification): the envelope's cover is the
 // aggregate that executed the command, and its angzarr_deferred header carries
 // that command's provenance tuple (deduplicated with kind
