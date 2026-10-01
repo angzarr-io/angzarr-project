@@ -30,8 +30,9 @@ service ProcessManagerService {
   // aggregates and events for the PM's own domain.
   //
   // PMs do not rebuild destination aggregate state — they translate
-  // events into commands/facts and rely on destination_sequences for
-  // command stamping. See process manager design philosophy.
+  // events into commands/facts. Emitted commands carry
+  // PageHeader.angzarr_deferred exactly as saga commands do (see
+  // AngzarrDeferredSequence in types.proto).
   rpc Handle(ProcessManagerHandleRequest) returns (ProcessManagerHandleResponse);
 }
 
@@ -74,7 +75,9 @@ message ProcessManagerHandleRequest {
   EventBook trigger = 1;
   // Current process manager state (event-sourced).
   EventBook process_state = 2;
-  // Destination sequences for command stamping (domain → next_sequence).
+  // Output domain → that domain's next_sequence as observed by the
+  // coordinator; copied into AngzarrDeferredSequence.basis_seq of commands
+  // targeting that domain. Absent entries mean basis_seq 0.
   // PM should NOT rebuild destination state — use facts and let aggregates decide.
   map<string, uint32> destination_sequences = 3;
 }

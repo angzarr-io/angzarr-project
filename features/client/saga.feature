@@ -1,4 +1,3 @@
-# Allocated: C-0050 .. C-0053
 Feature: Saga dispatch
   As a saga author
   I want source-domain events translated into target-domain commands
@@ -21,25 +20,57 @@ Feature: Saga dispatch
     Then the response contains no commands
 
   @C-0052
-  Scenario: Saga receives destinations with stamped sequences
+  Scenario: Saga observes the destination heads supplied with the request
     Given destination sequences inventory=7 and fulfillment=3
     When an OrderCreated event is dispatched to the saga router
     Then the saga observed destination inventory = 7
     And the saga observed destination fulfillment = 3
 
   @C-0053
-  Scenario: Saga emitting to two target domains uses each domain's sequence independently
+  Scenario: Saga emitting to two target domains records each domain's head as its basis
     Given a saga "OrderSplit" translating from "order" to "inventory" and "fulfillment"
     And the saga handles OrderCreated by emitting a ReserveStock for "inventory" and a CreateShipment for "fulfillment"
     And destination sequences inventory=7 and fulfillment=3
     When an OrderCreated event is dispatched to the saga router
-    Then the ReserveStock command carries destination sequence 7
-    And the CreateShipment command carries destination sequence 3
+    Then the ReserveStock command carries an angzarr_deferred header with basis_seq 7
+    And the CreateShipment command carries an angzarr_deferred header with basis_seq 3
 
-# Audit #86 was reverted: edition propagation is a coordinator
-# concern (one canonical implementation, applied uniformly across all
-# clients) rather than per-client framework code. The 5 saga scenarios
-# (C-0138..C-0142) and 3 PM scenarios (C-0143..C-0145) moved to
-# `coordinator-contract/edition_propagation.feature` along with the
-# rest of the coordinator-side specs (merge_strategy, fact_flow,
-# state_building).
+  # ---------------------------------------------------------------------------
+  # Emitted commands are deferred: provenance, not an explicit sequence
+  # ---------------------------------------------------------------------------
+  # Saga commands carry PageHeader.angzarr_deferred. The router records the
+  # triggering event (source cover + source_seq), the command's position in
+  # the output (command_index) and the observed destination head (basis_seq);
+  # the framework assigns the concrete destination sequence on delivery.
+
+  @C-0177
+  Scenario: Saga command records the triggering event as its source
+    Given destination sequences inventory=7
+    And the OrderCreated event is at sequence 4 of order root "order-1"
+    When the OrderCreated event is dispatched to the saga router
+    Then the ReserveStock command carries an angzarr_deferred header
+    And the deferred source cover is domain "order" root "order-1"
+    And the deferred source_seq is 4
+    And the deferred command_index is 0
+    And the deferred basis_seq is 7
+
+  @C-0178
+  Scenario: Saga command never carries an explicit sequence
+    Given destination sequences inventory=7
+    When an OrderCreated event is dispatched to the saga router
+    Then no page of the ReserveStock command has an explicit sequence
+
+  @C-0179
+  Scenario: Saga commands are indexed in emission order
+    Given a saga "OrderSplit" translating from "order" to "inventory" and "fulfillment"
+    And the saga handles OrderCreated by emitting a ReserveStock for "inventory" and a CreateShipment for "fulfillment"
+    And destination sequences inventory=7 and fulfillment=3
+    When an OrderCreated event is dispatched to the saga router
+    Then the ReserveStock command's deferred command_index is 0
+    And the CreateShipment command's deferred command_index is 1
+
+  @C-0180
+  Scenario: Saga command for a domain without a supplied head has basis_seq 0
+    Given destination sequences fulfillment=3
+    When an OrderCreated event is dispatched to the saga router
+    Then the ReserveStock command carries an angzarr_deferred header with basis_seq 0

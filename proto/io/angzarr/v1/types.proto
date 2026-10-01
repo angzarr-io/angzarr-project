@@ -177,7 +177,7 @@ message PayloadReference {
 // Encodes sequence type and provenance for framework processing.
 message PageHeader {
   oneof sequence_type {
-    uint32 sequence = 1; // Explicit sequence (aggregate handlers, legacy)
+    uint32 sequence = 1; // Explicit sequence: client commands and persisted events
     ExternalDeferredSequence external_deferred = 2; // External fact (Stripe, FedEx, etc.)
     AngzarrDeferredSequence angzarr_deferred = 3; // Saga-produced command/fact
   }
@@ -199,9 +199,23 @@ message ExternalDeferredSequence {
   string description = 2; // Human-readable origin (e.g., "Stripe webhook")
 }
 
-// For saga-produced commands and facts.
-// Framework stamps sequence on delivery; idempotency derived from source info.
-// Rejections route back to source aggregate.
+// Provenance header for commands (and facts) emitted by sagas and process
+// managers. Such commands never carry an explicit sequence: the framework
+// assigns the destination sequence on delivery, and rejections route back to
+// `source`.
+//
+// The emitter (the client router dispatching the saga/PM) sets:
+//   source        — cover of the EventBook that triggered the handler
+//   source_seq    — sequence of the triggering event
+//   command_index — position of the command in the invocation's output
+//   basis_seq     — destination_sequences[target domain] (0 when absent)
+// The coordinator fills `source` when empty and `basis_seq` when 0 (from its
+// own destination fetch), always stamps `source_component`, and re-stamps
+// `command_index` from the emission order.
+//
+// A coordinator receiving a saga/PM command with an explicit
+// PageHeader.sequence validates it as an ordinary client command; that
+// command carries no provenance, so its rejection cannot be compensated.
 //
 // The idempotency key is the full tuple (source, source_seq, source_component,
 // command_index). source/source_seq alone identify only the triggering event:
@@ -211,17 +225,16 @@ message ExternalDeferredSequence {
 message AngzarrDeferredSequence {
   Cover source = 1; // Full source aggregate (domain + root + edition) - rejection routes here
   uint32 source_seq = 2; // Sequence of the triggering event
-  // Registered name of the producing component (saga/PM). Framework-stamped;
-  // handlers never set this. Empty on pre-upgrade messages.
+  // Registered name of the producing component (saga/PM). Coordinator-stamped;
+  // emitters leave it empty.
   string source_component = 3;
-  // Position of this command within the invocation's emitted command list.
-  // Framework-stamped from the emission order; disambiguates multiple
-  // commands produced by one (source, source_seq) trigger.
+  // Position of this command within the invocation's emitted command list;
+  // disambiguates multiple commands produced by one (source, source_seq)
+  // trigger.
   uint32 command_index = 4;
-  // The destination aggregate's head sequence (next_sequence) the saga
-  // observed when stamping this deferred command — the basis of its
-  // field-overlap concurrency window. 0/unset = no basis recorded (legacy
-  // commands): the framework conservatively diffs against the whole
+  // The destination aggregate's next_sequence as observed when the command
+  // was emitted — the start of its merge-strategy concurrency window (see
+  // MergeStrategy). 0 = no basis recorded: the window is the whole
   // destination history.
   uint32 basis_seq = 5;
 }
