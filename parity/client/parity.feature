@@ -89,33 +89,32 @@ Feature: Public API parity
     And the "PROJECTION_DOMAIN_PREFIX" constant is exported
     And the "PROJECTION_TYPE_URL" constant is exported
     And the "TYPE_URL_PREFIX" constant is exported with value "/"
-    And the "INVENTORY_PRODUCT_NAMESPACE" constant is exported
 
   @C-0098
   Scenario: Identity helpers are exported
+    # compute_root is the only identity derivation; domain-specific
+    # wrappers belong in applications and examples, not the client.
     Then the "compute_root" symbol is exported
-    And the "customer_root" symbol is exported
-    And the "product_root" symbol is exported
-    And the "order_root" symbol is exported
-    And the "inventory_root" symbol is exported
-    And the "inventory_product_root" symbol is exported
-    And the "cart_root" symbol is exported
-    And the "fulfillment_root" symbol is exported
     And the "to_proto_bytes" symbol is exported
 
   @C-0099
-  Scenario: Testing helpers are exported
-    Then the "make_timestamp" symbol is exported
-    And the "make_cover" symbol is exported
-    And the "make_event_page" symbol is exported
-    And the "make_event_book" symbol is exported
-    And the "make_command_page" symbol is exported
-    And the "make_command_book" symbol is exported
-    And the "uuid_for" symbol is exported
-    And the "uuid_str_for" symbol is exported
-    And the "uuid_obj_for" symbol is exported
-    And the "DEFAULT_TEST_NAMESPACE" constant is exported
-    And the "ScenarioContext" symbol is exported
+  Scenario: Testing helpers are exported from the testing module only
+    # Test utilities live in a `testing` module/namespace (Python
+    # angzarr_client.testing, Rust a `testing` module behind a test-only
+    # feature, Go a testing subpackage, …), gated from the production API:
+    # reachable there, not from the client's root.
+    Then the "make_timestamp" symbol is exported from the testing module
+    And the "make_cover" symbol is exported from the testing module
+    And the "make_event_page" symbol is exported from the testing module
+    And the "make_event_book" symbol is exported from the testing module
+    And the "make_command_page" symbol is exported from the testing module
+    And the "make_command_book" symbol is exported from the testing module
+    And the "uuid_for" symbol is exported from the testing module
+    And the "uuid_str_for" symbol is exported from the testing module
+    And the "uuid_obj_for" symbol is exported from the testing module
+    And the "DEFAULT_TEST_NAMESPACE" constant is exported from the testing module
+    And the "ScenarioContext" symbol is exported from the testing module
+    And none of the testing helpers is exported from the client's root
 
   @C-0100
   Scenario: Retry policy types are exported
