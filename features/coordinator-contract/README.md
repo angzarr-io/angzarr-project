@@ -14,9 +14,8 @@ implement it.
 | `state_building.feature` | Aggregate state reconstruction from snapshot + pages, `next_sequence` arithmetic |
 | `edition_propagation.feature` | Source/trigger edition stamped onto every saga/PM emission; main-timeline aliases (`""`, unset, `"angzarr"`) |
 | `temporal_query.feature` | `TemporalQuery` as_of_sequence / as_of_time and when a snapshot may start the result |
-| `two_phase_commit.feature` | `cascade_id` / `no_commit`, Confirmation, Revocation, Compensate, CascadeCommit / CascadeRollback, cascade conflicts |
 | `sync_modes.feature` | ASYNC, DECISION, SIMPLE, CASCADE, ISOLATED and the per-command `PageHeader.sync_mode` override |
-| `cascade_error_mode.feature` | FAIL_FAST, CONTINUE, COMPENSATE, DEAD_LETTER under CASCADE |
+| `cascade_error_mode.feature` | FAIL_FAST, CONTINUE (`reaction_errors`), COMPENSATE (Compensate markers on executed reactions), DEAD_LETTER under CASCADE |
 | `dead_letter_queue.feature` | `angzarr.dlq.{domain}` routing and `AngzarrDeadLetter` contents per failure source |
 | `snapshot_retention.feature` | TRANSIENT / PERSIST / DEFAULT pruning rules |
 

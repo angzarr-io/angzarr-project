@@ -264,9 +264,8 @@ message EventPage {
   reserved 5;
   reserved "fact_sequence";
 
-  // Two-phase commit support (Phase 1: 2PC Storage Model)
-  bool no_commit = 6;             // true = pending 2PC (cascade), needs Confirmation; false (default) = immediately committed
-  optional string cascade_id = 7; // Groups related pending events for atomic commit/rollback (null if not in cascade)
+  reserved 6, 7;
+  reserved "no_commit", "cascade_id";
 }
 // endregion
 
@@ -349,7 +348,8 @@ message CommandRequest {
   CommandBook command = 1;
   SyncMode sync_mode = 2;
   CascadeErrorMode cascade_error_mode = 3; // How to handle saga/PM errors in CASCADE mode
-  optional string cascade_id = 4;          // If set, enables 2PC: events written with no_commit=true
+  reserved 4;
+  reserved "cascade_id";
 }
 
 message ContextualCommand {
@@ -480,39 +480,16 @@ message RejectionNotification {
 // endregion
 
 // ============================================================================
-// Two-Phase Commit Framework Events
+// Framework stream markers
 // ============================================================================
-//
-// These framework events control 2PC commit/rollback semantics.
-// They are persisted to the event stream but filtered to NoOp at read time.
-// Business logic never sees these directly - they affect event visibility.
-
-// region confirmation
-// Confirms pending events - makes them visible to business logic.
-// Written by framework when all sagas in a cascade succeed.
-message Confirmation {
-  Cover target = 1;               // Domain + root of aggregate being confirmed
-  repeated uint32 sequences = 2;  // Explicit list of sequences being confirmed
-  string cascade_id = 3;          // Set for cascade commits, empty for general confirmation
-}
-// endregion
-
-// region revocation
-// Revokes events - marks them as NoOp at read time.
-// Written by framework on cascade failure, timeout, or explicit revocation API.
-// Original events become invisible to business logic.
-message Revocation {
-  Cover target = 1;               // Domain + root of aggregate being revoked
-  repeated uint32 sequences = 2;  // Sequences being revoked
-  string cascade_id = 3;          // Set for cascade rollbacks, empty for general revocation
-  string reason = 4;              // "saga_failed", "timeout", "compensation", etc.
-}
-// endregion
 
 // region compensate
-// Routes to client compensation handler - original events remain visible.
-// Unlike Revocation, this triggers client-implemented inverse logic.
-// The Compensate marker itself is filtered to NoOp; original events stay visible.
+// Marker the framework appends to an aggregate whose events must be undone
+// by business logic — e.g. the downstream commands already executed when a
+// CASCADE request with CASCADE_ERROR_COMPENSATE fails. It routes to the
+// aggregate's client-implemented compensation handler, which emits new
+// compensating events. Events are immutable facts: the compensated events
+// stay visible, and the marker itself reads back as NoOp.
 message Compensate {
   Cover target = 1;               // Domain + root of aggregate
   repeated uint32 sequences = 2;  // Sequences to compensate
@@ -521,37 +498,14 @@ message Compensate {
 // endregion
 
 // region noop
-// Placeholder returned by coordinator for uncommitted/framework events.
-// Never persisted - only returned at read time for filtered events.
+// Placeholder the coordinator returns, at read time, in place of a framework
+// marker (Compensate) so business logic never sees framework events. Never
+// persisted itself.
 message NoOp {
-  uint32 original_sequence = 1;   // Sequence of the filtered event
-  string cascade_id = 2;          // Which cascade it belonged to (if pending)
-  string reason = 3;              // "uncommitted", "revoked", "framework_event"
-}
-// endregion
-
-// region cascade_commit
-// PM/coordinator emits to commit all uncommitted events for a cascade.
-// Framework distributes Confirmation to all participants.
-message CascadeCommit {
-  string cascade_id = 1;
-}
-// endregion
-
-// region cascade_rollback
-// PM/coordinator emits to rollback all uncommitted events for a cascade.
-// Framework distributes Revocation to all participants.
-message CascadeRollback {
-  string cascade_id = 1;
-  string reason = 2;
-}
-// endregion
-
-// region cascade_conflict_detail
-// Error detail for conflict rejection when overlapping fields are locked.
-message CascadeConflictDetail {
-  repeated string cascade_ids = 1;       // Cascades holding locks
-  repeated string overlapping_fields = 2; // Fields that conflict
+  uint32 original_sequence = 1;   // Sequence of the filtered marker
+  reserved 2;
+  reserved "cascade_id";
+  string reason = 3;              // "framework_event"
 }
 // endregion
 

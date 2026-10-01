@@ -8,15 +8,16 @@ Feature: Cascade error mode - failures of synchronous downstream reactions
   - FAIL_FAST (also what an unset mode means): stop at the first failure and fail the request.
   - CONTINUE: run every reaction; the request succeeds and its response
     lists each reaction that failed.
-  - COMPENSATE: at the first failure, compensate the downstream commands
-    already executed in this cascade, then fail the request.
+  - COMPENSATE: at the first failure, append a Compensate marker to each
+    aggregate whose downstream command already executed in this request
+    (its compensation handler emits compensating events), then fail the
+    request.
   - DEAD_LETTER: dead-letter the failed reaction and continue with the rest;
     the request succeeds.
 
   The originating command's own events are persisted before any reaction
-  runs. Without a cascade_id they are committed and stay visible whatever
-  the mode; with a cascade_id (two-phase commit) they are pending, and a
-  COMPENSATE failure revokes them with the rest of the cascade.
+  runs. Events are immutable facts: no mode removes or hides them, or the
+  events of reactions that already succeeded.
 
   Background:
     Given an "order" aggregate that accepts CreateOrder
@@ -56,15 +57,11 @@ Feature: Cascade error mode - failures of synchronous downstream reactions
     When a CreateOrder command is handled with sync_mode CASCADE and cascade_error_mode COMPENSATE
     Then the request fails with reason "card declined"
     And a Compensate marker is written to the "inventory" aggregate for the StockReserved event
+    And the inventory compensation handler is invoked for the StockReserved event
+    And the StockReserved event remains visible
+    And no Compensate marker is written to the "payment" or "shipping" aggregates
     And SendReceipt has not been handled by "shipping"
     And the OrderCreated event remains persisted
-
-  @C-0440
-  Scenario: COMPENSATE under two-phase commit revokes the cascade's pending events
-    When a CreateOrder command is handled with sync_mode CASCADE, cascade_error_mode COMPENSATE and cascade_id "cascade-E"
-    Then the request fails with reason "card declined"
-    And a Revocation with cascade_id "cascade-E" hides the pending StockReserved event in "inventory"
-    And a Revocation with cascade_id "cascade-E" hides the pending OrderCreated event in "order"
 
   @C-0441
   Scenario: DEAD_LETTER dead-letters the failure and continues
