@@ -37,3 +37,15 @@ Feature: Process-manager dispatch
     And the deferred source_seq is 2
     And the deferred command_index is 0
     And no page of the ReserveStock command has an explicit sequence
+
+  # ---------------------------------------------------------------------------
+  # The PM's own stream is its declared domain (ComponentOptions.domain),
+  # distinct from its source (input) and target (output) domains.
+  # ---------------------------------------------------------------------------
+
+  @C-0477
+  Scenario: PM process events are addressed to the PM's own domain
+    Given the PM handles OrderCreated by also recording a WorkflowStarted process event
+    When an OrderCreated trigger is dispatched to the PM router
+    Then the process events' cover domain is "fulfillment"
+    And no process event is addressed to "order", "inventory" or "shipping"

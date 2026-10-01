@@ -36,15 +36,33 @@ enum ComponentKind {
 // component's anchor: for AGGREGATE / PROCESS_MANAGER / PROJECTOR it is the
 // event-sourced state (or per-delivery projection) message the rebuilder folds
 // into; for the stateless SAGA it is an empty marker message naming the saga.
+//
+// Three independent domain roles, never overloaded:
+//   domain            — the stream the component OWNS (writes its events to)
+//   input_domain      — a domain it SUBSCRIBES to (consumes events from)
+//   output_domain(s)  — domains it SENDS COMMANDS to
+//
+// Per kind (generation fails on a violation):
+//   kind             domain     input_domain               output_domain(s)
+//   AGGREGATE        required   empty                      empty
+//   PROCESS_MANAGER  required   empty (per-event domains)  command targets
+//   SAGA             forbidden  required                   command targets
+//   PROJECTOR        forbidden  optional (per-event dom.)  empty
+// An aggregate owns its domain's stream and subscribes to nothing; a process
+// manager owns its own workflow stream (domain) and takes its trigger
+// domains from (event).domain; sagas and projectors own no stream.
 message ComponentOptions {
   ComponentKind kind = 1;
-  // Domain whose events this component consumes (aggregate input; saga/
-  // projector input filter). Process managers source per-event domains via
-  // (event).domain instead.
+  // Domain this component subscribes to: the saga's single source domain, or
+  // a projector's input filter when all of its handlers share one domain
+  // (otherwise each (event).domain names the source). Subscriptions only —
+  // never the component's own domain. Empty for aggregates and process
+  // managers (process-manager trigger domains come from (event).domain).
   string input_domain = 2;
   // Domain this component issues commands to (sagas / process managers).
-  // Single-target shorthand: the component's output domains are
-  // output_domain (when set) together with every entry of output_domains.
+  // Command targets only — never the component's own domain. Single-target
+  // shorthand: the component's output domains are output_domain (when set)
+  // together with every entry of output_domains.
   string output_domain = 3;
   // Generated handler/dispatch base name. Optional; defaults to the anchor
   // message name (e.g. a "CounterState" anchor named "Counter" emits
@@ -63,6 +81,14 @@ message ComponentOptions {
   repeated string compensates = 5;
   // Additional domains this component issues commands to; see output_domain.
   repeated string output_domains = 6;
+  // Domain of the event stream this component owns: the aggregate's domain,
+  // or the process manager's own workflow domain (its events are persisted
+  // there and its state is rebuilt from it). Required for AGGREGATE and
+  // PROCESS_MANAGER; must be empty for SAGA and PROJECTOR, which own no
+  // stream. Deployment discovery advertises it: an aggregate's
+  // angzarr.io/domain label and a process manager's angzarr.io/pm label
+  // carry this value.
+  string domain = 7;
 }
 
 // Marks a message as a COMMAND. Generates one strict handler method on the
