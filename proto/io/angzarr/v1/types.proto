@@ -34,7 +34,7 @@ message UUID {
 
 // region cover
 message Cover {
-  string domain = 2;
+  string domain = 2; // Domain name; never contains ':' (the root-derivation separator)
   UUID root = 1;
   string correlation_id = 3; // Workflow correlation - flows through all commands/events
   Edition edition = 4; // Edition for diverged timelines; unset or empty name = main timeline

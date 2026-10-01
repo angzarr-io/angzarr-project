@@ -1,4 +1,3 @@
-# Allocated: C-0107 .. C-0114
 Feature: Deterministic aggregate identity
   As a framework user
   I want business keys to map to stable aggregate root UUIDs
@@ -6,11 +5,12 @@ Feature: Deterministic aggregate identity
   services, and restarts
 
   Aggregate roots come from UUIDv5 hashing — same inputs, same bytes, every
-  time. The base `compute_root(domain, business_key)` is the primitive; the
-  per-domain helpers (`customer_root`, `order_root`, …) are thin wrappers
-  that supply a domain tag. `inventory_product_root` is the one exception —
-  it hashes under the DNS namespace directly, so callers keying off product
-  catalog entries skip the "angzarr" prefix.
+  time. The base `compute_root(domain, business_key)` is the primitive:
+  uuid5(NAMESPACE_OID, domain + ":" + business_key). Domain names contain
+  no ':', so the separator makes every (domain, key) pair hash a distinct
+  name. The per-domain helpers (`customer_root`, `order_root`, …) are thin
+  wrappers that supply a domain tag. `inventory_product_root` is the one
+  exception — it hashes the bare product id under the DNS namespace.
 
   @C-0107
   Scenario: compute_root is deterministic
@@ -37,9 +37,17 @@ Feature: Deterministic aggregate identity
 
     Examples:
       | domain | key    | uuid                                 |
-      | cart   | alice  | f520dbd7-0692-5a5a-b315-48c73f2fff1b |
-      | order  | ord-42 | 1e941e06-245c-5be9-9885-45852f029d0d |
-      | order  |        | b6408065-482a-5d1a-9aac-ef4bb488f3b7 |
+      | cart   | alice  | 92ab9191-4f7d-5ff2-adcf-93a1e494c055 |
+      | order  | ord-42 | c20a5dda-4d41-5a65-bb75-22cdc453ca0f |
+      | order  |        | 45d20a3f-923e-581e-8943-c731efc6d1c2 |
+
+  @C-0485
+  Scenario: compute_root separates domain and key, so shifted boundaries differ
+    When I call compute_root with domain "ab" and key "c"
+    And I call compute_root with domain "a" and key "bc"
+    Then the two UUIDs differ
+    And the first UUID equals "59dbfa29-d911-506c-ab4d-37807c015aaa"
+    And the second UUID equals "5a62a278-cbda-5121-9f05-8532f1462612"
 
   @C-0111
   Scenario Outline: per-domain root helpers match known cross-language fixtures
@@ -48,16 +56,16 @@ Feature: Deterministic aggregate identity
 
     Examples:
       | helper                 | input       | uuid                                 |
-      | customer_root          | alice@x.com | 9141d644-0602-5762-a8b9-d74e7d5a3d45 |
-      | product_root           | SKU-001     | 25541820-eb7c-559d-9d00-834865d6ba57 |
-      | order_root             | ord-42      | 1e941e06-245c-5be9-9885-45852f029d0d |
-      | inventory_root         | prod-7      | af78f0ed-83a9-58aa-9f7b-53b253dd7242 |
-      | cart_root              | cust-9      | 26e1f44e-eac8-550f-a738-4473dca718e5 |
-      | fulfillment_root       | ord-42      | ea29617a-0b9d-5c36-aefb-aec161b3cb34 |
+      | customer_root          | alice@x.com | 3c10f075-111d-5830-8cc9-20b4c9fa0d50 |
+      | product_root           | SKU-001     | 681304c3-053d-5c3d-aa39-382ffa1d69e4 |
+      | order_root             | ord-42      | c20a5dda-4d41-5a65-bb75-22cdc453ca0f |
+      | inventory_root         | prod-7      | 4c6f96b7-93e0-5068-baca-82bf69330a56 |
+      | cart_root              | cust-9      | 7766d323-0b4c-544c-96f0-fbae9c3e6424 |
+      | fulfillment_root       | ord-42      | ac7115c0-196d-50e1-8e6b-b64408ad1478 |
       | inventory_product_root | sku-xyz     | 8c6baabf-71a0-5b46-b953-ec3bdac0a995 |
 
   @C-0112
-  Scenario: inventory_product_root uses the DNS namespace (not the "angzarr" prefix)
+  Scenario: inventory_product_root uses the DNS namespace, not compute_root
     When I call compute_root with domain "inventory_product" and key "sku-xyz"
     And I call inventory_product_root with "sku-xyz"
     Then the two UUIDs differ
@@ -71,4 +79,4 @@ Feature: Deterministic aggregate identity
     When I call customer_root with "alice@x.com"
     And I pass the resulting UUID through to_proto_bytes
     Then the byte length is 16
-    And the bytes match the hex "9141d64406025762a8b9d74e7d5a3d45"
+    And the bytes match the hex "3c10f075111d58308cc920b4c9fa0d50"
