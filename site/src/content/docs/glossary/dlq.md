@@ -12,26 +12,18 @@ A destination for messages that cannot be processed automatically. Messages are 
 
 ## DLQ Entry Types
 
-### SequenceMismatchDetails
-```protobuf
-message SequenceMismatchDetails {
-  uint64 expected_sequence = 1;
-  uint64 actual_sequence = 2;
-  MergeStrategy merge_strategy = 3;
-}
+Each entry carries one of three detail messages:
+
+- **SequenceMismatchDetails** — expected vs. actual sequence and the merge strategy that routed the command to the DLQ.
+- **EventProcessingFailedDetails** — why a saga, projector, or process manager failed to process events, with retry count, transience, and a structured stack trace.
+- **PayloadRetrievalFailedDetails** — claim-check failures when an externally stored payload cannot be retrieved.
+
+```protobuf file=proto/io/angzarr/v1/types.proto region=dlq_details
 ```
 
-### EventProcessingFailedDetails
-```protobuf
-message EventProcessingFailedDetails {
-  string error_message = 1;
-  uint32 retry_count = 2;
-  bool is_transient = 3;
-}
-```
+### Stack traces
 
-### PayloadRetrievalFailedDetails
-For claim-check pattern failures when external payload cannot be retrieved.
+`EventProcessingFailedDetails.stack_trace` carries a Sentry-compatible structured capture from the [sererr](https://sererr.fyi) schema: per-frame function/file/line, optional source context, and an `ExceptionMechanism` that links chain entries. The array is the cause chain, most-causal-first; the originating caught error is the last element. Producers capture it at the originating failure site, not at the DLQ-publish layer, and operators read it from the status console's DLQ detail view. See [Stack-trace Proto](/reference/stack-trace-proto) for the shape and producer/consumer conventions.
 
 ## Topic Structure
 

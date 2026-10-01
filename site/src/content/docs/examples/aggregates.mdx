@@ -32,7 +32,29 @@ The Player aggregate demonstrates **two-phase reservation**. Funds are reserved 
 <Tabs>
 <TabItem label="Python">
 
-```python file=vendor/examples/python/player/agg/handlers.py region=reserve_funds_imp
+```python title="illustrative - excerpt of player/agg/handlers.py"
+def reserve_funds_validate(cmd: player.ReserveFunds, state: PlayerState) -> int:
+    """Validate reserve command and extract amount."""
+    amount = cmd.amount.amount if cmd.amount else 0
+    if amount <= 0:
+        raise CommandRejectedError.invalid_argument("amount must be positive")
+    if amount > state.available_balance:
+        raise CommandRejectedError("Insufficient funds")
+    bucket = cmd.key.hex()
+    if bucket in state.table_reservations:
+        raise CommandRejectedError("Funds already reserved for this table")
+    return amount
+
+
+def release_funds_validate(cmd: player.ReleaseFunds, state: PlayerState) -> int:
+    """Validate release command and return reserved amount."""
+    if not cmd.key:
+        raise CommandRejectedError("table_root is required")
+    bucket = cmd.key.hex()
+    reserved_for_bucket = state.table_reservations.get(bucket, 0)
+    if reserved_for_bucket == 0:
+        raise CommandRejectedError("No funds reserved for this table")
+    return reserved_for_bucket
 ```
 
 </TabItem>
