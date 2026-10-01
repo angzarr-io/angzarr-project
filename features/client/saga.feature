@@ -19,13 +19,6 @@ Feature: Saga dispatch
     When a StockReserved event is dispatched to the saga router
     Then the response contains no commands
 
-  @C-0052
-  Scenario: Saga can observe the optional destination heads supplied with the request
-    Given destination sequences inventory=7 and fulfillment=3
-    When an OrderCreated event is dispatched to the saga router
-    Then the saga observed destination inventory = 7
-    And the saga observed destination fulfillment = 3
-
   @C-0053
   Scenario: Saga emitting to two target domains emits a deferred command to each
     Given a saga "OrderSplit" translating from "order" to "inventory" and "fulfillment"
@@ -52,8 +45,7 @@ Feature: Saga dispatch
     And the deferred command_index is 0
 
   @C-0178
-  Scenario: Saga command never carries an explicit sequence, even when destination heads are supplied
-    Given destination sequences inventory=7
+  Scenario: Saga command never carries an explicit sequence
     When an OrderCreated event is dispatched to the saga router
     Then no page of the ReserveStock command has an explicit sequence
 

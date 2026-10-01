@@ -103,11 +103,10 @@ Test how a saga would react to events:
 <TabItem label="Python">
 
 ```python
-from angzarr_client.proto.angzarr import SpeculateSagaRequest
+from angzarr_client.proto.angzarr import SagaHandleRequest, SpeculateSagaRequest
 
 request = SpeculateSagaRequest(
-    events=source_events,          # Events the saga would receive
-    destination=destination_book,  # Target aggregate state
+    request=SagaHandleRequest(source=source_events),  # Events the saga would receive
 )
 
 response = client.saga(request)

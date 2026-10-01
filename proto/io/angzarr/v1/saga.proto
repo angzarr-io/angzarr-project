@@ -43,17 +43,15 @@ service SagaCoordinatorService {
 }
 
 // Request for saga execution.
-// Sagas are pure translators: source events → commands.
+// Sagas are pure translators: source events → commands. The request carries
+// no destination state or sequences; emitted commands are deferred and the
+// destination appends them at its head.
 message SagaHandleRequest {
   EventBook source = 1; // Source events that triggered the saga
   SyncMode sync_mode = 2; // Propagate for CASCADE recursion
   CascadeErrorMode cascade_error_mode = 3; // How to handle errors in CASCADE mode
-  // Optional information: output domain → that domain's next_sequence as
-  // observed by the coordinator. Deferred commands do not use it. It is
-  // meaningful only to a saga that deliberately stamps an explicit
-  // PageHeader.sequence (and so opts into merge-strategy validation and out
-  // of deferred provenance). May be empty.
-  map<string, uint32> destination_sequences = 4;
+  reserved 4;
+  reserved "destination_sequences";
 }
 
 // Request for speculative saga execution.

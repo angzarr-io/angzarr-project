@@ -13,14 +13,13 @@ Feature: Cross-language wire-format parity
   source = the triggering EventBook's cover, source_seq = the triggering
   event's sequence and command_index = the command's emission position.
   source_component is left empty (the coordinator stamps it). The command
-  has no expected version: no explicit sequence is set, and the supplied
-  destination head (5) appears nowhere in the output.
+  has no expected version: no explicit sequence is set.
 
   Background:
     Given a source cover with domain "order", root bytes 00..0f and correlation_id "corr-1"
     And a CommandBook with cover.domain "inventory", cover.root bytes 10..1f and correlation_id "corr-1"
     And a single CommandPage with command type_url "type.googleapis.com/example.Foo" and payload bytes 01020304
-    And destination_sequences mapping "inventory" to 5
+    And a Destinations for a component declaring output domain "inventory"
 
   @C-0182
   Scenario: Destinations.stamp_command on the first command of an invocation

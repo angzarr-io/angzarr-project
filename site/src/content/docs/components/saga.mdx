@@ -139,14 +139,14 @@ Commands go through the target aggregate's `@handles` command methods and can be
 
 ```python title="illustrative"
 # Command: request an action (can be rejected)
-def handle_hand_started(event: HandStarted, destinations: list[EventBook]):
+def handle_hand_started(event: HandStarted):
     return CommandBook(
         cover=Cover(domain="player", root=event.player_id),
         pages=[CommandPage(command=DeductBlinds(amount=50))],  # deferred: no sequence
     )
 
 # Fact: assert reality (cannot be rejected)
-def handle_turn_assigned(event: TurnAssigned, destinations: list[EventBook]):
+def handle_turn_assigned(event: TurnAssigned):
     return FactBook(
         cover=Cover(domain="player", root=event.player_id, external_id=f"turn:{event.hand_id}"),
         pages=[FactPage(fact=FactSequence(source="hand"), event=YourTurn(hand_id=event.hand_id))],
@@ -173,7 +173,7 @@ The destination appends a deferred command at its current head. There is no expe
 - **Business guard:** the destination aggregate's own command handler. If the command no longer makes sense for the current state, the handler rejects it and the rejection routes back to `source` for compensation.
 - **Duplicate guard:** the provenance tuple is the idempotency key, so a redelivered trigger event does not apply the same command twice.
 
-Sagas therefore never need to load target state just to obtain a sequence. The coordinator may pass the target domains' current heads (`destination_sequences`) as optional information; a saga that deliberately sets an explicit `sequence` instead opts into the destination's merge-strategy validation, exactly like an external client, and gives up deferred provenance (no idempotency key, no rejection routing).
+Sagas never load target state or sequences: the coordinator invokes a saga with the triggering events only, and nothing is fetched from the destinations before the call. A saga that deliberately sets an explicit `sequence` instead opts into the destination's merge-strategy validation, exactly like an external client, and gives up deferred provenance (no idempotency key, no rejection routing).
 
 ---
 
