@@ -4,32 +4,19 @@ Language-neutral Gherkin specifications. Every `client-*-lang` and `examples-*-l
 repo vendors this directory (git submodule) and implements step definitions in
 its own language against these feature files.
 
-## Three tiers
+## Tiers
 
 | Tier | Path | Purpose | Domain vocabulary | Execution style | Consumed by |
 |------|------|---------|-------------------|-----------------|-------------|
 | **unit-client** | `client/` | Exercise what a client provides: consumer clients (`CommandHandlerClient`, `QueryClient`, `SpeculativeClient`, `DomainClient`). Dispatch behaviour is specified only by angzarr-router's conformance suite, which every client CI runs against its binding. | Generic — `Order`, `Payment`, `Inventory`, `Shipping`. Never example concepts. | Synchronous, against an in-process fake of the coordinator stubs. | Every `client-*-lang` repo |
 | **codegen** | `codegen/` | Declaration lint and generated handler/dispatch shape for `ComponentOptions`. | Generic — `Order`, `Inventory`, … | Against compiled descriptors. | angzarr-cli |
-| **poker** | `example/poker/` | Exercise poker rules — TDA / WSOP / Robert's. **Same scenarios run at both tiers** (in-process via aggregate handlers, cluster via gRPC). Cluster-only assertions no-op on the in-process tier. | Poker — `Player`, `Table`, `Hand`, `DealCards`, `HandStarted`, … | Both: direct handler invocation (in-process step dir) AND gRPC `CommandClient` (acceptance step dir). | Every `examples-*-lang` repo |
-| **example-framework** | `example/framework/` | Exercise the framework concepts (saga dispatch, PM state machine, projector rendering, orchestrator decision coupling) *through* concrete poker handlers — internals visible only in-process. | Poker | Direct handler invocation only. In-process tier only. | Every `examples-*-lang` repo |
+| **coordinator-contract** | `coordinator-contract/` | Behaviour every coordinator implements (sync modes, merge strategies, cascade errors, facts, snapshots, editions). | Generic | Per implementation. | core and every coordinator |
 | **blackjack** | `example/blackjack/` | Blackjack house rules (AHR) and wallet/table ledger rules, with exact shoes set up as prior history. | Blackjack — `Player`, `Table`, `RequestSeat`, `RoundSettled`, … | Direct handler invocation. In-process tier only. | Every `examples-*-lang` repo |
-| **blackjack-framework** | `example/blackjack-framework/` | Framework concepts (sagas, facts, compensation, process manager, projector, snapshots, whole session) through the blackjack components. | Blackjack | Direct handler invocation only. In-process tier only. | Every `examples-*-lang` repo |
-| **blackjack-acceptance** | `example/blackjack-acceptance/` | Cluster-only blackjack scenarios: sync modes, merge strategies, cascade error modes, restarts, snapshots, editions, temporal and speculative reads. | Blackjack | `GrpcClient` only, against a deployed cluster. | Every `examples-*-lang` repo |
-| **acceptance-example** | `example/acceptance/` | Cluster-only scenarios that ONLY make sense against a deployed cluster — coordinator restart durability, inter-coordinator routing, observable projector lag. | Poker | `GrpcClient` only. Runs against deployed standalone or k8s. `within N seconds` over the real network. | Every `examples-*-lang` repo |
+| **blackjack-framework** | `example/blackjack-framework/` | Framework concepts (sagas, facts, compensation, process manager, projector, snapshots, whole session) through the blackjack components; asserts on internals the cluster does not expose. | Blackjack | Direct handler invocation only. In-process tier only. | Every `examples-*-lang` repo |
+| **blackjack-acceptance** | `example/blackjack-acceptance/` | Cluster-only scenarios: sync modes, merge strategies, cascade error modes, restarts, snapshots, editions, temporal and speculative reads. | Blackjack | `GrpcClient` only, against a deployed cluster. `within N seconds` over the real network. | Every `examples-*-lang` repo |
 
-The **poker** tier is exercised by both in-process and cluster harnesses with
-shared `.feature` files. Step impls are duplicated per tier (separate
-`unit_steps/` and `acceptance_steps/` dirs in each client), and tier-asymmetric
-phrasings get no-op impls in the other dir rather than `@cluster-only` skips.
-
-The **example-framework** tier is in-process-only — it asserts on internals
-(replay state, in-memory propagation order, stateful PM progress) that the
-cluster tier doesn't expose. Framework behavior at the cluster level is
-exercised implicitly by the poker scenarios running there.
-
-See [`example/README.md`](example/README.md) for the rationale and
-[`example/poker/README.md`](example/poker/README.md) for poker-tier
-conventions.
+See [`example/README.md`](example/README.md) for the example's rationale and
+layout.
 
 ## Step phrasing
 

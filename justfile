@@ -57,7 +57,7 @@ proto-docs:
     } > "$root/{{PROTO_DOCS_OUT}}"
     echo "wrote {{PROTO_DOCS_OUT}}"
 
-# Verify every poker/blackjack rule-tier and acceptance scenario is governed by a # Rule: citation
+# Verify every blackjack rule-tier and acceptance scenario cites a catalogued house rule
 check-rules:
     python3 features/example/check_rule_citations.py
 
