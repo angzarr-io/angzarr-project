@@ -131,11 +131,18 @@ Feature: Compensation - Saga Rejection Handling
     Then the full saga origin chain is preserved
     And the root cause can be traced through the chain
 
-  @C-0223
-  Scenario: Saga rejections produce a compensation notification
-    Given a saga router handling rejections
-    When a command execution fails with precondition error
-    Then saga rejections produce a compensation notification
+  # A saga never receives a rejection: a rejected saga-emitted command is
+  # compensated by the aggregate (or process manager) whose event triggered
+  # the saga — its angzarr_deferred.source — through that component's
+  # compensates entries.
+
+  @C-0483
+  Scenario: A rejected saga command is compensated by its source aggregate, not the saga
+    Given a saga "OrderFulfillment" translating OrderCreated from "order" into ReserveStock for "inventory"
+    And the order aggregate compensates a rejected ReserveStock by emitting OrderCancelled
+    When a RejectionNotification for the saga's ReserveStock command with source "order" is dispatched to the order aggregate's router
+    Then the response contains one OrderCancelled event
+    And no OrderFulfillment saga handler is invoked
 
   @C-0224
   Scenario: Process manager rejections produce a compensation notification

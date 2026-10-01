@@ -170,14 +170,13 @@ Commands follow the same pattern—a **CommandBook** contains one or more **Comm
 
 ```protobuf
 message CommandPage {
-  uint32 sequence = 1;
+  PageHeader header = 1;  // explicit sequence, or angzarr_deferred provenance (routes rejections to the source)
   google.protobuf.Any command = 3;
 }
 
 message CommandBook {
   Cover cover = 1;
   repeated CommandPage pages = 2;
-  SagaCommandOrigin saga_origin = 4;  // Tracks origin for compensation flow
 }
 ```
 

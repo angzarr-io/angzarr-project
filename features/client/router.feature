@@ -72,19 +72,6 @@ Feature: Router - Command and Event Routing
     Then the OrderCreated handler should be invoked
     And the OrderShipped handler should NOT be invoked
 
-  @C-0251
-  Scenario: Saga commands are sequenced for their destination
-    Given a saga router
-    When I receive an event that triggers command to "inventory"
-    Then the emitted command should be sequenced to follow the current history of "inventory"
-
-  @C-0252
-  Scenario: Saga router handles rejection
-    Given a saga router with a rejected command
-    When the router processes the rejection
-    Then a rejection notification should be emitted
-    And compensation should be initiated for the rejected command
-
   @C-0253
   Scenario: Saga router is stateless
     Given a saga router

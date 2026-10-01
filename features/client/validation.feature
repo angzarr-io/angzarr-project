@@ -1,4 +1,3 @@
-# Allocated: C-0070 .. C-0077
 Feature: Handler declaration validation
   As a framework user
   I want misconfigured handlers to fail fast at declaration or build time
@@ -16,6 +15,11 @@ Feature: Handler declaration validation
   @C-0071
   Scenario: A saga without target is rejected
     When I declare a saga named "x" from "order" without target
+    Then the declaration raises a configuration error
+
+  @C-0484
+  Scenario: A saga that declares a rejection handler is rejected
+    When I declare a saga named "x" from "order" to "inventory" that compensates a rejected ReserveStock
     Then the declaration raises a configuration error
 
   @C-0072
