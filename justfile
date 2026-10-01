@@ -24,8 +24,7 @@ install:
 
 # Shallow-clone the sibling repos that remark-code-region reads snippets from
 vendor:
-    mkdir -p vendor/examples vendor/client
-    [ -d vendor/examples/python ] || git clone --depth=1 https://github.com/angzarr-io/angzarr-examples-python.git vendor/examples/python
+    mkdir -p vendor/client
     [ -d vendor/client/python ]   || git clone --depth=1 https://github.com/angzarr-io/angzarr-client-python.git   vendor/client/python
 
 # Clean build artifacts

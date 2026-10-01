@@ -24,7 +24,7 @@ The gateway patches its OpenAPI spec with your domain types (events, commands) b
 Use `buf build` to generate a binary FileDescriptorSet from your proto files:
 
 ```bash
-# For angzarr examples (poker domain)
+# For angzarr examples (blackjack domain)
 just examples descriptor   # Generates examples/types.bin
 
 # For your own protos
@@ -34,7 +34,7 @@ cd proto && buf build -o types.bin --path your-domain/
 The `--path` flag filters to specific directories. For multiple domains:
 
 ```bash
-buf build -o types.bin --path player/ --path table/ --path hand/
+buf build -o types.bin --path io/angzarr/examples/blackjack/v1
 ```
 
 ### What Gets Included

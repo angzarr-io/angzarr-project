@@ -17,7 +17,7 @@ Sagas can emit two types of messages:
 
 | Output | Use When | Example |
 |--------|----------|---------|
-| **Command** | Target aggregate should decide | `ReserveFunds` — aggregate validates balance |
+| **Command** | Target aggregate should decide | `HoldFunds` — aggregate validates balance |
 | **Fact Event** | Reporting external reality | `PaymentRecorded` — Stripe already processed it |
 
 When the source event represents an external fact (payment processed, delivery confirmed), the saga emits a fact event rather than a command. The target aggregate records the fact without decision logic.

@@ -18,7 +18,7 @@ A query-optimized read model built by a [projector](/glossary/projector) from ev
 |--------|------------|---------------|
 | `OrderCreated`, `ItemAdded` | Order summary table | Get order by ID |
 | `PlayerRegistered`, `FundsDeposited` | Player balance view | Get current balance |
-| `HandStarted`, `BetPlaced` | Active hands dashboard | List active hands |
+| `BetPlaced`, `RoundSettled` | Table activity dashboard | List active rounds |
 
 ## Projection vs Event Store
 

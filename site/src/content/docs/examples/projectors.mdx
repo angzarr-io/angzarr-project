@@ -1,84 +1,67 @@
 ---
 title: Projector Examples
 ---
-import { Tabs, TabItem } from '@astrojs/starlight/components';
 
+The blackjack example has one projector: the **ledger**, a read model over both the player and table domains that reports every wallet, every table's chips and the house result — and whether all the money adds up.
 
-Read-side projectors from the poker domain. All code is from the actual [examples/](https://github.com/benjaminabbitt/angzarr/tree/main/examples) directory.
-
-Projectors subscribe to events and produce read-optimized views: text logs, database tables, search indexes, or external API calls.
-
----
-
-## Output Projector
-
-The **Output Projector** subscribes to events from multiple domains (player, table, hand) and writes formatted game logs to a file. This demonstrates a **multi-domain projector**.
-
-**[`examples/cpp/prj-output/src/main.cpp`](https://github.com/benjaminabbitt/angzarr/blob/main/examples/cpp/prj-output/src/main.cpp)**
-
-Projectors are classes with `@projects` / `[Projects]` decorators on event-handling methods — the same OO pattern as aggregates and sagas. All six languages use this.
+:::note
+The blackjack implementations are being written. Until the Python one lands, this page shows the example's specification rather than projector code.
+:::
 
 ---
 
 ## Multi-Domain Subscription
 
-Projectors can subscribe to events from multiple domains. The `Output` projector subscribes to **player**, **table**, and **hand** domains:
+The ledger has no single input domain: each event it consumes names its source domain on its `(event)` entry, and the projector subscribes to the union.
 
 ```mermaid
 flowchart LR
-    P[player domain] --> O[Output Projector]
-    T[table domain] --> O
-    H[hand domain] --> O
-    O --> F[hand_log.txt]
+    P[player domain] --> L[Ledger Projector]
+    T[table domain] --> L
+    L --> Q[LedgerQueryService]
 ```
 
-Each language's `ProjectorHandler`/`ProjectorBase` accepts multiple domain names:
+```protobuf title="proto/io/angzarr/examples/blackjack/v1/ledger.proto (excerpt)"
+message LedgerProjection {
+  option (io.angzarr.v1.component) = {
+    kind: COMPONENT_KIND_PROJECTOR
+    name: "LedgerProjector"
+  };
+  map<string, PlayerLedgerRow> players = 1;
+  map<string, TableLedgerRow> tables = 2;
+  LedgerTotals totals = 3;
+}
 
-<Tabs>
-<TabItem label="Python">
-
-```python
-handler = ProjectorHandler("output", "player", "table", "hand")
+service LedgerQueryService {
+  rpc GetPlayerBalance(GetPlayerBalanceRequest) returns (PlayerBalanceView);
+  rpc GetLedger(GetLedgerRequest) returns (LedgerView);
+}
 ```
 
-</TabItem>
-</Tabs>
+---
+
+## Money in flight
+
+A transfer between a wallet and a table is seen twice, once per domain, in either order. Until both sides have arrived it is *in flight*, and the ledger reports balanced only when nothing is:
+
+```gherkin title="features/example/blackjack-framework/projector.feature (excerpt)"
+Scenario: A buy-in seen on only one side is in flight
+  Given the ledger has applied "Alice" registering and depositing 1000
+  And the ledger has applied a hold of 500 for buy-in "B1" for "Alice"
+  When the ledger applies "Alice" being seated at table "Main" through buy-in "B1" with a stack of 500
+  Then the ledger reports 500 in flight in 1 transfer
+  And the ledger does not report the money as balanced
+```
 
 ---
 
 ## Projector Principles
 
 1. **Read-only** — Projectors never modify domain state, only create read views
-2. **Idempotent** — Same events always produce same projections
+2. **Idempotent** — Same events always produce same projections (the ledger remembers each event it applied)
 3. **Catchup safe** — Can replay full event history to rebuild state
 4. **Domain aware** — Subscribe to specific domains, filter unwanted events
-5. **Stateful OK** — Can maintain local state (caches, maps) for rendering
-
----
-
-## Running Projectors
-
-### With ProjectorHandler (All Languages)
-
-```bash
-# Python
-cd examples/python && python -m prj-output.main
-
-# Go
-cd examples/go && go run ./prj-output
-
-# Rust
-cd examples/rust && cargo run --bin prj-output
-
-# Java
-cd examples/java && ./gradlew prj-output:run
-
-# C#
-cd examples/csharp && dotnet run --project Prj/Output
-
-# C++
-cd examples/cpp && ./build/prj-output
-```
+5. **Stateful OK** — Can maintain local state for rendering
 
 ---
 

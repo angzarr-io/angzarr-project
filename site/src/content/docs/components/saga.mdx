@@ -36,7 +36,7 @@ Every saga follows this pattern:
 ```mermaid
 flowchart LR
     subgraph DomainA[Player Domain]
-        Input[EventBook<br/>FundsReserved]
+        Input[EventBook<br/>TopUpRequested]
     end
 
     subgraph Saga[Saga Processing]
@@ -47,7 +47,7 @@ flowchart LR
     end
 
     subgraph DomainB[Table Domain]
-        Output[CommandBook<br/>JoinTable]
+        Output[CommandBook<br/>AddChips]
     end
 
     Input --> Filter
@@ -61,14 +61,30 @@ flowchart LR
 
 ---
 
-## Example: Table-Hand Saga
+## Example: Top-Up Saga
 
-When a table starts a hand, issue a DealCards command to the hand domain. Sagas are classes extending the client library's `Saga` base (or the language's equivalent); handler methods are registered by decorator / attribute / macro.
+When a player asks to top up, issue an AddChips command to the table they are seated at. Sagas are classes extending the client library's `Saga` base (or the language's equivalent); handler methods are registered by decorator / attribute / macro.
 
 <Tabs>
 <TabItem label="Python">
 
-```python file=vendor/examples/python/table/saga-hand/main.py region=saga
+```python title="illustrative - blackjack top-up saga (saga-player-table)"
+@saga(name="saga-player-table", source="player", target="table")
+class PlayerTableSaga:
+    """Translates a wallet's top-up request into AddChips at the table."""
+
+    @handles(player_pb2.TopUpRequested)
+    def handle_top_up_requested(
+        self, event: player_pb2.TopUpRequested, source_cover: types.Cover
+    ) -> types.CommandBook:
+        add_chips = table_pb2.AddChips(
+            player_root=source_cover.root.value,
+            hold_id=event.hold_id,
+            amount=event.amount,
+        )
+        # No expected sequence: the command is deferred and the table
+        # applies it to whatever state it has when it arrives.
+        return deferred_command(domain="table", root=event.table_root, command=add_chips)
 ```
 
 </TabItem>
@@ -80,9 +96,26 @@ When a table starts a hand, issue a DealCards command to the hand domain. Sagas 
 
 When one event should trigger commands to **multiple different aggregates**, return multiple `CommandBook` entries — one per target aggregate root. This is the [splitter pattern](https://eda-visuals.boyney.io/visuals/splitter-pattern).
 
-**Example:** When a table settles, distribute payouts to multiple players:
+**Example:** When a round settles, record each seat's result in that player's wallet:
 
-```python file=vendor/examples/python/table/saga-hand/splitter_example.py region=saga_splitter
+```python title="illustrative - one settled round, one command per seat"
+@handles(table_pb2.RoundSettled)
+def handle_round_settled(
+    self, event: table_pb2.RoundSettled, source_cover: types.Cover
+) -> list[types.CommandBook]:
+    return [
+        deferred_command(
+            domain="player",
+            root=outcome.player_root,
+            command=player_pb2.RecordRoundResult(
+                table_root=source_cover.root.value,
+                round=event.round,
+                wager=outcome.wager,
+                net=outcome.net,
+            ),
+        )
+        for outcome in event.outcomes
+    ]
 ```
 
 Each `CommandBook` targets a different aggregate root. The framework dispatches them independently — if one fails, others may still succeed (handle via compensation).
@@ -91,22 +124,22 @@ Each `CommandBook` targets a different aggregate root. The framework dispatches 
 
 ## Compensation Flow
 
-When a saga command is rejected (e.g., table is full), Angzarr routes a **Notification** back to the source aggregate:
+When a saga command is rejected (e.g., the player has a bet in play), Angzarr routes a **Notification** back to the source aggregate:
 
 ```text title="illustrative - compensation flow diagram"
-1. Player emits FundsReserved
+1. Player emits TopUpRequested (hold placed)
        │
        ▼
-2. Saga issues JoinTable → Table
+2. Saga issues AddChips → Table
        │
        ▼
-3. Table rejects: "table_full"
+3. Table rejects: "WAGER_IN_PLAY"
        │
        ▼
 4. Notification sent to Player
        │
        ▼
-5. Player handles rejection → emits FundsReleased
+5. Player handles rejection → emits TopUpRefused (hold released)
 ```
 
 The source aggregate decides how to compensate based on the rejection reason.
@@ -114,7 +147,22 @@ The source aggregate decides how to compensate based on the rejection reason.
 <Tabs>
 <TabItem label="Python">
 
-```python file=vendor/examples/python/player/agg/rejected.py region=rejected_handler
+```python title="illustrative - blackjack wallet compensating a refused top-up"
+@rejected("table", "AddChips")
+def on_add_chips_rejected(
+    notification: types.Notification, state: PlayerState
+) -> player_pb2.TopUpRefused:
+    """The table refused a top-up: release the wallet's hold for it."""
+    rejection = types.RejectionNotification()
+    notification.payload.Unpack(rejection)
+    add_chips = table_pb2.AddChips()
+    rejection.rejected_command.pages[0].command.Unpack(add_chips)
+    hold = state.holds[add_chips.hold_id.hex()]
+    return player_pb2.TopUpRefused(
+        hold_id=add_chips.hold_id,
+        amount=hold.amount,
+        reason=rejection.rejection_reason,
+    )
 ```
 
 </TabItem>
@@ -139,21 +187,21 @@ Commands go through the target aggregate's `@handles` command methods and can be
 
 ```python title="illustrative"
 # Command: request an action (can be rejected)
-def handle_hand_started(event: HandStarted):
+def handle_round_settled(event: RoundSettled, outcome: SeatOutcome):
     return CommandBook(
-        cover=Cover(domain="player", root=event.player_id),
-        pages=[CommandPage(command=DeductBlinds(amount=50))],  # deferred: no sequence
+        cover=Cover(domain="player", root=outcome.player_root),
+        pages=[CommandPage(command=AwardLoyaltyPoints(round=event.round, points=outcome.wager))],  # deferred: no sequence
     )
 
 # Fact: assert reality (cannot be rejected)
-def handle_turn_assigned(event: TurnAssigned):
+def handle_player_cashed_out(event: PlayerCashedOut):
     return FactBook(
-        cover=Cover(domain="player", root=event.player_id, external_id=f"turn:{event.hand_id}"),
-        pages=[FactPage(fact=FactSequence(source="hand"), event=YourTurn(hand_id=event.hand_id))],
+        cover=Cover(domain="player", root=event.player_root, external_id=event.cashout_id.hex()),
+        pages=[FactPage(fact=FactSequence(source="table"), event=CashOutCredited(cashout_id=event.cashout_id, amount=event.amount))],
     )
 ```
 
-Use facts when the source domain has authority the target must accept—tournament seating, dealer rulings, external system confirmations. See **[Commands vs Facts](/features/facts)** for details.
+Use facts when the source domain has authority the target must accept—a table's cash-out, a settled top-up, external system confirmations. See **[Commands vs Facts](/features/facts)** for details.
 
 ---
 
@@ -203,4 +251,4 @@ CQRS/ES architectures **cannot provide distributed ACID transactions**. Instead:
 - **[Projectors](/components/projector)** — Building read models
 - **[Process Managers](/components/process-manager)** — Stateful multi-domain coordination
 - **[Error Recovery](/operations/error-recovery)** — DLQ, retry, compensation details
-- **[Compensation Flow](/examples/why-poker#2-saga-compensation)** — Detailed compensation patterns
+- **[Compensation Flow](/examples/why-blackjack#2-saga-with-compensation)** — The example's compensation flow

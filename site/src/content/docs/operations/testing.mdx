@@ -409,7 +409,7 @@ Feature: EventBus interface
 
   Scenario: Cross-domain handlers can subscribe to multiple domains
     Given the output-projector subscribed to player and table domains
-    When events are published to player, table, and hand domains
+    When events are published to player, table, and buy-in domains
     Then the output-projector receives player events because it subscribed
     And the output-projector receives table events because it subscribed
     And the output-projector does NOT receive hand events because it did not subscribe
@@ -561,7 +561,7 @@ When I purchase the items in my cart
 | API returns 201 | Order is confirmed |
 | Database has record | Customer exists |
 | Event is published | Notification is sent |
-| State machine transitions | Hand progresses to showdown |
+| State machine transitions | Round moves on to the dealer's turn |
 
 **Exception:** Framework tests (event stores, buses) use technical vocabulary—it's their domain.
 
@@ -617,7 +617,7 @@ The **same Gherkin scenarios** validate all language implementations. `angzarr-p
 
 ```text title="canonical feature layout"
 angzarr-project/features/acceptance/
-├── poker_game.feature      # End-to-end poker flow
+├── cluster.feature         # End-to-end blackjack flow
 └── sync_modes.feature      # Commit vs cascade semantics
 ```
 

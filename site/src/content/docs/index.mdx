@@ -28,8 +28,8 @@ Now imagine you stored the story instead:
 ```mermaid
 flowchart LR
     E0["AccountOpened<br/>$0"] --> E1["FundsDeposited<br/>+$1,000"]
-    E1 --> E2["FundsReserved<br/>-$500"]
-    E2 --> E3["ReservationReleased<br/>+$500"]
+    E1 --> E2["FundsHeld<br/>-$500"]
+    E2 --> E3["HoldReleased<br/>+$500"]
     E3 --> E4["FundsDeposited<br/>+$500"]
     E4 --> State["Balance: $1,500"]
 ```
@@ -63,7 +63,7 @@ Not everyone does. Simple CRUD applications—"store this, retrieve that"—don'
 
 ### Complex State Machines
 
-**Reservation Systems, Workflow Engines, Distributed Wagering State**: When state transitions frequently, the path matters as much as the destination, and the workload is inherently eventually-consistent across many nodes (e.g., online poker tables, sportsbook markets, auction bidding), recording the journey provides operational visibility that current-state snapshots cannot. Event sourcing is **not** a good fit for real-time video games — tick-rate simulation, physics, and sub-millisecond latency favor in-memory authoritative-server designs. See [Why Poker](/examples/why-poker/#a-note-on-games) for the distinction.
+**Reservation Systems, Workflow Engines, Distributed Wagering State**: When state transitions frequently, the path matters as much as the destination, and the workload is inherently eventually-consistent across many nodes (e.g., online poker tables, sportsbook markets, auction bidding), recording the journey provides operational visibility that current-state snapshots cannot. Event sourcing is **not** a good fit for real-time video games — tick-rate simulation, physics, and sub-millisecond latency favor in-memory authoritative-server designs. See [Why Blackjack](/examples/why-blackjack/#a-note-on-games) for the distinction.
 
 ---
 

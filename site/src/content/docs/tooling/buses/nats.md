@@ -59,7 +59,7 @@ NATS uses dot-separated subjects for hierarchical routing:
 ```
 angzarr.events.player.PlayerRegistered
 angzarr.events.player.FundsDeposited
-angzarr.events.hand.CardsDealt
+angzarr.events.table.RoundSettled
 ```
 
 ### Subscriptions

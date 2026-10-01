@@ -57,8 +57,8 @@ Events are published with routing keys: `{domain}.{event_type}`
 ```text
 player.PlayerRegistered
 player.FundsDeposited
-hand.CardsDealt
-hand.HandComplete
+table.RoundDealt
+table.RoundSettled
 ```
 
 ---

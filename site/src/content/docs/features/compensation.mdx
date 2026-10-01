@@ -1,7 +1,7 @@
 ---
 title: Graceful Failure
 ---
-The player's bet was accepted. The pot updated. Then the hand discovered they'd already folded. Now what?
+The wallet set money aside for a top-up. Then the table refused the chips because the player had a bet in play. Now what?
 
 ---
 
@@ -18,11 +18,11 @@ Traditional solutions—two-phase commit, distributed transactions—are complex
 When a saga issues a command that gets rejected:
 
 ```text title="illustrative - compensation flow"
-1. Hand emits BetPlaced event
-2. Saga (Hand→Table) receives event, issues DeductFromPot → Table
-3. Table rejects: "Player already folded"
-4. Framework sends RejectionNotification directly to Hand aggregate
-5. Hand's @rejected handler emits compensation event: BetReverted
+1. Player emits TopUpRequested event (a hold is placed)
+2. Saga (Player→Table) receives event, issues AddChips → Table
+3. Table rejects: "WAGER_IN_PLAY"
+4. Framework sends RejectionNotification directly to the Player aggregate
+5. Player's @rejected handler emits compensation event: TopUpRefused (hold released)
 ```
 
 The audit trail shows exactly what happened: the attempt, the rejection, and the recovery.
@@ -33,16 +33,16 @@ The audit trail shows exactly what happened: the attempt, the rejection, and the
 
 ```mermaid
 sequenceDiagram
-    participant Hand as Hand Aggregate
-    participant Saga as Hand→Table Saga
+    participant Player as Player Aggregate
+    participant Saga as Player→Table Saga
     participant Table as Table Aggregate
     participant FW as Framework
 
-    Hand->>Saga: BetPlaced
-    Saga->>Table: DeductFromPlayerStack
-    Table-->>FW: Rejected (player folded)
-    FW->>Hand: RejectionNotification
-    Hand->>Hand: BetReverted
+    Player->>Saga: TopUpRequested
+    Saga->>Table: AddChips
+    Table-->>FW: Rejected (WAGER_IN_PLAY)
+    FW->>Player: RejectionNotification
+    Player->>Player: TopUpRefused
 ```
 
 The rejection notification bypasses the saga entirely. The framework routes it directly to the source aggregate using the return address stamped on the original command. The saga is stateless—it doesn't need to know about rejections. The source aggregate decides how to compensate.
@@ -66,7 +66,22 @@ A compensation notification is a durable obligation of the coordinator that rais
 
 Register handlers for specific rejection scenarios:
 
-```python file=vendor/examples/python/player/agg/rejected.py region=rejected_handler
+```python title="illustrative - blackjack wallet compensating a refused top-up"
+@rejected("table", "AddChips")
+def on_add_chips_rejected(
+    notification: types.Notification, state: PlayerState
+) -> player_pb2.TopUpRefused:
+    """The table refused a top-up: release the wallet's hold for it."""
+    rejection = types.RejectionNotification()
+    notification.payload.Unpack(rejection)
+    add_chips = table_pb2.AddChips()
+    rejection.rejected_command.pages[0].command.Unpack(add_chips)
+    hold = state.holds[add_chips.hold_id.hex()]
+    return player_pb2.TopUpRefused(
+        hold_id=add_chips.hold_id,
+        amount=hold.amount,
+        reason=rejection.rejection_reason,
+    )
 ```
 
 The framework routes a rejection to the handler whose `compensates` entry matches the rejected command:
@@ -80,17 +95,16 @@ Use the unqualified form by default—it is how an aggregate, which has no outpu
 
 ---
 
-## Compensation in Poker
+## Compensation in the Blackjack Example
 
 Different failures require different responses:
 
 | Scenario | Compensation |
 |----------|--------------|
-| Player disconnects mid-action | Auto-fold, return to action queue |
-| Insufficient chips for blind | Sit out, notify table |
-| Invalid bet amount | Reject action, prompt retry |
-| Table closed during hand | Refund all pots, end hand |
-| Timer expired | Auto-check or auto-fold |
+| Table refuses a top-up (bet in play) | Wallet releases the top-up hold (`TopUpRefused`) |
+| Wallet cannot fund a buy-in | Buy-in process releases the held seat |
+| Table refuses to confirm a seat | Buy-in process releases the funds and the seat |
+| A round's follow-up fails under `COMPENSATE` | Wallet retracts the recorded round result |
 
 The aggregate decides the business response. The framework ensures the notification arrives—at least once, and applied once.
 
@@ -102,8 +116,8 @@ A `RejectionNotification` carries the reason twice:
 
 | Field | For | Source |
 |-------|-----|--------|
-| `code` | Compensation logic — branch on it | `ErrorInfo.reason` in the rejecting handler's gRPC status (e.g. `INSUFFICIENT_BALANCE`); empty if the rejection carried none |
-| `rejection_reason` | People — logs, dead letters, UIs | The status message (e.g. `"balance 40 below buy-in 100"`) |
+| `code` | Compensation logic — branch on it | `ErrorInfo.reason` in the rejecting handler's gRPC status (e.g. `WAGER_IN_PLAY`); empty if the rejection carried none |
+| `rejection_reason` | People — logs, dead letters, UIs | The status message (e.g. `"cannot add chips while a wager is in play"`) |
 
 Compensation handlers read `code`; they never parse `rejection_reason`, which is free text and may change wording at any time.
 
@@ -117,20 +131,20 @@ your domain's specific events and rejection reasons.
 :::
 
 ```python title="illustrative - RevocationResponse options"
-@rejected(domain="player", command="ReserveFunds")
-def handle_reserve_failed(self, notification: Notification):
+@rejected(domain="table", command="AddChips")
+def on_add_chips_rejected(self, notification: Notification):
     rejection = RejectionNotification()
     notification.payload.Unpack(rejection)
 
-    if rejection.code == "INSUFFICIENT_BALANCE":
+    if rejection.code in ("WAGER_IN_PLAY", "TOP_UP_EXCEEDS_MAX"):
         # Return event directly—framework auto-applies it
-        return PlayerSatOut(reason=rejection.code)
+        return TopUpRefused(reason=rejection.code)
     else:
         # Delegate to framework for DLQ/escalation
         return delegate_to_framework(
             reason=rejection.rejection_reason,
             send_to_dead_letter=True,
-            escalate=True,  # Alert floor manager
+            escalate=True,  # Alert an operator
         )
 ```
 
@@ -138,7 +152,7 @@ def handle_reserve_failed(self, notification: Notification):
 |------|--------|
 | `emit_system_revocation` | Emit `SagaCompensationFailed` event |
 | `send_to_dead_letter_queue` | Route to DLQ for manual review |
-| `escalate` | Trigger configured webhook (floor manager alert) |
+| `escalate` | Trigger configured webhook (operator alert) |
 | `abort` | Stop saga chain, propagate error |
 
 ---
@@ -177,12 +191,12 @@ Regulated industries require demonstrable fairness:
 - Every rejection must be explained
 - Every compensation must be traceable
 
-When a regulator asks "why did this player lose their bet?", the event history shows:
-1. The bet was placed
-2. The deduction was attempted
-3. The deduction was rejected (reason: player had folded)
-4. The bet was reverted
-5. The player was notified
+When a regulator asks "why didn't this player's top-up reach the table?", the event history shows:
+1. The top-up was requested and the money held
+2. The table was asked to add the chips
+3. The table refused (reason: a bet was in play)
+4. The hold was released
+5. The player's available balance was restored
 
 No silent failures. No unexplained state changes.
 
@@ -258,4 +272,4 @@ A `Compensate` for a command with no undo handler is **never dropped**: the aggr
 - [Cascade Execution](./cascade) — Synchronous fan-out and cascade error modes
 - [Error recovery operations](../operations/error-recovery) — DLQ, retries, and escalation
 - [Saga component](../components/saga) — Building sagas
-- [Why Poker](../examples/why-poker) — Full example with compensation flows
+- [Why Blackjack](../examples/why-blackjack) — Full example with compensation flows
