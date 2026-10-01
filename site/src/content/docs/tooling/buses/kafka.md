@@ -59,8 +59,8 @@ Topic: angzarr.events.player
   Partition 1: [player-002 events, player-005 events, ...]
   Partition 2: [player-003 events, player-006 events, ...]
 
-Topic: angzarr.events.hand
-  Partition 0: [hand-001 events, ...]
+Topic: angzarr.events.table
+  Partition 0: [table-001 events, ...]
   ...
 ```
 
@@ -79,7 +79,7 @@ Consumer Group: player-projector
   Consumer 1 ← Partition 0, 1
   Consumer 2 ← Partition 2, 3
 
-Consumer Group: output-projector
+Consumer Group: ledger-projector
   Consumer 1 ← Partition 0, 1, 2, 3
 ```
 

@@ -13,7 +13,7 @@ Event-sourced systems are inherently observable—every state change is recorded
 - **Dead letter queues** capturing failures
 - **Structured tracing** through the event flow
 
-When something goes wrong in a poker hand, you can trace the entire flow: from player action to saga to table update to final outcome.
+When something goes wrong in a blackjack buy-in, you can trace the entire flow: from the seat request to the buy-in process to the wallet and back to the table.
 
 ---
 
@@ -22,13 +22,13 @@ When something goes wrong in a poker hand, you can trace the entire flow: from p
 Every workflow has a correlation ID that threads through all related events:
 
 ```text title="illustrative - correlation ID flow"
-Session starts: correlation_id = "session-abc-123"
+Buy-in starts: correlation_id = "session-abc-123"
 
-PlayerSeated     (player domain)  → correlation_id
-TableJoined      (table domain)   → correlation_id
-HandStarted      (hand domain)    → correlation_id
-PlayerActed      (hand domain)    → correlation_id
-ChipsTransferred (player domain)  → correlation_id
+SeatHeld         (table domain)   → correlation_id
+BuyInStarted     (buy-in domain)  → correlation_id
+FundsHeld        (player domain)  → correlation_id
+PlayerSeated     (table domain)   → correlation_id
+FundsCaptured    (player domain)  → correlation_id
 ```
 
 Query by correlation ID to see the complete story:
@@ -46,12 +46,12 @@ The framework propagates correlation IDs automatically:
 ```python title="illustrative - correlation propagation"
 # Initial command sets the correlation
 send_command(
-    JoinTable(table_id=table_id),
+    RequestSeat(player_root=player_id, seat=0, amount=500, request_id=request_id),
     correlation_id="session-abc-123",
 )
 
-# Subsequent sagas inherit it
-# TableJoined → saga → PlayerSeated
+# Subsequent sagas and process managers inherit it
+# SeatHeld → buy-in process → HoldFunds → FundsHeld → ConfirmSeat → PlayerSeated
 # All carry the same correlation_id
 ```
 
@@ -65,8 +65,8 @@ Failed events don't disappear. They land in a dead letter queue, tagged with err
 
 | Field | Example Value |
 |-------|---------------|
-| `domain` | `"hand"` |
-| `event_type` | `"PlayerActed"` |
+| `domain` | `"table"` |
+| `event_type` | `"CardDealt"` |
 | `correlation_id` | `"session-abc-123"` |
 | `error` | `"Sequence mismatch: expected 5, got 6"` |
 | `attempts` | `3` |
@@ -81,7 +81,7 @@ Each domain has its own DLQ:
 ```text title="illustrative - DLQ per domain"
 angzarr.dlq.player
 angzarr.dlq.table
-angzarr.dlq.hand
+angzarr.dlq.buy-in
 ```
 
 ### Replay from DLQ
@@ -90,13 +90,13 @@ Once you've fixed the issue, replay failed events:
 
 ```bash title="illustrative - DLQ replay"
 # Replay all failed events for a domain
-angzarr dlq replay --domain=hand
+angzarr dlq replay --domain=table
 
 # Replay a specific correlation
 angzarr dlq replay --correlation-id=session-abc-123
 
 # Discard after review
-angzarr dlq discard --domain=hand --before=2024-01-15
+angzarr dlq discard --domain=table --before=2024-01-15
 ```
 
 ---
@@ -109,12 +109,12 @@ When a saga command is rejected, the framework records:
 
 | Field | Example Value |
 |-------|---------------|
-| `rejected_command` | `DeductFromPlayerStack` |
-| `code` | `"INSUFFICIENT_BALANCE"` |
-| `rejection_reason` | `"Insufficient balance"` |
-| `issuer_name` | `"saga-hand-player"` |
+| `rejected_command` | `AddChips` |
+| `code` | `"WAGER_IN_PLAY"` |
+| `rejection_reason` | `"cannot add chips while a wager is in play"` |
+| `issuer_name` | `"saga-player-table"` |
 | `issuer_type` | `"saga"` |
-| `source_aggregate` | `{domain: "hand", root: ...}` |
+| `source_aggregate` | `{domain: "player", root: ...}` |
 | `source_event_sequence` | `42` |
 
 The rejection flows back to the source aggregate for compensation. The audit trail shows:
@@ -132,11 +132,11 @@ The framework emits structured logs at key points:
 {
   "level": "info",
   "component": "coordinator",
-  "domain": "hand",
-  "aggregate_id": "hand-xyz-789",
+  "domain": "table",
+  "aggregate_id": "table-xyz-789",
   "correlation_id": "session-abc-123",
   "event": "command_received",
-  "command_type": "PlayerActed",
+  "command_type": "Hit",
   "timestamp": "2024-01-15T10:30:00.123Z"
 }
 ```
@@ -145,12 +145,12 @@ The framework emits structured logs at key points:
 {
   "level": "warn",
   "component": "coordinator",
-  "domain": "hand",
-  "aggregate_id": "hand-xyz-789",
+  "domain": "table",
+  "aggregate_id": "table-xyz-789",
   "correlation_id": "session-abc-123",
   "event": "command_rejected",
-  "command_type": "PlayerActed",
-  "reason": "Not player's turn",
+  "command_type": "Hit",
+  "reason": "NOT_YOUR_TURN",
   "timestamp": "2024-01-15T10:30:00.125Z"
 }
 ```
@@ -214,22 +214,22 @@ Correlation IDs link traces across services.
 
 ---
 
-## Debugging a Poker Hand
+## Debugging a Blackjack Round
 
 When a player disputes an outcome:
 
 ```bash title="illustrative - debugging commands"
-# Find all events for this hand
-angzarr events --domain=hand --root=hand-xyz-789
+# Find all events for this table
+angzarr events --domain=table --root=table-xyz-789
 
 # Trace the full session
 angzarr events --correlation-id=session-abc-123
 
 # Check for rejections
-angzarr events --domain=hand --root=hand-xyz-789 --type=RejectionNotification
+angzarr events --domain=table --root=table-xyz-789 --type=RejectionNotification
 
-# Replay the hand to verify
-angzarr replay --domain=hand --root=hand-xyz-789 --output=json
+# Replay the table to verify
+angzarr replay --domain=table --root=table-xyz-789 --output=json
 ```
 
 The event history is the audit trail. Disputes resolve with facts, not guesses.

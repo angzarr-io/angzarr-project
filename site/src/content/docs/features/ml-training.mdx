@@ -39,7 +39,7 @@ class EventDataset(IterableDataset):
             yield torch.tensor(features), torch.tensor(label)
 
 # Use with DataLoader
-dataset = EventDataset("hand", ["PlayerActed", "HandComplete"])
+dataset = EventDataset("table", ["CardDealt", "HandStood", "RoundSettled"])
 loader = DataLoader(dataset, batch_size=32)
 ```
 
@@ -49,18 +49,19 @@ The proto messages your aggregate handles are the same messages your training pi
 
 ```python title="illustrative - shared proto messages"
 # In aggregate
-def handle_player_action(cmd: PlayerAction, state: HandState):
+def handle_hit(cmd: Hit, state: TableState):
     # Business logic
     ...
 
 # In training pipeline
 def extract_features(event_book: EventBook) -> np.ndarray:
     state = rebuild_state(event_book)
-    # Same HandState, same fields
+    # Same TableState, same fields
+    seat = state.seated[state.turn]
     return np.array([
-        state.pot_size,
-        state.player_stack,
-        state.position,
+        seat.hand.total,
+        seat.hand.soft,
+        state.dealer_cards[0].rank,
         ...
     ])
 ```
@@ -73,32 +74,28 @@ No translation layer. No ETL. The types are the contract.
 
 Real history gives you one path. Editions let you explore alternatives.
 
-### Example: Poker Bot Training
+### Example: Hit-or-Stand Training
 
 ```python title="illustrative - counterfactual generation"
-def generate_training_data(hand_ids: list[str], n_alternates: int = 10):
+def generate_training_data(decisions: list[Decision]):
     samples = []
 
-    for hand_id in hand_ids:
+    for d in decisions:  # each point where a player hit, stood or doubled
         # Get the actual outcome
-        actual = get_event_book("hand", hand_id)
-        samples.append(extract_sample(actual, is_actual=True))
+        actual = get_event_book("table", d.table_id)
+        samples.append(extract_sample(actual, d, is_actual=True))
 
-        # Generate counterfactuals
-        for i in range(n_alternates):
-            action = sample_alternate_action(actual)
-            edition = Edition(name=f"train-{hand_id}-{i}")
+        # Generate counterfactuals: every other legal action
+        for i, action in enumerate(other_actions(d)):  # Hit / Stand / DoubleDown
+            edition = Edition(name=f"train-{d.table_id.hex()}-{d.sequence}-{i}", divergence=d.sequence)
 
             # What would have happened?
-            result = speculate(
-                command=PlayerAction(hand_id=hand_id, action=action),
-                edition=edition,
-            )
+            result = speculate(command=action(seat=d.seat), domain="table", root=d.table_id, edition=edition)
 
-            samples.append(extract_sample(result, is_actual=False))
+            samples.append(extract_sample(result, d, is_actual=False))
 
             # Cleanup
-            delete_edition_events(domain="hand", edition=edition.name)
+            delete_edition_events(domain="table", edition=edition.name)
 
     return samples
 ```
@@ -114,10 +111,10 @@ Each counterfactual is a complete simulation through your actual aggregate logic
 Predict outcomes from state:
 
 ```python title="illustrative - supervised learning loop"
-# Labels: did the player win?
-# Features: hand state at decision point
+# Labels: did the player win the round?
+# Features: player total, soft/hard, dealer up-card at the decision point
 
-model = HandOutcomePredictor()
+model = RoundOutcomePredictor()
 for features, label in loader:
     pred = model(features)
     loss = criterion(pred, label)
@@ -130,23 +127,23 @@ for features, label in loader:
 Event history as experience buffer:
 
 ```python title="illustrative - RL experience buffer"
-class PokerExperienceBuffer:
+class RoundExperienceBuffer:
     def __init__(self, domain: str):
         self.domain = domain
 
     def sample(self, batch_size: int):
-        hands = sample_hands(self.domain, batch_size)
+        rounds = sample_rounds(self.domain, batch_size)
         experiences = []
-        for hand in hands:
-            state = extract_state(hand)
-            action = extract_action(hand)
-            reward = extract_reward(hand)
-            next_state = extract_next_state(hand)
+        for rnd in rounds:
+            state = extract_state(rnd)
+            action = extract_action(rnd)          # hit, stand or double
+            reward = extract_reward(rnd)          # net from RoundSettled
+            next_state = extract_next_state(rnd)
             experiences.append((state, action, reward, next_state))
         return experiences
 
 # Use with any RL algorithm
-buffer = PokerExperienceBuffer("hand")
+buffer = RoundExperienceBuffer("table")
 for epoch in range(1000):
     batch = buffer.sample(32)
     train_step(agent, batch)

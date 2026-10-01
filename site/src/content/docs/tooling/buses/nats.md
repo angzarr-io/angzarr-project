@@ -69,7 +69,7 @@ Wildcards enable flexible subscriptions:
 ```
 angzarr.events.player.*    # All player events
 angzarr.events.*.>         # All events
-angzarr.events.hand.>      # All hand events and sub-subjects
+angzarr.events.table.>     # All table events and sub-subjects
 ```
 
 ---

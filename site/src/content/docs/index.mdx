@@ -59,11 +59,11 @@ Not everyone does. Simple CRUD applications—"store this, retrieve that"—don'
 
 ### Compliance-Heavy Industries
 
-**Healthcare, Finance, Online Gambling**: HIPAA mandates audit logs. AML regulations require transaction monitoring. When regulators ask "what did you know and when did you know it?"—you need a definitive answer. (This is regulated gambling — online casinos, sportsbooks, poker rooms — not video games.)
+**Healthcare, Finance, Online Gambling**: HIPAA mandates audit logs. AML regulations require transaction monitoring. When regulators ask "what did you know and when did you know it?"—you need a definitive answer. (This is regulated gambling — online casinos, sportsbooks, card rooms — not video games.)
 
 ### Complex State Machines
 
-**Reservation Systems, Workflow Engines, Distributed Wagering State**: When state transitions frequently, the path matters as much as the destination, and the workload is inherently eventually-consistent across many nodes (e.g., online poker tables, sportsbook markets, auction bidding), recording the journey provides operational visibility that current-state snapshots cannot. Event sourcing is **not** a good fit for real-time video games — tick-rate simulation, physics, and sub-millisecond latency favor in-memory authoritative-server designs. See [Why Blackjack](/examples/why-blackjack/#a-note-on-games) for the distinction.
+**Reservation Systems, Workflow Engines, Distributed Wagering State**: When state transitions frequently, the path matters as much as the destination, and the workload is inherently eventually-consistent across many nodes (e.g., online card tables, sportsbook markets, auction bidding), recording the journey provides operational visibility that current-state snapshots cannot. Event sourcing is **not** a good fit for real-time video games — tick-rate simulation, physics, and sub-millisecond latency favor in-memory authoritative-server designs. See [Why Blackjack](/examples/why-blackjack/#a-note-on-games) for the distinction.
 
 ---
 

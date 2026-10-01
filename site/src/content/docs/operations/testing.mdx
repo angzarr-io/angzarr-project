@@ -408,15 +408,15 @@ Feature: EventBus interface
     And never sees table events which are filtered out by the bus
 
   Scenario: Cross-domain handlers can subscribe to multiple domains
-    Given the output-projector subscribed to player and table domains
+    Given the ledger-projector subscribed to player and table domains
     When events are published to player, table, and buy-in domains
-    Then the output-projector receives player events because it subscribed
-    And the output-projector receives table events because it subscribed
-    And the output-projector does NOT receive hand events because it did not subscribe
+    Then the ledger-projector receives player events because it subscribed
+    And the ledger-projector receives table events because it subscribed
+    And the ledger-projector does NOT receive buy-in events because it did not subscribe
 
   Scenario: Events arrive in sequence order from a single publisher
-    Given a single-threaded hand aggregate publishing events
-    And a projector subscribed to hand
+    Given a single-threaded table aggregate publishing events
+    And a projector subscribed to table
     When events with sequences 0, 1, 2, 3, 4 are published in order
     Then the projector receives them in sequence order: 0, 1, 2, 3, 4
 ```
@@ -654,7 +654,7 @@ Acceptance tests support two backends through a `CommandClient` gRPC abstraction
 - **SQLite** (in-memory) instead of Postgres
 - Single process, no containers required
 
-This trades production fidelity for speed. CI runs **Direct mode** against Kind with port-forwards on 1310/1311/1312 (player/table/hand).
+This trades production fidelity for speed. CI runs **Direct mode** against Kind with port-forwards on 1310/1311 (player/table).
 
 ```bash title="illustrative"
 # In-process (default) — channel bus + SQLite
