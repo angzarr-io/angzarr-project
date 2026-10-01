@@ -105,18 +105,34 @@ enum CascadeErrorMode {
 // endregion
 
 // region merge_strategy
-// Controls how concurrent commands to the same aggregate are handled.
+// Controls how the aggregate coordinator treats a command whose expected
+// sequence differs from the aggregate's next_sequence (a stale command).
 // Default: COMMUTATIVE — the zero value.
 //
-// COMMUTATIVE: a command whose expected sequence is stale is still accepted
-// when the state fields it mutates do not overlap the fields changed by the
-// events it missed (the concurrency window since its basis sequence). Only an
-// overlap rejects, with a retryable FAILED_PRECONDITION.
+// The concurrency window is the run of events the command did not see:
+// sequences basis .. next_sequence-1, where basis is the command's explicit
+// PageHeader.sequence, or AngzarrDeferredSequence.basis_seq for a deferred
+// (saga/PM-emitted) command. basis_seq 0 makes the window the whole history.
+//
+// COMMUTATIVE: the command runs against current state; the state fields its
+// events change are compared (via CommandHandlerService.Replay) with the
+// fields changed inside the window. Disjoint changes are persisted; an
+// overlap rejects with a retryable FAILED_PRECONDITION. A handler without
+// Replay gets STRICT behaviour.
+// STRICT: any mismatch on a client command rejects with a retryable
+// FAILED_PRECONDITION. Deferred commands claim no sequence and are stamped
+// at the destination head.
+// AGGREGATE_HANDLES: no coordinator check; the handler receives the full
+// prior history and decides.
+// MANUAL: a mismatch on a client command is published to the dead letter
+// queue and rejected with a non-retryable ABORTED. A deferred command is
+// dead-lettered only when its fields overlap the window (or overlap cannot
+// be computed).
 enum MergeStrategy {
-  MERGE_COMMUTATIVE = 0; // Default: allow if state field mutations don't overlap
-  MERGE_STRICT = 1; // Reject if sequence mismatch (optimistic concurrency)
+  MERGE_COMMUTATIVE = 0; // Default: merge unless changed fields overlap the window
+  MERGE_STRICT = 1; // Reject on sequence mismatch (optimistic concurrency)
   MERGE_AGGREGATE_HANDLES = 2; // Aggregate handles its own concurrency
-  MERGE_MANUAL = 3; // Send to DLQ for manual review on mismatch
+  MERGE_MANUAL = 3; // Dead-letter for manual review on mismatch
 }
 // endregion
 
