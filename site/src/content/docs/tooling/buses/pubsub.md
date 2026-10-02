@@ -54,9 +54,9 @@ export GOOGLE_APPLICATION_CREDENTIALS="/path/to/service-account.json"
 ```mermaid
 flowchart LR
     TP["Topic: angzarr-events-player"] --> PP[Subscription: player-projector]
-    TP --> OP1[Subscription: output-projector]
-    TH["Topic: angzarr-events-hand"] --> HS[Subscription: hand-saga]
-    TH --> OP2[Subscription: output-projector]
+    TP --> OP1[Subscription: ledger-projector]
+    TH["Topic: angzarr-events-table"] --> HS[Subscription: settlement-saga]
+    TH --> OP2[Subscription: ledger-projector]
 ```
 
 ### Message Ordering
@@ -108,7 +108,7 @@ Monitor via Cloud Console or subscribe programmatically.
 ```bash
 # Create topics
 gcloud pubsub topics create angzarr-events-player
-gcloud pubsub topics create angzarr-events-hand
+gcloud pubsub topics create angzarr-events-table
 gcloud pubsub topics create angzarr-dlq
 
 # Create subscriptions

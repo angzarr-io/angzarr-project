@@ -31,19 +31,20 @@ The magic is [Protocol Buffers](https://protobuf.dev/). Your data model—comman
 
 ```protobuf title="illustrative - shared proto contract"
 // Shared across all languages
-message PlayerActed {
-  string hand_id = 1;
-  string player_id = 2;
-  ActionType action = 3;
+message BetPlaced {
+  uint32 round = 1;
+  int32 seat = 2;
+  bytes player_root = 3;
   int64 amount = 4;
+  int64 stack_after = 5;
 }
 
-enum ActionType {
-  FOLD = 0;
-  CHECK = 1;
-  CALL = 2;
-  RAISE = 3;
-  ALL_IN = 4;
+enum Suit {
+  SUIT_UNSPECIFIED = 0;
+  CLUBS = 1;
+  DIAMONDS = 2;
+  HEARTS = 3;
+  SPADES = 4;
 }
 ```
 
@@ -70,7 +71,7 @@ Each language runs these scenarios against its implementation. If the tests pass
 
 ---
 
-## Example: Poker Platform
+## Example: Blackjack Platform
 
 ```mermaid
 flowchart TB
@@ -79,7 +80,7 @@ flowchart TB
     end
 
     subgraph components["Components"]
-        rust["🦀 Rust<br/>Hand Aggregate<br/>(low latency)"]
+        rust["🦀 Rust<br/>Table Aggregate<br/>(low latency)"]
         python["🐍 Python<br/>ML Projector<br/>(PyTorch)"]
         java["☕ Java<br/>Payment Gateway<br/>(legacy APIs)"]
     end
@@ -89,7 +90,7 @@ flowchart TB
     events --> java
 ```
 
-- **Rust**: Hand aggregate handles player actions during live play. Maintainability and security with high performance.
+- **Rust**: Table aggregate handles bets, hits and stands during live play. Maintainability and security with high performance.
 - **Python**: ML projector consumes events for model training and real-time predictions. PyTorch integration is natural.
 - **Java**: Payment gateway integration speaks to legacy banking APIs. The team already knows the ecosystem.
 
@@ -129,7 +130,7 @@ Different teams, different strengths:
 
 | Team | Expertise | Responsibility |
 |------|-----------|----------------|
-| Core platform | Rust | Hand/table aggregates |
+| Core platform | Rust | Player/table aggregates |
 | Data science | Python | ML projectors, analytics |
 | Integrations | Java | Payment, KYC, legacy APIs |
 | Mobile API | Go | Edge services, caching |
@@ -145,7 +146,7 @@ Each library follows the same patterns:
 <Tabs>
 <TabItem label="Python">
 
-```python title="examples/python/player/agg/handlers.py"
+```python title="illustrative - player deposit handler"
 @command_handler(player.DepositFunds)
 def handle_deposit(
     cmd: player.DepositFunds, state: PlayerState, seq: int
@@ -154,16 +155,10 @@ def handle_deposit(
     if not state.exists:
         raise CommandRejectedError("Player does not exist")
 
-    amount = cmd.amount.amount if cmd.amount else 0
-    if amount <= 0:
-        raise CommandRejectedError("amount must be positive")
+    if cmd.amount <= 0:
+        raise CommandRejectedError.invalid_argument("AMOUNT_NOT_POSITIVE")
 
-    new_balance = state.bankroll + amount
-    return player.FundsDeposited(
-        amount=cmd.amount,
-        new_balance=poker_types.Currency(amount=new_balance, currency_code="CHIPS"),
-        deposited_at=now(),
-    )
+    return player.FundsDeposited(amount=cmd.amount)
 ```
 
 </TabItem>
@@ -171,7 +166,7 @@ def handle_deposit(
 
 Same pattern. Same semantics. Different syntax.
 
-Handler function/class names match the proto command type exactly — `handle_deposit_funds` / `HandleDepositFunds` / `DepositFundsHandler`. The same convention applies to `RegisterPlayer` and `TransferFunds`, which are also implemented in all six languages.
+Handler function/class names match the proto command type exactly — `handle_deposit_funds` / `HandleDepositFunds` / `DepositFundsHandler`. The same convention applies to every command, such as `RegisterPlayer` and `WithdrawFunds`.
 
 ---
 

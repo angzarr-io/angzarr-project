@@ -18,7 +18,7 @@ Unlike aggregates and sagas, projectors are **read-only** from the event sourcin
 | Dashboard stream | All domain events | WebSocket push |
 | Analytics ETL | Transaction events | Data warehouse |
 | Cache warmer | Player events | Redis cache |
-| Output renderer | Poker events | Console text |
+| Money ledger | Wallet and table events | Balances and a balanced flag |
 
 ---
 
@@ -28,14 +28,42 @@ Projectors are defined as classes extending the client library's `Projector` bas
 
 ---
 
-## Example: Output Projector
+## Example: Ledger Projector
 
-Transforms poker events into human-readable text:
+The blackjack example's ledger folds wallet and table events into balances, and reports whether all the money adds up:
 
 <Tabs>
 <TabItem label="Python">
 
-```python file=vendor/examples/python/prj-output/main.py region=projector
+```python title="illustrative - blackjack ledger projector (excerpt)"
+@projector(name="projector-player-table-ledger", domains=["player", "table"])
+class LedgerProjector:
+    """Money read model over wallets and tables."""
+
+    def __init__(self) -> None:
+        self.ledger = LedgerProjection()
+        self._applied: set[tuple[str, bytes, int]] = set()
+
+    def _first_time(self, domain: str, root: bytes, sequence: int) -> bool:
+        key = (domain, root, sequence)
+        if key in self._applied:
+            return False  # replay or redelivery: already applied
+        self._applied.add(key)
+        return True
+
+    @projects(player_pb2.FundsDeposited)
+    def on_funds_deposited(self, event, root: bytes, sequence: int) -> None:
+        if self._first_time("player", root, sequence):
+            self.ledger.players[root.hex()].bankroll += event.amount
+            self.ledger.totals.deposits += event.amount
+            self.ledger.totals.bankrolls += event.amount
+
+    @projects(table_pb2.RoundSettled)
+    def on_round_settled(self, event, root: bytes, sequence: int) -> None:
+        if self._first_time("table", root, sequence):
+            table = self.ledger.tables[root.hex()]
+            table.house_result = event.house_result_after
+            ...
 ```
 
 </TabItem>
@@ -51,19 +79,19 @@ Projectors **can** subscribe to events from multiple domains, but **should not**
 
 ```python title="illustrative"
 # Avoid this pattern when possible
-class OutputProjector(Projector):
-    domains = ["player", "table", "hand"]
+class AuditProjector(Projector):
+    domains = ["player", "table"]
 
     @projects(PlayerRegistered)
     def on_player_registered(self, event): ...
 
-    @projects(HandStarted)
-    def on_hand_started(self, event): ...
+    @projects(RoundSettled)
+    def on_round_settled(self, event): ...
 ```
 
 **If you need multi-domain subscription, check your domain boundaries first.** Needing to join events across domains often indicates the domains are incorrectly partitioned. Consider whether those events belong in the same domain.
 
-When multi-domain is truly necessary (e.g., a cross-cutting analytics view), it's technically safe because projectors only observe—but prefer single-domain projectors where possible for simpler reasoning and deployment.
+When multi-domain is truly necessary (e.g., a cross-cutting view such as the example's money ledger, which must see both sides of every transfer), it's technically safe because projectors only observe—but prefer single-domain projectors where possible for simpler reasoning and deployment.
 
 ---
 

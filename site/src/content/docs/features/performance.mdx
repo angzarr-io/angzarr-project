@@ -116,7 +116,7 @@ Sync mode is specified per-command by the caller:
 
 ```python title="illustrative - sync mode selection"
 # Async (default): fire-and-forget, high throughput
-send_command(PlayerAction(action=FOLD))
+send_command(PlaceBet(seat=0, amount=20))
 
 # Simple sync: wait for projectors in this domain
 result = send_command(
@@ -137,7 +137,7 @@ result = send_command(
 
 | Mode | Latency | Consistency | Example |
 |------|---------|-------------|---------|
-| Async | Lowest | Eventual | Player folds, leaderboard updates |
+| Async | Lowest | Eventual | Bet placed, leaderboard updates |
 | Simple | Medium | Local read-after-write | Deposit shows in balance immediately |
 | Cascade | Highest | Cross-domain | Order completion triggers fulfillment, inventory reserved |
 
@@ -314,26 +314,27 @@ The aggregate receives both the expected and actual state, deciding how to proce
 ```python title="illustrative - aggregate merge handler"
 def handle_with_merge(
     cmd: PlaceBet,
-    expected_state: HandState,
-    actual_state: HandState
+    expected_state: TableState,
+    actual_state: TableState
 ) -> MergeResult:
-    if actual_state.phase != expected_state.phase:
-        return MergeResult.reject("Hand phase changed")
+    if actual_state.seated[cmd.seat].wager:
+        return MergeResult.reject("ALREADY_BET")
     return MergeResult.proceed(compute_event(cmd, actual_state))
 ```
 
 ---
 
-## Performance Patterns for Poker
+## Performance Patterns for Blackjack
 
 | Component | Pattern | Why |
 |-----------|---------|-----|
-| Hand aggregate | MERGE_STRICT | Action order matters |
-| Player aggregate | MERGE_COMMUTATIVE | Deposits can retry |
-| Table aggregate | Snapshots @ 100 | Many events per session |
-| Leaderboard projector | Async | Can lag behind |
-| Balance projector | Simple sync | Visible immediately |
-| Order completion | Cascade sync | Fulfillment must be ready |
+| Table `Hit` / `Stand` / `DoubleDown` | MERGE_STRICT | Action order matters |
+| Table `PlaceBet` | MERGE_AGGREGATE_HANDLES | Bets on different seats all land; the table refuses a second bet on one seat |
+| Player `DepositFunds` | MERGE_COMMUTATIVE | Merges past unrelated changes such as a rename |
+| Player `WithdrawFunds` | MERGE_MANUAL | Conflicts go to a person |
+| Table aggregate | Routine snapshots, lasting one per shoe | Many events per session |
+| Ledger projector | Simple sync for deposits | Visible immediately |
+| Seat request | Cascade sync | Seated when the request returns |
 
 ---
 
@@ -344,7 +345,7 @@ Measure what matters for your domain:
 ```python title="illustrative - performance benchmarking"
 # Command latency
 start = time.time()
-result = send_command(PlayerAction(...))
+result = send_command(Hit(seat=0))
 latency = time.time() - start
 # Target: < 10ms for player actions
 
@@ -433,16 +434,16 @@ Sagas and PMs can emit either:
 
 Facts represent things that have already happened—the aggregate cannot reject reality. Examples:
 
-- "The hand says it's your turn" → Player aggregate must accept this
+- "The table added the top-up chips" → Player aggregate must record it
 - "Payment processor confirmed charge" → Order aggregate must record it
-- "Tournament system assigned seating" → Table aggregate must honor it
+- "The player cashed out 640 at the table" → Player aggregate must credit it
 
 ```python title="illustrative - command vs fact emission"
 # Saga emitting a command (can be rejected)
-yield Command(domain="player", type=DeductChips(amount=100))
+yield Command(domain="player", type=AwardLoyaltyPoints(round=1, points=20))
 
 # Saga emitting a fact (cannot be rejected)
-yield Fact(domain="player", type=TurnAssigned(hand_id=hand_id))
+yield Fact(domain="player", type=CashOutCredited(cashout_id=cashout_id, amount=640))
 ```
 
 See **[Commands vs Facts](/features/facts)** for idempotency handling, external system integration, and detailed examples.

@@ -199,7 +199,7 @@ For stateful process managers, fetch both the PM's own event stream and the doma
 ```python title="illustrative - PM debugging"
 # Fetch PM's state (its own events keyed by correlation_id)
 pm_events = query_client.get_event_book(
-    EventQuery(cover=Cover(domain="pm-hand-flow", root=correlation_id))
+    EventQuery(cover=Cover(domain="buy-in", root=correlation_id))
 )
 
 # Fetch domain events the PM received
@@ -239,7 +239,7 @@ player_result = speculative_client.aggregate(
 # 4. Replay saga translation
 saga_result = speculative_client.saga(
     SpeculateSagaRequest(
-        request=SagaHandleRequest(source=player_result.events),  # FundsReserved
+        request=SagaHandleRequest(source=player_result.events),  # TopUpRequested
     )
 )
 

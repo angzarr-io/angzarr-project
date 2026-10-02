@@ -158,7 +158,7 @@ angzarr.dlq.{domain}
 
 Examples:
 - `angzarr.dlq.player` — Player domain failures
-- `angzarr.dlq.hand` — Hand domain failures
+- `angzarr.dlq.table` — Table domain failures
 - `angzarr.dlq.table` — Table domain failures
 
 ### Dead Letter Structure
@@ -241,9 +241,22 @@ The source aggregate registers rejection handlers using `@rejected` decorators. 
 <Tabs>
 <TabItem label="Python">
 
-**[`examples/python/player/agg/rejected.py`](https://github.com/benjaminabbitt/angzarr/blob/main/examples/python/player/agg/rejected.py)**
-
-```python file=vendor/examples/python/player/agg/rejected.py region=rejected_handler
+```python title="illustrative - blackjack wallet compensating a refused top-up"
+@rejected("table", "AddChips")
+def on_add_chips_rejected(
+    notification: types.Notification, state: PlayerState
+) -> player_pb2.TopUpRefused:
+    """The table refused a top-up: release the wallet's hold for it."""
+    rejection = types.RejectionNotification()
+    notification.payload.Unpack(rejection)
+    add_chips = table_pb2.AddChips()
+    rejection.rejected_command.pages[0].command.Unpack(add_chips)
+    hold = state.holds[add_chips.hold_id.hex()]
+    return player_pb2.TopUpRefused(
+        hold_id=add_chips.hold_id,
+        amount=hold.amount,
+        reason=rejection.code,  # machine code, never the message
+    )
 ```
 
 </TabItem>

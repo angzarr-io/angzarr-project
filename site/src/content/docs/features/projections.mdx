@@ -1,7 +1,7 @@
 ---
 title: Query-Optimized Projections
 ---
-The table UI needs millisecond updates. The analytics team needs hand histories in a data warehouse. The mobile app needs a different shape entirely.
+The table UI needs millisecond updates. The analytics team needs round histories in a data warehouse. The mobile app needs a different shape entirely.
 
 One event stream. Many projections. Each optimized for its purpose.
 
@@ -14,9 +14,9 @@ A **projection** is a query-optimized view built from events. It's the "read sid
 ```mermaid
 flowchart LR
     subgraph events["Events (source of truth)"]
-        e1[HandStarted]
-        e2[PlayerActed]
-        e3[PotAwarded]
+        e1[RoundDealt]
+        e2[CardDealt]
+        e3[RoundSettled]
     end
 
     subgraph projectors["Projectors"]
@@ -25,7 +25,7 @@ flowchart LR
 
     subgraph projections["Projections (query-optimized)"]
         p1["Redis: live table state"]
-        p2["Postgres: hand history"]
+        p2["Postgres: round history"]
         p3["Elastic: player search"]
     end
 
@@ -44,7 +44,7 @@ Different consumers have different needs:
 | Consumer | Needs | Projection |
 |----------|-------|------------|
 | Table UI | Real-time state, low latency | Redis cache |
-| Hand history | Complete replay, searchable | Postgres with indexes |
+| Round history | Complete replay, searchable | Postgres with indexes |
 | Player search | Full-text, fuzzy matching | Elasticsearch |
 | Analytics | Aggregations, time series | Data warehouse |
 | Mobile app | Minimal payload, denormalized | Custom API cache |
@@ -71,12 +71,12 @@ class TableStateProjector:
             json.dumps({"player_id": event.player_id, "stack": event.stack})
         )
 
-    @handles("PlayerActed")
-    def on_player_acted(self, event: PlayerActed):
+    @handles("CardDealt")
+    def on_card_dealt(self, event: CardDealt):
         self.redis.hset(
             f"table:{event.table_id}",
             "last_action",
-            json.dumps({"player": event.player_id, "action": event.action_type})
+            json.dumps({"seat": event.seat, "card": card_name(event.card), "total": event.total})
         )
 ```
 
@@ -114,7 +114,7 @@ Projections are disposable—in theory. Schema change? Bug fix? Rebuild:
 
 ```bash title="illustrative - projection rebuild"
 # Clear and rebuild from event history
-angzarr projection rebuild --projector=projector-hand-history --from=0
+angzarr projection rebuild --projector=projector-round-history --from=0
 ```
 
 The event store is immutable. The projection is derived. You can always reconstruct.
@@ -138,8 +138,8 @@ For large projections, it may be cheaper to maintain and migrate them than to re
 The framework tracks each projector's position in the event stream:
 
 ```text title="illustrative - position tracking"
-Projector: projector-hand-history
-Domain: hand
+Projector: projector-round-history
+Domain: table
 Last processed: sequence 45,832
 Status: caught up
 ```
@@ -148,30 +148,30 @@ On restart, the projector resumes from its last position. No events missed, no d
 
 ---
 
-## Example: Hand History for Poker
+## Example: Round History for Blackjack
 
-```python title="illustrative - hand history projector"
-@domain("hand")
-class HandHistoryProjector(Projector):
-    name = "projector-hand-history"
+```python title="illustrative - round history projector"
+@domain("table")
+class RoundHistoryProjector(Projector):
+    name = "projector-round-history"
 
-    def __init__(self, store: HandHistoryStore):
+    def __init__(self, store: RoundHistoryStore):
         self.store = store
 
-    @handles("HandStarted")
-    def handle_hand_started(self, event: HandStarted):
-        self.store.open_hand(event.hand_id, event.table_id, event.timestamp, event.blinds)
+    @handles("RoundDealt")
+    def handle_round_dealt(self, event: RoundDealt, table_id: bytes):
+        self.store.open_round(table_id, event.round, event.hands, event.dealer_up)
 
-    @handles("PlayerActed")
-    def handle_player_acted(self, event: PlayerActed):
-        self.store.record_action(event.hand_id, event.player_id, event.action, event.amount, event.seq)
+    @handles("CardDealt")
+    def handle_card_dealt(self, event: CardDealt, table_id: bytes):
+        self.store.record_card(table_id, event.seat, event.card, event.total)
 
-    @handles("HandComplete")
-    def handle_hand_complete(self, event: HandComplete):
-        self.store.close_hand(event.hand_id, event.winner_id, event.pot, event.timestamp)
+    @handles("RoundSettled")
+    def handle_round_settled(self, event: RoundSettled, table_id: bytes):
+        self.store.close_round(table_id, event.round, event.outcomes, event.house_delta)
 ```
 
-The read model is a plain domain object — `HandHistoryStore` exposes business-oriented methods (`recent_hands_for(player_id)`, `actions_in(hand_id)`) and hides the storage backend. Projectors translate events into calls on that interface; callers query it through the same interface.
+The read model is a plain domain object — `RoundHistoryStore` exposes business-oriented methods (`recent_rounds_for(player_id)`, `cards_in(table_id, round)`) and hides the storage backend. Projectors translate events into calls on that interface; callers query it through the same interface.
 
 ---
 
@@ -187,16 +187,17 @@ class LeaderboardProjector(Projector):
     def on_player_registered(self, event: PlayerRegistered):
         self.create_player_entry(event.player_id)
 
-    @handles(HandComplete, input_domain="hand")
-    def on_hand_complete(self, event: HandComplete):
-        self.update_player_stats(event.winner_id, event.pot)
+    @handles(RoundSettled, input_domain="table")
+    def on_round_settled(self, event: RoundSettled):
+        for outcome in event.outcomes:
+            self.update_player_stats(outcome.player_root, outcome.net)
 ```
 
 Use sparingly. Multi-domain projectors often indicate a domain boundary issue.
 
 ---
 
-## Projection Patterns for Gaming
+## Projection Patterns for Card Tables
 
 | Pattern | Use Case | Implementation |
 |---------|----------|----------------|

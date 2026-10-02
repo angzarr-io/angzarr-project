@@ -32,15 +32,15 @@ Commands/events use PascalCase; domains use lowercase quoted strings.
 - **When** — the action under test, active voice
 - **Then** — assertion of outcome, declarative
 
-- Good: `Given a registered player "Alice"` / `When Alice folds` / `Then the response contains one FundsReleased event`
-- Bad: `Given I fold` / `When the response contains…` / `Then Alice is folding`
+- Good: `Given a registered player "Alice"` / `When "Alice" stands at seat 0` / `Then the response contains one HoldReleased event`
+- Bad: `Given I stand` / `When the response contains…` / `Then Alice is standing`
 
 ## 4. Temporal markers are acceptance-only
 
-`within N seconds` belongs in `example/acceptance/` only. Unit tiers are
+`within N seconds` belongs in `example/blackjack-acceptance/` only. Unit tiers are
 synchronous by contract — a temporal assertion there is a category error.
 
-- Good (acceptance): `Then within 3 seconds hand domain has CardsDealt event`
+- Good (acceptance): `Then within 3 seconds the ledger shows "Alice" with a bankroll of 500`
 - Bad (unit): `Then within 100ms the handler emits OrderCreated`
 
 ## 5. Command invocation phrasing differs by tier
@@ -58,8 +58,8 @@ Keep the style consistent within one feature file.
 - `has` — observable state reflects this
 - `triggers` — cross-domain chain occurred (acceptance)
 
-- Good: `Then the saga emits a DealCards command`, `Then Alice has stack 495`
-- Bad: `Then Alice emits stack 495`, `Then the saga has a DealCards`
+- Good: `Then the saga emits an AddChips command`, `Then Alice has stack 495`
+- Bad: `Then Alice emits stack 495`, `Then the saga has an AddChips`
 
 ## 7. Tables use `|` with a key column first
 
@@ -95,8 +95,8 @@ scenarios in main without a tracking issue.
 
 ## 12. Domain vocabulary is tier-bound
 
-- `features/client/` — only `Order`, `Payment`, `Inventory`, `Shipping`. No poker.
-- `features/example/` — only poker types.
+- `features/client/` — only `Order`, `Payment`, `Inventory`, `Shipping`. No blackjack.
+- `features/example/` — only blackjack types.
 
 Mixing poisons the shared vocabulary for consumer repos.
 
@@ -130,7 +130,7 @@ in the Contracts workflow for `features/client`,
 
 ## 17. Tier domain purity
 
-Client tier feature files import zero poker concepts. Example tier feature
+Client tier feature files import zero blackjack concepts. Example tier feature
 files import zero generic `Order`/`Payment` concepts. A scenario that
 genuinely spans both belongs in a different test — probably pytest/unit
 integration — not cucumber.

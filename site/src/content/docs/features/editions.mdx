@@ -119,29 +119,26 @@ delete_edition_events(domain="trading", edition=edition.name)
 
 ---
 
-## Example: Training a Poker Bot
+## Example: What If the Player Had Hit?
 
-```python title="illustrative - training data generation"
-# Generate training data from alternate game outcomes
-for hand_id in sample_hands(n=10000):
-    for alternate_action in possible_actions(hand_id):
-        edition = Edition(name=f"train-{hand_id}-{alternate_action}")
+The blackjack example replays a round with a different decision. Branch the table just before the player's stand, hit instead, and compare the outcome — the real table never changes.
 
-        result = speculate(
-            command=PlayerAction(
-                hand_id=hand_id,
-                action=alternate_action,
-            ),
-            edition=edition,
-        )
+```python title="illustrative - what-if replay of a round"
+# Compare standing with hitting for every recorded decision point
+for table_id, seq in decision_points(n=10000):   # each stand a player made
+    edition = Edition(name=f"whatif-{table_id.hex()}-{seq}", divergence=seq)
 
-        # Extract features and outcomes for PyTorch
-        training_sample = extract_features(result)
-        dataset.append(training_sample)
+    hit = speculate(command=Hit(seat=seat_at(table_id, seq)), domain="table", root=table_id, edition=edition)
+    stand = speculate(command=Stand(seat=seat_at(table_id, seq)), domain="table", root=table_id, edition=edition)
 
-        # Cleanup this branch
-        delete_edition_events(domain="hand", edition=edition.name)
+    # Record which decision would have done better (e.g. as training data)
+    dataset.append(compare_outcomes(hit, stand))
+
+    # Cleanup this branch
+    delete_edition_events(domain="table", edition=edition.name)
 ```
+
+Because every shoe is recorded in full when it is shuffled, both branches deal exactly the cards the real table would have dealt.
 
 ---
 

@@ -35,10 +35,10 @@ Prefer one team per bounded context. When a team must own multiple contexts, mak
 
 Teams track bounded context membership via K8s labels, not framework enforcement.
 
-**Example:** In a poker system, a "Game Operations" bounded context (one team, shared language) might contain:
+**Example:** In a blackjack system, a "Game Operations" bounded context (one team, shared language) might contain:
 - `player` domain (Player aggregate)
 - `table` domain (Table aggregate)
-- `hand` domain (Hand aggregate)
+- `buy-in` domain (buy-in process manager)
 
 These are three Angzarr domains within one bounded context.
 

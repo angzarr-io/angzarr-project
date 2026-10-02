@@ -127,18 +127,46 @@ All six implementations share the same Gherkin specifications, ensuring identica
 
 ## Quick Example
 
-Every aggregate — `player`, `table`, `hand`, `tournament`, etc. — is a class derived from the client library's `CommandHandler<State>`. `@handles(CommandType)` methods produce events; `@applies(EventType)` methods reduce events into state. The same pattern in all six languages.
+Every aggregate — in the example, `player` and `table` — is a class derived from the client library's `CommandHandler<State>`. `@handles(CommandType)` methods produce events; `@applies(EventType)` methods reduce events into state. The same pattern in all six languages.
 
 <Tabs>
 <TabItem label="Python">
 
-```python file=vendor/examples/python/table/agg/handlers/table.py region=handlers
+```python title="illustrative - blackjack table aggregate (excerpt)"
+class Table(CommandHandler[TableState]):
+    @handles(table_pb2.PlaceBet)
+    def handle_place_bet(self, cmd: table_pb2.PlaceBet) -> table_pb2.BetPlaced:
+        seat = self.state.seated.get(cmd.seat)
+        if seat is None:
+            raise CommandRejectedError("NOT_SEATED")
+        if self.state.phase == TableState.PHASE_PLAYER_TURNS:
+            raise CommandRejectedError("ROUND_IN_PROGRESS")
+        if seat.wager:
+            raise CommandRejectedError("ALREADY_BET")
+        if cmd.amount % 2 or not self.state.min_bet <= cmd.amount <= self.state.max_bet:
+            raise CommandRejectedError.invalid_argument("BET_OUT_OF_RANGE")
+        if cmd.amount > seat.stack:
+            raise CommandRejectedError("INSUFFICIENT_STACK")
+        return table_pb2.BetPlaced(
+            round=self.state.round + 1,
+            seat=cmd.seat,
+            player_root=seat.player_root,
+            amount=cmd.amount,
+            stack_after=seat.stack - cmd.amount,
+        )
+
+    @applies(table_pb2.BetPlaced)
+    def apply_bet_placed(self, state: TableState, event: table_pb2.BetPlaced) -> None:
+        seat = state.seated[event.seat]
+        seat.stack = event.stack_after
+        seat.wager = event.amount
+        state.phase = TableState.PHASE_BETTING
 ```
 
 </TabItem>
 </Tabs>
 
-Handler method name mirrors the proto command type in the language's idiomatic casing: `handle_create_table`, `HandleCreateTable`, `CreateTableHandler`.
+Handler method name mirrors the proto command type in the language's idiomatic casing: `handle_place_bet`, `HandlePlaceBet`, `PlaceBetHandler`.
 
 **No database code. No message bus code. Just business logic.**
 
@@ -150,7 +178,7 @@ If you're evaluating Angzarr for your organization:
 
 - **[Technical Pitch](/pitch)** — Complete architectural pitch with detailed rationale
 - **[Architecture](./architecture)** — Core concepts: data model, coordinators, sync modes
-- **[Why Poker](/examples/why-poker)** — Why our example domain exercises every pattern
+- **[Why Blackjack](/examples/why-blackjack)** — Why our example domain exercises every pattern
 
 ---
 

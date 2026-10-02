@@ -37,10 +37,10 @@ Domain and bounded context are different concepts:
 | **Scope** | One aggregate | Many aggregates (many domains) |
 | **Defines** | Deployment, routing, event streams | Team ownership, ubiquitous language |
 
-**Example:** In a poker system, a "Game Operations" team might own:
+**Example:** In a blackjack system, a "Game Operations" team might own:
 - `player` domain (Player aggregate)
 - `table` domain (Table aggregate)
-- `hand` domain (Hand aggregate)
+- `buy-in` domain (buy-in process manager)
 
 All three domains belong to one bounded context because one team owns them with shared language.
 
