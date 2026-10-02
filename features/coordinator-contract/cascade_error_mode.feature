@@ -38,7 +38,7 @@ Feature: Cascade error mode - failures of synchronous downstream reactions
       | ReserveSaga    | ReserveStock   | inventory |
       | ChargeSaga     | CapturePayment | payment   |
       | NotifySaga     | SendReceipt    | shipping  |
-    And the payment aggregate rejects CapturePayment with reason "card declined"
+    And the payment aggregate rejects CapturePayment with code "CARD_DECLINED" and message "card declined"
     And the inventory aggregate undoes ReserveStock and the shipping aggregate undoes SendReceipt
 
   @C-0436
@@ -77,7 +77,7 @@ Feature: Cascade error mode - failures of synchronous downstream reactions
     And the compensated events remain visible
     And no Compensate notification is recorded for a reaction command that its target did not execute successfully
     And no Compensate notification is sent to the "payment" aggregate
-    And a RejectionNotification for the rejected CapturePayment command with reason "card declined" is delivered to the "order" aggregate
+    And a RejectionNotification for the rejected CapturePayment command with code "CARD_DECLINED" and rejection_reason "card declined" is delivered to the "order" aggregate
     And the OrderCreated event remains persisted
 
   @C-0480
@@ -116,7 +116,7 @@ Feature: Cascade error mode - failures of synchronous downstream reactions
   @C-0471
   Scenario Outline: A rejected reaction command's notification reaches its source under every cascade_error_mode
     When a CreateOrder command is handled with sync_mode CASCADE and cascade_error_mode <mode>
-    Then a RejectionNotification for the rejected CapturePayment command with reason "card declined" is recorded in the compensation outbox
+    Then a RejectionNotification for the rejected CapturePayment command with code "CARD_DECLINED" and rejection_reason "card declined" is recorded in the compensation outbox
     And the RejectionNotification is delivered to the "order" aggregate's HandleCompensation
 
     Examples:

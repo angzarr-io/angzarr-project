@@ -38,17 +38,17 @@ Feature: Compensation delivery - Notifications through the coordinator outbox
 
   @C-0462
   Scenario: A rejected saga command's notification is recorded before the triggering event is acknowledged
-    Given the inventory aggregate rejects ReserveStock with reason "out of stock"
+    Given the inventory aggregate rejects ReserveStock with code "OUT_OF_STOCK" and message "out of stock"
     When the OrderCreated event for "order-1" at sequence 0 is delivered to the saga
     Then a RejectionNotification addressed to the "order" aggregate "order-1" is recorded in the compensation outbox
     And the outbox record is written before the OrderCreated delivery is acknowledged
-    And the recorded notification carries the rejected ReserveStock command and rejection_reason "out of stock"
+    And the recorded notification carries the rejected ReserveStock command, code "OUT_OF_STOCK" and rejection_reason "out of stock"
 
   @C-0472
   Scenario Outline: A rejected saga command's notification reaches its source in every sync mode
-    Given the inventory aggregate rejects ReserveStock with reason "out of stock"
+    Given the inventory aggregate rejects ReserveStock with code "OUT_OF_STOCK" and message "out of stock"
     When a CreateOrder command for "order-1" is handled with sync_mode <sync_mode>
-    Then a RejectionNotification for the rejected ReserveStock command with reason "out of stock" is delivered to the "order" aggregate "order-1"
+    Then a RejectionNotification for the rejected ReserveStock command with code "OUT_OF_STOCK" and rejection_reason "out of stock" is delivered to the "order" aggregate "order-1"
 
     Examples:
       | sync_mode |
@@ -57,9 +57,24 @@ Feature: Compensation delivery - Notifications through the coordinator outbox
       | SIMPLE    |
       | CASCADE   |
 
+  @C-0505
+  Scenario: The rejection code and message are carried in separate fields
+    Given the inventory aggregate rejects ReserveStock with code "OUT_OF_STOCK" and message "only 2 left of sku-1"
+    When the OrderCreated event for "order-1" at sequence 0 is delivered to the saga
+    Then the recorded RejectionNotification's code is "OUT_OF_STOCK"
+    And its rejection_reason is "only 2 left of sku-1"
+    And its rejection_reason does not contain "OUT_OF_STOCK"
+
+  @C-0506
+  Scenario: A rejection without ErrorInfo carries an empty code
+    Given the inventory aggregate rejects ReserveStock with message "out of stock" and no ErrorInfo
+    When the OrderCreated event for "order-1" at sequence 0 is delivered to the saga
+    Then the recorded RejectionNotification's code is empty
+    And its rejection_reason is "out of stock"
+
   @C-0463
   Scenario: A notification that cannot be recorded leaves the trigger unacknowledged
-    Given the inventory aggregate rejects ReserveStock with reason "out of stock"
+    Given the inventory aggregate rejects ReserveStock with code "OUT_OF_STOCK" and message "out of stock"
     And the compensation outbox cannot be written
     When the OrderCreated event for "order-1" at sequence 0 is delivered to the saga
     Then the OrderCreated delivery is not acknowledged

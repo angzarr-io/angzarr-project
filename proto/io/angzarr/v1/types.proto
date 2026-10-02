@@ -520,17 +520,28 @@ message Notification {
 // URL "/io.angzarr.v1.Notification"; consumers match the name after the last
 // '/') and whose header is angzarr_deferred carrying the rejected
 // command's source, source_seq, source_component and command_index. With
-// kind rejection-notification, that tuple is the delivery's deduplication key. The CommandBook is delivered
+// kind rejection-notification, that tuple is the delivery's deduplication
+// key. The CommandBook is delivered
 // from the compensation outbox (see Notification) to the source domain's
 // CommandHandlerCoordinatorService.HandleCompensation, which invokes
 // CommandHandlerService.Handle; the handler answers with a BusinessResponse
 // (compensation events, a RevocationResponse, or a Notification forwarded
 // upstream). Handlers select compensation logic by the pair
 // (rejected_command.cover.domain, rejected command type).
+//
+// Why the command was rejected is carried twice, for two readers:
+//   code             — machine code for compensation logic (e.g.
+//                      "INSUFFICIENT_FUNDS"); compensation handlers branch on
+//                      this field and never parse rejection_reason
+//   rejection_reason — human-readable message for logs, dead letters, UIs
+// The coordinator copies `code` from the google.rpc.ErrorInfo.reason in the
+// rejecting handler's status details and `rejection_reason` from the status
+// message. A rejection without ErrorInfo has an empty code.
 message RejectionNotification {
   CommandBook rejected_command = 1; // The command that was rejected (full context)
-  string rejection_reason = 2; // Why: "insufficient_funds", "out_of_stock", etc.
+  string rejection_reason = 2; // Human-readable rejection message (status message)
   reserved 3, 4, 5, 6;
+  string code = 7; // Machine rejection code (ErrorInfo.reason); empty when the rejection carried none
 }
 // endregion
 

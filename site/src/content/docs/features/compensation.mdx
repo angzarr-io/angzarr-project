@@ -96,6 +96,17 @@ The aggregate decides the business response. The framework ensures the notificat
 
 ---
 
+## Rejection Code and Message
+
+A `RejectionNotification` carries the reason twice:
+
+| Field | For | Source |
+|-------|-----|--------|
+| `code` | Compensation logic — branch on it | `ErrorInfo.reason` in the rejecting handler's gRPC status (e.g. `INSUFFICIENT_BALANCE`); empty if the rejection carried none |
+| `rejection_reason` | People — logs, dead letters, UIs | The status message (e.g. `"balance 40 below buy-in 100"`) |
+
+Compensation handlers read `code`; they never parse `rejection_reason`, which is free text and may change wording at any time.
+
 ## RevocationResponse Options
 
 When handling a rejection, you can specify additional actions:
@@ -111,9 +122,9 @@ def handle_reserve_failed(self, notification: Notification):
     rejection = RejectionNotification()
     notification.payload.Unpack(rejection)
 
-    if rejection.rejection_reason == "insufficient_balance":
+    if rejection.code == "INSUFFICIENT_BALANCE":
         # Return event directly—framework auto-applies it
-        return PlayerSatOut(reason="insufficient_funds")
+        return PlayerSatOut(reason=rejection.code)
     else:
         # Delegate to framework for DLQ/escalation
         return delegate_to_framework(
