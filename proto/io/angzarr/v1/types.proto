@@ -7,9 +7,10 @@ package io.angzarr.v1;
 
 import "google/protobuf/any.proto";
 import "google/protobuf/timestamp.proto";
-// Sentry-compat structured stack-trace + error-chain capture lives in
-// the sererr project (sererr.fyi). Build chains include sererr's
-// proto root via -I so this import resolves.
+// Sentry-compat structured stack-trace + error-chain capture from the sererr
+// project (sererr.fyi). The schema is vendored in this repo at
+// proto/sererr/v1/sererr.proto and resolves from the same proto root as
+// this file.
 import "sererr/v1/sererr.proto";
 
 option csharp_namespace = "Angzarr";
@@ -18,17 +19,28 @@ option java_multiple_files = true;
 option java_package = "io.angzarr";
 option ruby_package = "Angzarr";
 
+// Type URLs. Every google.protobuf.Any an Angzarr implementation emits uses
+// the type URL "/" + the message's fully-qualified name (TYPE_URL_PREFIX =
+// "/"), e.g. "/io.angzarr.v1.Notification", "/orders.OrderCreated". Readers
+// accept any prefix: a type URL identifies the message whose fully-qualified
+// name is the text after its last "/", so "type.googleapis.com/orders.OrderCreated",
+// "/orders.OrderCreated" and "orders.OrderCreated" all name the same message.
+// Matching compares full names exactly: "orders.OrderCreated" never matches
+// "OrderCreated" or "orders.v2.OrderCreated".
+
 message UUID {
   bytes value = 1;
 }
 
 // region cover
 message Cover {
-  string domain = 2;
+  string domain = 2; // Domain name; never contains ':' (the root-derivation separator)
   UUID root = 1;
   string correlation_id = 3; // Workflow correlation - flows through all commands/events
-  Edition edition = 4; // Edition for diverged timelines; empty name = main timeline
+  Edition edition = 4; // Edition for diverged timelines; unset or empty name = main timeline
   // Field 5 removed: external_id moved to ExternalDeferredSequence in PageHeader
+  reserved 5;
+  reserved "external_id";
   // Client-supplied extension slot. Most consumers pack a nested
   // ``Cover`` here to express parent-aggregate relationships (e.g.
   // table events carry the tournament Cover; hand events carry the
@@ -48,12 +60,17 @@ message Cover {
 // region edition
 // Edition identifier with optional explicit divergence points.
 //
+// Main timeline: its canonical name is "angzarr" (the DEFAULT_EDITION
+// constant). On the wire it is sent as an unset Edition or an empty name;
+// every reader treats "", unset and "angzarr" as the same timeline, and
+// storage keys all three identically.
+//
 // Two modes:
 // - Implicit (divergences empty): Divergence derived from first edition event's sequence
 // - Explicit (divergences populated): Per-domain divergence points for historical branching,
 //  saga coordination, or speculative execution
 message Edition {
-  string name = 1; // Edition name, e.g., "v2"; empty = main timeline
+  string name = 1; // Edition name, e.g., "v2"; empty (or "angzarr") = main timeline
   repeated DomainDivergence divergences = 2; // Optional: explicit per-domain divergence points
 }
 
@@ -68,8 +85,12 @@ message DomainDivergence {
 // region sync_mode
 // Controls synchronous processing behavior.
 //
+// Default: ASYNC. SYNC_MODE_UNSPECIFIED (the zero value) is treated as ASYNC.
+//
 // Impact ordering (lowest to highest):
 //   ASYNC  < DECISION < SIMPLE < CASCADE
+// ISOLATED sits outside this ordering: it persists synchronously but
+// suppresses every downstream reaction, sync or async.
 //
 // Primary caller of DECISION is process managers coordinating cross-aggregate
 // flows: the PM issues a command to the target aggregate and needs to know
@@ -78,41 +99,85 @@ message DomainDivergence {
 // (events persisted + returned) and reject path (CommandRejectedError) are
 // both observable; everything downstream runs asynchronously.
 enum SyncMode {
-  SYNC_MODE_ASYNC = 0; // Async: fire and forget (default)
-  SYNC_MODE_SIMPLE = 1; // Sync projectors only, no saga cascade
-  SYNC_MODE_CASCADE = 2; // Full sync: projectors + saga cascade (expensive)
-  SYNC_MODE_DECISION = 3; // Sync aggregate accept/reject only; projectors + sagas run async
-  SYNC_MODE_ISOLATED = 4; // Sync accept/reject + persist; NO downstream (sync OR async). Replay / migration / recovery writes that must not trigger reactions. Distinct from DECISION (which still publishes to bus for async downstream).
+  SYNC_MODE_UNSPECIFIED = 0; // Unset — the server treats it as the documented default (Async)
+  SYNC_MODE_ASYNC = 1; // Async: fire and forget (default)
+  SYNC_MODE_SIMPLE = 2; // Sync projectors only, no saga cascade
+  SYNC_MODE_CASCADE = 3; // Full sync: projectors + saga cascade (expensive)
+  SYNC_MODE_DECISION = 4; // Sync aggregate accept/reject only; projectors + sagas run async
+  SYNC_MODE_ISOLATED = 5; // Sync accept/reject + persist; NO downstream (sync OR async). Replay / migration / recovery writes that must not trigger reactions. Distinct from DECISION (which still publishes to bus for async downstream).
 }
 // endregion
 
 // region cascade_error_mode
 // Controls how CASCADE mode handles errors from sagas/PMs.
 // Only relevant when sync_mode = CASCADE.
+// Default: FAIL_FAST. CASCADE_ERROR_UNSPECIFIED (the zero value) is treated as FAIL_FAST.
+//
+// Ordering: CASCADE gives no ordering guarantee among the reactions to one
+// event, in-process or in-cluster. Reactions may run in any order or
+// concurrently, so which reactions have executed when one fails is not
+// defined; every mode is specified only by order-independent outcomes.
+// In every mode a rejected reaction command's RejectionNotification is
+// delivered to its source.
 enum CascadeErrorMode {
-  CASCADE_ERROR_FAIL_FAST = 0; // Stop on first error, fail request (default)
-  CASCADE_ERROR_CONTINUE = 1; // Continue through all, return successes + errors
-  CASCADE_ERROR_COMPENSATE = 2; // On first error, compensate executed commands, fail request
-  CASCADE_ERROR_DEAD_LETTER = 3; // On error, send to DLQ and continue with remaining
+  CASCADE_ERROR_UNSPECIFIED = 0; // Unset — the server treats it as the documented default (FailFast)
+  // Fail the request with the failure's reason (default). Reactions not yet
+  // started may be skipped; reactions that ran keep their effects.
+  CASCADE_ERROR_FAIL_FAST = 1;
+  CASCADE_ERROR_CONTINUE = 2; // Run every reaction; succeed and report each failure
+  // Fail the request and compensate every reaction command that executed
+  // successfully in it: one Compensate notification per such command,
+  // recorded before the response and delivered to the command's target
+  // through the coordinator's compensation outbox (see Notification).
+  CASCADE_ERROR_COMPENSATE = 3;
+  CASCADE_ERROR_DEAD_LETTER = 4; // Dead-letter each failure, run every other reaction, succeed
 }
 // endregion
 
 // region merge_strategy
-// Controls how concurrent commands to the same aggregate are handled
+// Controls how the aggregate coordinator treats a command whose expected
+// sequence differs from the aggregate's next_sequence (a stale command).
+// Default: COMMUTATIVE. MERGE_UNSPECIFIED (the zero value) is treated as COMMUTATIVE.
+//
+// Merge strategies apply only to commands that carry an explicit expected
+// sequence (PageHeader.sequence) — commands from external clients, or a
+// saga/PM command that deliberately sets one. Deferred commands
+// (PageHeader.angzarr_deferred) carry no expected version: they are never
+// sequence- or merge-checked under any strategy, are appended at the
+// destination head, and are guarded only by the destination handler's own
+// validation and by their idempotency key.
+//
+// The concurrency window is the run of events the command did not see:
+// sequences expected .. next_sequence-1.
+//
+// COMMUTATIVE: the command runs against current state; the state fields its
+// events change are compared (via CommandHandlerService.Replay) with the
+// fields changed inside the window. Disjoint changes are persisted; an
+// overlap rejects with a retryable FAILED_PRECONDITION. A handler without
+// Replay gets STRICT behaviour.
+// STRICT: any mismatch rejects with a retryable FAILED_PRECONDITION.
+// AGGREGATE_HANDLES: no coordinator check; the handler receives the full
+// prior history and decides.
+// MANUAL: a mismatch is published to the dead letter queue and rejected
+// with a non-retryable ABORTED.
 enum MergeStrategy {
-  MERGE_COMMUTATIVE = 0; // Default: allow if state field mutations don't overlap
-  MERGE_STRICT = 1; // Reject if sequence mismatch (optimistic concurrency)
-  MERGE_AGGREGATE_HANDLES = 2; // Aggregate handles its own concurrency
-  MERGE_MANUAL = 3; // Send to DLQ for manual review on mismatch
+  MERGE_UNSPECIFIED = 0; // Unset — the server treats it as the documented default (Commutative)
+  MERGE_COMMUTATIVE = 1; // Default: merge unless changed fields overlap the window
+  MERGE_STRICT = 2; // Reject on sequence mismatch (optimistic concurrency)
+  MERGE_AGGREGATE_HANDLES = 3; // Aggregate handles its own concurrency
+  MERGE_MANUAL = 4; // Dead-letter for manual review on mismatch
 }
 // endregion
 
 // region snapshot_retention
-// Controls snapshot retention during cleanup
+// Decides which snapshots of an aggregate (domain, edition, root) survive
+// when a newer snapshot of it is written. The newest snapshot is never
+// deleted, and reads always use the newest snapshot. The retention a handler
+// sets on its snapshot is persisted unchanged.
 enum SnapshotRetention {
-  RETENTION_DEFAULT = 0; // Persist every 16 events, treated as TRANSIENT otherwise
+  RETENTION_DEFAULT = 0; // Same as TRANSIENT: deleted when a newer snapshot is written
   RETENTION_PERSIST = 1; // Keep indefinitely (business milestone)
-  RETENTION_TRANSIENT = 2; // Delete when newer snapshot written
+  RETENTION_TRANSIENT = 2; // Delete when a newer snapshot is written
 }
 // endregion
 
@@ -148,7 +213,7 @@ message PayloadReference {
 // Encodes sequence type and provenance for framework processing.
 message PageHeader {
   oneof sequence_type {
-    uint32 sequence = 1; // Explicit sequence (aggregate handlers, legacy)
+    uint32 sequence = 1; // Explicit sequence: client commands and persisted events
     ExternalDeferredSequence external_deferred = 2; // External fact (Stripe, FedEx, etc.)
     AngzarrDeferredSequence angzarr_deferred = 3; // Saga-produced command/fact
   }
@@ -170,25 +235,48 @@ message ExternalDeferredSequence {
   string description = 2; // Human-readable origin (e.g., "Stripe webhook")
 }
 
-// For saga-produced commands and facts.
-// Framework stamps sequence on delivery; idempotency derived from source info.
-// Rejections route back to source aggregate.
+// Provenance header for commands (and facts) emitted by sagas and process
+// managers. A deferred command has no expected version: the destination
+// appends it at its head with no sequence or merge-strategy check of any
+// kind; the destination handler's own validation is the only business
+// guard, and the idempotency key below is the duplicate guard. Rejections
+// route back to `source`.
 //
-// The idempotency key is the full tuple (source, source_seq, source_component,
-// command_index). source/source_seq alone identify only the triggering event:
-// one invocation emitting several commands at the same destination — or two
-// components reacting to the same event — would collide and silently drop all
-// but the first command on redelivery.
+// The emitter (the client router dispatching the saga/PM) sets:
+//   source        — cover of the EventBook that triggered the handler
+//   source_seq    — sequence of the triggering event
+//   command_index — position of the command in the invocation's output
+// The coordinator fills `source` when empty, always stamps
+// `source_component`, and re-stamps `command_index` from the emission order.
+//
+// A saga/PM command that sets an explicit PageHeader.sequence instead is
+// validated by the destination exactly like a client command under its merge
+// strategy. Such a command forgoes deferred provenance: it has no idempotency
+// key and its rejection cannot be routed back for compensation.
+//
+// The idempotency key at the destination is (kind, source, source_seq,
+// source_component, command_index), where kind is what the header is attached
+// to: command (a deferred command), rejection-notification or
+// compensate-notification (a Notification delivery envelope carrying that
+// payload; see Notification). source/source_seq alone identify only the
+// triggering event: one invocation emitting several commands at the same
+// destination — or two components reacting to the same event — would collide
+// and silently drop all but the first command on redelivery. kind keeps a
+// notification about a command distinct from the command itself: a Compensate
+// envelope carries the provenance tuple of the command it undoes and must
+// never be dropped as a duplicate of that command.
 message AngzarrDeferredSequence {
   Cover source = 1; // Full source aggregate (domain + root + edition) - rejection routes here
   uint32 source_seq = 2; // Sequence of the triggering event
-  // Registered name of the producing component (saga/PM). Framework-stamped;
-  // handlers never set this. Empty on pre-upgrade messages.
+  // Registered name of the producing component (saga/PM). Coordinator-stamped;
+  // emitters leave it empty.
   string source_component = 3;
-  // Position of this command within the invocation's emitted command list.
-  // Framework-stamped from the emission order; disambiguates multiple
-  // commands produced by one (source, source_seq) trigger.
+  // Position of this command within the invocation's emitted command list;
+  // disambiguates multiple commands produced by one (source, source_seq)
+  // trigger.
   uint32 command_index = 4;
+  reserved 5;
+  reserved "basis_seq";
 }
 // endregion
 
@@ -201,10 +289,11 @@ message EventPage {
     PayloadReference external = 4; // Claim check: payload stored externally
   }
   // Field 5 removed: FactSequence replaced by PageHeader.external_deferred
+  reserved 5;
+  reserved "fact_sequence";
 
-  // Two-phase commit support (Phase 1: 2PC Storage Model)
-  bool no_commit = 6;             // true = pending 2PC (cascade), needs Confirmation; false (default) = immediately committed
-  optional string cascade_id = 7; // Groups related pending events for atomic commit/rollback (null if not in cascade)
+  reserved 6, 7;
+  reserved "no_commit", "cascade_id";
 }
 // endregion
 
@@ -212,16 +301,15 @@ message EventPage {
 // Snapshot of aggregate state at a given sequence number.
 // State must be a protobuf Message to serialize into Any.
 message Snapshot {
+  // Field 1 removed pre-v0.1.0; original name not recorded.
+  reserved 1;
   uint32 sequence = 2;
   google.protobuf.Any state = 3;
   SnapshotRetention retention = 4; // Controls cleanup behavior
-  // Wall-clock timestamp the snapshot was persisted. Used by
-  // temporal-by-time queries to decide whether the snapshot's
-  // event coverage predates the target timestamp (snapshot is safe
-  // to use iff created_at <= target). Absent on snapshots persisted
-  // before this field existed; readers MUST treat absent as
-  // "do not use this snapshot for temporal-by-time" (safe full-replay
-  // fallback).
+  // Wall-clock timestamp the snapshot was persisted. A TemporalQuery
+  // as_of_time T may start from this snapshot iff created_at is set and
+  // <= T (see TemporalQuery). Readers treat an absent created_at as "not
+  // usable for as_of_time".
   google.protobuf.Timestamp created_at = 5;
 }
 // endregion
@@ -233,20 +321,27 @@ message EventBook {
   repeated EventPage pages = 3;
   // Field 4 removed: correlation_id moved to Cover
   // Field 5 removed: snapshot_state unified into snapshot field
+  reserved 4, 5;
+  reserved "correlation_id", "snapshot_state";
   uint32 next_sequence = 6; // Computed on load, never stored: (last page seq OR snapshot seq if no pages) + 1
 }
 // endregion
 
 // Request wrapper for event operations (fact injection).
-// Adds execution metadata (sync_mode, route_to_handler) to EventBook.
+// Adds execution metadata (sync_mode, skip_handler) to EventBook.
 message EventRequest {
   EventBook events = 1;
   SyncMode sync_mode = 2;
-  // For fact injection: when true (default), invokes command handler's handle_fact for
-  // validation/error checking before persistence. Facts cannot be rejected, but
-  // the handler can validate data integrity and log warnings.
-  // When false, facts are persisted directly without handler involvement.
-  bool route_to_handler = 3;
+  // Tag 3 (route_to_handler) must never be reused: skip_handler has the
+  // inverted meaning, so sharing a tag would flip it for old wire bytes.
+  reserved 3;
+  reserved "route_to_handler";
+  // For fact injection: zero value (false/unset) routes the fact through the
+  // aggregate's handle_fact for validation/error checking before persistence
+  // (safe default). Facts cannot be rejected, but the handler can validate
+  // data integrity and log warnings. When true, facts are persisted directly
+  // without handler invocation (projector-originated writes).
+  bool skip_handler = 4;
 }
 
 message Projection {
@@ -271,6 +366,8 @@ message CommandBook {
   // Field 3 removed: correlation_id moved to Cover
   // Field 4 removed: saga_origin moved to PageHeader.angzarr_deferred
   // Field 5 removed: 'fact' was unused
+  reserved 3, 4, 5;
+  reserved "correlation_id", "saga_origin", "fact";
 }
 
 // Request wrapper for command operations.
@@ -279,7 +376,8 @@ message CommandRequest {
   CommandBook command = 1;
   SyncMode sync_mode = 2;
   CascadeErrorMode cascade_error_mode = 3; // How to handle saga/PM errors in CASCADE mode
-  optional string cascade_id = 4;          // If set, enables 2PC: events written with committed=false
+  reserved 4;
+  reserved "cascade_id";
 }
 
 message ContextualCommand {
@@ -306,7 +404,17 @@ message SequenceSet {
 }
 
 // Temporal query: retrieve aggregate state at a point in history.
-// Replays events from sequence 0 (no snapshots) to the specified point.
+//
+// The returned EventBook may start from a snapshot instead of sequence 0,
+// but only from one that cannot contain state from after the point:
+// - as_of_sequence N: a snapshot with sequence <= N, followed by pages
+//   snapshot.sequence+1 .. N.
+// - as_of_time T: a snapshot whose created_at is set and <= T, followed by
+//   pages after snapshot.sequence with created_at <= T. A snapshot without
+//   created_at is never used for as_of_time.
+// Without a qualifying snapshot the book carries no snapshot and every page
+// from 0 up to the point. Either way, folding the book yields the same state
+// as a full replay to the point.
 message TemporalQuery {
   oneof point_in_time {
     google.protobuf.Timestamp as_of_time = 1; // Events with created_at <= this
@@ -320,6 +428,7 @@ message Query {
   // Query by correlation: Cover { domain, correlation_id }
   Cover cover = 1;
   // Field 2 removed: now use cover.root
+  reserved 2;
   oneof selection {
     SequenceRange range = 3;
     SequenceSet sequences = 4;
@@ -339,31 +448,57 @@ message EventStreamFilter {
 }
 // endregion
 
-// SagaCommandOrigin removed - replaced by AngzarrDeferredSequence in PageHeader
-// - triggering_aggregate → PageHeader.angzarr_deferred.source
-// - triggering_event_sequence → PageHeader.angzarr_deferred.source_seq
-// - saga_name removed (source aggregate handles compensation)
-
 // ============================================================================
-// Notifications - Non-persisted messages for signaling
+// Notifications - compensation signals delivered to aggregates
 // ============================================================================
 //
 // Notifications differ from Events in key ways:
-// - NOT persisted to event store (ephemeral)
+// - NEVER persisted to the target's event stream; only the events its
+//   compensation handler emits in response are persisted
 // - NO sequence numbers (not ordered within an aggregate)
-// - NO event sourcing replay (fire-and-forget)
-// - Used for: compensation signals, real-time alerts, system warnings
+// - NO event sourcing replay
+//
+// Compensation delivery. A Notification is a durable obligation of the
+// coordinator that raises it:
+// - Raised when a saga/PM command is rejected (payload RejectionNotification,
+//   target = the command's angzarr_deferred.source) or when a CASCADE
+//   request with CASCADE_ERROR_COMPENSATE must undo a reaction command that
+//   executed successfully (payload Compensate, target = that command's cover).
+// - The coordinator records the obligation in its compensation outbox before
+//   it acknowledges the trigger (the triggering event delivery, or the
+//   CASCADE request's response). A recorded obligation survives a
+//   coordinator restart.
+// - It is delivered at least once, as the delivery-envelope CommandBook
+//   described on RejectionNotification, to the target domain's
+//   CommandHandlerCoordinatorService.HandleCompensation; failed deliveries
+//   are retried with backoff and, once the coordinator's configured outbox
+//   retry budget is exhausted, the envelope is dead-lettered
+//   (AngzarrDeadLetter with compensation_delivery_failed details) and the
+//   obligation is closed. A delivery answered UNIMPLEMENTED (the target has
+//   no handler for the notification) is not retried: it is dead-lettered on
+//   that attempt.
+// - The target deduplicates deliveries by (kind, source, source_seq,
+//   source_component, command_index) — see AngzarrDeferredSequence — with
+//   kind rejection-notification or compensate-notification: a redelivered
+//   notification does not invoke the compensation handler again and returns
+//   the events of the first delivery. A notification is never deduplicated
+//   against a command with the same provenance tuple.
+// - A rejection always reaches its source, in every sync mode. Under
+//   CASCADE_ERROR_COMPENSATE a failed CASCADE request raises both the
+//   rejected reaction command's RejectionNotification (to its source) and a
+//   Compensate notification for every reaction command that executed
+//   successfully (to that command's target).
 //
 // Notifications reuse Cover for routing (domain, root, correlation_id) but
 // lack EventPage's sequence semantics.
 
 // region notification
-// Base notification message for transient system signals.
-// Contains routing info via Cover but no persistence semantics.
-// Type discrimination via payload.type_url (standard Any behavior).
+// Compensation signal addressed to one aggregate. Routed by cover; never
+// persisted to the aggregate's event stream. Type discrimination via
+// the message name after the last "/" of payload.type_url.
 message Notification {
   Cover cover = 1; // Routing: domain, root, correlation_id
-  google.protobuf.Any payload = 2; // Type-specific content (RejectionNotification, etc.)
+  google.protobuf.Any payload = 2; // RejectionNotification or Compensate
   google.protobuf.Timestamp sent_at = 3; // When notification was created
   reserved 4;
   reserved "metadata";
@@ -377,86 +512,57 @@ message Notification {
 // Source info for compensation is in rejected_command.pages[].header.angzarr_deferred:
 // - source.domain, source.root, source.edition → where to route rejection
 // - source_seq → which event triggered the command
+//
+// Delivery envelope: the coordinator wraps the Notification in a CommandBook
+// addressed to the source aggregate — cover = angzarr_deferred.source (with
+// the rejected command's correlation_id when the source cover has none) and
+// one CommandPage whose command is the Notification packed in an Any (type
+// URL "/io.angzarr.v1.Notification"; consumers match the name after the last
+// '/') and whose header is angzarr_deferred carrying the rejected
+// command's source, source_seq, source_component and command_index. With
+// kind rejection-notification, that tuple is the delivery's deduplication
+// key. The CommandBook is delivered
+// from the compensation outbox (see Notification) to the source domain's
+// CommandHandlerCoordinatorService.HandleCompensation, which invokes
+// CommandHandlerService.Handle; the handler answers with a BusinessResponse
+// (compensation events, a RevocationResponse, or a Notification forwarded
+// upstream). Handlers select compensation logic by the pair
+// (rejected_command.cover.domain, rejected command type).
+//
+// Why the command was rejected is carried twice, for two readers:
+//   code             — machine code for compensation logic (e.g.
+//                      "INSUFFICIENT_FUNDS"); compensation handlers branch on
+//                      this field and never parse rejection_reason
+//   rejection_reason — human-readable message for logs, dead letters, UIs
+// The coordinator copies `code` from the google.rpc.ErrorInfo.reason in the
+// rejecting handler's status details and `rejection_reason` from the status
+// message. A rejection without ErrorInfo has an empty code.
 message RejectionNotification {
   CommandBook rejected_command = 1; // The command that was rejected (full context)
-  string rejection_reason = 2; // Why: "insufficient_funds", "out_of_stock", etc.
-  // Fields 3-6 removed: source info now in rejected_command.pages[].header.angzarr_deferred
-}
-// endregion
-
-// ============================================================================
-// Two-Phase Commit Framework Events
-// ============================================================================
-//
-// These framework events control 2PC commit/rollback semantics.
-// They are persisted to the event stream but filtered to NoOp at read time.
-// Business logic never sees these directly - they affect event visibility.
-
-// region confirmation
-// Confirms pending events - makes them visible to business logic.
-// Written by framework when all sagas in a cascade succeed.
-message Confirmation {
-  Cover target = 1;               // Domain + root of aggregate being confirmed
-  repeated uint32 sequences = 2;  // Explicit list of sequences being confirmed
-  string cascade_id = 3;          // Set for cascade commits, empty for general confirmation
-}
-// endregion
-
-// region revocation
-// Revokes events - marks them as NoOp at read time.
-// Written by framework on cascade failure, timeout, or explicit revocation API.
-// Original events become invisible to business logic.
-message Revocation {
-  Cover target = 1;               // Domain + root of aggregate being revoked
-  repeated uint32 sequences = 2;  // Sequences being revoked
-  string cascade_id = 3;          // Set for cascade rollbacks, empty for general revocation
-  string reason = 4;              // "saga_failed", "timeout", "compensation", etc.
+  string rejection_reason = 2; // Human-readable rejection message (status message)
+  reserved 3, 4, 5, 6;
+  string code = 7; // Machine rejection code (ErrorInfo.reason); empty when the rejection carried none
 }
 // endregion
 
 // region compensate
-// Routes to client compensation handler - original events remain visible.
-// Unlike Revocation, this triggers client-implemented inverse logic.
-// The Compensate marker itself is filtered to NoOp; original events stay visible.
+// Notification payload asking an aggregate to undo the effects of a reaction
+// command it executed successfully — raised when a CASCADE request with
+// CASCADE_ERROR_COMPENSATE fails. Delivered like a
+// RejectionNotification (see Notification): the envelope's cover is the
+// aggregate that executed the command, and its angzarr_deferred header carries
+// that command's provenance tuple (deduplicated with kind
+// compensate-notification). The aggregate's undo handler for command_type
+// (declared by ComponentOptions.undoes in options.proto) emits new
+// compensating events; the compensated events stay in the stream. A
+// Compensate whose command_type has no undo handler is dead-lettered, never
+// dropped (see ComponentOptions.undoes).
 message Compensate {
-  Cover target = 1;               // Domain + root of aggregate
-  repeated uint32 sequences = 2;  // Sequences to compensate
-  string reason = 3;              // Why compensation is needed
-}
-// endregion
-
-// region noop
-// Placeholder returned by coordinator for uncommitted/framework events.
-// Never persisted - only returned at read time for filtered events.
-message NoOp {
-  uint32 original_sequence = 1;   // Sequence of the filtered event
-  string cascade_id = 2;          // Which cascade it belonged to (if pending)
-  string reason = 3;              // "uncommitted", "revoked", "framework_event"
-}
-// endregion
-
-// region cascade_commit
-// PM/coordinator emits to commit all uncommitted events for a cascade.
-// Framework distributes Confirmation to all participants.
-message CascadeCommit {
-  string cascade_id = 1;
-}
-// endregion
-
-// region cascade_rollback
-// PM/coordinator emits to rollback all uncommitted events for a cascade.
-// Framework distributes Revocation to all participants.
-message CascadeRollback {
-  string cascade_id = 1;
-  string reason = 2;
-}
-// endregion
-
-// region cascade_conflict_detail
-// Error detail for conflict rejection when overlapping fields are locked.
-message CascadeConflictDetail {
-  repeated string cascade_ids = 1;       // Cascades holding locks
-  repeated string overlapping_fields = 2; // Fields that conflict
+  reserved 1;
+  reserved "target";
+  repeated uint32 sequences = 2;  // Sequences of the events the command produced
+  string reason = 3;              // Why compensation is needed (the failure that aborted the request)
+  string command_type = 4;        // Fully-qualified type of the executed command being undone
 }
 // endregion
 
@@ -497,6 +603,13 @@ message PayloadRetrievalFailedDetails {
   uint64 original_size = 4; // Original payload size in bytes
   string error = 5; // Error message from the retrieval attempt
 }
+
+// Compensation delivery failure details for DLQ entries.
+// The dead letter's rejected_command is the Notification delivery envelope.
+message CompensationDeliveryFailedDetails {
+  uint32 attempts = 1; // Delivery attempts made before dead-lettering
+  string last_error = 2; // Error returned by the last attempt
+}
 // endregion
 
 // region dead_letter
@@ -509,10 +622,12 @@ message AngzarrDeadLetter {
     EventBook rejected_events = 9; // Events that failed (saga/projector failures)
   }
   string rejection_reason = 3; // Human-readable reason
+  reserved 4, 5, 6;
   oneof rejection_details {
     SequenceMismatchDetails sequence_mismatch = 12; // Sequence conflict details
     EventProcessingFailedDetails event_processing_failed = 13; // Handler failure details
     PayloadRetrievalFailedDetails payload_retrieval_failed = 14; // Payload store failure details
+    CompensationDeliveryFailedDetails compensation_delivery_failed = 15; // Notification delivery exhausted its retries
   }
   google.protobuf.Timestamp occurred_at = 7;
   map<string, string> metadata = 8; // Additional context
@@ -537,6 +652,3 @@ message ComponentDescriptor {
   string component_type = 2;
   repeated Target inputs = 3; // Domains I subscribe to (event types I consume)
 }
-
-// Request for GetDescriptor RPC.
-message GetDescriptorRequest {}

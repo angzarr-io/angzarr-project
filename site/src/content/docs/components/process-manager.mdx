@@ -91,7 +91,7 @@ PMs extend the client library's `ProcessManager` base class; handler methods are
 
 Process managers use the **correlation ID** as their aggregate root:
 
-```protobuf file=proto/angzarr_client/proto/angzarr/v1/types.proto region=cover
+```protobuf file=proto/io/angzarr/v1/types.proto region=cover
 ```
 
 All events in a workflow share the same correlation ID, allowing the PM to:
@@ -200,9 +200,12 @@ See [Roadmap](../roadmap#process-manager-timeouts) for details.
 | **State** | Stateless | Stateful (own event stream) |
 | **Identity** | None | correlation_id |
 | **Input domains** | Single | Multiple |
+| **Owned stream** | None (`domain` must be empty) | Its own workflow domain (`domain` required) |
 | **Persistence** | No | Yes (workflow events) |
 | **Timeouts** | No | Planned |
 | **Complexity** | Low | Higher |
+
+A component declares three separate domain roles in `ComponentOptions`: `domain` is the stream it owns, `input_domain` / `(event).domain` are the domains it subscribes to, and `output_domain(s)` are the domains it sends commands to. A process manager's own domain is always `domain`—never one of its sources or command targets.
 
 **Rule of thumb**: Start with sagas. Upgrade to PM when you need state tracking or multi-domain input.
 

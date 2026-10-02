@@ -154,6 +154,9 @@ document.addEventListener('astro:after-swap', run);
 						{ label: 'Just Overlays', slug: 'tooling/just-overlays' },
 						{ label: 'SCM', slug: 'tooling/scm' },
 						{ label: 'Claude', slug: 'tooling/claude' },
+						{ label: 'Bacon', slug: 'tooling/bacon' },
+						{ label: 'Container Overlay', slug: 'tooling/container-overlay' },
+						{ label: 'OpenTofu', slug: 'tooling/opentofu' },
 						{
 							label: 'Databases',
 							autogenerate: { directory: 'tooling/databases' },
@@ -178,8 +181,13 @@ document.addEventListener('astro:after-swap', run);
 						{ label: 'Why Poker', slug: 'examples/why-poker' },
 						{ label: 'Aggregates', slug: 'examples/aggregates' },
 						{ label: 'Sagas', slug: 'examples/sagas' },
+						{ label: 'Projectors', slug: 'examples/projectors' },
 						{ label: 'Language Notes', slug: 'examples/language-notes' },
 					],
+				},
+				{
+					label: 'Glossary',
+					autogenerate: { directory: 'glossary' },
 				},
 			],
 		}),

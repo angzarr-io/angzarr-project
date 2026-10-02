@@ -12,6 +12,7 @@ Feature: State Building - Aggregate State Reconstruction
   # Basic State Building
   # ==========================================================================
 
+  @C-0281
   Scenario: Build state from empty event history
     Given an aggregate type with default state
     And an empty EventBook
@@ -19,6 +20,7 @@ Feature: State Building - Aggregate State Reconstruction
     Then the state should be the default state
     And no events should have been applied
 
+  @C-0282
   Scenario: Build state from single event
     Given an aggregate type with default state
     And an EventBook with 1 event of type "OrderCreated"
@@ -26,6 +28,7 @@ Feature: State Building - Aggregate State Reconstruction
     Then the state should reflect the OrderCreated event
     And the state should have order_id set
 
+  @C-0283
   Scenario: Build state from multiple events
     Given an aggregate type with default state
     And an EventBook with events:
@@ -37,6 +40,7 @@ Feature: State Building - Aggregate State Reconstruction
     Then the state should reflect all 3 events
     And the built state should have 2 items
 
+  @C-0284
   Scenario: Events are applied in sequence order
     Given an EventBook with events in order: A, B, C
     When I build state from the EventBook
@@ -47,6 +51,7 @@ Feature: State Building - Aggregate State Reconstruction
   # Snapshot Integration
   # ==========================================================================
 
+  @C-0285
   Scenario: Build state from snapshot only
     Given an EventBook with a snapshot at sequence 5
     And no events in the EventBook
@@ -54,6 +59,7 @@ Feature: State Building - Aggregate State Reconstruction
     Then the state should equal the snapshot state
     And no events should be applied
 
+  @C-0286
   Scenario: Build state from snapshot plus events
     Given an EventBook with:
       | snapshot_sequence | 5                |
@@ -62,6 +68,7 @@ Feature: State Building - Aggregate State Reconstruction
     Then the state should start from snapshot
     And only events 6, 7, 8, 9 should be applied
 
+  @C-0287
   Scenario: Events before snapshot are ignored
     Given an EventBook with:
       | snapshot_sequence | 5           |
@@ -74,6 +81,7 @@ Feature: State Building - Aggregate State Reconstruction
   # Event Application
   # ==========================================================================
 
+  @C-0288
   Scenario: Unknown event types are skipped
     Given an EventBook with an event of unknown type
     When I build state from the EventBook
@@ -81,12 +89,14 @@ Feature: State Building - Aggregate State Reconstruction
     And no error should occur
     And other events should still be applied
 
+  @C-0289
   Scenario: Event application modifies state
     Given initial state with field value 0
     And an event that increments field by 10
     When I apply the event to state
     Then the field should equal 10
 
+  @C-0290
   Scenario: Cumulative event application
     Given initial state with field value 0
     And events that increment by 5, 3, and 2
@@ -97,12 +107,14 @@ Feature: State Building - Aggregate State Reconstruction
   # Type-Erased Event Envelopes
   # ==========================================================================
 
+  @C-0291
   Scenario: Build state handles type-erased event envelopes
     Given events stored in a type-erased envelope
     When I build state from the EventBook
     Then the envelope should be unwrapped
     And the typed event should be applied
 
+  @C-0292
   Scenario: Type identifier determines event type
     Given an event whose envelope identifies type "orders.ItemAdded"
     When I apply the event
@@ -113,12 +125,14 @@ Feature: State Building - Aggregate State Reconstruction
   # Error Handling
   # ==========================================================================
 
+  @C-0293
   Scenario: Malformed event payload causes error
     Given an event with corrupted payload bytes
     When I attempt to build state
     Then an error should be raised
     And the error should indicate deserialization failure
 
+  @C-0294
   Scenario: Missing required field in event
     Given an event missing a required field
     When I attempt to build state
@@ -129,21 +143,25 @@ Feature: State Building - Aggregate State Reconstruction
   # Next Sequence Calculation
   # ==========================================================================
 
+  @C-0295
   Scenario: Next sequence from empty aggregate
     Given an EventBook with no events and no snapshot
     When I get next_sequence
     Then next_sequence should be 0
 
+  @C-0296
   Scenario: Next sequence from events
     Given an EventBook with events up to sequence 4
     When I get next_sequence
     Then next_sequence should be 5
 
+  @C-0297
   Scenario: Next sequence from snapshot only
     Given an EventBook with snapshot at sequence 10 and no events
     When I get next_sequence
     Then next_sequence should be 11
 
+  @C-0298
   Scenario: Next sequence from snapshot plus events
     Given an EventBook with snapshot at 5 and events up to 8
     When I get next_sequence
@@ -153,12 +171,14 @@ Feature: State Building - Aggregate State Reconstruction
   # Immutability
   # ==========================================================================
 
+  @C-0299
   Scenario: State building does not modify EventBook
     Given an EventBook
     When I build state from the EventBook
     Then the EventBook should be unchanged
     And the EventBook events should still be present
 
+  @C-0300
   Scenario: State building returns new state object
     Given an existing state object
     When I build state from events
@@ -169,6 +189,7 @@ Feature: State Building - Aggregate State Reconstruction
   # State Building Contract
   # ==========================================================================
 
+  @C-0301
   Scenario: State building accepts a starting state and event sequence
     Given a starting state and a sequence of type-erased events
     When state is built
@@ -176,6 +197,7 @@ Feature: State Building - Aggregate State Reconstruction
     And the event application step should run for each event
     And the resulting state should be returned
 
+  @C-0302
   Scenario: Event application dispatches by type
     Given a state and a type-erased event
     When the event is applied

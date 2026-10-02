@@ -13,6 +13,8 @@ lint:
     - ENUM_ZERO_VALUE_SUFFIX
     - SERVICE_SUFFIX
     - IMPORT_USED
+# Breaking-change policy is wire + JSON compatibility: a removed field is
+# acceptable once its number and name are reserved.
 breaking:
   use:
-    - FILE
+    - WIRE_JSON

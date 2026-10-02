@@ -1,258 +1,318 @@
 # DOC: This file is referenced in docs/docs/reference/patterns.mdx
 #      Update documentation when making changes to merge strategy patterns.
 
-Feature: Merge Strategy - Concurrency Control
-  The MergeStrategy enum controls how the aggregate coordinator handles sequence
-  conflicts when multiple commands target the same aggregate concurrently.
+Feature: Merge strategy - concurrency control for stale commands
+  Every CommandPage carries a MergeStrategy. It decides what the aggregate
+  coordinator does when the command's expected sequence differs from the
+  aggregate's next_sequence (a "stale" command). Four strategies exist:
 
-  Three strategies are available:
-  - STRICT: Reject mismatched sequences immediately (optimistic concurrency)
-  - COMMUTATIVE: Return retryable error, allowing client to reload and retry
-  - AGGREGATE_HANDLES: Bypass coordinator validation, let aggregate decide
+  - COMMUTATIVE (the default; MERGE_UNSPECIFIED is treated as COMMUTATIVE):
+    field-overlap merge. The coordinator runs the command against current
+    state, then compares the state fields its events change with the state
+    fields changed by the events the command did not see. Disjoint changes
+    are persisted; any overlap rejects with a retryable FAILED_PRECONDITION.
+  - STRICT: optimistic concurrency. Any mismatch rejects with a retryable
+    FAILED_PRECONDITION; the caller reloads and resubmits.
+  - AGGREGATE_HANDLES: the coordinator does not validate the sequence; the
+    command handler receives the full prior history and decides.
+  - MANUAL: a mismatch is dead-lettered for human review and rejected with
+    a non-retryable ABORTED.
 
-  Why different strategies exist:
-  - Not all operations need the same concurrency semantics
-  - Some operations are order-dependent (fund transfers), others are not (counters)
-  - Framework provides the mechanism; business logic chooses the policy
+  Strategies apply only to commands with an explicit expected sequence
+  (PageHeader.sequence): external client commands, or a saga/PM command
+  that deliberately sets one. The concurrency window is the run of events
+  the command did not see: sequences expected .. actual-1, where actual is
+  the aggregate's next_sequence.
 
-  Patterns enabled by merge strategies:
-  - STRICT enables saga compensation: if the target rejects, the source compensates.
-    Same pattern applies to payment processing, inventory allocation.
-  - COMMUTATIVE enables automatic retry: framework handles reload/retry transparently.
-    Same pattern applies to idempotent operations, eventual consistency scenarios.
-  - AGGREGATE_HANDLES enables CRDT-style operations: counters, sets, last-writer-wins.
-    Same pattern applies to distributed counters, collaborative editing.
+  Saga/PM commands are deferred (PageHeader.angzarr_deferred) and carry no
+  expected version. They are never sequence- or merge-checked under any
+  strategy: the destination appends them at its head, its handler's own
+  validation is the only business guard, and the idempotency key
+  (source, source_seq, source_component, command_index) guards against
+  duplicates.
 
-  Why poker exercises merge strategy patterns well:
-  - STRICT for fund operations: ReserveFunds must see current balance to prevent
-    over-reserving. Two players can't both reserve the same $500.
-  - COMMUTATIVE for non-critical updates: AddBonusPoints can retry automatically
-    if another operation updated the player concurrently.
-  - AGGREGATE_HANDLES for visit tracking: IncrementVisits doesn't care about
-    current sequence - just add 1 to whatever the current value is.
+  Field changes are computed with the command handler's Replay RPC: the
+  coordinator replays state at expected, at actual, and at actual plus the
+  command's events, and diffs them field by field.
 
   Background:
-    Given an aggregate "player" with initial events:
-      | sequence | type             |
-      | 0        | PlayerRegistered |
-      | 1        | FundsDeposited   |
-      | 2        | FundsDeposited   |
-    # Aggregate is at sequence 3 (next expected)
+    Given an "order" aggregate whose state has fields status, shipping_address, notes and item_count
+    And the command handler implements Replay
+    And the aggregate has events:
+      | sequence | type           | changes            |
+      | 0        | OrderCreated   | status, item_count |
+      | 1        | ItemAdded      | item_count         |
+      | 2        | OrderNoteAdded | notes              |
+    # next_sequence is 3
 
   # ===========================================================================
-  # MERGE_STRICT - Optimistic Concurrency (Fail Fast)
+  # MERGE_COMMUTATIVE - field-overlap merge (default)
   # ===========================================================================
-  # Use when: Commands MUST see latest state before execution.
-  # Behavior: Immediate rejection on sequence mismatch.
-  # Client action: Fetch fresh state, re-evaluate, resubmit.
-
-  @merge_strict
-  Scenario: Strict - command at correct sequence succeeds
-    Given a command with merge_strategy STRICT
-    And the command targets sequence 3
-    When the coordinator processes the command
-    Then the command succeeds
-    And events are persisted
-
-  @merge_strict
-  Scenario: Strict - command at stale sequence is rejected
-    Given a command with merge_strategy STRICT
-    And the command targets sequence 2
-    When the coordinator processes the command
-    Then the command fails with ABORTED status
-    And the error message contains "Sequence mismatch"
-    And no events are persisted
-
-  @merge_strict
-  Scenario: Strict - command at future sequence is rejected
-    Given a command with merge_strategy STRICT
-    And the command targets sequence 5
-    When the coordinator processes the command
-    Then the command fails with ABORTED status
-    And the error message contains "Sequence mismatch"
-
-  @merge_strict
-  Scenario: Strict - rejection includes current state for client retry
-    Given a command with merge_strategy STRICT
-    And the command targets sequence 1
-    When the coordinator processes the command
-    Then the command fails with ABORTED status
-    And the error details include the current EventBook
-    And the EventBook shows next_sequence 3
-
-  # ===========================================================================
-  # MERGE_COMMUTATIVE - Automatic Retry Support
-  # ===========================================================================
-  # Use when: Commands can be safely re-executed with fresh state.
-  # Behavior: Returns retryable error with fresh state.
-  # Client action: Reload state from error, rebuild command, retry automatically.
-  #
-  # This is the DEFAULT strategy when none is specified.
 
   @merge_commutative
-  Scenario: Commutative - command at correct sequence succeeds
-    Given a command with merge_strategy COMMUTATIVE
-    And the command targets sequence 3
+  @C-0149
+  Scenario: Commutative - command at the current sequence succeeds
+    Given an AddItem command with merge_strategy COMMUTATIVE targeting sequence 3
     When the coordinator processes the command
     Then the command succeeds
-    And events are persisted
+    And an ItemAdded event is persisted at sequence 3
 
   @merge_commutative
-  Scenario: Commutative - command at stale sequence returns retryable error
-    Given a command with merge_strategy COMMUTATIVE
-    And the command targets sequence 1
+  @C-0150
+  Scenario: Commutative - stale command whose fields do not overlap the window is merged
+    Given a ChangeShippingAddress command with merge_strategy COMMUTATIVE targeting sequence 1
+    When the coordinator processes the command
+    Then the command succeeds
+    And a ShippingAddressChanged event is persisted at sequence 3
+
+  @merge_commutative
+  @C-0151
+  Scenario: Commutative - stale command whose fields overlap the window is rejected as retryable
+    Given an AddItem command with merge_strategy COMMUTATIVE targeting sequence 1
     When the coordinator processes the command
     Then the command fails with FAILED_PRECONDITION status
     And the error is marked as retryable
-    And the error details include the current EventBook
+    And the overlapping fields reported are item_count
+    And no events are persisted
 
   @merge_commutative
-  Scenario: Commutative - client can retry with fresh state
-    Given a command with merge_strategy COMMUTATIVE
-    And the command targets sequence 1
+  @C-0152
+  Scenario: Commutative - only events after the expected sequence count toward overlap
+    # The window is sequence 2 only (notes); item_count changed at sequence 1,
+    # which the command already saw.
+    Given an AddItem command with merge_strategy COMMUTATIVE targeting sequence 2
+    When the coordinator processes the command
+    Then the command succeeds
+    And an ItemAdded event is persisted at sequence 3
+
+  @merge_commutative
+  @C-0153
+  Scenario: Commutative - a rejected command succeeds after reloading and resubmitting
+    Given an AddItem command with merge_strategy COMMUTATIVE targeting sequence 1
     When the coordinator processes the command
     Then the command fails with FAILED_PRECONDITION status
-    When the client extracts the EventBook from the error
-    And rebuilds the command with sequence 3
-    And resubmits the command
+    When the client reloads the aggregate and resubmits the command targeting sequence 3
     Then the command succeeds
+    And an ItemAdded event is persisted at sequence 3
 
   @merge_commutative
-  Scenario: Commutative - saga automatic retry on conflict
-    Given a saga emits a command with merge_strategy COMMUTATIVE
-    And the destination aggregate has advanced
-    When the saga coordinator executes the command
-    Then the command fails with retryable status
-    And the saga retries with backoff
-    And the saga fetches fresh destination state
-    And the retried command succeeds
+  @C-0154
+  Scenario: Commutative - without Replay the coordinator falls back to STRICT
+    Given the command handler does not implement Replay
+    And a ChangeShippingAddress command with merge_strategy COMMUTATIVE targeting sequence 1
+    When the coordinator processes the command
+    Then the command fails with FAILED_PRECONDITION status
+    And the error is marked as retryable
+    And no events are persisted
 
   @merge_commutative
-  Scenario: Commutative - default strategy when unspecified
-    Given a command with no explicit merge_strategy
-    When the coordinator processes the command
-    Then the effective merge_strategy is COMMUTATIVE
-
-  # ===========================================================================
-  # MERGE_AGGREGATE_HANDLES - Aggregate-Managed Concurrency
-  # ===========================================================================
-  # Use when: Aggregate has domain-specific concurrency logic.
-  # Behavior: Coordinator skips sequence validation entirely.
-  # Aggregate action: Receives full EventBook, implements own conflict resolution.
-  #
-  # Examples: Counter aggregates, set operations, CRDTs
-
-  @merge_aggregate_handles
-  Scenario: AggregateHandles - command bypasses coordinator validation
-    Given a command with merge_strategy AGGREGATE_HANDLES
-    And the command targets sequence 0
-    When the coordinator processes the command
-    Then the coordinator does NOT validate the sequence
-    And the aggregate handler is invoked
-    And the aggregate receives the prior EventBook
-
-  @merge_aggregate_handles
-  Scenario: AggregateHandles - aggregate can accept stale sequence
-    Given a command with merge_strategy AGGREGATE_HANDLES
-    And the command targets sequence 1
-    And the aggregate accepts the command
+  @C-0155
+  Scenario: Commutative - unset merge_strategy is COMMUTATIVE
+    Given a ChangeShippingAddress command with no merge_strategy set targeting sequence 1
     When the coordinator processes the command
     Then the command succeeds
-    And events are persisted at the correct sequence
+    And a ShippingAddressChanged event is persisted at sequence 3
+
+  # ===========================================================================
+  # MERGE_STRICT - optimistic concurrency
+  # ===========================================================================
+
+  @merge_strict
+  @C-0160
+  Scenario: Strict - command at the current sequence succeeds
+    Given an AddItem command with merge_strategy STRICT targeting sequence 3
+    When the coordinator processes the command
+    Then the command succeeds
+    And an ItemAdded event is persisted at sequence 3
+
+  @merge_strict
+  @C-0161
+  Scenario: Strict - stale command is rejected even when its fields do not overlap
+    Given a ChangeShippingAddress command with merge_strategy STRICT targeting sequence 1
+    When the coordinator processes the command
+    Then the command fails with FAILED_PRECONDITION status
+    And the error is marked as retryable
+    And the error message contains "Sequence mismatch"
+    And no events are persisted
+
+  @merge_strict
+  @C-0162
+  Scenario: Strict - command ahead of the aggregate is rejected
+    Given an AddItem command with merge_strategy STRICT targeting sequence 5
+    When the coordinator processes the command
+    Then the command fails with FAILED_PRECONDITION status
+    And no events are persisted
+
+  # ===========================================================================
+  # MERGE_AGGREGATE_HANDLES - the command handler owns concurrency
+  # ===========================================================================
 
   @merge_aggregate_handles
-  Scenario: AggregateHandles - aggregate can reject based on state
-    Given a command with merge_strategy AGGREGATE_HANDLES
-    And the command targets sequence 1
-    And the aggregate rejects due to state conflict
+  @C-0164
+  Scenario: AggregateHandles - stale command reaches the handler with the full prior history
+    Given an AddItem command with merge_strategy AGGREGATE_HANDLES targeting sequence 0
     When the coordinator processes the command
-    Then the command fails with the aggregate's rejection reason
+    Then the command handler is invoked
+    And the handler receives prior events at sequences 0, 1 and 2
+    And an ItemAdded event is persisted at sequence 3
+
+  @merge_aggregate_handles
+  @C-0165
+  Scenario: AggregateHandles - handler rejection is returned unchanged
+    Given an AddItem command with merge_strategy AGGREGATE_HANDLES targeting sequence 1
+    And the command handler rejects the command with reason "order is closed"
+    When the coordinator processes the command
+    Then the command fails with the handler's rejection reason "order is closed"
     And no events are persisted
 
   @merge_aggregate_handles
-  Scenario: AggregateHandles - counter increment is commutative
-    Given a counter aggregate at value 10
-    And two concurrent IncrementBy commands:
-      | client | amount | sequence |
-      | A      | 5      | 0        |
-      | B      | 3      | 0        |
-    When both commands use merge_strategy AGGREGATE_HANDLES
-    And both are processed
+  @C-0166
+  Scenario: AggregateHandles - concurrent increments both apply
+    Given two AddItem commands with merge_strategy AGGREGATE_HANDLES both targeting sequence 1
+    When the coordinator processes both commands
     Then both commands succeed
-    And the final counter value is 18
-    And no sequence conflicts occur
-
-  @merge_aggregate_handles
-  Scenario: AggregateHandles - set addition is idempotent
-    Given a set aggregate containing ["apple", "banana"]
-    And two concurrent AddItem commands for "cherry":
-      | client | sequence |
-      | A      | 0        |
-      | B      | 0        |
-    When both commands use merge_strategy AGGREGATE_HANDLES
-    And both are processed
-    Then the first command succeeds with ItemAdded event
-    And the second command succeeds with no event (idempotent)
-    And the set contains ["apple", "banana", "cherry"]
+    And ItemAdded events are persisted at sequences 3 and 4
 
   # ===========================================================================
-  # Cross-Strategy Scenarios
+  # MERGE_MANUAL - dead-letter for human review
   # ===========================================================================
 
-  @merge_strategy
-  Scenario Outline: Strategy determines conflict response
-    Given a command with merge_strategy <strategy>
-    And the command targets sequence 1
-    And the aggregate is at sequence 3
+  @merge_manual
+  @C-0167
+  Scenario: Manual - command at the current sequence succeeds
+    Given an AddItem command with merge_strategy MANUAL targeting sequence 3
     When the coordinator processes the command
-    Then the response status is <status>
-    And the behavior is <behavior>
-
-    Examples:
-      | strategy          | status              | behavior                        |
-      | STRICT            | ABORTED             | immediate rejection             |
-      | COMMUTATIVE       | FAILED_PRECONDITION | retryable with fresh state      |
-      | AGGREGATE_HANDLES | varies              | aggregate decides               |
-
-  @merge_strategy
-  Scenario: Different commands can use different strategies
-    Given commands for the same aggregate:
-      | command         | merge_strategy    |
-      | ReserveFunds    | STRICT            |
-      | AddBonusPoints  | COMMUTATIVE       |
-      | IncrementVisits | AGGREGATE_HANDLES |
-    When processed with sequence conflicts
-    Then ReserveFunds is rejected immediately
-    And AddBonusPoints is retryable
-    And IncrementVisits delegates to aggregate
-
-  # ===========================================================================
-  # Edge Cases
-  # ===========================================================================
-
-  @merge_strategy @edge_case
-  Scenario: New aggregate - all strategies accept sequence 0
-    Given a new aggregate with no events
-    And a command targeting sequence 0
-    When the command uses merge_strategy <strategy>
     Then the command succeeds
+    And an ItemAdded event is persisted at sequence 3
+
+  @merge_manual
+  @C-0168
+  Scenario: Manual - stale command is dead-lettered and rejected as non-retryable
+    Given a ChangeShippingAddress command with merge_strategy MANUAL targeting sequence 1
+    When the coordinator processes the command
+    Then the command fails with ABORTED status
+    And the error is not marked as retryable
+    And no events are persisted
+    And a dead letter is published to "angzarr.dlq.order" carrying the rejected command
+    And the dead letter's sequence mismatch details are:
+      | field             | value        |
+      | expected_sequence | 1            |
+      | actual_sequence   | 3            |
+      | merge_strategy    | MERGE_MANUAL |
+
+  # ===========================================================================
+  # Deferred (saga/PM-emitted) commands: no expected version, no check
+  # ===========================================================================
+
+  @deferred
+  @C-0458
+  Scenario Outline: A deferred command is appended at the head under every strategy
+    # AddItem overlaps item_count, which changed at sequences 0 and 1; a
+    # client command at an old sequence would be rejected by most strategies.
+    Given a saga-emitted AddItem command with merge_strategy <strategy>
+    When the coordinator processes the command
+    Then the command succeeds
+    And an ItemAdded event is persisted at sequence 3
+    And no dead letter is published
+    And the Replay RPC is not invoked
 
     Examples:
       | strategy          |
-      | STRICT            |
       | COMMUTATIVE       |
+      | STRICT            |
       | AGGREGATE_HANDLES |
+      | MANUAL            |
+
+  @deferred
+  @C-0459
+  Scenario: A deferred command is guarded only by the destination handler's validation
+    Given a saga-emitted AddItem command with merge_strategy STRICT
+    And the command handler rejects the command with reason "order is closed"
+    When the coordinator processes the command
+    Then the command fails with the handler's rejection reason "order is closed"
+    And no events are persisted
+
+  @deferred
+  @C-0460
+  Scenario: A redelivered deferred command is applied once
+    Given a saga-emitted AddItem command with source "order"/"order-9" source_seq 4, source_component "Restock" and command_index 0
+    When the coordinator processes the command
+    And the coordinator processes the same command again
+    Then exactly one ItemAdded event is persisted
+    And the second delivery returns the events of the first
+
+  @deferred
+  @C-0461
+  Scenario: A saga command with an explicit sequence is validated like a client command
+    Given a saga-emitted AddItem command with merge_strategy STRICT and an explicit sequence 1
+    When the coordinator processes the command
+    Then the command fails with FAILED_PRECONDITION status
+    And no events are persisted
+
+  # ===========================================================================
+  # Cross-strategy
+  # ===========================================================================
+
+  @merge_strategy
+  @C-0172
+  Scenario Outline: Strategy decides the outcome of a stale, overlapping command
+    Given an AddItem command with merge_strategy <strategy> targeting sequence 1
+    When the coordinator processes the command
+    Then the outcome is <outcome>
+
+    Examples:
+      | strategy          | outcome                                     |
+      | COMMUTATIVE       | rejected with retryable FAILED_PRECONDITION |
+      | STRICT            | rejected with retryable FAILED_PRECONDITION |
+      | AGGREGATE_HANDLES | delegated to the command handler            |
+      | MANUAL            | dead-lettered and rejected with ABORTED     |
+
+  @merge_strategy
+  @C-0173
+  Scenario Outline: Strategy decides the outcome of a stale, non-overlapping command
+    Given a ChangeShippingAddress command with merge_strategy <strategy> targeting sequence 1
+    When the coordinator processes the command
+    Then the outcome is <outcome>
+
+    Examples:
+      | strategy          | outcome                                     |
+      | COMMUTATIVE       | merged and persisted at sequence 3          |
+      | STRICT            | rejected with retryable FAILED_PRECONDITION |
+      | AGGREGATE_HANDLES | delegated to the command handler            |
+      | MANUAL            | dead-lettered and rejected with ABORTED     |
+
+  # ===========================================================================
+  # Edge cases
+  # ===========================================================================
 
   @merge_strategy @edge_case
-  Scenario: Snapshot affects next_sequence calculation
-    Given an aggregate with snapshot at sequence 50
-    And events at sequences 51, 52
-    And the next expected sequence is 53
-    When a STRICT command targets sequence 53
+  @C-0174
+  Scenario Outline: A new aggregate accepts sequence 0 under every strategy
+    Given a new "order" aggregate with no events
+    And a CreateOrder command with merge_strategy <strategy> targeting sequence 0
+    When the coordinator processes the command
     Then the command succeeds
+    And an OrderCreated event is persisted at sequence 0
+
+    Examples:
+      | strategy          |
+      | COMMUTATIVE       |
+      | STRICT            |
+      | AGGREGATE_HANDLES |
+      | MANUAL            |
 
   @merge_strategy @edge_case
-  Scenario: Empty command pages uses default strategy
+  @C-0175
+  Scenario: A snapshot moves next_sequence forward
+    Given an "order" aggregate with a snapshot at sequence 50 and events at sequences 51 and 52
+    And an AddItem command with merge_strategy STRICT targeting sequence 53
+    When the coordinator processes the command
+    Then the command succeeds
+    And an ItemAdded event is persisted at sequence 53
+
+  @merge_strategy @edge_case
+  @C-0176
+  Scenario: A CommandBook with no pages has the default strategy
     Given a CommandBook with no pages
-    When merge_strategy is extracted
+    When its merge_strategy is resolved
     Then the result is COMMUTATIVE

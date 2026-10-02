@@ -28,7 +28,7 @@ Commands are wrapped in a [CommandBook](/glossary/command-book) containing:
 - The command payload
 - Expected sequence number (for optimistic concurrency)
 - Merge strategy (how to handle conflicts)
-- Saga origin (for compensation tracking)
+- Deferred provenance (`angzarr_deferred`) on saga/PM commands, which routes a rejection back to the source aggregate
 
 ## Commands vs Facts
 

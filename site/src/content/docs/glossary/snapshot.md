@@ -7,15 +7,15 @@ Cached aggregate state at a point in time. Snapshots optimize [replay](/glossary
 
 ## When to Snapshot
 
-By default, Angzarr snapshots every 16 events. This balances:
-- Storage cost (more snapshots = more storage)
-- Replay performance (fewer events to apply)
+The coordinator persists a snapshot whenever a command handler returns aggregate state that differs from the stored snapshot, anchored at the sequence of the last new event. There is no fixed event-count cadence: a handler that returns state on every command is snapshotted on every command. Snapshot writes are best-effort; a failed write only means the next load replays more events.
+
+Retention decides how many snapshots accumulate. Under `RETENTION_DEFAULT` and `RETENTION_TRANSIENT` only the newest snapshot of an aggregate survives, so storage stays bounded regardless of how often snapshots are written.
 
 ## Snapshot Retention Policies
 
 | Policy | Behavior | Use Case |
 |--------|----------|----------|
-| `RETENTION_DEFAULT` | Persist every 16 events | Normal operation |
+| `RETENTION_DEFAULT` | Delete when newer written (same as TRANSIENT) | Normal operation |
 | `RETENTION_PERSIST` | Keep indefinitely | Business milestones |
 | `RETENTION_TRANSIENT` | Delete when newer written | Temporary checkpoints |
 

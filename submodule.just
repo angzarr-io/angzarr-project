@@ -89,6 +89,7 @@ check-submodules-clean:
     set -euo pipefail
     repo_root="$(git rev-parse --show-toplevel)"
     [ -f "${repo_root}/.gitmodules" ] || exit 0
+    unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE  # avoid leaking parent GIT_DIR into git -C <submodule>
     dirty=()
     while IFS= read -r sm_path; do
         [ -n "${sm_path}" ] || continue

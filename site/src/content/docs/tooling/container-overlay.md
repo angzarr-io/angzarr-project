@@ -316,7 +316,9 @@ Same command, same results, no local tool installation required.
 
 ## Working Example
 
-A minimal working example demonstrating this pattern:
+A minimal working example demonstrating this pattern, with both Make and just versions, lives in
+[`docs/examples/container-overlay`](https://github.com/angzarr-io/angzarr-project/tree/main/docs/examples/container-overlay)
+in the angzarr-project repository:
 
 ```bash
 cd docs/examples/container-overlay
