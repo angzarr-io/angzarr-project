@@ -62,6 +62,7 @@ Feature: Buying in
     Given buy-in "B1" for "Alice" at seat 0 of table "Main" is waiting for funds
     When the wallet of "Alice" refuses to hold 500 for buy-in "B1" because the funds are not available
     Then buy-in "B1" has failed because the funds are not available
+    And the failure of buy-in "B1" records code "INSUFFICIENT_AVAILABLE_FUNDS"
     And table "Main" is asked to release the seat held by buy-in "B1"
     And nothing is asked of the wallet
 
@@ -70,6 +71,7 @@ Feature: Buying in
     Given buy-in "B2" for "Alice" at seat 1 of table "Main" is waiting for the seat
     When table "Main" refuses to confirm buy-in "B2" because "Alice" is already seated
     Then buy-in "B2" has failed because "Alice" is already seated
+    And the failure of buy-in "B2" records code "PLAYER_ALREADY_SEATED"
     And the wallet of "Alice" is asked to release the hold for buy-in "B2"
     And table "Main" is asked to release the seat held by buy-in "B2"
 

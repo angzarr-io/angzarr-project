@@ -29,7 +29,8 @@ option ruby_package = "Angzarr::Examples";
 // where chips_in counts buy-ins (PlayerSeated) and top-ups (ChipsAdded) and
 // chips_out counts cash-outs (PlayerCashedOut).
 //
-// Rejections (gRPC status, reason code):
+// Rejections (gRPC status, ErrorInfo.reason code; a compensator receives the
+// code as RejectionNotification.code):
 //   FAILED_PRECONDITION: TABLE_ALREADY_EXISTS, TABLE_NOT_FOUND, SEAT_TAKEN,
 //     PLAYER_ALREADY_SEATED, SEAT_HOLD_NOT_FOUND, NOT_SEATED, WAGER_IN_PLAY,
 //     ROUND_IN_PROGRESS, ALREADY_BET, INSUFFICIENT_STACK, NO_BETS,

@@ -80,7 +80,7 @@ def on_add_chips_rejected(
     return player_pb2.TopUpRefused(
         hold_id=add_chips.hold_id,
         amount=hold.amount,
-        reason=rejection.rejection_reason,
+        reason=rejection.code,  # machine code, never the message
     )
 ```
 

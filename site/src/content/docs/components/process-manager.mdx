@@ -229,11 +229,13 @@ When a PM-issued command is rejected, the PM receives a Notification before the 
 ```python title="illustrative"
 @rejected("player", "HoldFunds")
 def on_hold_funds_rejected(self, state: BuyInState, notification: Notification):
+    rejection = RejectionNotification()
+    notification.payload.Unpack(rejection)
     # Record the failure and release the seat held for this buy-in
     return BuyInFailed(
         buy_in_id=state.buy_in_id,
         failed_in=state.phase,
-        reason=notification.rejection_reason,
+        reason=rejection.code,  # RejectionNotification.code, never the message
     ), ReleaseSeat(buy_in_id=state.buy_in_id)
 ```
 

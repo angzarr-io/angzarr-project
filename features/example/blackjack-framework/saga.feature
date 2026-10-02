@@ -65,7 +65,7 @@ Feature: Translations between wallet and table
     When table "Main" handles the request to add chips from top-up "T1"
     Then the request is refused because a wager is in play
     And the wallet of "Alice" is told the request was refused
-    And the top-up "T1" is refused with reason "WAGER_IN_PLAY"
+    And the top-up "T1" is refused with code "WAGER_IN_PLAY"
     And "Alice" has a bankroll of 1000 with 1000 available
 
   @EU-1534
@@ -75,8 +75,8 @@ Feature: Translations between wallet and table
     Given "Alice" is registered with 1000 deposited
     And "Alice" asked to top up 200 at table "Main" with request "T1"
     And "Alice" deposited 300 afterwards
-    When the wallet of "Alice" is told table "Main" refused the request to add chips from top-up "T1"
-    Then the top-up "T1" is refused with reason "WAGER_IN_PLAY"
+    When the wallet of "Alice" is told table "Main" refused the request to add chips from top-up "T1" with code "WAGER_IN_PLAY"
+    Then the top-up "T1" is refused with code "WAGER_IN_PLAY"
     And "Alice" has a bankroll of 1300 with 1300 available
 
   @EU-1535

@@ -22,7 +22,8 @@ option ruby_package = "Angzarr::Examples";
 //   bankroll >= sum(open holds) >= 0, every open hold > 0, and
 //   bankroll = total_deposited - total_withdrawn - total_to_tables + total_from_tables.
 //
-// Rejections (gRPC status, reason code):
+// Rejections (gRPC status, ErrorInfo.reason code; a compensator receives the
+// code as RejectionNotification.code):
 //   FAILED_PRECONDITION: PLAYER_ALREADY_EXISTS, PLAYER_NOT_FOUND,
 //     INSUFFICIENT_AVAILABLE_FUNDS, HOLD_NOT_FOUND, HOLD_CONFLICT,
 //     LOYALTY_NOT_ENROLLED.
@@ -240,7 +241,7 @@ message TopUpRefused {
   option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.LedgerProjection" domain: "player" };
   bytes hold_id = 1;
   int64 amount = 2;
-  string reason = 3; // The table's rejection reason, e.g. WAGER_IN_PLAY
+  string reason = 3; // The table's rejection code, from RejectionNotification.code (e.g. WAGER_IN_PLAY)
 }
 
 // FACT from saga-table-player-settlement (external_id = hex(hold_id)): the

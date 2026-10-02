@@ -236,8 +236,8 @@ Feature: Player wallet
     # learns of the refusal and undoes its own half of the transfer.
     Given player "Alice" is registered with 1000 deposited
     And "Alice" asked to top up 200 at table "Main" with request "T1"
-    When table "Main" refuses top-up "T1" because a wager is in play
-    Then the top-up "T1" is refused with reason "WAGER_IN_PLAY"
+    When table "Main" refuses top-up "T1" with code "WAGER_IN_PLAY" and message "cannot add chips while a wager is in play"
+    Then the top-up "T1" is refused with code "WAGER_IN_PLAY"
     And "Alice" has a bankroll of 1000 with 1000 available
     And the wallet of "Alice" balances
 

@@ -74,7 +74,7 @@ message BuyInFailed {
   option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.BuyInState" applies: true };
   bytes buy_in_id = 1;
   BuyInState.Phase failed_in = 2; // Phase the buy-in was in when it failed
-  string reason = 3; // Rejection reason of the refused command
+  string reason = 3; // Rejection code of the refused command, from RejectionNotification.code (e.g. INSUFFICIENT_AVAILABLE_FUNDS)
 }
 
 // The BuyInProcessManager. Owns the "buy-in" stream. Triggers come from
