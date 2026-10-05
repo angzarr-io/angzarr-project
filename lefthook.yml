@@ -1,0 +1,11 @@
+# Lefthook configuration
+# https://github.com/evilmartians/lefthook
+#
+# Setup: lefthook install
+# Bypass: none — fix the finding instead.
+
+pre-commit:
+  commands:
+    # Refuse commits whose staged files contain secrets (gitleaks).
+    scan-secrets:
+      run: just scan-secrets
