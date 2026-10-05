@@ -5,17 +5,19 @@
 #
 #   import? 'angzarr-project/submodule.just'
 #
-# Provides two recipes:
+# Provides three recipes:
 #   - install-submodule-hooks: plants a pre-commit hook inside each
 #     registered submodule's .git/modules/<name>/hooks/ that rejects any
 #     commit attempted from inside the submodule (detached HEAD = silent
 #     data loss).
 #   - check-submodules-clean: refuses to proceed if any submodule has a
 #     dirty working tree. Pointer-only bumps still pass.
+#   - scan-secrets: runs gitleaks (pinned container image) over the staged
+#     content of every added/changed file and refuses the commit on a find.
 #
 # Wire into lefthook in the consumer:
 #   post-checkout / post-merge -> install-submodule-hooks
-#   pre-commit                 -> check-submodules-clean
+#   pre-commit                 -> check-submodules-clean, scan-secrets
 # And run check-submodules-clean from CI so --no-verify can't sneak past.
 #
 # Both recipes are shebang recipes, so they run under bash regardless of the
@@ -82,8 +84,9 @@ install-submodule-hooks:
         echo "installed pre-commit guard in ${displaypath}"
     '
 
-# Refuse to proceed if any submodule has a dirty working tree. Pointer-only
-# bumps (gitlink SHA changes with a clean submodule checkout) pass.
+# Pointer-only bumps (gitlink SHA changes with a clean submodule checkout)
+# pass.
+# Refuse to proceed if any submodule has a dirty working tree.
 check-submodules-clean:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -140,3 +143,46 @@ check-submodules-clean:
         echo "================================================================"
     } >&2
     exit 1
+
+# Pinned gitleaks image for scan-secrets. Bumps are deliberate commits here.
+GITLEAKS_IMAGE := "ghcr.io/gitleaks/gitleaks:v8.28.0@sha256:cdbb7c955abce02001a9f6c9f602fb195b7fadc1e812065883f695d1eeaba854"
+
+# Scans the staged (index) content of added/copied/modified/renamed files,
+# exported to a temp tree so paths are preserved and worktrees need no .git
+# mount. A repo-local `.gitleaks.toml` (config/allowlist) and
+# `.gitleaksignore` (finding fingerprints) are honoured from the working tree.
+# Refuse the commit if any staged file contains a secret (gitleaks).
+scan-secrets:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    repo_root="$(git rev-parse --show-toplevel)"
+    runtime="$(command -v docker || command -v podman || true)"
+    if [ -z "${runtime}" ]; then
+        echo "scan-secrets: no container runtime (docker/podman) found" >&2
+        exit 1
+    fi
+    stage="$(mktemp -d)"
+    trap 'rm -rf "${stage}"' EXIT
+    git diff --cached --name-only -z --diff-filter=ACMR \
+        | git checkout-index --prefix="${stage}/src/" -z --stdin
+    [ -d "${stage}/src" ] || exit 0
+    args=(dir . --no-banner --redact --verbose)
+    if [ -f "${repo_root}/.gitleaks.toml" ]; then
+        cp "${repo_root}/.gitleaks.toml" "${stage}/gitleaks.toml"
+        args+=(--config /scan/gitleaks.toml)
+    fi
+    if [ -f "${repo_root}/.gitleaksignore" ]; then
+        cp "${repo_root}/.gitleaksignore" "${stage}/gitleaksignore"
+        args+=(--gitleaks-ignore-path /scan/gitleaksignore)
+    fi
+    if ! "${runtime}" run --rm --network none -v "${stage}:/scan:ro" -w /scan/src \
+        "{{GITLEAKS_IMAGE}}" "${args[@]}"; then
+        {
+            echo
+            echo "REJECTED: gitleaks found a secret in the staged changes (above)."
+            echo "Remove it from the change and rotate it if it was ever real."
+            echo "A confirmed false positive goes in .gitleaksignore (its"
+            echo "fingerprint) or a .gitleaks.toml allowlist — never --no-verify."
+        } >&2
+        exit 1
+    fi

@@ -2,6 +2,9 @@
 
 SITE := "site"
 
+# Shared hook recipes (scan-secrets, submodule guards) consumed by every repo.
+import 'submodule.just'
+
 # Run dev server for the docs site
 dev: vendor proto-docs
     cd {{SITE}} && npm run dev
