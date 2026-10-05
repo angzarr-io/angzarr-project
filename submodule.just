@@ -84,8 +84,9 @@ install-submodule-hooks:
         echo "installed pre-commit guard in ${displaypath}"
     '
 
-# Refuse to proceed if any submodule has a dirty working tree. Pointer-only
-# bumps (gitlink SHA changes with a clean submodule checkout) pass.
+# Pointer-only bumps (gitlink SHA changes with a clean submodule checkout)
+# pass.
+# Refuse to proceed if any submodule has a dirty working tree.
 check-submodules-clean:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -146,11 +147,11 @@ check-submodules-clean:
 # Pinned gitleaks image for scan-secrets. Bumps are deliberate commits here.
 GITLEAKS_IMAGE := "ghcr.io/gitleaks/gitleaks:v8.28.0@sha256:cdbb7c955abce02001a9f6c9f602fb195b7fadc1e812065883f695d1eeaba854"
 
-# Refuse the commit if any staged file contains a secret. Scans the staged
-# (index) content of added/copied/modified/renamed files, exported to a temp
-# tree so paths are preserved and worktrees need no .git mount. A repo-local
-# `.gitleaks.toml` (config/allowlist) and `.gitleaksignore` (finding
-# fingerprints) are honoured from the working tree.
+# Scans the staged (index) content of added/copied/modified/renamed files,
+# exported to a temp tree so paths are preserved and worktrees need no .git
+# mount. A repo-local `.gitleaks.toml` (config/allowlist) and
+# `.gitleaksignore` (finding fingerprints) are honoured from the working tree.
+# Refuse the commit if any staged file contains a secret (gitleaks).
 scan-secrets:
     #!/usr/bin/env bash
     set -euo pipefail
