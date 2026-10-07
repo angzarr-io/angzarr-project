@@ -15,8 +15,12 @@ Feature: Sync modes - how much downstream work a command waits for
 
   An unset sync_mode (SYNC_MODE_UNSPECIFIED) is ASYNC. DECISION exists for callers (typically process
   managers) that need only the accept/reject outcome synchronously.
-  PageHeader.sync_mode on a CommandPage overrides the request's mode for
-  that command; when unset the request's mode applies.
+  PageHeader.sync_mode on a CommandPage is that command's own mode. The
+  caller's mode is a floor for everything its command sets off: a reaction
+  command runs with the stronger of the caller's mode and its own
+  (ASYNC < DECISION < SIMPLE < CASCADE). Its own mode can raise how much of
+  it the caller waits for, never lower it, so a caller asking for CASCADE
+  always observes the whole chain. When unset the caller's mode applies.
 
   Background:
     Given an "order" aggregate that accepts CreateOrder and rejects CancelOrder for unknown orders
@@ -85,7 +89,7 @@ Feature: Sync modes - how much downstream work a command waits for
     And no events are persisted
 
   @C-0434
-  Scenario: A per-command sync_mode overrides the request's mode
+  Scenario: A per-command sync_mode stronger than the caller's applies to that command
     Given a process manager "Fulfillment" emitting a ReserveStock command with PageHeader.sync_mode DECISION
     And the inventory aggregate rejects ReserveStock
     When the PM is triggered by an OrderCreated event delivered with sync_mode ASYNC
@@ -97,3 +101,29 @@ Feature: Sync modes - how much downstream work a command waits for
     Given a process manager "Fulfillment" emitting a ReserveStock command with no PageHeader.sync_mode
     When the PM is triggered by an OrderCreated event delivered with sync_mode CASCADE
     Then the ReserveStock command is handled with sync_mode CASCADE
+
+  @C-0507
+  Scenario: A caller asking for CASCADE observes the whole chain whatever the reaction commands ask for
+    Given a process manager "Fulfillment" reacting to OrderCreated with a ReserveStock command for "inventory" with PageHeader.sync_mode ASYNC
+    And a projector "StockLevels" subscribed to "inventory"
+    When a CreateOrder command is handled with sync_mode CASCADE
+    Then the ReserveStock command has been handled by "inventory" when the response is returned
+    And the StockLevels projector has processed the StockReserved event when the response is returned
+
+  @C-0508
+  Scenario Outline: A reaction command runs with the stronger of the caller's mode and its own
+    Given a process manager "Fulfillment" emitting a ReserveStock command with PageHeader.sync_mode <own>
+    When the PM is triggered by an OrderCreated event delivered with sync_mode <caller>
+    Then the ReserveStock command is handled with sync_mode <effective>
+
+    Examples:
+      | caller   | own      | effective |
+      | ASYNC    | DECISION | DECISION  |
+      | DECISION | ASYNC    | DECISION  |
+      | DECISION | SIMPLE   | SIMPLE    |
+      | SIMPLE   | DECISION | SIMPLE    |
+      | SIMPLE   | CASCADE  | CASCADE   |
+      | CASCADE  | ASYNC    | CASCADE   |
+      | CASCADE  | DECISION | CASCADE   |
+      | CASCADE  | SIMPLE   | CASCADE   |
+      | CASCADE  | ISOLATED | CASCADE   |

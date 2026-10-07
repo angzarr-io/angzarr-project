@@ -109,12 +109,21 @@ message CommandResponse {
 }
 
 // One failed downstream reaction in a CASCADE request.
+//
+// Why the reaction failed is carried as for RejectionNotification:
+//   code    — machine code for programmatic handling (e.g. "CARD_DECLINED");
+//             callers branch on this field and never parse message
+//   message — human-readable reason for logs and UIs
+// The coordinator copies `code` from the google.rpc.ErrorInfo.reason in the
+// failure's status details and `message` from the status message. A failure
+// without ErrorInfo has an empty code.
 message CascadeReactionError {
   string component = 1;    // Registered name of the saga or process manager
   Cover target = 2;        // Aggregate the reaction's command was sent to (unset for handler errors)
   string command_type = 3; // Fully qualified type of the failed command (empty for handler errors)
-  int32 code = 4;          // gRPC status code of the failure
-  string message = 5;      // Failure reason
+  int32 status_code = 4;   // gRPC status code of the failure
+  string message = 5;      // Human-readable failure reason (status message)
+  string code = 6;         // Machine failure code (ErrorInfo.reason); empty when the failure carried none
 }
 
 // client logic requests framework to handle revocation

@@ -29,7 +29,7 @@ Cascade execution provides synchronous semantics while keeping event sourcing's 
 | `CASCADE` | Sync, in response | Sync, recursively | Immediate response, full coordination |
 | `ISOLATED` | Never | Never | Replay / migration writes that must not trigger reactions |
 
-An unset mode behaves as `ASYNC`. A process manager can override the mode for a single emitted command with `PageHeader.sync_mode`.
+An unset mode behaves as `ASYNC`. The caller's mode is a floor for the whole chain: a saga or process manager can raise the mode of a single emitted command with `PageHeader.sync_mode`, and that command runs with the stronger of the caller's mode and its own. A command's own mode never lowers it, so a `CASCADE` caller always observes the whole chain.
 
 ### Choosing Your Mode
 
@@ -84,7 +84,7 @@ When a saga, process manager, or one of the commands it emits fails, `CascadeErr
 | Mode | On Failure | When to Use |
 |------|------------|-------------|
 | `FAIL_FAST` | Fail the request with the failure's reason; reactions not yet started may be skipped, reactions that ran keep their effects | Default, most operations |
-| `CONTINUE` | Run every reaction; succeed and list failures in `CommandResponse.reaction_errors` | Batch validation |
+| `CONTINUE` | Run every reaction; succeed and list failures in `CommandResponse.reaction_errors`, each with a machine `code` and a human-readable `message` | Batch validation |
 | `COMPENSATE` | Fail the request and send a `Compensate` notification to the target of each reaction command that executed successfully | Undo partial work |
 | `DEAD_LETTER` | Send each failure to the DLQ, run every other reaction, succeed | Best-effort with alerting |
 

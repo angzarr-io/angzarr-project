@@ -13,7 +13,8 @@ Feature: Cascade error mode - failures of synchronous downstream reactions
     failure's reason once a reaction fails. Reactions that have not started
     may be skipped; reactions that ran keep their effects.
   - CONTINUE: run every reaction; the request succeeds and its response
-    lists each reaction that failed.
+    lists each reaction that failed, with a machine code for programs to
+    act on and a human-readable message, carried separately.
   - COMPENSATE: fail the request once a reaction fails, and record one
     Compensate notification per reaction command that executed successfully
     in this request, addressed to that command's target aggregate, before
@@ -88,6 +89,20 @@ Feature: Cascade error mode - failures of synchronous downstream reactions
     And every reaction command that its target executed successfully has exactly one Compensate notification recorded, whether or not its target can undo it
     And every Compensate notification for a SendReceipt command that shipping executed successfully is dead-lettered to "angzarr.dlq.shipping" with compensation_delivery_failed details
     And no Compensate notification is dropped
+
+  @C-0509
+  Scenario: A failed reaction reports its code and message separately
+    When a CreateOrder command is handled with sync_mode CASCADE and cascade_error_mode CONTINUE
+    Then the failed reaction's code is "CARD_DECLINED"
+    And the failed reaction's message is "card declined"
+    And the failed reaction's message does not contain "CARD_DECLINED"
+
+  @C-0510
+  Scenario: A failed reaction without a machine code reports an empty code
+    Given the payment aggregate rejects CapturePayment with message "gateway unavailable" and no ErrorInfo
+    When a CreateOrder command is handled with sync_mode CASCADE and cascade_error_mode CONTINUE
+    Then the failed reaction's code is empty
+    And the failed reaction's message is "gateway unavailable"
 
   @C-0441
   Scenario: DEAD_LETTER dead-letters the failure and runs every other reaction

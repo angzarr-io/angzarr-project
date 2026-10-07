@@ -92,6 +92,14 @@ message DomainDivergence {
 // ISOLATED sits outside this ordering: it persists synchronously but
 // suppresses every downstream reaction, sync or async.
 //
+// The caller's mode is a floor for the whole chain. A reaction command (one a
+// saga or process manager emits while handling an event delivered under the
+// caller's mode) runs with the stronger, in the ordering above, of the
+// caller's mode and its own PageHeader.sync_mode. A command's own mode can
+// raise its effective mode but never lower it below the caller's, so a
+// caller requesting CASCADE always observes the whole chain, whatever modes
+// the reaction commands carry.
+//
 // Primary caller of DECISION is process managers coordinating cross-aggregate
 // flows: the PM issues a command to the target aggregate and needs to know
 // *only* whether the aggregate accepted or rejected, without paying the cost
@@ -171,7 +179,9 @@ enum MergeStrategy {
 
 // region snapshot_retention
 // Decides which snapshots of an aggregate (domain, edition, root) survive
-// when a newer snapshot of it is written. The newest snapshot is never
+// when a newer snapshot of it, of any retention, is written. A PERSIST
+// snapshot therefore supersedes every DEFAULT or TRANSIENT snapshot older
+// than it; ones written after it follow the same rule. The newest snapshot is never
 // deleted, and reads always use the newest snapshot. The retention a handler
 // sets on its snapshot is persisted unchanged.
 enum SnapshotRetention {
@@ -217,14 +227,16 @@ message PageHeader {
     ExternalDeferredSequence external_deferred = 2; // External fact (Stripe, FedEx, etc.)
     AngzarrDeferredSequence angzarr_deferred = 3; // Saga-produced command/fact
   }
-  // Per-command override of the enclosing CommandRequest's sync_mode.
-  // Only meaningful on CommandPage headers; ignored on EventPage headers.
-  // PMs emit a `repeated CommandBook` and cannot reach the request wrapper
-  // themselves; setting sync_mode here lets a PM tag a single emitted
-  // command (e.g. SYNC_MODE_DECISION when its accept/reject must surface
-  // synchronously) while the surrounding flow stays whatever the original
-  // caller asked for. When unset (the common case) coordinators inherit
-  // CommandRequest.sync_mode unchanged.
+  // The command's own sync mode. Only meaningful on CommandPage headers;
+  // ignored on EventPage headers. PMs and sagas emit `repeated CommandBook`
+  // and cannot reach the request wrapper themselves; setting sync_mode here
+  // lets them tag a single emitted command (e.g. SYNC_MODE_DECISION when its
+  // accept/reject must surface synchronously).
+  // The caller's mode is a floor: the command runs with the stronger (see
+  // SyncMode) of the caller's mode and this one, so this field can raise the
+  // command's mode but never lower it, and a CASCADE caller observes the
+  // whole chain. When unset (the common case) the caller's mode applies
+  // unchanged.
   optional SyncMode sync_mode = 4;
 }
 
