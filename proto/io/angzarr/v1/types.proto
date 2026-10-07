@@ -96,8 +96,11 @@ message DomainDivergence {
 // caller's mode) runs with the stronger, in the ordering above, of the
 // caller's mode and its own PageHeader.sync_mode. A command's own mode can
 // raise its effective mode but never lower it below the caller's, so a
-// caller requesting CASCADE always observes the whole chain, whatever modes
-// the reaction commands carry.
+// caller requesting CASCADE always observes the whole chain, whatever
+// ordered modes the reaction commands carry.
+// ISOLATED always holds: a reaction command whose own mode is ISOLATED stays
+// ISOLATED under any caller's mode. Its events set off nothing downstream,
+// so the chain ends there and the caller has nothing further to wait for.
 //
 // Primary caller of DECISION is process managers coordinating cross-aggregate
 // flows: the PM issues a command to the target aggregate and needs to know
@@ -234,8 +237,10 @@ message PageHeader {
   // The caller's mode is a floor: the command runs with the stronger (see
   // SyncMode) of the caller's mode and this one, so this field can raise the
   // command's mode but never lower it, and a CASCADE caller observes the
-  // whole chain. When unset (the common case) the caller's mode applies
-  // unchanged.
+  // whole chain. SYNC_MODE_ISOLATED is the exception and always holds: the
+  // command stays ISOLATED under any caller's mode and its events set off
+  // nothing downstream. When unset (the common case) the caller's mode
+  // applies unchanged.
   optional SyncMode sync_mode = 4;
 }
 

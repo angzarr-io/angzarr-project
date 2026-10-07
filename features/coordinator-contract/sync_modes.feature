@@ -22,6 +22,10 @@ Feature: Sync modes - how much downstream work a command waits for
   it the caller waits for, never lower it, so a caller asking for CASCADE
   always observes the whole chain. When unset the caller's mode applies.
 
+  ISOLATED always holds: a reaction command marked ISOLATED stays ISOLATED
+  under any caller's mode. Its events set off nothing downstream, so the
+  chain ends there and the caller has nothing further to wait for.
+
   Background:
     Given an "order" aggregate that accepts CreateOrder and rejects CancelOrder for unknown orders
     And a projector "OrderSummary" subscribed to "order"
@@ -103,7 +107,7 @@ Feature: Sync modes - how much downstream work a command waits for
     Then the ReserveStock command is handled with sync_mode CASCADE
 
   @C-0507
-  Scenario: A caller asking for CASCADE observes the whole chain whatever the reaction commands ask for
+  Scenario: A caller asking for CASCADE observes the whole chain whatever ordered mode the reaction commands ask for
     Given a process manager "Fulfillment" reacting to OrderCreated with a ReserveStock command for "inventory" with PageHeader.sync_mode ASYNC
     And a projector "StockLevels" subscribed to "inventory"
     When a CreateOrder command is handled with sync_mode CASCADE
@@ -126,4 +130,16 @@ Feature: Sync modes - how much downstream work a command waits for
       | CASCADE  | ASYNC    | CASCADE   |
       | CASCADE  | DECISION | CASCADE   |
       | CASCADE  | SIMPLE   | CASCADE   |
-      | CASCADE  | ISOLATED | CASCADE   |
+      | ASYNC    | ISOLATED | ISOLATED  |
+      | DECISION | ISOLATED | ISOLATED  |
+      | SIMPLE   | ISOLATED | ISOLATED  |
+      | CASCADE  | ISOLATED | ISOLATED  |
+
+  @C-0512
+  Scenario: An isolated reaction command ends the chain even under a CASCADE caller
+    Given a process manager "Fulfillment" reacting to OrderCreated with a ReserveStock command for "inventory" with PageHeader.sync_mode ISOLATED
+    And a projector "StockLevels" subscribed to "inventory"
+    When a CreateOrder command is handled with sync_mode CASCADE
+    Then the ReserveStock command has been handled by "inventory" when the response is returned
+    And the StockReserved event is not published to the bus
+    And the StockLevels projector never receives the StockReserved event
