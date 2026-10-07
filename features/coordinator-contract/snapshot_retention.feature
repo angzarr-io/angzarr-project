@@ -7,6 +7,10 @@ Feature: Snapshot retention
   - RETENTION_PERSIST: kept indefinitely (business milestones). Only PERSIST
     keeps snapshot history.
 
+  "Newer" means any newer snapshot, whatever its own retention. So a
+  RETENTION_PERSIST snapshot supersedes every DEFAULT or TRANSIENT snapshot
+  older than it, and leaves those written after it to the same rule.
+
   The newest snapshot is never deleted. The retention a handler sets on the
   snapshot it returns is persisted unchanged. Reads use the newest snapshot
   regardless of retention.
@@ -29,17 +33,17 @@ Feature: Snapshot retention
     Then "order-1" has a snapshot at sequence 20
 
   @C-0452
-  Scenario Outline: A default snapshot is deleted when a newer snapshot is written
+  Scenario Outline: A default snapshot is deleted when a newer snapshot of any retention is written
     Given "order-1" has a RETENTION_DEFAULT snapshot at sequence <sequence>
-    When a snapshot at sequence 90 is written
+    When a <newer retention> snapshot at sequence 90 is written
     Then "order-1" has no snapshot at sequence <sequence>
     And "order-1" has a snapshot at sequence 90
 
     Examples:
-      | sequence |
-      | 15       |
-      | 20       |
-      | 47       |
+      | sequence | newer retention     |
+      | 15       | RETENTION_DEFAULT   |
+      | 20       | RETENTION_TRANSIENT |
+      | 47       | RETENTION_PERSIST   |
 
   @C-0453
   Scenario: The newest snapshot is never deleted
@@ -71,3 +75,12 @@ Feature: Snapshot retention
     And an "order" aggregate "order-2" has a RETENTION_TRANSIENT snapshot at sequence 10
     When a snapshot of "order-1" at sequence 40 is written
     Then "order-2" has a snapshot at sequence 10
+
+  @C-0511
+  Scenario: A persistent snapshot supersedes older routine snapshots and leaves later ones to the usual rule
+    Given "order-1" has a RETENTION_TRANSIENT snapshot at sequence 20
+    When a RETENTION_PERSIST snapshot at sequence 40 is written
+    And a RETENTION_TRANSIENT snapshot at sequence 60 is written
+    Then "order-1" has no snapshot at sequence 20
+    And "order-1" has a snapshot at sequence 40
+    And "order-1" has a snapshot at sequence 60
