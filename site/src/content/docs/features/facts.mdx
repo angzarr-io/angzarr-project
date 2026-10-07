@@ -5,11 +5,13 @@ Not everything is a request. Some things are reality.
 
 ---
 
-## The Poker Floor Example
+## The Pit Boss Example
 
-Mid-hand, the dealer accidentally exposes a card. The floor manager is called. She rules: dead hand, return all bets.
+Mid-round, the dealer accidentally flips the hole card. The pit boss is called. She rules: the round is void, every wager goes back.
 
-Your hand aggregate doesn't get to vote on this. The ruling happened. The cards were exposed. The decision was made by a human with authority your software doesn't have. Your system records the fact and moves on.
+Your table aggregate doesn't get to vote on this. The ruling happened. The card was exposed. The decision was made by a human with authority your software doesn't have. Your system records the fact and moves on.
+
+The blackjack example uses facts the same way between its own domains: when a player cashes out, the table's decision is final, so the wallet receives `CashOutCredited` as a fact it records exactly once (keyed by the cash-out id) rather than as a request it could refuse.
 
 This pattern appears everywhere external authority exists—payment processors, regulatory systems, IoT sensors, human overrides. The [External Rulings example](#external-rulings) shows the implementation.
 
@@ -19,7 +21,7 @@ This pattern appears everywhere external authority exists—payment processors, 
 
 A **command** is a request that can be rejected. "Please reserve this inventory." The aggregate validates the request against business rules and either produces events or rejects.
 
-A **fact** is an announcement of something that already happened externally. "Stripe confirms the payment succeeded." "FedEx scanned the package in Memphis." "The floor manager issued a ruling."
+A **fact** is an announcement of something that already happened externally. "Stripe confirms the payment succeeded." "FedEx scanned the package in Memphis." "The pit boss issued a ruling."
 
 You cannot reject reality. You can only record it.
 
@@ -199,16 +201,16 @@ emit_fact(
 ### External Rulings
 
 ```python title="illustrative - external ruling"
-# Floor manager ruling in poker
+# Pit boss ruling at a blackjack table
 emit_fact(
-    domain="hand",
-    root=hand_id,
+    domain="table",
+    root=table_id,
     external_id=f"ruling:{ruling_id}",  # Idempotency key
-    description="Floor manager ruling",
+    description="Pit boss ruling",
     event=RulingIssued(
-        ruling_type=RulingType.DEAD_HAND,
-        issued_by="floor_manager_jane",
-        reason="Cards exposed during deal",
+        ruling_type=RulingType.ROUND_VOID,
+        issued_by="pit_boss_jane",
+        reason="Hole card exposed during deal",
     ),
 )
 ```

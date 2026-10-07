@@ -46,8 +46,8 @@ Angzarr creates a topic exchange for event routing:
 flowchart LR
     EX["Exchange: angzarr.events<br/>(topic)"]
     EX -->|"player.#"| PP[queue: player-projector]
-    EX -->|"player.#"| OP[queue: output-projector]
-    EX -->|"hand.#"| HS[queue: hand-saga]
+    EX -->|"player.#"| OP[queue: ledger-projector]
+    EX -->|"table.#"| HS[queue: settlement-saga]
 ```
 
 ### Routing Keys
@@ -57,8 +57,8 @@ Events are published with routing keys: `{domain}.{event_type}`
 ```text
 player.PlayerRegistered
 player.FundsDeposited
-hand.CardsDealt
-hand.HandComplete
+table.RoundDealt
+table.RoundSettled
 ```
 
 ---

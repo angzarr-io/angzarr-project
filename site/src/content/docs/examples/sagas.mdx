@@ -1,42 +1,62 @@
 ---
 title: Saga Examples
 ---
-import { Tabs, TabItem } from '@astrojs/starlight/components';
 
+Cross-domain translations from the blackjack example. Each saga is stateless: it takes target roots from fields of the source event, never looks anything up, and emits deferred commands (which the destination may refuse) or facts (which it must accept).
 
-Cross-domain coordination examples from the poker domain.
+:::note
+The blackjack implementations are being written. Until the Python one lands, this page shows the example's specification rather than saga code.
+:::
 
 ---
 
-## Saga: Table → Hand
+## Saga: Player → Table (a command that can be refused)
 
-When a table starts a hand, the **table-hand saga** translates the table domain's `HandStarted` event into a hand domain `DealCards` command.
+A **top-up** starts in the wallet: `TopUpRequested{hold_id, table_root, amount}` becomes the table's `AddChips{player_root, hold_id, amount}`. The table may refuse — for example while the player has a bet in play.
 
-Sagas are classes with `@prepares` / `@handles` decorators — the same OO pattern as aggregates. All six languages use this.
-
-<Tabs>
-<TabItem label="Python">
-
-```python file=vendor/examples/python/table/saga-hand/main.py region=saga
+```protobuf title="proto/io/angzarr/examples/v1/sagas.proto (excerpt)"
+message PlayerTableSaga {
+  option (io.angzarr.v1.component) = {
+    kind: COMPONENT_KIND_SAGA
+    input_domain: "player"
+    output_domain: "table"
+  };
+}
 ```
-
-</TabItem>
-</Tabs>
 
 ---
 
 ## Saga: Compensation
 
-When a saga-issued command is rejected, the source aggregate receives a **Notification** and must emit compensation events. Use `@rejected` decorators to register handlers — no if/else chains needed.
+When the table refuses `AddChips`, the refusal is delivered back to the wallet, which releases its hold. The wallet declares it with `compensates: "io.angzarr.examples.v1.AddChips"`, which generates an `OnAddChipsRejected` handler.
 
-<Tabs>
-<TabItem label="Python">
-
-```python file=vendor/examples/python/player/agg/rejected.py region=rejected_handler
+```gherkin title="features/example/blackjack-framework/saga.feature (excerpt)"
+Scenario: A top-up the table refuses is undone in the wallet
+  Given "Alice" is registered with 1000 deposited
+  And "Alice" asked to top up 200 at table "Main" with request "T1"
+  And "Alice" has a bet in play at table "Main"
+  When table "Main" handles the request to add chips from top-up "T1"
+  Then the request is refused because a wager is in play
+  And the wallet of "Alice" is told the request was refused
+  And the top-up "T1" is refused with reason "WAGER_IN_PLAY"
+  And "Alice" has a bankroll of 1000 with 1000 available
 ```
 
-</TabItem>
-</Tabs>
+---
+
+## Saga: Table → Player (facts)
+
+Chips added at the table and a player's cash-out are already decided. The settlement saga turns them into facts the wallet records exactly once, keyed by the hold or cash-out id:
+
+```gherkin title="features/example/blackjack-framework/saga.feature (excerpt)"
+Scenario: Delivering the same cash-out twice credits it once
+  Given "Alice" is registered with 1000 deposited
+  And "Alice" cashed out 640 from table "Main"
+  And the settlement translator has handled the cash-out
+  When the settlement translator handles the same cash-out again
+  Then the second delivery is recognised as already recorded
+  And "Alice" has a bankroll of 1640 with 1640 available
+```
 
 ---
 
@@ -49,7 +69,6 @@ When a saga-issued command is rejected, the source aggregate receives a **Notifi
 5. **No destination state** — Emit deferred commands; the destination appends them at its head
 
 ---
-
 
 ## Next Steps
 

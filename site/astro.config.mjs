@@ -178,7 +178,7 @@ document.addEventListener('astro:after-swap', run);
 				{
 					label: 'Examples',
 					items: [
-						{ label: 'Why Poker', slug: 'examples/why-poker' },
+						{ label: 'Why Blackjack', slug: 'examples/why-blackjack' },
 						{ label: 'Aggregates', slug: 'examples/aggregates' },
 						{ label: 'Sagas', slug: 'examples/sagas' },
 						{ label: 'Projectors', slug: 'examples/projectors' },

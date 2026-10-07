@@ -71,17 +71,19 @@ just examples cpp test     # cucumber-cpp
 Feature files are shared specifications:
 
 ```text
-examples/features/
-├── unit/
-│   ├── player.feature           # Player aggregate behavior
+features/example/
+├── blackjack/
+│   ├── player.feature           # Wallet aggregate behavior
 │   ├── table.feature            # Table aggregate behavior
-│   ├── hand.feature             # Hand aggregate behavior
+│   ├── round.feature            # A round, inside the table aggregate
+│   └── shoe.feature             # Deterministic shoe golden vectors
+├── blackjack-framework/
 │   ├── saga.feature             # Saga patterns
 │   ├── process_manager.feature  # PM patterns
 │   ├── projector.feature        # Projector patterns
 │   └── ...
-└── acceptance/
-    └── poker_game.feature       # End-to-end poker flow
+└── blackjack-acceptance/
+    └── cluster.feature          # End-to-end blackjack flow
 
 client/features/
 ├── aggregate-client.feature     # Aggregate client contracts
@@ -142,10 +144,10 @@ from behave import given, when, then
 def step_registered_player(context, name, amount):
     context.player = PlayerState(name=name, bankroll=amount)
 
-@when('{name} reserves {amount:d} for table "{table_id}"')
-def step_reserve_funds(context, name, amount, table_id):
-    cmd = ReserveFunds(amount=amount, table_id=table_id)
-    context.result = handle_reserve(context.player, cmd)
+@when('{amount:d} of "{name}"\'s funds are held for buy-in "{hold}" at table "{table}"')
+def step_hold_funds(context, amount, name, hold, table):
+    cmd = HoldFunds(hold_id=hold_id(hold), table_root=table_root(table), amount=amount)
+    context.result = handle_hold_funds(context.player, cmd)
 ```
 
 ### Rust (cucumber-rs) - Client Harness
@@ -177,4 +179,4 @@ async fn given_registered_player(world: &mut World, name: String, amount: i32) {
 ## Next Steps
 
 - **[Testing](/operations/testing)** — Full testing strategy
-- **[Why Poker](/examples/why-poker)** — Why poker exercises every pattern
+- **[Why Blackjack](/examples/why-blackjack)** — Why blackjack exercises every pattern

@@ -43,23 +43,26 @@ Process managers should be **lightweight state machines** coordinating across do
 
 ---
 
-## Example: Hand Flow PM
+## Example: Buy-In PM
 
-The HandFlowPM orchestrates poker hand phases across table and hand domains:
+The blackjack example's buy-in process manager secures a seat at the table and funds in the player's wallet, confirming or releasing each depending on the other. Each command it sends is decided (`SYNC_MODE_DECISION`) before it moves on:
 
 ```mermaid
 sequenceDiagram
     participant T as Table
-    participant PM as HandFlowPM
-    participant H as Hand
+    participant PM as BuyInPM
+    participant P as Player
 
-    T->>PM: HandStarted
-    PM->>H: DealCards
-    H->>PM: CardsDealt
-    PM->>H: Phase transitions
-    H->>PM: HandComplete
-    PM->>T: EndHand
+    T->>PM: SeatHeld
+    PM->>P: HoldFunds
+    P->>PM: FundsHeld
+    PM->>T: ConfirmSeat
+    T->>PM: PlayerSeated
+    PM->>P: CaptureFunds
+    P->>PM: FundsCaptured
 ```
+
+If the wallet refuses `HoldFunds`, the PM releases the seat; if the table refuses `ConfirmSeat`, it releases both the funds and the seat. A whole blackjack round, by contrast, runs inside the table aggregate: single-domain orchestration never needs a PM.
 
 PMs extend the client library's `ProcessManager` base class; handler methods are registered by decorator / attribute / macro. State lives on the instance.
 
@@ -68,7 +71,33 @@ PMs extend the client library's `ProcessManager` base class; handler methods are
 <Tabs>
 <TabItem label="Python">
 
-```python file=vendor/examples/python/pmg-hand-flow/hand_flow_pm.py region=pm_state
+```protobuf title="proto/io/angzarr/examples/v1/buy_in.proto (excerpt)"
+message BuyInState {
+  option (io.angzarr.v1.component) = {
+    kind: COMPONENT_KIND_PROCESS_MANAGER
+    domain: "buy-in"
+    output_domains: "player"
+    output_domains: "table"
+    name: "BuyInProcessManager"
+    compensates: "io.angzarr.examples.v1.HoldFunds"
+    compensates: "io.angzarr.examples.v1.ConfirmSeat"
+  };
+  enum Phase {
+    PHASE_UNSPECIFIED = 0;
+    PHASE_AWAITING_HOLD = 1;
+    PHASE_AWAITING_SEAT = 2;
+    PHASE_AWAITING_CAPTURE = 3;
+    PHASE_COMPLETED = 4;
+    PHASE_FAILED = 5;
+  }
+  bytes buy_in_id = 1;
+  bytes player_root = 2;
+  bytes table_root = 3;
+  int32 seat = 4;
+  int64 amount = 5;
+  Phase phase = 6;
+  string failure_reason = 7;
+}
 ```
 
 </TabItem>
@@ -79,7 +108,37 @@ PMs extend the client library's `ProcessManager` base class; handler methods are
 <Tabs>
 <TabItem label="Python">
 
-```python file=vendor/examples/python/pmg-hand-flow/hand_flow_pm.py region=pm_handler
+```python title="illustrative - buy-in process manager (excerpt)"
+@process_manager(name="pmg-buy-in", domain="buy-in")
+class BuyInProcessManager:
+    @handles(player_pb2.FundsHeld, domain="player")
+    def on_funds_held(self, event: player_pb2.FundsHeld, state: BuyInState):
+        # Ignore news about another buy-in, or news that arrives twice.
+        if event.hold_id != state.buy_in_id or state.phase != BuyInState.PHASE_AWAITING_HOLD:
+            return None
+        return (
+            BuyInFundsHeld(buy_in_id=state.buy_in_id),
+            deferred_command(
+                domain="table",
+                root=state.table_root,
+                command=table_pb2.ConfirmSeat(buy_in_id=state.buy_in_id),
+                sync_mode=types.SYNC_MODE_DECISION,
+            ),
+        )
+
+    @rejected("player", "HoldFunds")
+    def on_hold_funds_rejected(self, notification, state: BuyInState):
+        if state.phase != BuyInState.PHASE_AWAITING_HOLD:
+            return None
+        return (
+            BuyInFailed(buy_in_id=state.buy_in_id, failed_in=state.phase),
+            deferred_command(
+                domain="table",
+                root=state.table_root,
+                command=table_pb2.ReleaseSeat(buy_in_id=state.buy_in_id),
+                sync_mode=types.SYNC_MODE_DECISION,
+            ),
+        )
 ```
 
 </TabItem>
@@ -111,19 +170,19 @@ PMs can emit either **commands** (requests that can be rejected) or **facts** (a
 | **Command** | Yes | Request action that may fail validation |
 | **Fact** | No | Assert PM's orchestration decision |
 
-Facts are useful when the PM has authority the target aggregate must accept—phase transitions, tournament rulings, dealer decisions:
+Facts are useful when the PM has authority the target aggregate must accept—a decision already made elsewhere that the target can only record:
 
 ```python title="illustrative"
 # Command: request action, may be rejected
-def handle_hand_complete(event: HandComplete, state: WorkflowState):
-    return CommandBook(domain="player", command=TransferChips(amount=event.pot))
+def on_seat_held(event: SeatHeld, state: BuyInState):
+    return CommandBook(domain="player", command=HoldFunds(hold_id=event.buy_in_id, amount=event.amount))
 
-# Fact: assert PM decision, cannot be rejected
-def handle_phase_transition(event: AllPlayersReady, state: WorkflowState):
+# Fact: assert a decision the target must record (not part of the example)
+def on_buy_in_expired(event: BuyInExpired, state: BuyInState):
     return FactBook(
-        domain="hand",
-        external_id=f"phase:{state.correlation_id}:{state.current_phase}",
-        event=PhaseAdvanced(phase=state.next_phase),
+        domain="table",
+        external_id=f"expired:{state.buy_in_id.hex()}",
+        event=SeatHoldExpired(buy_in_id=state.buy_in_id),
     )
 ```
 
@@ -136,11 +195,11 @@ See **[Commands vs Facts](/features/facts)** for details on when to use each.
 PM state is stored as events in the PM's own event stream:
 
 ```text title="illustrative - PM event stream"
-PM Event Stream (correlation_id = "hand-abc-123"):
-  [0] WorkflowStarted { hand_id: "...", phase: "awaiting_deal" }
-  [1] PhaseTransitioned { from: "awaiting_deal", to: "dealing" }
-  [2] PhaseTransitioned { from: "dealing", to: "blinds" }
-  [3] WorkflowCompleted { winner_id: "..." }
+PM Event Stream (domain "buy-in", root derived from correlation_id):
+  [0] BuyInStarted   { buy_in_id: "B1", seat: 0, amount: 500 }
+  [1] BuyInFundsHeld { buy_in_id: "B1" }
+  [2] BuyInSeated    { buy_in_id: "B1", stack: 500 }
+  [3] BuyInCompleted { buy_in_id: "B1" }
 ```
 
 On restart, the PM rebuilds state by replaying its own events.
@@ -152,7 +211,7 @@ On restart, the PM rebuilds state by replaying its own events.
 When a PM-issued command is rejected, the PM receives a Notification before the source aggregate:
 
 ```text title="illustrative - rejection flow"
-1. PM issues DealCards → Hand rejects (invalid_player_count)
+1. PM issues HoldFunds → Player rejects (INSUFFICIENT_AVAILABLE_FUNDS)
        │
        ▼
 2. PM receives Notification first
@@ -168,14 +227,16 @@ When a PM-issued command is rejected, the PM receives a Notification before the 
 <TabItem label="Python">
 
 ```python title="illustrative"
-@rejected("hand", "DealCards")
-def handle_deal_rejected(self, state: HandFlowState, notification: Notification):
-    # Update workflow state
-    return WorkflowFailed(
-        hand_id=state.hand_id,
-        reason=f"Deal failed: {notification.rejection_reason}",
-        step="deal_cards",
-    )
+@rejected("player", "HoldFunds")
+def on_hold_funds_rejected(self, state: BuyInState, notification: Notification):
+    rejection = RejectionNotification()
+    notification.payload.Unpack(rejection)
+    # Record the failure and release the seat held for this buy-in
+    return BuyInFailed(
+        buy_in_id=state.buy_in_id,
+        failed_in=state.phase,
+        reason=rejection.code,  # RejectionNotification.code, never the message
+    ), ReleaseSeat(buy_in_id=state.buy_in_id)
 ```
 
 </TabItem>
@@ -215,5 +276,5 @@ A component declares three separate domain roles in `ComponentOptions`: `domain`
 
 - **[Sagas](/components/saga)** — Simpler stateless coordination
 - **[Commands vs Facts](/features/facts)** — When to emit facts instead of commands
-- **[Why Poker](/examples/why-poker#5-process-manager-orchestration)** — PM patterns in poker
+- **[Why Blackjack](/examples/why-blackjack#1-two-resources-two-domains-a-process-manager)** — The example's buy-in PM
 - **[Testing](/operations/testing)** — Testing PMs with Gherkin

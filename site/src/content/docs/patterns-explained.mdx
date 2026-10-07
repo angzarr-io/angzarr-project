@@ -33,8 +33,8 @@ Problem: We only know current state.
 |-----|------|------|
 | 0 | `PlayerRegistered` | `{username: "Alice", ...}` |
 | 1 | `FundsDeposited` | `{amount: 1000, ...}` |
-| 2 | `FundsReserved` | `{amount: 500, ...}` |
-| 3 | `FundsReleased` | `{amount: 500, ...}` |
+| 2 | `FundsHeld` | `{amount: 500, ...}` |
+| 3 | `HoldReleased` | `{amount: 500, ...}` |
 | 4 | `FundsDeposited` | `{amount: 500, ...}` |
 
 Current state: replay events 0-4 → bankroll = 1000 - 500 + 500 + 500 = 1500

@@ -165,7 +165,6 @@ just nuke-deploy
 |---------|------|-------------|
 | Player Coordinator | 1310 | Player command handling |
 | Table Coordinator | 1311 | Table command handling |
-| Hand Coordinator | 1312 | Hand command handling |
 | Stream gRPC | 1340 | Event streaming |
 
 Acceptance tests reach aggregate coordinators via `kubectl port-forward`. See [Testing](/operations/testing#acceptance-tests).

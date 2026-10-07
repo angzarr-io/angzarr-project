@@ -1,0 +1,73 @@
+syntax = "proto3";
+package io.angzarr.examples.v1;
+
+import "io/angzarr/v1/options.proto";
+
+option csharp_namespace = "Angzarr.Examples";
+option go_package = "github.com/benjaminabbitt/angzarr/examples/go/proto/io/angzarr/examples/v1;examples";
+option java_multiple_files = true;
+option java_package = "io.angzarr.examples";
+option ruby_package = "Angzarr::Examples";
+
+// =============================================================================
+// Sagas — stateless translators between player and table
+// =============================================================================
+//
+// A saga has no state, so each is declared on an empty marker message. Its
+// reactions are wired by the (event) entries on the events it consumes.
+// Every saga takes target roots from fields of the source event (never from
+// a lookup), emits angzarr_deferred commands with no expected sequence, and
+// emits facts where the destination cannot refuse.
+
+// saga-player-table. TopUpRequested{hold_id, table_root, amount} ->
+// AddChips{player_root = source root, hold_id, amount} to table_root.
+// The table may refuse (WAGER_IN_PLAY, NOT_SEATED, TOP_UP_EXCEEDS_MAX); the
+// rejection is delivered to the player, which compensates with TopUpRefused.
+message PlayerTableSaga {
+  option (io.angzarr.v1.component) = {
+    kind: COMPONENT_KIND_SAGA
+    input_domain: "player"
+    output_domain: "table"
+  };
+}
+
+// saga-table-player-settlement. Emits FACTS to the player named in the event:
+//   ChipsAdded{hold_id, player_root, amount}        -> TopUpSettled
+//     (external_id = hex(hold_id))
+//   PlayerCashedOut{cashout_id, player_root, amount} -> CashOutCredited
+//     (external_id = hex(cashout_id))
+// The table's decision is final; the player records it and redelivery of the
+// same external_id is a no-op.
+message TablePlayerSettlementSaga {
+  option (io.angzarr.v1.component) = {
+    kind: COMPONENT_KIND_SAGA
+    input_domain: "table"
+    output_domain: "player"
+    emits_facts: "io.angzarr.examples.v1.TopUpSettled"
+    emits_facts: "io.angzarr.examples.v1.CashOutCredited"
+  };
+}
+
+// saga-table-player-history. RoundSettled -> one RecordRoundResult{table_root,
+// round, wager, net} per outcome, to that outcome's player_root, in seat
+// order. It and the loyalty saga react to the same RoundSettled in no
+// guaranteed order.
+message TablePlayerHistorySaga {
+  option (io.angzarr.v1.component) = {
+    kind: COMPONENT_KIND_SAGA
+    input_domain: "table"
+    output_domain: "player"
+  };
+}
+
+// saga-table-player-loyalty. RoundSettled -> one AwardLoyaltyPoints{table_root,
+// round, points = wager} per outcome, to that outcome's player_root, in seat
+// order. A player who never enrolled refuses with LOYALTY_NOT_ENROLLED; that
+// deterministic refusal is what the CascadeErrorMode scenarios rely on.
+message TablePlayerLoyaltySaga {
+  option (io.angzarr.v1.component) = {
+    kind: COMPONENT_KIND_SAGA
+    input_domain: "table"
+    output_domain: "player"
+  };
+}

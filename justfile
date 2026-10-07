@@ -27,8 +27,7 @@ install:
 
 # Shallow-clone the sibling repos that remark-code-region reads snippets from
 vendor:
-    mkdir -p vendor/examples vendor/client
-    [ -d vendor/examples/python ] || git clone --depth=1 https://github.com/angzarr-io/angzarr-examples-python.git vendor/examples/python
+    mkdir -p vendor/client
     [ -d vendor/client/python ]   || git clone --depth=1 https://github.com/angzarr-io/angzarr-client-python.git   vendor/client/python
 
 # Clean build artifacts
@@ -60,7 +59,7 @@ proto-docs:
     } > "$root/{{PROTO_DOCS_OUT}}"
     echo "wrote {{PROTO_DOCS_OUT}}"
 
-# Verify every poker/acceptance scenario is governed by a # Rule: citation
+# Verify every blackjack rule-tier and acceptance scenario cites a catalogued house rule
 check-rules:
     python3 features/example/check_rule_citations.py
 
@@ -98,11 +97,22 @@ proto-breaking:
         breaking proto --against "$gitdir#ref={{BREAKING_AGAINST}},subdir=proto"
 
 # Every scenario carries exactly one unique @<TIER>-NNNN tag
-check-feature-ids *dirs="features/client features/coordinator-contract features/codegen parity":
+check-feature-ids *dirs="features/client features/coordinator-contract features/codegen parity features/example/blackjack features/example/blackjack-framework features/example/blackjack-acceptance":
     python3 scripts/check_feature_ids.py {{dirs}}
 
+GHERKIN_IMAGE := "docker.io/library/python:3.12-slim@sha256:f77ac9e44ae96ef2c90b8053ea08c31f8be030f824196b0ae4db6d462c84e51f"
+GHERKIN_VERSION := "42.0.1"
+
+# Every feature file parses with the official Cucumber Gherkin parser
+check-gherkin *dirs="features parity":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    root="$(git rev-parse --show-toplevel)"
+    docker run --rm -v "$root:$root:ro" -w "$root" {{GHERKIN_IMAGE}} sh -c \
+        "pip install --quiet --disable-pip-version-check --root-user-action=ignore gherkin-official=={{GHERKIN_VERSION}} && python scripts/check_gherkin_parse.py {{dirs}}"
+
 # Required contract gates (proto-breaking is optional and run by hand)
-contracts: proto-lint test-check-feature-ids check-feature-ids
+contracts: proto-lint test-check-feature-ids check-feature-ids check-gherkin check-rules
 
 # Unit tests for the scenario-ID checker
 test-check-feature-ids:

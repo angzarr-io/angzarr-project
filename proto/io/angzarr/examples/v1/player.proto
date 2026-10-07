@@ -1,216 +1,370 @@
 syntax = "proto3";
 package io.angzarr.examples.v1;
+
 import "io/angzarr/v1/options.proto";
 
-import "io/angzarr/examples/v1/poker_types.proto";
-import "google/protobuf/timestamp.proto";
-
 option csharp_namespace = "Angzarr.Examples";
-option go_package = "github.com/benjaminabbitt/angzarr/client/go/proto/io/angzarr/examples/v1;examples";
+option go_package = "github.com/benjaminabbitt/angzarr/examples/go/proto/io/angzarr/examples/v1;examples";
 option java_multiple_files = true;
 option java_package = "io.angzarr.examples";
 option ruby_package = "Angzarr::Examples";
 
 // =============================================================================
-// Player Domain - Player identity, bankroll, and player type abstraction
-// Root: player_id (derived from email or wallet address)
+// Player domain ("player") — the wallet
 // =============================================================================
+//
+// The player aggregate owns every chip that is not on a table. A hold earmarks
+// part of the bankroll for one pending transfer to a table; it never moves
+// money by itself. Money leaves the wallet only when a hold is captured (buy-in)
+// or settled (top-up), and returns only as a cash-out credit.
+//
+// Invariant L1 (after every event):
+//   bankroll >= sum(open holds) >= 0, every open hold > 0, and
+//   bankroll = total_deposited - total_withdrawn - total_to_tables + total_from_tables.
+//
+// Rejections (gRPC status, ErrorInfo.reason code; a compensator receives the
+// code as RejectionNotification.code):
+//   FAILED_PRECONDITION: PLAYER_ALREADY_EXISTS, PLAYER_NOT_FOUND,
+//     INSUFFICIENT_AVAILABLE_FUNDS, HOLD_NOT_FOUND, HOLD_CONFLICT,
+//     LOYALTY_NOT_ENROLLED.
+//   INVALID_ARGUMENT: AMOUNT_NOT_POSITIVE, DISPLAY_NAME_REQUIRED, EMAIL_REQUIRED.
+//
+// Repeating a hold-lifecycle command (HoldFunds / CaptureFunds / ReleaseHold /
+// RequestTopUp) whose effect is already recorded with an identical payload
+// succeeds with no events: redelivery is harmless.
+//
+// Concurrency (client-chosen merge strategy, sent with an explicit expected
+// sequence):
+//   DepositFunds  — MERGE_COMMUTATIVE. Its events change {bankroll,
+//                   total_deposited}; UpdateProfile changes {display_name}.
+//                   A stale deposit merges past a rename and is refused as
+//                   retryable when another deposit landed in between.
+//   WithdrawFunds — MERGE_MANUAL. A stale withdrawal is dead-lettered for
+//                   human review and refused as non-retryable.
+// Saga and process-manager commands (HoldFunds, CaptureFunds, ReleaseHold,
+// RecordRoundResult, AwardLoyaltyPoints) are angzarr_deferred: they carry no
+// expected sequence and are deduplicated by provenance.
 
-// Commands
+// -----------------------------------------------------------------------------
+// Commands — client
+// -----------------------------------------------------------------------------
 
+// Open a wallet. Field tags 1 and 2 are stable: core's acceptance harness
+// sends this command by tag.
 message RegisterPlayer {
   option (io.angzarr.v1.command) = { component: "io.angzarr.examples.v1.PlayerState" };
   string display_name = 1;
-  string email = 2; // Used for root derivation
-  PlayerType player_type = 3; // HUMAN or AI
-  string ai_model_id = 4; // For AI players: which model to use
+  string email = 2;
+}
+
+// Admin migration of a player from a legacy system: identity only, no
+// balance. Sent with SYNC_MODE_ISOLATED so the write triggers no reactions.
+message ImportPlayer {
+  option (io.angzarr.v1.command) = { component: "io.angzarr.examples.v1.PlayerState" };
+  string display_name = 1;
+  string email = 2;
+  string legacy_id = 3; // Identifier in the system being migrated from
+}
+
+// Rename the player. Touches only display_name, so it commutes with money
+// movements.
+message UpdateProfile {
+  option (io.angzarr.v1.command) = { component: "io.angzarr.examples.v1.PlayerState" };
+  string display_name = 1;
 }
 
 message DepositFunds {
   option (io.angzarr.v1.command) = { component: "io.angzarr.examples.v1.PlayerState" };
-  Currency amount = 1;
+  int64 amount = 1;
 }
 
+// Withdraw from the available balance (bankroll minus open holds).
 message WithdrawFunds {
   option (io.angzarr.v1.command) = { component: "io.angzarr.examples.v1.PlayerState" };
-  Currency amount = 1;
+  int64 amount = 1;
 }
 
-// Reserve funds for a lifecycle action (buy-in, rebuy, tournament registration).
-// ``key`` identifies the reservation bucket — a table_root for buy-in / rebuy
-// flows, a tournament_root for registration flows. Matches the ``key`` field on
-// ``DeductReservedFunds`` / ``FundsDeducted``.
-message ReserveFunds {
+// Ask to move more chips to a table the player is seated at. Places a hold
+// keyed by request_id (hold_id = request_id) and emits TopUpRequested, which
+// saga-player-table turns into AddChips at the table.
+message RequestTopUp {
   option (io.angzarr.v1.command) = { component: "io.angzarr.examples.v1.PlayerState" };
-  Currency amount = 1;
-  bytes key = 2;
-}
-
-// Release reserved funds back to bankroll (cancel / compensate).
-message ReleaseFunds {
-  option (io.angzarr.v1.command) = { component: "io.angzarr.examples.v1.PlayerState" };
-  bytes key = 1;
-}
-
-// Settle a previously-reserved amount: reserved_funds AND bankroll both drop.
-// Emitted by the reservation PM after a confirmed lifecycle action
-// (BuyInConfirmed / RebuyFeeConfirmed / RegistrationFeeConfirmed).
-message DeductReservedFunds {
-  option (io.angzarr.v1.command) = { component: "io.angzarr.examples.v1.PlayerState" };
-  Currency amount = 1;
-  bytes key = 2;
-  bytes reservation_id = 3;
-}
-
-// Player decides to sit out at a table (stop receiving hands)
-message SitOut {
   bytes table_root = 1;
+  int64 amount = 2;
+  bytes request_id = 3; // Client-chosen idempotency key; becomes the hold_id
 }
 
-// Player decides to return to play at a table
-message SitIn {
-  bytes table_root = 1;
-}
-
-// Transfer funds from one player to another (pot award)
-message TransferFunds {
+message EnrollLoyalty {
   option (io.angzarr.v1.command) = { component: "io.angzarr.examples.v1.PlayerState" };
-  bytes from_player_root = 1; // Source player (for reserved funds)
-  Currency amount = 2;
-  bytes hand_root = 3; // Which hand this transfer is for
-  string reason = 4; // "pot_win", "side_pot_win", etc.
 }
 
-// Request action from player (triggers AI sidecar for AI players)
-message RequestAction {
-  bytes hand_root = 1;
+// -----------------------------------------------------------------------------
+// Commands — pmg-buy-in (SYNC_MODE_DECISION, angzarr_deferred)
+// -----------------------------------------------------------------------------
+
+// Earmark funds for a buy-in. hold_id is the buy_in_id.
+message HoldFunds {
+  option (io.angzarr.v1.command) = { component: "io.angzarr.examples.v1.PlayerState" };
+  bytes hold_id = 1;
   bytes table_root = 2;
-  int64 amount_to_call = 3;
-  int64 min_raise = 4;
-  int64 max_raise = 5; // Player's remaining stack
-  repeated Card hole_cards = 6;
-  repeated Card community_cards = 7;
-  int64 pot_size = 8;
-  BettingPhase phase = 9;
-  int32 timeout_seconds = 10;
+  int64 amount = 3;
 }
 
+// Spend an open buy-in hold: bankroll and the hold both drop by its amount.
+message CaptureFunds {
+  option (io.angzarr.v1.command) = { component: "io.angzarr.examples.v1.PlayerState" };
+  bytes hold_id = 1;
+}
+
+// Close an open hold without spending it.
+message ReleaseHold {
+  option (io.angzarr.v1.command) = { component: "io.angzarr.examples.v1.PlayerState" };
+  bytes hold_id = 1;
+  string reason = 2;
+}
+
+// -----------------------------------------------------------------------------
+// Commands — round reactions from the table (angzarr_deferred)
+// -----------------------------------------------------------------------------
+
+// From saga-table-player-history, one per settled seat. Recording the same
+// (table_root, round) twice succeeds with no events.
+message RecordRoundResult {
+  option (io.angzarr.v1.command) = { component: "io.angzarr.examples.v1.PlayerState" };
+  bytes table_root = 1;
+  uint32 round = 2;
+  int64 wager = 3;
+  int64 net = 4; // returned - wager; negative on a loss
+}
+
+// From saga-table-player-loyalty, one per settled seat. Refused with
+// LOYALTY_NOT_ENROLLED when the player has not enrolled. Awarding the same
+// (table_root, round) twice succeeds with no events.
+message AwardLoyaltyPoints {
+  option (io.angzarr.v1.command) = { component: "io.angzarr.examples.v1.PlayerState" };
+  bytes table_root = 1;
+  uint32 round = 2;
+  int64 points = 3;
+}
+
+// -----------------------------------------------------------------------------
 // Events
+// -----------------------------------------------------------------------------
 
 message PlayerRegistered {
-  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.OutputProjection" domain: "player" };
-  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.PlayerBalanceProjection" domain: "player" };
   option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.PlayerState" };
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.LedgerProjection" domain: "player" };
   string display_name = 1;
   string email = 2;
-  PlayerType player_type = 3;
-  string ai_model_id = 4;
-  google.protobuf.Timestamp registered_at = 5;
+}
+
+// Identity migrated from a legacy system; the wallet starts empty. Written
+// with SYNC_MODE_ISOLATED, so the ledger projector only sees it on a rebuild.
+message PlayerImported {
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.PlayerState" };
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.LedgerProjection" domain: "player" };
+  string display_name = 1;
+  string email = 2;
+  string legacy_id = 3;
+}
+
+message ProfileUpdated {
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.PlayerState" };
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.LedgerProjection" domain: "player" };
+  string display_name = 1;
 }
 
 message FundsDeposited {
-  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.OutputProjection" domain: "player" };
-  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.PlayerBalanceProjection" domain: "player" };
   option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.PlayerState" };
-  Currency amount = 1;
-  Currency new_balance = 2; // Absolute value after deposit
-  google.protobuf.Timestamp deposited_at = 3;
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.LedgerProjection" domain: "player" };
+  int64 amount = 1;
+}
+
+// Legacy shape of FundsDeposited. Never emitted by current code; it exists
+// only in stored history. The player upcaster (served by the agg-player
+// binary through UpcasterService) rewrites it to
+// FundsDeposited{amount = amount_chips} before any handler sees it, so no
+// component consumes it directly.
+message FundsDepositedV1 {
+  int64 amount_chips = 1;
 }
 
 message FundsWithdrawn {
-  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.OutputProjection" domain: "player" };
-  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.PlayerBalanceProjection" domain: "player" };
   option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.PlayerState" };
-  Currency amount = 1;
-  Currency new_balance = 2; // Absolute value after withdrawal
-  google.protobuf.Timestamp withdrawn_at = 3;
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.LedgerProjection" domain: "player" };
+  int64 amount = 1;
 }
 
-message FundsReserved {
-  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.OutputProjection" domain: "player" };
+// A buy-in hold was opened.
+message FundsHeld {
   option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.PlayerState" };
-  Currency amount = 1;
-  bytes key = 2;
-  Currency new_available_balance = 3; // Bankroll minus reserved
-  Currency new_reserved_balance = 4; // Total reserved across all keys
-  google.protobuf.Timestamp reserved_at = 5;
-}
-
-message FundsReleased {
-  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.PlayerState" };
-  Currency amount = 1;
-  bytes key = 2;
-  Currency new_available_balance = 3;
-  Currency new_reserved_balance = 4;
-  google.protobuf.Timestamp released_at = 5;
-}
-
-message FundsTransferred {
-  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.PlayerState" };
-  bytes from_player_root = 1;
-  bytes to_player_root = 2;
-  Currency amount = 3;
-  bytes hand_root = 4;
-  string reason = 5;
-  Currency new_balance = 6; // Recipient's new balance
-  google.protobuf.Timestamp transferred_at = 7;
-}
-
-// Emitted after DeductReservedFunds — settles a reservation permanently.
-message FundsDeducted {
-  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.PlayerState" };
-  Currency amount = 1;
-  bytes key = 2;
-  bytes reservation_id = 3;
-  Currency new_balance = 4;
-  Currency new_reserved_balance = 5;
-  google.protobuf.Timestamp deducted_at = 6;
-}
-
-// Emitted when action is needed - AI players respond via sidecar
-message ActionRequested {
-  bytes hand_root = 1;
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.BuyInState" domain: "player" };
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.LedgerProjection" domain: "player" };
+  bytes hold_id = 1;
   bytes table_root = 2;
-  bytes player_root = 3;
-  PlayerType player_type = 4;
-  int64 amount_to_call = 5;
-  int64 min_raise = 6;
-  int64 max_raise = 7;
-  repeated Card hole_cards = 8;
-  repeated Card community_cards = 9;
-  int64 pot_size = 10;
-  BettingPhase phase = 11;
-  google.protobuf.Timestamp deadline = 12;
+  int64 amount = 3;
 }
 
-// Player has chosen to sit out at a table
-message PlayerSittingOut {
+// A buy-in hold was spent: the chips now belong to the table.
+message FundsCaptured {
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.PlayerState" };
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.BuyInState" domain: "player" };
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.LedgerProjection" domain: "player" };
+  bytes hold_id = 1;
+  bytes table_root = 2;
+  int64 amount = 3;
+}
+
+// A hold was closed without spending it.
+message HoldReleased {
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.PlayerState" };
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.LedgerProjection" domain: "player" };
+  bytes hold_id = 1;
+  int64 amount = 2;
+  string reason = 3;
+}
+
+// A top-up hold was opened; triggers saga-player-table.
+message TopUpRequested {
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.PlayerState" };
   option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.PlayerTableSaga" domain: "player" };
-  bytes table_root = 1;
-  google.protobuf.Timestamp sat_out_at = 2;
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.LedgerProjection" domain: "player" };
+  bytes hold_id = 1;
+  bytes table_root = 2;
+  int64 amount = 3;
 }
 
-// Player has chosen to return to play at a table
-message PlayerReturningToPlay {
-  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.PlayerTableSaga" domain: "player" };
-  bytes table_root = 1;
-  google.protobuf.Timestamp sat_in_at = 2;
+// Compensation output: the table refused the AddChips for this top-up, so its
+// hold is released. Emitted by the player's OnAddChipsRejected handler.
+message TopUpRefused {
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.PlayerState" };
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.LedgerProjection" domain: "player" };
+  bytes hold_id = 1;
+  int64 amount = 2;
+  string reason = 3; // The table's rejection code, from RejectionNotification.code (e.g. WAGER_IN_PLAY)
 }
 
-// State (for snapshots)
+// FACT from saga-table-player-settlement (external_id = hex(hold_id)): the
+// table added the chips, so the top-up hold is spent. handle_fact cannot
+// refuse it; when no open top-up hold matches hold_id and amount it records
+// the fact with `anomaly` set for review, and the money still moves.
+message TopUpSettled {
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.PlayerState" };
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.LedgerProjection" domain: "player" };
+  bytes hold_id = 1;
+  bytes table_root = 2;
+  int64 amount = 3;
+  string anomaly = 4; // Empty when the fact matched an open hold
+}
+
+// FACT from saga-table-player-settlement (external_id = hex(cashout_id)): the
+// player left a table with `amount` chips; the bankroll is credited.
+message CashOutCredited {
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.PlayerState" };
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.LedgerProjection" domain: "player" };
+  bytes cashout_id = 1;
+  bytes table_root = 2;
+  int64 amount = 3;
+}
+
+message LoyaltyEnrolled {
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.PlayerState" };
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.LedgerProjection" domain: "player" };
+}
+
+message RoundResultRecorded {
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.PlayerState" };
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.LedgerProjection" domain: "player" };
+  bytes table_root = 1;
+  uint32 round = 2;
+  int64 wager = 3;
+  int64 net = 4;
+}
+
+// Undo output: a CASCADE request that recorded this round result failed
+// under CASCADE_ERROR_COMPENSATE, so the record is withdrawn. The
+// original RoundResultRecorded stays in history; this event cancels it.
+message RoundResultRetracted {
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.PlayerState" };
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.LedgerProjection" domain: "player" };
+  bytes table_root = 1;
+  uint32 round = 2;
+  int64 net = 3;
+}
+
+message LoyaltyPointsAwarded {
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.PlayerState" };
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.LedgerProjection" domain: "player" };
+  bytes table_root = 1;
+  uint32 round = 2;
+  int64 points = 3;
+}
+
+// -----------------------------------------------------------------------------
+// State
+// -----------------------------------------------------------------------------
+
+message Hold {
+  enum Purpose {
+    PURPOSE_UNSPECIFIED = 0;
+    PURPOSE_BUY_IN = 1;
+    PURPOSE_TOP_UP = 2;
+  }
+  enum Status {
+    STATUS_UNSPECIFIED = 0;
+    STATUS_OPEN = 1;     // Counts against the available balance
+    STATUS_CAPTURED = 2; // Buy-in spent
+    STATUS_SETTLED = 3;  // Top-up spent
+    STATUS_RELEASED = 4; // Closed unspent (ReleaseHold)
+    STATUS_REFUSED = 5;  // Closed unspent (top-up refused by the table)
+  }
+  bytes table_root = 1;
+  int64 amount = 2;
+  Purpose purpose = 3;
+  Status status = 4;
+}
+
+message RoundResult {
+  bytes table_root = 1;
+  uint32 round = 2;
+  int64 wager = 3;
+  int64 net = 4;
+  bool retracted = 5;
+  uint64 sequence = 6; // Page sequence of the RoundResultRecorded event that recorded this result
+}
+
+// The PlayerAggregate.
+//   compensates AddChips — the table refused a top-up (saga-player-table's
+//     command); OnAddChipsRejected emits TopUpRefused, releasing the hold.
+//   undoes RecordRoundResult — a CASCADE request under
+//     CASCADE_ERROR_COMPENSATE failed after this player's round result was
+//     recorded; OnRecordRoundResultUndo emits RoundResultRetracted.
+//   facts TopUpSettled, CashOutCredited — injected by
+//     saga-table-player-settlement; handle_fact validates and flags them
+//     but cannot refuse them.
 message PlayerState {
   option (io.angzarr.v1.component) = {
     kind: COMPONENT_KIND_AGGREGATE
-    input_domain: "player"
+    domain: "player"
     name: "PlayerAggregate"
+    compensates: "io.angzarr.examples.v1.AddChips"
+    undoes: "io.angzarr.examples.v1.RecordRoundResult"
+    facts: "io.angzarr.examples.v1.TopUpSettled"
+    facts: "io.angzarr.examples.v1.CashOutCredited"
   };
-  string player_id = 1;
-  string display_name = 2;
-  string email = 3;
-  PlayerType player_type = 4;
-  string ai_model_id = 5;
-  Currency bankroll = 6;
-  Currency reserved_funds = 7;
-  map<string, int64> table_reservations = 8; // key_hex -> amount (legacy name retained for on-disk compatibility)
-  string status = 9; // "active", "suspended", etc.
+  string display_name = 1;
+  string email = 2;
+  bool registered = 3; // True after PlayerRegistered or PlayerImported
+  string legacy_id = 4;
+  int64 bankroll = 5; // Includes open holds
+  map<string, Hold> holds = 6; // key = lowercase hex(hold_id); every hold ever opened
+  int64 total_deposited = 7;
+  int64 total_withdrawn = 8;
+  int64 total_to_tables = 9;
+  int64 total_from_tables = 10;
+  bool loyalty_enrolled = 11;
+  int64 loyalty_points = 12;
+  map<string, RoundResult> round_results = 13; // key = hex(table_root) + "/" + round
+  map<string, int64> loyalty_awards = 14; // key = hex(table_root) + "/" + round -> points
+  int64 anomalies = 15; // Count of facts recorded with an anomaly
 }

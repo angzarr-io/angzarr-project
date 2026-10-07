@@ -7,13 +7,12 @@ Angzarr uses consistent port numbering across all deployment modes.
 
 ## Infrastructure Ports
 
-Core framework services use fixed ports. In Kind clusters used for acceptance tests, the player/table/hand aggregate coordinators each run as distinct instances:
+Core framework services use fixed ports. In Kind clusters used for acceptance tests, the player and table aggregate coordinators each run as distinct instances:
 
 | Service | Port | Description |
 |---------|------|-------------|
 | Player Aggregate Coordinator | 1310 | Player domain command handling |
 | Table Aggregate Coordinator | 1311 | Table domain command handling |
-| Hand Aggregate Coordinator | 1312 | Hand domain command handling |
 | Stream gRPC | 1340 | Event streaming |
 
 Acceptance tests reach these via `kubectl port-forward` rather than NodePort — NodePort conflicted under parallel CI runs. See [Testing](/operations/testing#acceptance-tests) for the wiring.

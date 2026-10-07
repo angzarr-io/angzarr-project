@@ -33,7 +33,7 @@ implement it.
 
 ## Domain vocabulary
 
-Generic only — `order`, `inventory`, `payment`, `shipping`. No poker types
+Generic only — `order`, `inventory`, `payment`, `shipping`. No example (blackjack) types
 (same rule as `../client/`, STEP_VOCABULARY.md §12, §17).
 
 ## Scenario IDs

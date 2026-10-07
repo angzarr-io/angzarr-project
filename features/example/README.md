@@ -1,67 +1,50 @@
 # Tier group: example
 
-Cucumber specs for the canonical angzarr example — a poker domain spanning
-player, table, and hand aggregates with cross-domain sagas and process
-managers.
+Cucumber specs for the canonical angzarr example — a small blackjack table.
+Protos live in `proto/io/angzarr/examples/v1/`.
 
-Three sibling directories:
+- **[`blackjack/`](blackjack/)** — house rules (AHR-1..13) and ledger rules
+  (L1, L2) for the wallet, the table, a round and the deterministic shoe.
+  In-process tier.
+- **[`blackjack-framework/`](blackjack-framework/)** — framework concepts
+  (translators, facts, compensation, the buy-in process manager, the ledger
+  projector, snapshots, a whole wired session) demonstrated through the
+  blackjack components. In-process tier only.
+- **[`blackjack-acceptance/`](blackjack-acceptance/)** — scenarios that only
+  make sense against a deployed cluster.
 
-- **[`poker/`](poker/)** — TDA / WSOP / Robert's rule scenarios.
-  **Run at both tiers** (in-process via aggregate handlers AND cluster via
-  gRPC). Cluster-only assertions no-op on the in-process tier so the same
-  `.feature` files exercise both stacks.
-- **[`framework/`](framework/)** — framework-concept scenarios (saga
-  dispatch, PM state machine, projector rendering, orchestrator decision
-  coupling) demonstrated *through* concrete poker handlers. In-process tier
-  only — asserts on internals the cluster doesn't expose.
-- **[`acceptance/`](acceptance/)** — cluster-tier-only scenarios that ONLY
-  make sense against a deployed cluster: coordinator-restart durability,
-  inter-coordinator routing, observable projector lag. Not duplicated by
-  the in-process tier.
+## Why blackjack
 
-## Why poker
-
-- **Concrete outcomes** — "Bob wins the pot of 15" is easy to assert
-- **Multi-aggregate** — Player ↔ Table ↔ Hand forces cross-domain sagas and PMs
-- **Deterministic** — seeded decks make showdowns reproducible
-- **Rich edge cases** — all-in, side pots, split pots, elimination — real complexity
-- **Visible side effects** — player balance changes reflect cross-domain saga execution
-
-## Why the split
-
-The previous layout (`unit/` + `acceptance/`) mixed concerns. Three
-distinct things live here:
-
-| | What it asserts | When it runs |
-|--|---|---|
-| Poker rules | Domain outcomes per TDA/WSOP/Robert's | Both tiers — same `.feature`, two harness backends |
-| Framework concepts | Saga/PM/projector/orchestrator internals (replay state, in-memory propagation order, stateful progress) | In-process only |
-| Cluster orchestration | Wire latency, pod restart, multi-coordinator routing | Cluster only |
-
-Splitting them three ways means each scenario sits where its assertions
-actually make sense.
+- **Two bounded contexts** — the wallet owns money off the table, the table
+  owns chips on it; every transfer between them is explicit
+- **One real process manager** — a buy-in secures a seat and funds in two
+  domains and undoes either half if the other is refused
+- **Saga plus compensation** — a top-up the table refuses mid-round is
+  undone in the wallet
+- **Facts** — chips added and cash-outs are the table's final word, recorded
+  in the wallet exactly once
+- **In-aggregate lifecycle** — a whole round (deal, turns, dealer, settlement)
+  is one aggregate's job, showing when *not* to use a process manager
+- **Money provably balances** — ledger invariants L1–L4 are checked at every tier
+- **Deterministic** — the shoe is shuffled from a seed with a pinned algorithm,
+  so every language deals the same cards
 
 ## Domain vocabulary
 
-Poker only. `Player`, `Table`, `Hand`, `DealCards`, `HandStarted`,
-`ShowdownStarted`, pot, stack, buy-in. No generic `Order`/`Payment` — those
+Blackjack only: player, wallet, bankroll, hold, table, seat, stack, wager,
+shoe, round, dealer, cash-out, ledger. No generic `Order`/`Payment` — those
 belong in [`../client/`](../client/).
 
 ## Consumer wiring
 
 Each `examples-*-lang` repo configures its runner to read these feature files
-directly from the `angzarr-project/` submodule mount. See the sub-tier READMEs
-for invocation details.
+directly from the `angzarr-project/` submodule mount. See the sub-tier READMEs.
 
 ## Adding a scenario
 
-Pick the right sub-tier first:
-
-- Codifies a TDA / WSOP / Robert's rule? → `poker/`. Cite the rule via
-  `# Rule:` comment and update [`RULES.md`](RULES.md).
-- Asserts on a framework concept's internals (saga dispatch order, PM
-  state-machine progress, projector idempotence on replay)? → `framework/`.
-- Asserts on cluster orchestration (coordinator restart, pod state, sync
-  mode propagation timing)? → `acceptance/`.
-
-Then follow the sub-tier README's process.
+- Codifies a house rule or ledger invariant? → `blackjack/`. Cite it with a
+  `# Rule:` comment; add a new rule to [`blackjack/RULES.md`](blackjack/RULES.md)
+  first. `just check-rules` enforces citations.
+- Asserts on a framework concept's internals? → `blackjack-framework/`.
+- Only meaningful on a deployed cluster? → `blackjack-acceptance/` (also cites
+  a rule or `# Rule: N/A — <reason>`).

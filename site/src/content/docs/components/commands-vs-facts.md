@@ -212,7 +212,7 @@ Setting it to `false` is useful for pure append-only fact logging where aggregat
 
 **Examples:**
 - `CreateOrder` — validate inventory, customer status
-- `ReserveFunds` — check available balance
+- `HoldFunds` — check available balance
 - `PlaceBet` — validate game state, bet limits
 
 ### Use Fact Events (with external_deferred) when:

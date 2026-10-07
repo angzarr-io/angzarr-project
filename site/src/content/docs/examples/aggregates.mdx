@@ -1,138 +1,88 @@
 ---
 title: Aggregate Examples
 ---
-import { Tabs, TabItem } from '@astrojs/starlight/components';
 
+The example domain is a small blackjack table with two aggregates: the **player** wallet and the **table**. Their behaviour is specified once, in protos and Gherkin scenarios in [angzarr-project](https://github.com/angzarr-io/angzarr-project), and implemented in all six languages against the same scenarios.
 
-Real handler examples from the poker domain. All code is from the actual [examples/](https://github.com/benjaminabbitt/angzarr/tree/main/examples) directory.
+:::note
+The blackjack implementations are being written. Until the Python one lands, this page shows the example's specification rather than handler code.
+:::
 
-All aggregates in all six languages use the **OO pattern**: a class derived from the client library's `CommandHandler<State>` with `@handles` for command dispatch and `@applies` for event-to-state application (naming adapted per language idiom).
-
----
-
-## Command Handlers
-
-`@handles(CommandType)` on a method registers it as the handler for that command. The method returns the event; the framework persists it and advances state.
-
-<Tabs>
-<TabItem label="Python">
-
-```python file=vendor/examples/python/table/agg/handlers/table.py region=handlers
-```
-
-</TabItem>
-</Tabs>
+All aggregates in all six languages use the **OO pattern**: a class derived from the client library's `CommandHandler<State>` with `@handles` for command dispatch and `@applies` for event-to-state application (naming adapted per language idiom). Every handler follows guard → validate → compute as pure functions.
 
 ---
 
-## Two-Phase Reservation Pattern
+## Commands and events are declared in proto
 
-The Player aggregate demonstrates **two-phase reservation**. Funds are reserved before joining a table, then released if the join fails.
+A command names the aggregate state message that handles it; an event names every component that consumes it. The player wallet's hold commands, from `player.proto`:
 
-<Tabs>
-<TabItem label="Python">
+```protobuf title="proto/io/angzarr/examples/v1/player.proto (excerpt)"
+// Earmark funds for a buy-in. hold_id is the buy_in_id.
+message HoldFunds {
+  option (io.angzarr.v1.command) = { component: "io.angzarr.examples.v1.PlayerState" };
+  bytes hold_id = 1;
+  bytes table_root = 2;
+  int64 amount = 3;
+}
 
-```python title="illustrative - excerpt of player/agg/handlers.py"
-def reserve_funds_validate(cmd: player.ReserveFunds, state: PlayerState) -> int:
-    """Validate reserve command and extract amount."""
-    amount = cmd.amount.amount if cmd.amount else 0
-    if amount <= 0:
-        raise CommandRejectedError.invalid_argument("amount must be positive")
-    if amount > state.available_balance:
-        raise CommandRejectedError("Insufficient funds")
-    bucket = cmd.key.hex()
-    if bucket in state.table_reservations:
-        raise CommandRejectedError("Funds already reserved for this table")
-    return amount
-
-
-def release_funds_validate(cmd: player.ReleaseFunds, state: PlayerState) -> int:
-    """Validate release command and return reserved amount."""
-    if not cmd.key:
-        raise CommandRejectedError("table_root is required")
-    bucket = cmd.key.hex()
-    reserved_for_bucket = state.table_reservations.get(bucket, 0)
-    if reserved_for_bucket == 0:
-        raise CommandRejectedError("No funds reserved for this table")
-    return reserved_for_bucket
+// A buy-in hold was opened.
+message FundsHeld {
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.PlayerState" };
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.BuyInState" domain: "player" };
+  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.LedgerProjection" domain: "player" };
+  bytes hold_id = 1;
+  bytes table_root = 2;
+  int64 amount = 3;
+}
 ```
 
-</TabItem>
-</Tabs>
+`FundsHeld` is folded into the wallet's own state, triggers the buy-in process manager and is projected into the ledger — one event, three consumers.
 
 ---
 
-## State Appliers
+## Two-phase holds
 
-`@applies(EventType)` on a method registers it as the reducer for that event. State is rebuilt by replaying the event stream; each applier mutates a fresh state instance in order.
+The wallet never moves money when it holds it: a hold only earmarks part of the bankroll. The money leaves when the hold is captured (buy-in) or settled (top-up), and a hold that does not go through is released.
 
-<Tabs>
-<TabItem label="Python">
+```gherkin title="features/example/blackjack/player.feature (excerpt)"
+Scenario: Holding funds reduces what is available but not the bankroll
+  Given player "Alice" is registered with 1000 deposited
+  When 500 of "Alice"'s funds are held for buy-in "B1" at table "Main"
+  Then "Alice" has a bankroll of 1000 with 500 available
+  And "Alice" has an open hold "B1" of 500 for table "Main"
+  And the wallet of "Alice" balances
 
-```python file=vendor/examples/python/table/agg/handlers/table.py region=handlers
+Scenario: A hold larger than the available balance is refused
+  Given player "Alice" is registered with 1000 deposited
+  And 700 of "Alice"'s funds are held for buy-in "B1" at table "Main"
+  When 500 of "Alice"'s funds are held for buy-in "B2" at table "Side"
+  Then the hold is refused because "Alice" has only 300 available
 ```
 
-</TabItem>
-</Tabs>
-
-The table example interleaves `@applies` and `@handles` methods in one class — the base class indexes them by reflection at construction time. No separate router to register or compose.
+Repeating an identical hold succeeds with no events, so a redelivered request is harmless.
 
 ---
 
-## Server Wiring
+## Multi-event commands
 
-Pass the handler class (not an instance) to the server factory. The framework instantiates the aggregate per command, rebuilding state from the event log.
+The table runs a whole round inside one aggregate. `DealRound` may emit a new shoe, the deal, and — when nobody can act — the dealer's play and the settlement, all in one step. The action that finishes the last hand does the same:
 
-<Tabs>
-<TabItem label="Python">
-
-```python file=vendor/examples/python/table/agg/main.py
+```gherkin title="features/example/blackjack/round.feature (excerpt)"
+Scenario: The last action plays the dealer and settles in the same step
+  Given "Alice" has bet 20 at seat 0
+  And the shoe begins "10♣ 10♦ 9♥ 7♠"
+  And the round has been dealt
+  When "Alice" stands at seat 0
+  Then the table records, as one step, that seat 0 stood, the dealer played and round 1 was settled
 ```
-
-</TabItem>
-</Tabs>
 
 ---
 
 ## Testing
 
-⍼ Angzarr uses **Gherkin feature files as living specifications**. The same feature files run against all language implementations, guaranteeing identical business behavior.
+⍼ Angzarr uses **Gherkin feature files as living specifications**. The same feature files run against all language implementations. Because `@handles` methods are ordinary methods, they also test directly: construct the aggregate, seed its prior events, invoke the method, assert on the returned events.
 
-Example Gherkin feature:
-
-```gherkin
-Feature: Player fund reservation
-
-  Players must reserve funds when joining a table to ensure
-  they can cover their buy-in before sitting down.
-
-  Scenario: Reserve funds for table buy-in
-    Given a player with $500 available
-    When the player reserves $200 for a table
-    Then the player's available balance is $300
-    And the player's reserved balance is $200
-
-  Scenario: Cannot reserve more than available
-    Given a player with $500 available
-    When the player tries to reserve $600
-    Then the request fails with "insufficient funds"
-    And the player's available balance remains $500
-```
-
-Because `@handles` methods are ordinary methods on an aggregate instance, they test directly: construct the aggregate, seed its state, invoke the method, assert on the returned event.
-
-```python
-def test_deposit_increases_bankroll():
-    agg = Player()
-    agg.state.registered = True
-    agg.state.bankroll = 1000
-
-    event = agg.handle_deposit_funds(DepositFunds(amount=500))
-
-    assert event.new_bankroll == 1500
-```
-
-See **[Testing](/operations/testing)** for the full three-level testing strategy.
+See **[Testing](/operations/testing)** for the full testing strategy.
 
 ---
 
@@ -141,4 +91,4 @@ See **[Testing](/operations/testing)** for the full three-level testing strategy
 - **[Sagas](/examples/sagas)** — Cross-domain coordination
 - **[Projectors](/examples/projectors)** — Read-side views
 - **[Testing](/operations/testing)** — Full test strategy
-- **[Why Poker](/examples/why-poker)** — Domain rationale
+- **[Why Blackjack](/examples/why-blackjack)** — Domain rationale

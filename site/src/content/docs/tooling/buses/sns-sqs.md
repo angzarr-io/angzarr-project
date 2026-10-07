@@ -56,9 +56,9 @@ SNS provides fan-out to SQS queues:
 ```mermaid
 flowchart LR
     TP["SNS Topic: angzarr-events-player"] --> PP[SQS: player-projector-queue]
-    TP --> OP1[SQS: output-projector-queue]
-    TH["SNS Topic: angzarr-events-hand"] --> HS[SQS: hand-saga-queue]
-    TH --> OP2[SQS: output-projector-queue]
+    TP --> OP1[SQS: ledger-projector-queue]
+    TH["SNS Topic: angzarr-events-table"] --> HS[SQS: settlement-saga-queue]
+    TH --> OP2[SQS: ledger-projector-queue]
 ```
 
 ---
@@ -130,7 +130,7 @@ PlayerProjectorQueue:
 ```bash
 # Create SNS topics
 aws sns create-topic --name angzarr-events-player
-aws sns create-topic --name angzarr-events-hand
+aws sns create-topic --name angzarr-events-table
 
 # Create SQS queues
 aws sqs create-queue --queue-name player-projector-queue
