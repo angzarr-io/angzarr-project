@@ -307,12 +307,17 @@ Feature: Blackjack on a deployed cluster
 
   @snapshot @cluster @needs-core-X-092
   @EA-0038
-  Scenario: Every shoe's starting snapshot is kept while routine ones are replaced
+  Scenario: Every shoe's starting snapshot is kept and supersedes the routine ones before it
+    # A lasting snapshot supersedes routine snapshots older than it; routine
+    # snapshots taken after it remain, the newest replacing the one before
+    # (C-0452, C-0511).
     Given table "Main" saves a routine snapshot every 20 events
     And "Alice" has played at table "Main" until the shoe has been replaced twice
+    And "Alice" has played on until a routine snapshot was taken after shoe 3's lasting snapshot
     When table "Main"'s stored snapshots are listed
     Then there is a lasting snapshot for each of shoes 1, 2 and 3
-    And exactly one routine snapshot remains, the newest
+    And no routine snapshot older than shoe 3's lasting snapshot remains
+    And the routine snapshot taken after shoe 3's lasting snapshot remains
 
   @edition @cluster @needs-core-X-021 @needs-core-X-089
   @EA-0039
