@@ -29,7 +29,7 @@ Cascade execution provides synchronous semantics while keeping event sourcing's 
 | `CASCADE` | Sync, in response | Sync, recursively | Immediate response, full coordination |
 | `ISOLATED` | Never | Never | Replay / migration writes that must not trigger reactions |
 
-An unset mode behaves as `ASYNC`. The caller's mode is a floor for the whole chain: a saga or process manager can raise the mode of a single emitted command with `PageHeader.sync_mode`, and that command runs with the stronger of the caller's mode and its own. A command's own mode never lowers it, so a `CASCADE` caller always observes the whole chain.
+An unset mode behaves as `ASYNC`. The caller's mode is a floor for the whole chain: a saga or process manager can raise the mode of a single emitted command with `PageHeader.sync_mode`, and that command runs with the stronger of the caller's mode and its own. A command's own mode never lowers it, so a `CASCADE` caller always observes the whole chain. `ISOLATED` is the exception and always holds: an `ISOLATED` command stays `ISOLATED` under any caller's mode, and since its events set off nothing downstream the chain ends there.
 
 ### Choosing Your Mode
 
