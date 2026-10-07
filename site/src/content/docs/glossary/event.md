@@ -18,10 +18,10 @@ Events use **past tense** naming - they describe what happened:
 | Aspect | Event | Command | Notification |
 |--------|-------|---------|--------------|
 | Tense | Past | Imperative | Present |
-| Persisted | Yes | No (transient) | No (transient) |
+| Persisted | Yes | No (transient) | No (durable delivery, never in the stream) |
 | Sequenced | Yes | Yes (expected) | No |
 | Rejectable | No | Yes | N/A |
-| Example | `OrderCreated` | `CreateOrder` | `CompensationRequired` |
+| Example | `OrderCreated` | `CreateOrder` | `RejectionNotification` |
 
 ## In Angzarr
 

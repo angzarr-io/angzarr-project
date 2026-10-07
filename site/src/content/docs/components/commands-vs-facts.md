@@ -111,7 +111,7 @@ When the aggregate coordinator receives a fact event:
 
 The `PageHeader` uses a `oneof` to distinguish sequence types:
 
-```protobuf file=proto/angzarr_client/proto/angzarr/v1/types.proto region=page_header
+```protobuf file=proto/io/angzarr/v1/types.proto region=page_header
 ```
 
 **Key design:** The idempotency key (`external_id`) lives in `PageHeader.external_deferred`, keeping `Cover` focused on aggregate identity while `PageHeader` handles sequencing. The `ExternalDeferredSequence` carries both the idempotency key and a human-readable description. This ensures:
@@ -320,7 +320,7 @@ The framework stamps `angzarr_deferred` on saga-produced commands with source ag
 
 - [Command](/glossary/command) — Requests that may be rejected
 - [Event](/glossary/event) — Immutable facts (internal or external)
-- [Notification](/glossary/notification) — Transient signals (not persisted)
+- [Notification](/glossary/notification) — Compensation signals (never in the event stream)
 - [Saga](/glossary/saga) — Domain bridges that emit commands (with angzarr_deferred)
 - [Sequence](/glossary/sequence) — Optimistic concurrency for commands
 

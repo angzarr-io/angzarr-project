@@ -49,6 +49,19 @@ The rejection notification bypasses the saga entirely. The framework routes it d
 
 ---
 
+## Delivery Guarantees
+
+A compensation notification is a durable obligation of the coordinator that raises it, never a fire-and-forget message:
+
+1. **Recorded before acknowledgement.** The coordinator writes the notification to its compensation outbox before it acknowledges the trigger—the triggering event's delivery for a saga or process manager, or the response to a `CASCADE` request. If the outbox write fails, the trigger is not acknowledged and is redelivered.
+2. **Delivered at least once.** The outbox delivers the notification to the target domain's `HandleCompensation`, including after a coordinator restart. Failed deliveries are retried with backoff.
+3. **Deduplicated by the target.** The delivery carries the compensated command's provenance tuple (`source`, `source_seq`, `source_component`, `command_index`). The target's deduplication key is that tuple plus the kind — command, rejection notification or compensate notification — so a redelivered notification does not run the compensation handler again (it returns the first delivery's result), while a notification is never dropped as a duplicate of the command it concerns.
+4. **Dead-lettered on exhaustion.** When the coordinator's configured outbox retry budget is spent, the delivery is published to `angzarr.dlq.{target domain}` with `compensation_delivery_failed` details (attempts and last error) for manual recovery.
+5. **Rejections always reach their source.** In every sync mode — including a `CASCADE` request in `COMPENSATE` mode — a rejected saga/PM command's notification is delivered to its source aggregate.
+6. **Never in the stream.** The notification itself is not persisted to the target's event stream. Only the events the compensation handler emits are.
+
+---
+
 ## Handling Rejections
 
 Register handlers for specific rejection scenarios:
@@ -56,7 +69,14 @@ Register handlers for specific rejection scenarios:
 ```python file=vendor/examples/python/player/agg/rejected.py region=rejected_handler
 ```
 
-The framework routes rejections to the appropriate handler based on the rejected command's domain and type.
+The framework routes a rejection to the handler whose `compensates` entry matches the rejected command:
+
+| Entry | Matches |
+|-------|---------|
+| `"table.AddChips"` | A rejected `table.AddChips`, whatever domain it was sent to |
+| `"table:table.AddChips"` | A rejected `table.AddChips` sent to the `table` domain only |
+
+Use the unqualified form by default—it is how an aggregate, which has no output domains, declares compensation for commands its events caused. Qualify with `domain:` only when the same command type goes to more than one domain and each needs a different compensation. A type is listed either once unqualified or once per domain, never both. Aggregates and process managers declare `compensates`; sagas and projectors never receive rejections. A rejection that matches no entry produces no compensation.
 
 ---
 
@@ -72,9 +92,20 @@ Different failures require different responses:
 | Table closed during hand | Refund all pots, end hand |
 | Timer expired | Auto-check or auto-fold |
 
-The aggregate decides the business response. The framework ensures the notification arrives.
+The aggregate decides the business response. The framework ensures the notification arrives—at least once, and applied once.
 
 ---
+
+## Rejection Code and Message
+
+A `RejectionNotification` carries the reason twice:
+
+| Field | For | Source |
+|-------|-----|--------|
+| `code` | Compensation logic — branch on it | `ErrorInfo.reason` in the rejecting handler's gRPC status (e.g. `INSUFFICIENT_BALANCE`); empty if the rejection carried none |
+| `rejection_reason` | People — logs, dead letters, UIs | The status message (e.g. `"balance 40 below buy-in 100"`) |
+
+Compensation handlers read `code`; they never parse `rejection_reason`, which is free text and may change wording at any time.
 
 ## RevocationResponse Options
 
@@ -91,9 +122,9 @@ def handle_reserve_failed(self, notification: Notification):
     rejection = RejectionNotification()
     notification.payload.Unpack(rejection)
 
-    if rejection.rejection_reason == "insufficient_balance":
+    if rejection.code == "INSUFFICIENT_BALANCE":
         # Return event directly—framework auto-applies it
-        return PlayerSatOut(reason="insufficient_funds")
+        return PlayerSatOut(reason=rejection.code)
     else:
         # Delegate to framework for DLQ/escalation
         return delegate_to_framework(
@@ -157,75 +188,74 @@ No silent failures. No unexplained state changes.
 
 ---
 
-## Revocation vs Compensate
+## Compensate
 
-The framework provides two mechanisms for undoing events:
+Events are immutable facts: the framework never hides or deletes an event to undo it. Undo is business logic — a compensation handler emits new events that reverse the effect, and both the original and the compensating events stay in the stream.
 
-| Mechanism | Original Event | Client Code | Use Case |
-|-----------|----------------|-------------|----------|
-| **Revocation** | Hidden (becomes NoOp) | None needed | Full undo, clean state |
-| **Compensate** | Visible | Handler implements inverse | Partial undo, business logic |
+### Compensate flow
 
-### Revocation (Framework-Only)
-
-Revocation hides the original event at read time. No client code required.
-
-```text title="Revocation flow"
-1. Framework writes Revocation { sequences: [5, 6], reason: "timeout" }
-2. At read time, events 5 and 6 become NoOp
-3. Business logic never sees the original events
-```
-
-Use revocation when:
-- Full undo is needed, "never happened" semantics
-- No business logic required for the undo
-- Events came from a failed cascade or timeout
-
-### Compensate (Client-Implemented)
-
-Compensate keeps the original event visible and routes to a client handler. The handler emits inverse events.
+When a `CASCADE` request with `CascadeErrorMode::COMPENSATE` fails, the coordinator raises one `Compensate` notification per reaction command that executed successfully (reactions run in no guaranteed order, so this can be any subset), addressed to that command's target aggregate. It is delivered exactly like a rejection notification (see [Delivery Guarantees](#delivery-guarantees)) and routed to the target aggregate's **undo handler** for the executed command's type, which emits inverse events.
 
 ```text title="Compensate flow"
-1. Framework writes Compensate { sequences: [5], reason: "order_cancelled" }
-2. Framework routes to client's compensation handler
-3. Handler receives original event, emits inverse (e.g., InventoryReleased)
-4. Both original and compensation events visible in stream
+1. Coordinator records Notification(Compensate { command_type: "inventory.ReserveStock",
+   sequences: [5], reason: "card declined" }) in its compensation outbox, then fails
+   the CASCADE request
+2. Outbox delivers it to the target's HandleCompensation
+3. The ReserveStock undo handler receives the compensated events, emits inverse
+   (e.g., InventoryReleased)
+4. Original and compensating events are in the stream; the notification is not
 ```
 
-Use compensate when:
+Compensation fits because:
 - Business logic must decide how to undo
 - Partial undo based on context
 - Explicit audit trail required (both events visible)
 - Third-party notifications or side effects need reversal
 
-### Example: Compensation Handler
+### Declaring Undo Handlers
 
-```python title="illustrative - compensation handler registration"
-@compensate("InventoryReserved")
-def compensate_reservation(self, original_event, reason):
-    # Original event remains visible
-    # Emit inverse event
-    return InventoryReleased(
-        sku=original_event.sku,
-        qty=original_event.qty,
-        reason=reason,
-    )
+An aggregate declares the commands it can undo with `undoes` on its component options. It is separate from `compensates`, which handles *rejections of commands the component caused elsewhere*:
+
+| Declaration | Handles | Payload | Allowed on |
+|-------------|---------|---------|------------|
+| `compensates` | Rejection of a command this component caused | `RejectionNotification` | Aggregates and process managers |
+| `undoes` | Undo of a command this aggregate executed | `Compensate` | Aggregates only |
+
+Process managers, sagas and projectors never execute commands, so they declare no `undoes`.
+
+```protobuf title="illustrative - undo declaration"
+message InventoryState {
+  option (io.angzarr.v1.component) = {
+    kind: COMPONENT_KIND_AGGREGATE
+    domain: "inventory"
+    undoes: "inventory.ReserveStock"
+  };
+}
 ```
 
-### Read-Time Behavior
+Code generation emits one undo handler per entry (e.g. `OnReserveStockUndo`), and the generated dispatch routes each `Compensate` by its `command_type`:
 
-| Event Type | At Read Time |
-|------------|--------------|
-| Revocation marker | NoOp |
-| Revoked event | NoOp |
-| Compensate marker | NoOp |
-| Compensated event | **Visible** (key difference) |
+```python title="illustrative - undo handler"
+def on_reserve_stock_undo(self, state, compensate):
+    # The compensated events remain visible; emit the inverse
+    return InventoryReleased(sku=state.sku, qty=state.reserved_qty, reason=compensate.reason)
+```
+
+A `Compensate` for a command with no undo handler is **never dropped**: the aggregate answers `UNIMPLEMENTED` and the coordinator dead-letters the delivery immediately (`compensation_delivery_failed`), so an operator sees every undo that could not run.
+
+### What the Stream Holds
+
+| Item | In the target's stream |
+|------|------------------------|
+| `Compensate` / `RejectionNotification` notification | Never written |
+| Compensated event | **Visible** |
+| Compensating events | Visible |
 
 ---
 
 ## See Also
 
-- [Cascade Execution](./cascade) — Atomic transactions and 2PC
+- [Cascade Execution](./cascade) — Synchronous fan-out and cascade error modes
 - [Error recovery operations](../operations/error-recovery) — DLQ, retries, and escalation
 - [Saga component](../components/saga) — Building sagas
 - [Why Poker](../examples/why-poker) — Full example with compensation flows

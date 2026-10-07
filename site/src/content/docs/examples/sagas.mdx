@@ -46,7 +46,7 @@ When a saga-issued command is rejected, the source aggregate receives a **Notifi
 2. **Minimal logic** — Just translate fields between domains
 3. **Single source** — Events from one domain only
 4. **Single target** — Commands to one domain only
-5. **Use destination state** — Set sequence from destination's next_sequence()
+5. **No destination state** — Emit deferred commands; the destination appends them at its head
 
 ---
 

@@ -8,7 +8,8 @@ its own language against these feature files.
 
 | Tier | Path | Purpose | Domain vocabulary | Execution style | Consumed by |
 |------|------|---------|-------------------|-----------------|-------------|
-| **unit-client** | `client/` | Exercise the framework surface: `Router`, `@command_handler`, `@saga`, `@process_manager`, `@projector`, dispatch, rejection, state rebuild. | Generic — `Order`, `Payment`, `Inventory`, `Shipping`. Never poker. | Synchronous. Direct state. In-memory `EventBook`. Factories invoked per dispatch. | Every `client-*-lang` repo |
+| **unit-client** | `client/` | Exercise what a client provides: consumer clients (`CommandHandlerClient`, `QueryClient`, `SpeculativeClient`, `DomainClient`). Dispatch behaviour is specified only by angzarr-router's conformance suite, which every client CI runs against its binding. | Generic — `Order`, `Payment`, `Inventory`, `Shipping`. Never example concepts. | Synchronous, against an in-process fake of the coordinator stubs. | Every `client-*-lang` repo |
+| **codegen** | `codegen/` | Declaration lint and generated handler/dispatch shape for `ComponentOptions`. | Generic — `Order`, `Inventory`, … | Against compiled descriptors. | angzarr-cli |
 | **poker** | `example/poker/` | Exercise poker rules — TDA / WSOP / Robert's. **Same scenarios run at both tiers** (in-process via aggregate handlers, cluster via gRPC). Cluster-only assertions no-op on the in-process tier. | Poker — `Player`, `Table`, `Hand`, `DealCards`, `HandStarted`, … | Both: direct handler invocation (in-process step dir) AND gRPC `CommandClient` (acceptance step dir). | Every `examples-*-lang` repo |
 | **example-framework** | `example/framework/` | Exercise the framework concepts (saga dispatch, PM state machine, projector rendering, orchestrator decision coupling) *through* concrete poker handlers — internals visible only in-process. | Poker | Direct handler invocation only. In-process tier only. | Every `examples-*-lang` repo |
 | **acceptance-example** | `example/acceptance/` | Cluster-only scenarios that ONLY make sense against a deployed cluster — coordinator restart durability, inter-coordinator routing, observable projector lag. | Poker | `GrpcClient` only. Runs against deployed standalone or k8s. `within N seconds` over the real network. | Every `examples-*-lang` repo |
@@ -34,12 +35,16 @@ Shared vocabulary conventions across all tiers and all languages:
 
 ## Scenario IDs
 
-Every scenario carries a tag `@<tier-code>-NNNN` where:
+Every scenario carries exactly one tag `@<tier-code>-NNNN`, unique across
+the repo, where:
 
-- `C` — client tier
+- `C` — framework tiers (`client/`, `coordinator-contract/`, `codegen/`, `../parity/`)
 - `EU` — example unit tier
 - `EA` — example acceptance tier
 - `NNNN` — zero-padded 4-digit number, assigned in authoring order, never reused
+
+`just check-feature-ids [dirs...]` verifies presence, format and uniqueness;
+the Contracts workflow runs it on the framework tiers.
 
 IDs survive file renames and reorderings. Promoting a scenario across tiers
 gets a new ID in the new tier's namespace; the old ID is retired.
@@ -47,7 +52,7 @@ gets a new ID in the new tier's namespace; the old ID is retired.
 To allocate the next ID in a tier:
 
 ```bash
-git grep -hE '@C-[0-9]{4}' features/client/ | grep -oE '@C-[0-9]{4}' | sort -u | tail -1
+git grep -hoE '@C-[0-9]{4}' -- features parity | sort -u | tail -1
 ```
 
 Take `max + 1`. If two concurrent PRs both allocate the same number, the

@@ -1,36 +1,47 @@
-# Coordinator-contract features
+# Tier: coordinator-contract
 
-These cucumber features describe **coordinator-side** behavior — they
-were originally placed under `features/client/` but have no client
-production code to call (or, in the case of `edition_propagation`, were
-landed in client code that's now being reverted because the policy
-belongs at the coordinator). The PARITY_AUDIT.md campaign surfaced them
-as findings #22, #26, #28, and #86:
+Cucumber specs for behaviour the **coordinator** (core) owns: what happens
+to commands, events and snapshots after a client hands them over. Client
+libraries only set proto fields that select this behaviour; they never
+implement it.
 
-| Feature | Audit finding | Why it doesn't belong in client |
-|---|---|---|
-| `merge_strategy.feature` | #22 | Sequence/strategy validation is enforced by the coordinator; the client only sets the proto `merge_strategy` field. The 18 scenarios test conflict resolution, retry semantics, and aggregate-handles invariants — all server-side. |
-| `state_building.feature` | #26 | Describes a public `build_state(state, event_book)` + `_apply_event` API that doesn't exist in any client. Both clients have private `_rebuild_state` / runtime equivalents called internally during dispatch — the cucumber's documented surface is at the runtime/coordinator tier. |
-| `fact_flow.feature` | #28 | Sagas/PMs construct a `SagaResponse.events` payload — already covered end-to-end by `client/saga.feature` running real `dispatch_saga`. The 7 fact_flow scenarios test what the coordinator does with those emitted events: sequence assignment, `external_id` idempotency, failure rollback. |
-| `edition_propagation.feature` | #86 (reverted) | Audit #86 originally landed in clients as `Cover::propagate_edition_from` + `_propagate_edition_into_books` mutating handler-emitted books in `dispatch_saga` / `dispatch_process_manager`. User direction 2026-04-29: edition propagation belongs at the coordinator — one canonical implementation, universally applied across all clients regardless of language, rather than N copies of the same policy in N client libraries. The 8 scenarios (C-0138..C-0145) describe the always-override contract that the coordinator must enforce. **Tested** in `core/main` via Rust unit tests (12 tests covering all 8 scenarios + main-timeline / divergences / no-trigger-cover edge cases) — see file trailer for the coverage map. |
+## Files
 
-## Status
+| Feature | Covers |
+|---|---|
+| `merge_strategy.feature` | COMMUTATIVE field-overlap merge over the window expected..actual, STRICT, AGGREGATE_HANDLES, MANUAL→DLQ for explicit-sequence commands; deferred saga/PM commands are never checked |
+| `fact_flow.feature` | Fact injection from sagas/PMs: 0-based sequencing, `external_deferred.external_id` idempotency, failure handling |
+| `state_building.feature` | Aggregate state reconstruction from snapshot + pages, `next_sequence` arithmetic |
+| `edition_propagation.feature` | Source/trigger edition stamped onto every saga/PM emission; main-timeline aliases (`""`, unset, `"angzarr"`) |
+| `temporal_query.feature` | `TemporalQuery` as_of_sequence / as_of_time and when a snapshot may start the result |
+| `sync_modes.feature` | ASYNC, DECISION, SIMPLE, CASCADE, ISOLATED and the per-command `PageHeader.sync_mode` (caller's mode is a floor) |
+| `cascade_error_mode.feature` | FAIL_FAST, CONTINUE (`reaction_errors`), COMPENSATE (Compensate notifications to executed reactions' targets), DEAD_LETTER under CASCADE |
+| `compensation_delivery.feature` | RejectionNotification / Compensate delivery through the coordinator outbox: recorded before ack, at-least-once with backoff, dedup by provenance tuple, dead-lettered on exhaustion, never in the stream |
+| `dead_letter_queue.feature` | `angzarr.dlq.{domain}` routing and `AngzarrDeadLetter` contents per failure source |
+| `snapshot_retention.feature` | DEFAULT and TRANSIENT pruned by a newer snapshot; PERSIST kept |
 
-These features remain as **living documentation** of the
-coordinator's contract. They are NOT executed by any test suite at
-the moment.
+## Who runs these
 
-When a coordinator-tier cucumber suite is built (in the coordinator's
-own repo, not the client repos), it should import these and add step
-definitions that drive the real coordinator implementation rather
-than hand-rolled simulations.
+- **core** is the only implementer. Each scenario is a requirement on the
+  coordinator; core binds them either through a coordinator cucumber runner
+  or through unit tests that cite the scenario ID (edition propagation is
+  covered that way today — see the header of `edition_propagation.feature`).
+- **Client repos do not run this tier.** A client-side step definition can
+  only simulate the coordinator, which tests nothing; client-rust's
+  simulation worlds for `fact_flow`, `merge_strategy` and `state_building`
+  are slated for removal for that reason.
 
-## Why the move?
+## Domain vocabulary
 
-The original step files in `client-python/main/tests/client/steps/`
-and `client-rust/main/tests/steps/` were pure simulations: hand-rolled
-`_State` dataclasses + `_MockEvent` / `_MockCommand` types that
-asserted against fake state. The cucumber tier reported "green" but
-nothing tested real production code. Deep-scan in the audit's
-P1.12 campaign caught this; the simulation step files were deleted
-along with the move so they don't drift back in.
+Generic only — `order`, `inventory`, `payment`, `shipping`. No poker types
+(same rule as `../client/`, STEP_VOCABULARY.md §12, §17).
+
+## Scenario IDs
+
+`@C-NNNN`, shared with `../client/` and `../../parity/`; every scenario is
+tagged and `just check-feature-ids` enforces presence, format and
+uniqueness. Allocate the next with:
+
+```bash
+git grep -hoE '@C-[0-9]{4}' -- features parity | sort -u | tail -1
+```

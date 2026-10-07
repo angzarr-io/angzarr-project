@@ -1,51 +1,16 @@
-# Allocated: C-0138 .. C-0145
-#
 # Coordinator-contract feature: edition propagation across cross-domain
-# emissions. Audit #86 originally landed this as per-client framework
-# code (auto-stamping outgoing covers in `dispatch_saga` /
-# `dispatch_process_manager`). User direction 2026-04-29: edition
-# propagation belongs at the coordinator — one canonical
-# implementation, universally applied across all clients regardless of
-# language, rather than N copies of the same policy in N client
-# libraries.
+# emissions. When a saga or process-manager handler receives an event in
+# edition X, the coordinator stamps edition X onto every outgoing
+# CommandBook / EventBook (commands, events, facts, process_events) before
+# persistence or dispatch. The full Edition (name + divergences) propagates
+# verbatim, and always overrides whatever edition the handler set.
 #
-# The CONTRACT below holds at the coordinator level: when a saga or
-# process-manager handler receives an event in edition X, the
-# coordinator stamps edition X onto every outgoing CommandBook /
-# EventBook (commands, events, facts, process_events) before
-# persistence / dispatch downstream. The full Edition struct
-# (name + divergences) propagates verbatim.
+# Main timeline: canonical name "angzarr" (DEFAULT_EDITION); "" and an
+# unset Edition denote the same timeline.
 #
-# **Always-override semantics:** the coordinator guarantees timeline
-# consistency on cross-domain emissions; saga/PM handlers cannot
-# escape into a different timeline by setting their own outgoing
-# edition. Cross-timeline emission would need a separate
-# fork-to-timeline mechanism out of scope here.
-#
-# **TESTED.** As of 2026-04-29 the coordinator implements the
-# always-override contract via `Cover::propagate_edition_from`
-# (`core/main/src/proto_ext/cover.rs`). Coverage of every outgoing
-# book type (saga commands + events; PM commands + facts +
-# process_events list) lives in the four orchestration sites:
-# `core/main/src/orchestration/saga/{local,grpc}/mod.rs` and
-# `core/main/src/orchestration/process_manager/{local,grpc}/mod.rs`.
-#
-# The 8 scenarios below are covered by Rust unit tests:
-# - C-0138..C-0142 → `core/main/src/orchestration/saga/local/tests.rs`
-#   (5 tests, one per scenario; drive `LocalSagaContext::handle` with
-#   a stub `SagaHandler`).
-# - C-0143..C-0145 + main-timeline + divergences + no-trigger-cover
-#   → `core/main/src/orchestration/process_manager/local/tests.rs`
-#   (7 tests; drive the shared
-#   `propagate_trigger_edition` helper that both `LocalPMContext` and
-#   `GrpcPMContext` delegate to). The helper-level test is sufficient
-#   because the local + gRPC paths cannot drift — they both call the
-#   same code.
-#
-# Step definitions for an end-to-end coordinator-tier cucumber runner
-# are still queued (no such runner exists today; the unit tests are
-# the authoritative coverage). When the runner is built, this file
-# becomes its source of truth.
+# Coverage in core: Rust unit tests in
+# src/orchestration/saga/local/tests.rs (C-0138..C-0142) and
+# src/orchestration/process_manager/local/tests.rs (C-0143..C-0145).
 Feature: Edition propagation across cross-domain emissions
   As a saga / process-manager author
   I want the framework to guarantee that emitted commands and events
@@ -121,3 +86,33 @@ Feature: Edition propagation across cross-domain emissions
     And the PM handler sets outgoing edition "beta"
     When an OrderCreated trigger is dispatched to the PM
     Then the persisted command's cover has edition "alpha"
+
+  # ---------------------------------------------------------------
+  # Main timeline: "" , unset and "angzarr" are one timeline
+  # ---------------------------------------------------------------
+
+  @C-0409
+  Scenario Outline: Events written under one main-timeline spelling are read under every other
+    Given an "order" aggregate "order-1" with 2 events written with edition <written>
+    When the coordinator loads "order-1" with edition <read>
+    Then the loaded history has 2 events
+    And next_sequence is 2
+
+    Examples:
+      | written   | read      |
+      | ""        | "angzarr" |
+      | "angzarr" | ""        |
+      | unset     | "angzarr" |
+      | "angzarr" | unset     |
+
+  @C-0410
+  Scenario Outline: The main timeline cannot be deleted under either spelling
+    Given an "order" aggregate "order-1" with 2 events on the main timeline
+    When DeleteEditionEvents is requested for edition <edition> in domain "order"
+    Then the request is refused because the main timeline is protected
+    And the aggregate still has 2 events
+
+    Examples:
+      | edition   |
+      | ""        |
+      | "angzarr" |

@@ -7,8 +7,7 @@ on:
     paths:
       - 'site/**'
       - 'proto/**'
-      - 'vendor/**'
-      - '.gitmodules'
+      - 'justfile'
       - '.github/workflows/deploy.yml'
   workflow_dispatch:
 
@@ -25,10 +24,10 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout (with submodules)
+      - name: Checkout
         uses: actions/checkout@v4
-        with:
-          submodules: true
+
+      - uses: extractions/setup-just@v2
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -37,13 +36,10 @@ jobs:
           cache: npm
           cache-dependency-path: site/package-lock.json
 
-      - name: Install dependencies
-        working-directory: site
-        run: npm ci
-
+      # Installs deps, clones snippet sources, generates the Proto API page,
+      # and builds strictly (missing snippet files/regions fail the build).
       - name: Build site
-        working-directory: site
-        run: npm run build
+        run: just site-ci
 
       - name: Setup Pages
         uses: actions/configure-pages@v5

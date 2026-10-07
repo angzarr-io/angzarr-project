@@ -178,14 +178,9 @@ Same pattern works for saga issues. Fetch events from the source domain, replay 
 # Fetch events that triggered the saga
 source_events = query_client.get_event_book(source_query)
 
-# Fetch destination state the saga would have seen
-dest_events = query_client.get_event_book(dest_query)
-
-# Replay through saga
+# Replay through saga: a saga sees only its triggering events
 request = SpeculateSagaRequest(
-    events=source_events.pages,
-    destination=dest_events,
-    edition=debug_edition,
+    request=SagaHandleRequest(source=source_events),
 )
 
 # Debug your saga logic
@@ -244,8 +239,7 @@ player_result = speculative_client.aggregate(
 # 4. Replay saga translation
 saga_result = speculative_client.saga(
     SpeculateSagaRequest(
-        events=player_result.events.pages,  # FundsReserved
-        destination=table_events,
+        request=SagaHandleRequest(source=player_result.events),  # FundsReserved
     )
 )
 

@@ -30,8 +30,9 @@ service ProcessManagerService {
   // aggregates and events for the PM's own domain.
   //
   // PMs do not rebuild destination aggregate state — they translate
-  // events into commands/facts and rely on destination_sequences for
-  // command stamping. See process manager design philosophy.
+  // events into commands/facts. Emitted commands carry
+  // PageHeader.angzarr_deferred exactly as saga commands do (see
+  // AngzarrDeferredSequence in types.proto).
   rpc Handle(ProcessManagerHandleRequest) returns (ProcessManagerHandleResponse);
 }
 
@@ -68,15 +69,16 @@ message SpeculatePmRequest {
   ProcessManagerHandleRequest request = 1;
 }
 
-// PM handle request: full context for PM decision.
+// PM handle request: full context for PM decision. It carries no destination
+// state or sequences; emitted commands are deferred and the destination
+// appends them at its head.
 message ProcessManagerHandleRequest {
   // Full state of triggering domain.
   EventBook trigger = 1;
   // Current process manager state (event-sourced).
   EventBook process_state = 2;
-  // Destination sequences for command stamping (domain → next_sequence).
-  // PM should NOT rebuild destination state — use facts and let aggregates decide.
-  map<string, uint32> destination_sequences = 3;
+  reserved 3;
+  reserved "destination_sequences";
 }
 
 // PM handle response: local events, then remote commands and facts.
@@ -84,12 +86,8 @@ message ProcessManagerHandleRequest {
 message ProcessManagerHandleResponse {
   // Local: Events for the process manager's own domain (non-duplicative workflow state).
   // These are persisted via AggregateCoordinator to the PM's domain.
-  //
-  // Audit #92: changed from singular `EventBook` to `repeated EventBook`
-  // so the merge policy (which book's cover wins, how to concatenate
-  // pages from multiple emissions) lives in the coordinator with full
-  // information, not in the client doing first-non-empty-cover-wins
-  // pre-emit. PMs that emit a single book just send a 1-element list.
+  // Each book is merged by the coordinator, which owns the cover and page
+  // concatenation policy; a PM that emits a single book sends a 1-element list.
   repeated EventBook process_events = 1;
   // Remote: Commands to issue to other aggregates.
   repeated CommandBook commands = 2;

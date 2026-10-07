@@ -9,12 +9,13 @@ Feature: CommandBuilder - Fluent Command Construction
 # docs:end:command_builder_contract
 
   Background:
-    Given a mock GatewayClient for testing
+    Given a mock CommandHandlerClient for testing
 
   # ==========================================================================
   # Basic Command Construction
   # ==========================================================================
 
+  @C-0303
   Scenario: Build command with all required fields
     When I build a command for domain "orders" root "order-001"
       And I set the command type to "CreateOrder"
@@ -23,6 +24,7 @@ Feature: CommandBuilder - Fluent Command Construction
     And the built command should have root "order-001"
     And the built command should have type URL containing "CreateOrder"
 
+  @C-0304
   Scenario: Build command for new aggregate (auto-generates client-side UUID)
     # Per audit decision 2026-04-27 (finding #20 / P2.4a closed):
     # `command_new(domain)` auto-generates a fresh UUID v4 for the
@@ -35,6 +37,7 @@ Feature: CommandBuilder - Fluent Command Construction
     And the built command should have an auto-generated UUID root
     And the auto-generated root should be a valid UUID
 
+  @C-0305
   Scenario: Build generates correlation ID when not provided
     When I build a command for domain "orders"
       And I set the command type and payload
@@ -45,18 +48,21 @@ Feature: CommandBuilder - Fluent Command Construction
   # Optional Fields
   # ==========================================================================
 
+  @C-0306
   Scenario: Build with explicit correlation ID
     When I build a command for domain "orders"
       And I set correlation ID to "trace-123"
       And I set the command type and payload
     Then the built command should have correlation ID "trace-123"
 
+  @C-0307
   Scenario: Build with sequence number
     When I build a command for domain "orders" root "order-002"
       And I set sequence to 5
       And I set the command type and payload
     Then the built command should have sequence 5
 
+  @C-0308
   Scenario: Build without sequence defaults to 0
     When I build a command for domain "orders"
       And I set the command type and payload
@@ -66,12 +72,14 @@ Feature: CommandBuilder - Fluent Command Construction
   # Validation
   # ==========================================================================
 
+  @C-0309
   Scenario: Build without command type fails
     When I build a command for domain "orders"
       And I do NOT set the command type
     Then building should fail
     And the error should indicate missing type URL
 
+  @C-0310
   Scenario: Build without payload fails
     When I build a command for domain "orders"
       And I set the command type to "CreateOrder"
@@ -83,6 +91,7 @@ Feature: CommandBuilder - Fluent Command Construction
   # Fluent Chaining
   # ==========================================================================
 
+  @C-0311
   Scenario: Builder methods can be chained
     When I build a command using fluent chaining:
       """
@@ -95,6 +104,7 @@ Feature: CommandBuilder - Fluent Command Construction
     Then the build should succeed
     And all chained values should be preserved
 
+  @C-0312
   Scenario: Builder is immutable-friendly
     Given a builder configured for domain "orders"
     When I create two commands with different roots
@@ -105,11 +115,13 @@ Feature: CommandBuilder - Fluent Command Construction
   # Execute Integration
   # ==========================================================================
 
+  @C-0313
   Scenario: Builder can execute directly
     When I build and execute a command for domain "orders"
     Then the command should be sent to the gateway
     And the response should be returned
 
+  @C-0314
   Scenario: Execute without building explicitly
     When I use the builder to execute directly:
       """
@@ -123,10 +135,12 @@ Feature: CommandBuilder - Fluent Command Construction
   # Merge Strategy
   # ==========================================================================
 
+  @C-0315
   Scenario: Default merge strategy is COMMUTATIVE
     When I build a command without specifying merge strategy
     Then the command page should have MERGE_COMMUTATIVE strategy
 
+  @C-0316
   Scenario: Build with explicit merge strategy
     When I build a command with merge strategy STRICT
     Then the command page should have MERGE_STRICT strategy
@@ -135,15 +149,17 @@ Feature: CommandBuilder - Fluent Command Construction
   # Extension Traits
   # ==========================================================================
 
+  @C-0317
   Scenario: Client provides command builder shortcut
-    Given a GatewayClient implementation
+    Given a CommandHandlerClient implementation
     When I call client.command("orders", root)
     Then I should receive a CommandBuilder for that domain and root
 
+  @C-0318
   Scenario: Client provides command_new shortcut
     # Per finding #20 / P2.4a closed: command_new auto-generates a
     # client-side UUID v4 for the root in every language. Shortcut
     # returns a CommandBuilder with both domain and root populated.
-    Given a GatewayClient implementation
+    Given a CommandHandlerClient implementation
     When I call client.command_new("orders")
     Then I should receive a CommandBuilder for that domain and an auto-generated root

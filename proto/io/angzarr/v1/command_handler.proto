@@ -17,8 +17,12 @@ option ruby_package = "Angzarr";
 service CommandHandlerService {
   // Process command and return business response (events or revocation request)
   rpc Handle(ContextualCommand) returns (BusinessResponse);
-  // Process fact events - update aggregate state based on external realities.
-  // Optional: if unimplemented, facts are persisted as-is (pass-through).
+  // Process fact events - record external realities. A fact of a type the
+  // aggregate declares (ComponentOptions.facts) is routed to its fact
+  // handler, which returns the events to persist (the fact, optionally plus
+  // events that flag it) and cannot refuse it. A fact of an undeclared type
+  // is refused with INVALID_ARGUMENT, angzarr error code NO_FACT_HANDLER;
+  // the coordinator then persists nothing.
   rpc HandleFact(FactRequest) returns (EventBook);
   // Replay events to compute state (for conflict detection)
   // Optional: only needed if aggregate supports MERGE_COMMUTATIVE
@@ -55,7 +59,11 @@ service CommandHandlerCoordinatorService {
   }
   // Inject fact events - external realities that cannot be rejected.
   // Idempotent: subsequent requests with same external_id return original events.
-  // Use EventRequest.route_to_handler to control command handler invocation.
+  // By default (EventRequest.skip_handler unset/false) each fact is routed to
+  // the aggregate's declared fact handler (see HandleFact); a fact of an
+  // undeclared type fails the request with INVALID_ARGUMENT /
+  // NO_FACT_HANDLER and nothing is persisted. skip_handler = true persists
+  // the facts directly without handler invocation (operator replay/repair).
   rpc HandleEvent(EventRequest) returns (FactInjectionResponse) {
     option (google.api.http) = {
       post: "/v1/ch/{events.cover.domain}/events"
@@ -69,8 +77,17 @@ service CommandHandlerCoordinatorService {
       body: "*"
     };
   }
-  // Compensation flow - returns BusinessResponse for saga compensation handling.
-  // If business returns events, persists them. Caller handles revocation flags.
+  // Compensation delivery. The request's command is a Notification delivery
+  // envelope (see Notification in types.proto) carrying a RejectionNotification
+  // or a Compensate payload, sent from a coordinator's compensation outbox.
+  // The coordinator rebuilds the target's state, invokes
+  // CommandHandlerService.Handle and persists only the events the handler
+  // returns; the Notification itself is never written to the stream.
+  // Deliveries are deduplicated by the notification kind plus the envelope's
+  // angzarr_deferred provenance tuple (never against a command with the same
+  // tuple): a redelivery does not invoke the handler again and returns the
+  // first delivery's result. The caller acts on a RevocationResponse and
+  // forwards a returned Notification upstream.
   rpc HandleCompensation(CommandRequest) returns (BusinessResponse) {
     option (google.api.http) = {
       post: "/v1/ch/{command.cover.domain}/compensation"
@@ -85,6 +102,28 @@ message CommandResponse {
   repeated Projection projections = 2; // Synchronous projector results
   reserved 3;
   reserved "cascade_errors";
+  // Reactions that failed under CASCADE_ERROR_CONTINUE. Empty for every
+  // other mode: FAIL_FAST and COMPENSATE fail the request instead, and
+  // DEAD_LETTER records failures in the dead-letter queue.
+  repeated CascadeReactionError reaction_errors = 4;
+}
+
+// One failed downstream reaction in a CASCADE request.
+//
+// Why the reaction failed is carried as for RejectionNotification:
+//   code    — machine code for programmatic handling (e.g. "CARD_DECLINED");
+//             callers branch on this field and never parse message
+//   message — human-readable reason for logs and UIs
+// The coordinator copies `code` from the google.rpc.ErrorInfo.reason in the
+// failure's status details and `message` from the status message. A failure
+// without ErrorInfo has an empty code.
+message CascadeReactionError {
+  string component = 1;    // Registered name of the saga or process manager
+  Cover target = 2;        // Aggregate the reaction's command was sent to (unset for handler errors)
+  string command_type = 3; // Fully qualified type of the failed command (empty for handler errors)
+  int32 status_code = 4;   // gRPC status code of the failure
+  string message = 5;      // Human-readable failure reason (status message)
+  string code = 6;         // Machine failure code (ErrorInfo.reason); empty when the failure carried none
 }
 
 // client logic requests framework to handle revocation
@@ -96,7 +135,8 @@ message RevocationResponse {
   string reason = 5; // Context/reason
 }
 
-// Wrapper response for BusinessLogic.Handle
+// Response of CommandHandlerService.Handle. A compensation delivery may be
+// answered with any variant; an ordinary command is answered with events.
 message BusinessResponse {
   oneof result {
     EventBook events = 1; // Business provides compensation events
@@ -122,7 +162,8 @@ message SpeculateCommandHandlerRequest {
 // Request uses EventRequest with:
 // - events: EventBook containing fact events (with ExternalDeferredSequence markers in PageHeader)
 // - sync_mode: Controls sync processing (default: async)
-// - route_to_handler: Whether to invoke command handler's handle_fact (default: true)
+// - skip_handler: false/unset (default) routes each fact to the aggregate's
+//   declared fact handler; true persists facts directly without handler invocation
 //
 // IMPORTANT: Set PageHeader.external_deferred.external_id for idempotency. The coordinator
 // uses this to deduplicate fact injections - subsequent requests with the same external_id

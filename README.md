@@ -9,12 +9,13 @@ Core resources for the [Angzarr](https://angzarr.io) polyglot event-sourcing fra
 ## Development
 
 ```sh
-just vendor    # clone sibling repos referenced by code-region embeds
-just install   # install site dependencies
-just dev       # run the docs site locally
+just install     # install site dependencies
+just dev         # run the docs site locally
+just build       # strict build to site/dist
+just proto-docs  # regenerate the Proto API reference page only
 ```
 
-The site embeds code from `vendor/` via the custom `remark-code-region` plugin (see `site/src/plugins/remark-code-region.mjs`).
+`dev` and `build` first run `just vendor` (shallow-clones the sibling repos referenced by code-region embeds into `vendor/`) and `just proto-docs` (renders `proto/` with a pinned protoc-gen-doc container into `site/src/content/docs/reference/proto-api.md`, which is generated and not committed). The site embeds code via the custom `remark-code-region` plugin (see `site/src/plugins/remark-code-region.mjs`); a missing file or region fails the build unless `DOCS_LENIENT=1` is set.
 
 ## License
 
