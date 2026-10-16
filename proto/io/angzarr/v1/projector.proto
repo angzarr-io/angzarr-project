@@ -13,11 +13,13 @@ option ruby_package = "Angzarr";
 
 // ProjectorService: client logic that projects events to read models
 // client logic doesn't care about sync - coordinator decides
+//
+// Events from a non-main edition are projected like any others; the
+// projection's output follows that edition's storage configuration (an
+// in-memory edition's projections are kept in memory; see Cover.edition).
 service ProjectorService {
   // Async projection - projector should persist and return
   rpc Handle(EventBook) returns (Projection);
-  // Speculative processing - projector must avoid external side effects
-  rpc HandleSpeculative(EventBook) returns (Projection);
 }
 
 // ProjectorCoordinatorService: orchestrates projection processing
@@ -36,16 +38,4 @@ service ProjectorCoordinatorService {
       body: "*"
     };
   }
-  // Speculative processing - returns projection without side effects
-  rpc HandleSpeculative(SpeculateProjectorRequest) returns (Projection) {
-    option (google.api.http) = {
-      post: "/v1/projector/speculative"
-      body: "*"
-    };
-  }
-}
-
-// Request for speculative projector execution.
-message SpeculateProjectorRequest {
-  EventBook events = 1;
 }

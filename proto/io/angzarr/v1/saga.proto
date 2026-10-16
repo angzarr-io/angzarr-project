@@ -3,7 +3,6 @@ package io.angzarr.v1;
 
 import "io/angzarr/v1/types.proto";
 import "google/api/annotations.proto";
-import "google/protobuf/timestamp.proto";
 
 option csharp_namespace = "Angzarr";
 option go_package = "github.com/benjaminabbitt/angzarr/client/go/proto/io/angzarr/v1;angzarr";
@@ -13,19 +12,24 @@ option ruby_package = "Angzarr";
 
 // SagaService: stateless translation from source events to commands.
 //
-// Every emitted command carries a reaction origin in its CommandMeta (see
-// ReactionOrigin in types.proto): it records the event being reacted to. The
-// command usually carries no expected sequence, so the destination stamps
-// its head before business code.
+// Every emitted command is a Command (never a Fact) whose origin is a
+// Causation (see types.proto): it records the event being reacted to. The
+// command usually carries no Expectation, so the destination stamps its head
+// before business code.
 //
-// Sagas emit commands only; there are no saga-injected facts.
+// Sagas carry choreographed flows, including their refusals: a target that
+// must refuse records the refusal as a domain event, and a saga subscribed
+// to that domain translates it into the commands that respond to it. There
+// is no compensation channel back to a saga (sagas own no stream). A hard
+// rejection of a saga's command is retried when retryable and otherwise
+// dead-lettered.
 service SagaService {
   // Translate source events into commands for target domains.
   rpc Handle(SagaHandleRequest) returns (SagaResponse);
 }
 
 // SagaCoordinatorService: orchestrates saga execution.
-// Stamps framework provenance (ReactionOrigin.component and index) onto the
+// Stamps framework provenance (Causation.component and index) onto the
 // emitted commands, delivers them and retries retryable failures.
 service SagaCoordinatorService {
   // Execute saga: translate source events → commands, deliver to targets
@@ -35,41 +39,18 @@ service SagaCoordinatorService {
       body: "*"
     };
   }
-  // Speculative execution - returns commands without side effects
-  rpc ExecuteSpeculative(SpeculateSagaRequest) returns (SagaResponse) {
-    option (google.api.http) = {
-      post: "/v1/saga/execute/speculative"
-      body: "*"
-    };
-  }
 }
 
 // Request for saga execution.
 // Sagas are pure translators: source events → commands. The request carries
 // no destination state or sequences; the destination stamps the head of each
-// emitted command that carries no expected sequence.
+// emitted command that carries no Expectation.
 message SagaHandleRequest {
   EventBook source = 1; // Source events that triggered the saga
-  SyncMode sync_mode = 2; // Propagate for CASCADE recursion
-  CascadeErrorMode cascade_error_mode = 3; // How to handle errors in CASCADE mode
-}
-
-// Request for speculative saga execution.
-message SpeculateSagaRequest {
-  SagaHandleRequest request = 1;
+  SyncMode sync_mode = 2; // Mode the source events were delivered under; no mode waits for sagas
 }
 
 // Response from saga - commands for other aggregates
 message SagaResponse {
-  repeated CommandBook commands = 1; // Commands for other aggregates; each carries a reaction origin
-}
-
-// System event when compensation fails/requested
-message SagaCompensationFailed {
-  Cover triggering_aggregate = 1;
-  uint64 triggering_event_sequence = 2;
-  string rejection_reason = 4;
-  string compensation_failure_reason = 5;
-  CommandBook rejected_command = 6;
-  google.protobuf.Timestamp occurred_at = 7;
+  repeated CommandBook commands = 1; // Commands for other aggregates; each carries a Causation origin
 }

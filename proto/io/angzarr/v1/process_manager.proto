@@ -22,56 +22,54 @@ option ruby_package = "Angzarr";
 // - You need to query workflow status independently ("show all pending fulfillments")
 // - Timeout/scheduling logic is complex enough to merit its own aggregate
 // - You must react to events from MULTIPLE domains (saga recommends single domain)
+// - You must handle the replies to the commands you issue (see below)
 //
 // Process Manager IS an aggregate with its own domain, events, and state.
 // It reuses all aggregate infrastructure (EventStore, SnapshotStore, AggregateCoordinator).
+//
+// Replies. A PM handles the replies to its own commands: a target's
+// answer, including a refusal recorded as a domain event, reaches the PM as
+// a trigger (an event whose EventMeta causation names the PM's own event),
+// and the PM decides the next step in its own workflow state. There is no
+// compensation or notification channel. A hard rejection of a PM's command
+// is retried when retryable and otherwise dead-lettered.
+//
+// Outbox. The coordinator's outbox exists only to deliver a PM's own
+// commands: the commands of a ProcessManagerHandleResponse are recorded with
+// its process_events and delivered at least once afterwards. The
+// destination deduplicates them on their Causation tuple.
 service ProcessManagerService {
   // Handle with trigger + process state. Returns commands for other
   // aggregates and events for the PM's own domain.
   //
   // PMs do not rebuild destination aggregate state — they translate
-  // events into commands. Emitted commands carry a reaction origin in their
-  // CommandMeta exactly as saga commands do (see ReactionOrigin in
+  // events into commands. Emitted commands are Commands (never Facts) whose
+  // origin is a Causation, exactly as saga commands are (see Causation in
   // types.proto).
   rpc Handle(ProcessManagerHandleRequest) returns (ProcessManagerHandleResponse);
 }
 
 // ProcessManagerCoordinatorService: orchestrates PM execution
 service ProcessManagerCoordinatorService {
-  // Full orchestration with sync mode.
-  // Used by CASCADE mode to call PMs synchronously.
+  // Full orchestration: persist process events, then deliver commands
+  // through the outbox.
   rpc Handle(ProcessManagerCoordinatorRequest) returns (ProcessManagerHandleResponse) {
     option (google.api.http) = {
       post: "/v1/pm/handle"
       body: "*"
     };
   }
-
-  // Speculative execution - returns commands and events without persisting
-  rpc HandleSpeculative(SpeculatePmRequest) returns (ProcessManagerHandleResponse) {
-    option (google.api.http) = {
-      post: "/v1/pm/speculative"
-      body: "*"
-    };
-  }
 }
 
 // Request for PM coordinator orchestration.
-// Used by CASCADE mode to invoke PM synchronously.
 message ProcessManagerCoordinatorRequest {
   EventBook trigger = 1; // Triggering events
-  SyncMode sync_mode = 2; // Propagate for CASCADE recursion
-  CascadeErrorMode cascade_error_mode = 3; // How to handle errors in CASCADE mode
-}
-
-// Request for speculative PM execution.
-message SpeculatePmRequest {
-  ProcessManagerHandleRequest request = 1;
+  SyncMode sync_mode = 2; // Mode the trigger was delivered under; no mode waits for PMs
 }
 
 // PM handle request: full context for PM decision. It carries no destination
 // state or sequences; the destination stamps the head of each emitted
-// command that carries no expected sequence.
+// command that carries no Expectation.
 message ProcessManagerHandleRequest {
   // Full state of triggering domain.
   EventBook trigger = 1;
@@ -87,10 +85,7 @@ message ProcessManagerHandleResponse {
   // Each book is merged by the coordinator, which owns the cover and page
   // concatenation policy; a PM that emits a single book sends a 1-element list.
   repeated EventBook process_events = 1;
-  // Remote: Commands to issue to other aggregates.
+  // Remote: Commands to issue to other aggregates, delivered through the
+  // outbox (see ProcessManagerService).
   repeated CommandBook commands = 2;
-  // Forward escalation notification upstream. Mirrors the rejection
-  // notification on BusinessResponse (command_handler.proto); carries a
-  // PM's escalation when a rejection cannot be compensated locally.
-  Notification notification = 4;
 }

@@ -43,24 +43,19 @@ enum ComponentKind {
 //   output_domain(s)  — domains it SENDS COMMANDS to
 //
 // Per kind (generation fails on a violation):
-//   kind             domain     input_domain               output_domain(s)  compensates  undoes
-//   AGGREGATE        required   empty                      empty             optional     optional
-//   PROCESS_MANAGER  required   empty (per-event domains)  command targets   optional     empty
-//   SAGA             forbidden  required                   command targets   empty        empty
-//   PROJECTOR        forbidden  optional (per-event dom.)  empty             empty        empty
+//   kind             domain     input_domain               output_domain(s)
+//   AGGREGATE        required   empty                      empty
+//   PROCESS_MANAGER  required   empty (per-event domains)  command targets
+//   SAGA             forbidden  required                   command targets
+//   PROJECTOR        forbidden  optional (per-event dom.)  empty
 // An aggregate owns its domain's stream and subscribes to nothing; a process
 // manager owns its own workflow stream (domain) and takes its trigger
 // domains from (event).domain; sagas and projectors own no stream.
 //
-// Two compensation declarations, never interchangeable:
-//   compensates — rejections of commands this component CAUSED elsewhere
-//                 (RejectionNotification payload)
-//   undoes      — undo of commands this component EXECUTED, requested by a
-//                 failed CASCADE_ERROR_COMPENSATE request (Compensate payload)
-// undoes is allowed only on AGGREGATE: commands are executed only by
-// aggregates. It must be empty for PROCESS_MANAGER (a PM issues commands but
-// never executes one; its own stream changes only through trigger
-// reactions), SAGA and PROJECTOR.
+// There are no compensation declarations. A refusal in a choreographed flow
+// is a domain event that a saga translates into commands, and a process
+// manager handles the replies to its own commands as triggers; both are
+// ordinary (event) entries.
 message ComponentOptions {
   ComponentKind kind = 1;
   // Domain this component subscribes to: the saga's single source domain, or
@@ -78,43 +73,8 @@ message ComponentOptions {
   // message name (e.g. a "CounterState" anchor named "Counter" emits
   // CounterHandler / NewCounterDispatch).
   string name = 4;
-  // Rejected commands this component compensates. A RejectionNotification is
-  // delivered to the component whose event caused the rejected command (the
-  // stream of its CommandMeta reaction cause), so compensates is allowed on AGGREGATE and
-  // PROCESS_MANAGER and must be empty for SAGA and PROJECTOR, which own no
-  // stream and never receive a rejection. Declared on the COMPENSATOR (not
-  // the command) so a command's file stays decoupled from the components
-  // that react to its rejection. Each entry generates one rejection handler,
-  // in declaration order; the handler takes the rejection envelope,
-  // not a typed command.
-  //
-  // Entry forms (same rule for every kind):
-  //   "fq.Type"         — matches a rejection of that command type, whatever
-  //                       domain the command was sent to
-  //   "domain:fq.Type"  — matches only a rejection of that command type sent
-  //                       to `domain` (rejected_command.cover.domain); use it
-  //                       when one command type is sent to more than one
-  //                       domain and each needs its own compensation
-  // A type is matched by its fully-qualified name (see Type URLs in
-  // types.proto). Domain names contain no ':'. A given type appears either
-  // once unqualified or qualified by distinct domains, never both
-  // (generation fails otherwise), so at most one entry matches a rejection.
-  // A rejection that matches no entry yields no compensation.
-  repeated string compensates = 5;
   // Additional domains this component issues commands to; see output_domain.
   repeated string output_domains = 6;
-  // Fully-qualified command types this aggregate can undo after executing
-  // them. Each entry must name a command the aggregate handles. Generation
-  // emits one On<Command>Undo handler per entry, in declaration order; the
-  // generated dispatch routes a Compensate notification (types.proto) to the
-  // handler for its Compensate.command_type, passing the Compensate (event
-  // sequences + reason) with the rebuilt state. Allowed only on AGGREGATE.
-  //
-  // A Compensate whose command_type has no undo handler is never dropped:
-  // the router answers HandleCompensation with UNIMPLEMENTED, which the
-  // coordinator treats as non-retryable and dead-letters the delivery
-  // envelope at once (compensation_delivery_failed details).
-  repeated string undoes = 8;
   // Domain of the event stream this component owns: the aggregate's domain,
   // or the process manager's own workflow domain (its events are persisted
   // there and its state is rebuilt from it). Required for AGGREGATE and
@@ -127,8 +87,7 @@ message ComponentOptions {
 
 // Marks a message as a COMMAND. Generates one strict handler method on the
 // component that owns it, taking the typed command as input. A command is
-// owned by exactly one component; compensation for its rejection is declared
-// on the compensating component via ComponentOptions.compensates.
+// owned by exactly one component.
 message CommandOptions {
   // The anchor message of the component that handles this command. Resolved
   // against the compiled descriptor set; generation fails on an unknown or

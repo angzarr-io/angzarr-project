@@ -433,7 +433,6 @@ message TableState {
     kind: COMPONENT_KIND_AGGREGATE
     input_domain: "table"
     name: "TableAggregate"
-    compensates: "io.angzarr.examples.v1.DealCards"
   };
   string table_id = 1;
   // TDA Rule 11D: set while the table is halted for balancing; StartHand is

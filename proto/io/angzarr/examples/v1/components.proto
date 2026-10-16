@@ -17,8 +17,7 @@ option ruby_package = "Angzarr::Examples";
 //
 // The stateless TableHandSaga has no state message to anchor on, so it is
 // declared on this marker message. Its reaction to HandStarted is wired by the
-// (event) entry on HandStarted; its compensation of a rejected DealCards by
-// the `compensates` entry here. The generator emits a strict handler interface
+// (event) entry on HandStarted. The generator emits a strict handler interface
 // + dispatch wiring; no gRPC service code — transport stays on the generic
 // framework services and the Any envelope.
 message TableHandSaga {
@@ -26,7 +25,6 @@ message TableHandSaga {
     kind: COMPONENT_KIND_SAGA
     input_domain: "table"
     output_domain: "hand"
-    compensates: "io.angzarr.examples.v1.DealCards"
   };
 }
 

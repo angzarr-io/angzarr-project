@@ -37,8 +37,9 @@ enum RejectionType {
 // The `payload_view` field carries a server-side descriptor-decoded
 // JSON rendering of the same data, so operators see structured
 // content in one round-trip without writing client-side decode logic.
-// Nested `Any` payloads (rejected_command.pages[].command,
-// rejected_events.pages[].event) are recursively decoded via the
+// Nested `Any` payloads (rejected_command.page.command.payload or
+// rejected_command.page.fact.payload, rejected_events.pages[].payload) are
+// recursively decoded via the
 // framework `DescriptorPool`. User-domain types not yet in the pool
 // stay as `{"@type": type_url, "value_b64": "..."}` placeholders.
 message StoredDeadLetter {
@@ -141,7 +142,7 @@ message GetDeadLetterResponse {
 //                     mode.
 //   FRESH_SEQUENCE  — fetch the aggregate's current next_sequence
 //                     via EventQueryService and rewrite the command's
-//                     PageHeader.sequence before publishing. Best
+//                     CommandPage.expect.sequence before publishing. Best
 //                     chance of success but the payload may still
 //                     depend on stale state (operator's judgment).
 enum ReplayMode {

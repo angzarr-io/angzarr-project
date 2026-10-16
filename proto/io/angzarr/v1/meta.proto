@@ -13,9 +13,11 @@ option ruby_package = "Angzarr";
 // Meta Domain (_angzarr) - Infrastructure commands/events
 // ============================================================================
 
-// Delete all events for an edition+domain combination.
+// Delete all events for an edition+domain combination: the explicit way to
+// discard a non-main edition (e.g. a finished what-if), whatever its storage
+// backend's own lifetime (see Cover.edition in types.proto).
 // Restricted to non-main editions: a request whose edition is "" (the main
-// timeline; see Edition in types.proto) is rejected and deletes nothing.
+// timeline) is rejected and deletes nothing.
 message DeleteEditionEvents {
   string edition = 1; // Edition name to delete from
   string domain = 2; // Domain to delete from

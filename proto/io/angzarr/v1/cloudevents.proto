@@ -14,7 +14,7 @@ option ruby_package = "Angzarr";
 //
 // Client projectors create these by filtering/transforming internal events.
 // Framework fills envelope fields (id, source, time) from Cover/EventPage
-// if not explicitly set by the client.
+// if not explicitly set by the client; time is EventMeta.recorded_at.
 //
 // The `data` field is a protobuf Any that framework converts to JSON via
 // prost-reflect using the descriptor pool. Clients should pack a "public"
@@ -33,7 +33,7 @@ message CloudEvent {
   // Custom extension attributes.
   // Keys should follow CloudEvents naming (lowercase, no dots).
   // Framework adds correlationid automatically when the event's
-  // EventMeta.correlation_id is set (correlation is per page; covers carry
+  // EventMeta.provenance.correlation_id is set (correlation is per page; covers carry
   // none).
   map<string, string> extensions = 3;
 
