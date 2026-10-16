@@ -13,8 +13,9 @@ lint:
     - ENUM_ZERO_VALUE_SUFFIX
     - SERVICE_SUFFIX
     - IMPORT_USED
-# Breaking-change policy is wire + JSON compatibility: a removed field is
-# acceptable once its number and name are reserved.
+# Breaking checks report wire + JSON incompatibility. Pre-v0.1.0 nothing is
+# gated on them: removed fields and messages are deleted outright, with no
+# `reserved` statements (stored data is wiped across schema changes).
 breaking:
   use:
     - WIRE_JSON

@@ -30,9 +30,9 @@ service ProcessManagerService {
   // aggregates and events for the PM's own domain.
   //
   // PMs do not rebuild destination aggregate state — they translate
-  // events into commands/facts. Emitted commands carry
-  // PageHeader.angzarr_deferred exactly as saga commands do (see
-  // AngzarrDeferredSequence in types.proto).
+  // events into commands. Emitted commands carry a reaction origin in their
+  // CommandMeta exactly as saga commands do (see ReactionOrigin in
+  // types.proto).
   rpc Handle(ProcessManagerHandleRequest) returns (ProcessManagerHandleResponse);
 }
 
@@ -70,19 +70,17 @@ message SpeculatePmRequest {
 }
 
 // PM handle request: full context for PM decision. It carries no destination
-// state or sequences; emitted commands are deferred and the destination
-// appends them at its head.
+// state or sequences; the destination stamps the head of each emitted
+// command that carries no expected sequence.
 message ProcessManagerHandleRequest {
   // Full state of triggering domain.
   EventBook trigger = 1;
   // Current process manager state (event-sourced).
   EventBook process_state = 2;
-  reserved 3;
-  reserved "destination_sequences";
 }
 
-// PM handle response: local events, then remote commands and facts.
-// Execution order: process_events persisted first, then commands sent, then facts injected.
+// PM handle response: local events, then remote commands.
+// Execution order: process_events persisted first, then commands sent.
 message ProcessManagerHandleResponse {
   // Local: Events for the process manager's own domain (non-duplicative workflow state).
   // These are persisted via AggregateCoordinator to the PM's domain.
@@ -91,9 +89,6 @@ message ProcessManagerHandleResponse {
   repeated EventBook process_events = 1;
   // Remote: Commands to issue to other aggregates.
   repeated CommandBook commands = 2;
-  // Remote: Facts to inject to other aggregates.
-  // Each EventBook targets a specific aggregate via its Cover.
-  repeated EventBook facts = 3;
   // Forward escalation notification upstream. Mirrors the rejection
   // notification on BusinessResponse (command_handler.proto); carries a
   // PM's escalation when a rejection cannot be compensated locally.

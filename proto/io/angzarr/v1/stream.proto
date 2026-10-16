@@ -13,8 +13,9 @@ option ruby_package = "Angzarr";
 // region event_stream_service
 // EventStreamService: streams events to registered subscribers
 service EventStreamService {
-  // Subscribe to events matching correlation ID (required)
-  // Returns INVALID_ARGUMENT if correlation_id is empty
+  // Subscribe to events whose EventMeta.correlation_id matches (required).
+  // Correlation is recorded per page only; all pages of one write share one
+  // correlation. Returns INVALID_ARGUMENT if correlation_id is empty
   // REST: Server-Sent Events (SSE) stream
   rpc Subscribe(EventStreamFilter) returns (stream EventBook) {
     option (google.api.http) = {get: "/v1/stream/{correlation_id}"};

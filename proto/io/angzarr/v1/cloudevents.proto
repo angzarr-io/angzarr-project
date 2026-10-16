@@ -32,7 +32,9 @@ message CloudEvent {
 
   // Custom extension attributes.
   // Keys should follow CloudEvents naming (lowercase, no dots).
-  // Framework adds correlationid automatically if present in Cover.
+  // Framework adds correlationid automatically when the event's
+  // EventMeta.correlation_id is set (correlation is per page; covers carry
+  // none).
   map<string, string> extensions = 3;
 
   // Optional overrides. Framework uses Cover/EventPage values if not set.

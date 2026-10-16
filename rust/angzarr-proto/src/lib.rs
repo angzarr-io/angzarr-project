@@ -1,7 +1,8 @@
 //! prost types for angzarr's domain-neutral wire contract.
 //!
 //! Generated from `proto/` in this repository: `io.angzarr.v1` books, pages,
-//! covers, provenance (`EventMeta`, `CommandMeta`, `EventRef`) and the
+//! covers, provenance (`EventMeta`, `CommandMeta`, `EventRef`, the origin
+//! messages) and the
 //! upcaster request/response messages, plus `sererr.v1`, which `types.proto`
 //! imports. Every message implements [`prost::Name`] with no type-name domain,
 //! so `prost_types::Any::from_msg` yields type URLs of the form

@@ -13,18 +13,20 @@ option ruby_package = "Angzarr";
 
 // SagaService: stateless translation from source events to commands.
 //
-// Every emitted command carries PageHeader.angzarr_deferred (see
-// AngzarrDeferredSequence in types.proto): the saga records where the command
-// came from, the command has no expected version, and the destination appends
-// it at its head.
+// Every emitted command carries a reaction origin in its CommandMeta (see
+// ReactionOrigin in types.proto): it records the event being reacted to. The
+// command usually carries no expected sequence, so the destination stamps
+// its head before business code.
+//
+// Sagas emit commands only; there are no saga-injected facts.
 service SagaService {
   // Translate source events into commands for target domains.
   rpc Handle(SagaHandleRequest) returns (SagaResponse);
 }
 
 // SagaCoordinatorService: orchestrates saga execution.
-// Stamps framework provenance onto the deferred headers, delivers commands
-// and retries retryable failures.
+// Stamps framework provenance (ReactionOrigin.component and index) onto the
+// emitted commands, delivers them and retries retryable failures.
 service SagaCoordinatorService {
   // Execute saga: translate source events → commands, deliver to targets
   rpc Execute(SagaHandleRequest) returns (SagaResponse) {
@@ -44,14 +46,12 @@ service SagaCoordinatorService {
 
 // Request for saga execution.
 // Sagas are pure translators: source events → commands. The request carries
-// no destination state or sequences; emitted commands are deferred and the
-// destination appends them at its head.
+// no destination state or sequences; the destination stamps the head of each
+// emitted command that carries no expected sequence.
 message SagaHandleRequest {
   EventBook source = 1; // Source events that triggered the saga
   SyncMode sync_mode = 2; // Propagate for CASCADE recursion
   CascadeErrorMode cascade_error_mode = 3; // How to handle errors in CASCADE mode
-  reserved 4;
-  reserved "destination_sequences";
 }
 
 // Request for speculative saga execution.
@@ -61,16 +61,13 @@ message SpeculateSagaRequest {
 
 // Response from saga - commands for other aggregates
 message SagaResponse {
-  repeated CommandBook commands = 1; // Commands for other aggregates; every page header is angzarr_deferred
-  repeated EventBook events = 2; // Events (facts) to inject directly
+  repeated CommandBook commands = 1; // Commands for other aggregates; each carries a reaction origin
 }
 
 // System event when compensation fails/requested
 message SagaCompensationFailed {
   Cover triggering_aggregate = 1;
   uint64 triggering_event_sequence = 2;
-  reserved 3;
-  reserved "saga_name";
   string rejection_reason = 4;
   string compensation_failure_reason = 5;
   CommandBook rejected_command = 6;
