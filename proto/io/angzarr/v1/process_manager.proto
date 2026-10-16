@@ -53,7 +53,9 @@ service ProcessManagerService {
 service ProcessManagerCoordinatorService {
   // Full orchestration: persist process events, then deliver commands
   // through the outbox.
-  rpc Handle(ProcessManagerCoordinatorRequest) returns (ProcessManagerHandleResponse) {
+  // The request is the triggering EventBook; the PM's configuration, not
+  // the request, sets how its commands are delivered.
+  rpc Handle(EventBook) returns (ProcessManagerHandleResponse) {
     option (google.api.http) = {
       post: "/v1/pm/handle"
       body: "*"
@@ -61,15 +63,9 @@ service ProcessManagerCoordinatorService {
   }
 }
 
-// Request for PM coordinator orchestration.
-message ProcessManagerCoordinatorRequest {
-  EventBook trigger = 1; // Triggering events
-  SyncMode sync_mode = 2; // Mode the trigger was delivered under; no mode waits for PMs
-}
-
 // PM handle request: full context for PM decision. It carries no destination
-// state or sequences; the destination stamps the head of each emitted
-// command that carries no Expectation.
+// state or sequences; the destination stamps the head of every emitted
+// command.
 message ProcessManagerHandleRequest {
   // Full state of triggering domain.
   EventBook trigger = 1;
@@ -86,6 +82,9 @@ message ProcessManagerHandleResponse {
   // concatenation policy; a PM that emits a single book sends a 1-element list.
   repeated EventBook process_events = 1;
   // Remote: Commands to issue to other aggregates, delivered through the
-  // outbox (see ProcessManagerService).
+  // outbox (see ProcessManagerService) under the PM's configured delivery
+  // mode. Handling stays unset: a command that sets
+  // handling.expected_sequence or handling.sync is a PM bug, refused as
+  // malformed (INVALID_ARGUMENT) and never delivered (see Handling).
   repeated CommandBook commands = 2;
 }

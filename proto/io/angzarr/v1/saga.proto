@@ -13,9 +13,10 @@ option ruby_package = "Angzarr";
 // SagaService: stateless translation from source events to commands.
 //
 // Every emitted command is a Command (never a Fact) whose origin is a
-// Causation (see types.proto): it records the event being reacted to. The
-// command usually carries no Expectation, so the destination stamps its head
-// before business code.
+// Causation (see types.proto): it records the event being reacted to. Its
+// Handling is left unset (see Handling): the destination always stamps its
+// head before business code, and delivery mode comes from the saga's
+// configuration.
 //
 // Sagas carry choreographed flows, including their refusals: a target that
 // must refuse records the refusal as a domain event, and a saga subscribed
@@ -25,15 +26,17 @@ option ruby_package = "Angzarr";
 // dead-lettered.
 service SagaService {
   // Translate source events into commands for target domains.
-  rpc Handle(SagaHandleRequest) returns (SagaResponse);
+  rpc Handle(EventBook) returns (SagaResponse);
 }
 
 // SagaCoordinatorService: orchestrates saga execution.
 // Stamps framework provenance (Causation.component and index) onto the
 // emitted commands, delivers them and retries retryable failures.
 service SagaCoordinatorService {
-  // Execute saga: translate source events → commands, deliver to targets
-  rpc Execute(SagaHandleRequest) returns (SagaResponse) {
+  // Execute saga: translate source events → commands, deliver to targets.
+  // The request is the source EventBook; the saga's configuration, not the
+  // request, sets how its commands are delivered.
+  rpc Execute(EventBook) returns (SagaResponse) {
     option (google.api.http) = {
       post: "/v1/saga/execute"
       body: "*"
@@ -41,16 +44,14 @@ service SagaCoordinatorService {
   }
 }
 
-// Request for saga execution.
-// Sagas are pure translators: source events → commands. The request carries
-// no destination state or sequences; the destination stamps the head of each
-// emitted command that carries no Expectation.
-message SagaHandleRequest {
-  EventBook source = 1; // Source events that triggered the saga
-  SyncMode sync_mode = 2; // Mode the source events were delivered under; no mode waits for sagas
-}
+// Sagas are pure translators: source events → commands. The request is the
+// source EventBook and carries no destination state or sequences.
 
 // Response from saga - commands for other aggregates
 message SagaResponse {
-  repeated CommandBook commands = 1; // Commands for other aggregates; each carries a Causation origin
+  // Commands for other aggregates; each carries a Causation origin. Handling
+  // stays unset: a command that sets handling.expected_sequence or
+  // handling.sync is a saga bug, refused as malformed (INVALID_ARGUMENT) and
+  // never delivered (see Handling).
+  repeated CommandBook commands = 1;
 }

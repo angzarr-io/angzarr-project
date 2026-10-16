@@ -1,6 +1,6 @@
 // DOC: This file is referenced in docs/docs/reference/patterns.mdx
 //      Update documentation when making changes to MergeStrategy, SyncMode,
-//      Cover (editions), Snapshot, or the CommandPage body.
+//      Handling, Cover (editions), Snapshot, or the CommandPage body.
 
 syntax = "proto3";
 package io.angzarr.v1;
@@ -34,8 +34,9 @@ message UUID {
 
 // region cover
 // Stream identity, and nothing else: one stream is (domain, edition, root).
-// Everything that varies per write or per page (correlation, actor, origin,
-// expected sequence) lives on the page and its meta (CommandPage, EventMeta),
+// Everything that varies per write or per page (correlation, actor, origin)
+// lives on the page and its meta (CommandPage, EventMeta), and how a command
+// is handled (expected sequence, merge, sync) lives on CommandBook.handling;
 // never on the Cover. Parent/child relationships between aggregates are
 // carried in domain event payloads, not in the Cover.
 message Cover {
@@ -54,7 +55,7 @@ message Cover {
   // reads fall through to main up to the divergence) and its storage.
   //
   // What-if execution. A what-if is a command run in an edition: send an
-  // ordinary CommandRequest whose cover names the edition. There is no
+  // ordinary CommandBook whose cover names the edition. There is no
   // separate speculative RPC. Reactions (sagas, process managers) stay in
   // the edition of the event they react to.
   //
@@ -75,9 +76,13 @@ message Cover {
 // endregion
 
 // region sync_mode
-// How much of a command's processing the caller waits for.
+// How much of a command's processing the caller waits for. Carried by
+// Handling.sync; caller-scoped (see Handling).
 //
-// Default: ASYNC. SYNC_MODE_UNSPECIFIED (the zero value) is treated as ASYNC.
+// SYNC_MODE_UNSPECIFIED (the zero value) means "not specified": the
+// configured default applies (see Handling), and ASYNC when configuration
+// sets none. After the coordinator resolves Handling, sync is never
+// UNSPECIFIED.
 //
 // Impact ordering (lowest to highest):
 //   ASYNC < DECISION < SIMPLE
@@ -95,7 +100,7 @@ message Cover {
 // SIMPLE additionally waits for synchronous projectors and returns their
 // results.
 enum SyncMode {
-  SYNC_MODE_UNSPECIFIED = 0; // Unset — the server treats it as the documented default (Async)
+  SYNC_MODE_UNSPECIFIED = 0; // Not specified: the configured default applies (ASYNC if none)
   SYNC_MODE_ASYNC = 1; // Async: fire and forget (default)
   SYNC_MODE_SIMPLE = 2; // Sync accept/reject plus sync projectors; reactions run async
   SYNC_MODE_DECISION = 4; // Sync aggregate accept/reject only; projectors + reactions run async
@@ -104,13 +109,16 @@ enum SyncMode {
 
 // region merge_strategy
 // Conflict strategy: how the aggregate coordinator treats a command whose
-// expected sequence (Expectation.sequence) differs from the stream's head
-// (a stale command). Default: STRICT. MERGE_UNSPECIFIED (the zero value) is
-// treated as STRICT.
+// expected sequence (Handling.expected_sequence) differs from the stream's
+// head (a stale command). Carried by Handling.merge.
 //
-// The strategy applies only to commands that carry an Expectation. A
-// command without one is stamped by the framework with the head it decides
-// against, so it can never be stale (see CommandPage.expect).
+// MERGE_UNSPECIFIED (the zero value) means "not specified": the configured
+// default applies (see Handling), and STRICT when configuration sets none.
+// After the coordinator resolves Handling, merge is never UNSPECIFIED.
+//
+// The strategy matters only for commands whose sender provided
+// expected_sequence. A command without one is stamped by the framework with
+// the head it decides against, so it can never be stale.
 //
 // The concurrency window is the run of events the command did not see:
 // sequences expected .. head-1.
@@ -125,8 +133,8 @@ enum SyncMode {
 // locally over the events delivered with the command; there is no
 // framework RPC for conflict resolution.
 enum MergeStrategy {
-  MERGE_UNSPECIFIED = 0; // Unset — the server treats it as the documented default (Strict)
-  MERGE_STRICT = 2; // Default: reject on sequence mismatch (optimistic concurrency)
+  MERGE_UNSPECIFIED = 0; // Not specified: the configured default applies (STRICT if none)
+  MERGE_STRICT = 2; // Reject on sequence mismatch (optimistic concurrency); default without config
   MERGE_AGGREGATE_HANDLES = 3; // decide receives the window and applies its own conflict rule
 }
 // endregion
@@ -224,7 +232,7 @@ message Provenance {
 // Idempotency. The framework deduplicates caused commands and facts before
 // business code runs (inbox style): a redelivered command whose key was
 // already processed does not reach the handler; the response carries the
-// events the first delivery produced, with ResponseMeta.outcome DUPLICATE.
+// events the first delivery produced, with Outcome.delivery DUPLICATE.
 //   causation — keyed on (event, component, index)
 //   fact      — keyed on external_id, per target stream
 // Request-origin commands are not deduplicated by the framework.
@@ -291,9 +299,9 @@ message EventMeta {
   // (its next_sequence, the number of events in it) that decide saw when it
   // produced this event. Always recorded, for every origin and strategy; 0
   // means the decision saw an empty stream. It equals the producing
-  // command's expect.sequence when that was stamped, or provided and
-  // checked under STRICT; under AGGREGATE_HANDLES it is the head decide saw,
-  // which may be past the provided sequence.
+  // command's Handling.expected_sequence when that was stamped, or provided
+  // and checked under STRICT; under AGGREGATE_HANDLES it is the head decide
+  // saw, which may be past the provided sequence.
   uint64 decided_at = 6;
   // Version of the business rules (handler code / configuration) that decided
   // the event. Opaque to the framework; used to explain a historical decision.
@@ -343,29 +351,72 @@ message Projection {
   google.protobuf.Any projection = 4;
 }
 
-// region expectation
-// The stream state a command was issued against, and how a mismatch is
-// treated.
+// region handling
+// How the system treats one command. Handling is instructions, not data:
+// it is never persisted (EventMeta records what was decided, not how the
+// command was handled), and identity, business data and provenance never
+// live here.
 //
-// If provided, the command is rejected before business code unless the
-// stream is at `sequence` (its next_sequence), or the strategy is
-// AGGREGATE_HANDLES, in which case decide receives the events since
-// `sequence` and applies its own conflict rule. If absent, the framework
-// stamps the head it decides against, before business code.
+// As sent, then resolved. Before the coordinator, Handling holds what the
+// sender asked for, and any field may be unset. Before business code runs,
+// the coordinator resolves it in place: it stamps expected_sequence when
+// absent, and fills merge and sync from configuration when unspecified.
+// From then on (ContextualCommand, business code) every field is concrete.
+// A dead letter stores the book as received, with Handling as sent (see
+// AngzarrDeadLetter).
 //
-// Either way, the check or the stamp happens in the framework before the
-// command reaches business code, so decide always sees a concrete sequence,
-// and the version decided against is recorded on every resulting event
-// (EventMeta.decided_at).
-message Expectation {
-  uint64 sequence = 1; // Expected next_sequence of the target stream
-  MergeStrategy strategy = 2; // Conflict strategy on mismatch (see MergeStrategy)
+// Defaults come from configuration. Merge strategy and sync mode are
+// configured per command type and per component (the aggregate, saga or
+// process manager). Precedence, highest first:
+//   1. Handling, when the field is set and configuration allows the override
+//   2. configuration for the command type (its payload's type URL)
+//   3. configuration for the component
+//   4. the built-in default: STRICT, ASYNC
+// Configuration may forbid overriding a field for a command type or
+// component. A command that sets a forbidden field is refused as malformed
+// (INVALID_ARGUMENT) before deduplication or business code; it is never
+// silently ignored.
+//
+// Reaction commands (emitted by sagas and process managers) leave Handling
+// unset. A reactor never knows the destination's state, so the destination
+// always stamps expected_sequence, and the reaction's delivery mode comes
+// from the component's configuration. A reaction command that sets
+// expected_sequence or sync is a reactor bug: the coordinator refuses it as
+// malformed (INVALID_ARGUMENT) and never delivers it. merge has no effect
+// on a stamped command.
+//
+// Facts (CommandPage.body = Fact) cannot be refused, so no sequence check
+// applies: a Fact that sets expected_sequence is malformed (INVALID_ARGUMENT),
+// refused before deduplication or ingest. The coordinator stamps it.
+message Handling {
+  // The stream state the command was issued against: the expected
+  // next_sequence of the target stream.
+  //
+  // If provided, the command is rejected before business code unless the
+  // stream is at expected_sequence, or the resolved merge strategy is
+  // AGGREGATE_HANDLES, in which case decide receives the events since
+  // expected_sequence and applies its own conflict rule. If absent, the
+  // framework stamps the head it decides against, before business code.
+  //
+  // Either way, the check or the stamp happens in the framework before the
+  // command reaches business code, so decide always sees a concrete
+  // sequence, and the version decided against is recorded on every
+  // resulting event (EventMeta.decided_at).
+  optional uint64 expected_sequence = 1;
+  // Conflict strategy on a stale expected_sequence (see MergeStrategy).
+  // Unspecified: the configured default.
+  MergeStrategy merge = 2;
+  // How much of the command's processing the caller waits for (see
+  // SyncMode). Caller-scoped: it governs this request's response only.
+  // Unspecified: the configured default.
+  SyncMode sync = 3;
 }
 // endregion
 
 // region command_page
-// One command: an optional expectation, provenance, and a body that is
-// either a decision-requesting Command or an already-happened Fact.
+// One command: provenance, and a body that is either a decision-requesting
+// Command or an already-happened Fact. How the command is handled is not
+// part of the page (see CommandBook.handling).
 //
 // Reflective dispatch. The framework picks the pipeline from which body arm
 // is set (the arm's message type): a Command goes through decide (fallible:
@@ -376,11 +427,6 @@ message Expectation {
 // Facts cannot carry a causation origin: Fact has no such field, so a
 // reaction can never inject a fact. Reactions emit Commands.
 message CommandPage {
-  // Expected stream state (see Expectation). Absent: the framework stamps
-  // the head. Facts carry none: a fact cannot be refused, so no sequence
-  // check applies, and a Fact page that sets expect is a malformed request
-  // (INVALID_ARGUMENT), refused before deduplication or ingest.
-  optional Expectation expect = 1;
   Provenance provenance = 2; // Stamped onto the events this command produces
   oneof body {
     Command command = 3; // Asks the aggregate to decide; may be rejected
@@ -415,28 +461,31 @@ message Fact {
 // endregion
 
 // region command_book
-// Exactly one command addressed to one stream. Commands are not batched: a
-// CommandBook holds a single page. (EventBooks, by contrast, group the pages
-// of one stream under a shared Cover.)
+// Exactly one command addressed to one stream, with how it is to be
+// handled. Commands are not batched: a CommandBook holds a single page.
+// (EventBooks, by contrast, group the pages of one stream under a shared
+// Cover.) CommandBook is the request itself: HandleCommand takes it
+// directly, with no request wrapper.
 message CommandBook {
   Cover cover = 1; // The target stream (domain, edition, root)
   CommandPage page = 3;
+  // How the system treats this command: as sent before the coordinator,
+  // resolved after it (see Handling). Never persisted.
+  Handling handling = 6;
 }
 // endregion
 
-// Request wrapper for command operations.
-// Adds execution metadata (sync_mode) to CommandBook.
-message CommandRequest {
-  CommandBook command = 1;
-  SyncMode sync_mode = 2;
-}
-
-// region response_meta
-// Response-only metadata about how a command was delivered. Carried on
-// CommandResponse and NEVER persisted: nothing here is written to any
-// stream, and replaying a stream cannot reproduce it.
-message ResponseMeta {
-  DeliveryOutcome outcome = 1;
+// region outcome
+// What the system did with one command: results of its handling, carried on
+// CommandResponse and NEVER persisted. Nothing here is written to any
+// stream, and replaying a stream cannot reproduce it. The command's business
+// result is CommandResponse.events.
+message Outcome {
+  DeliveryOutcome delivery = 1;
+  // Synchronous projector results. Produced only because the resolved
+  // Handling.sync was SIMPLE; empty for every other mode. (Projectors
+  // persist their own read models; these are copies returned to the caller.)
+  repeated Projection projections = 2;
 }
 
 // Whether this delivery ran business code or was answered from a previous
@@ -451,20 +500,14 @@ enum DeliveryOutcome {
 message ContextualCommand {
   // Passed from aggregate coordinator to aggregate, consists of everything
   // needed to execute/evaluate the command: the target stream's history (a
-  // snapshot plus pages up to the head) and the command, whose page.expect
-  // is always set by the time it arrives here: provided by the caller, or
-  // stamped by the coordinator (always stamped for a Fact). Under
-  // AGGREGATE_HANDLES the pages from expect.sequence to the head are the
-  // conflict window decide resolves.
+  // snapshot plus pages up to the head) and the command, whose handling is
+  // always resolved by the time it arrives here (see Handling):
+  // expected_sequence provided by the caller or stamped by the coordinator
+  // (always stamped for a Fact), and merge and sync concrete. Under
+  // AGGREGATE_HANDLES the pages from handling.expected_sequence to the head
+  // are the conflict window decide resolves.
   EventBook events = 1;
   CommandBook command = 2;
-}
-
-// Request wrapper for contextual command operations (internal use).
-// Adds execution metadata (sync_mode) to ContextualCommand.
-message ContextualCommandRequest {
-  ContextualCommand command = 1;
-  SyncMode sync_mode = 2;
 }
 
 // Query types
@@ -540,7 +583,7 @@ message EventStreamFilter {
 // Sequence mismatch details for DLQ entries.
 // Contains expected vs actual sequence for debugging and replay.
 message SequenceMismatchDetails {
-  uint64 expected_sequence = 1; // What the command expected (CommandPage.expect.sequence)
+  uint64 expected_sequence = 1; // What the command expected (CommandBook.handling.expected_sequence)
   uint64 actual_sequence = 2; // What the stream was at (its next_sequence)
 }
 
@@ -580,7 +623,11 @@ message PayloadRetrievalFailedDetails {
 message AngzarrDeadLetter {
   Cover cover = 1; // Stream the failed message concerns: domain, edition, root
   oneof payload {
-    CommandBook rejected_command = 2; // Command that failed
+    // Command that failed, stored as received: its Handling is as sent,
+    // before the coordinator resolved it (see Handling). Replay AS_IS keeps
+    // it; FRESH_SEQUENCE clears handling.expected_sequence so the
+    // coordinator stamps the current head.
+    CommandBook rejected_command = 2;
     EventBook rejected_events = 9; // Events that failed (saga/projector failures)
   }
   string rejection_reason = 3; // Human-readable reason

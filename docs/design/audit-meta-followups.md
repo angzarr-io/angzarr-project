@@ -2,18 +2,26 @@
 
 ## Status
 
-Open. Records what the two `feat/audit-meta` proto passes leave for angzarr's
+Open. Records what the three `feat/audit-meta` proto passes leave for angzarr's
 code, the known gaps the audit surfaced, and the questions still to decide.
 The protos under `proto/io/angzarr/` and the `rust/angzarr-proto` crate are
 the only things these passes changed. Nothing listed here is done.
 
 - Pass 1 (9cfed59, 17bc1cd): provenance meta, uint64 sequences, one-command
   books, the origin oneof, facts as commands, no reservations.
-- Pass 2 (this change): CASCADE/ISOLATED, compensation and notification,
+- Pass 2 (46404df): CASCADE/ISOLATED, compensation and notification,
   speculative execution, snapshot retention and `undoes`/`compensates`
   removed; PayloadReference made transport-only; the DRY refactor (`Cover`,
   `EventRef`, `Provenance`, `Expectation`); the `Command`/`Fact` body oneof;
   `ResponseMeta`.
+- Pass 3 (this change): handling separated from identity, business data
+  and provenance. `Handling { optional expected_sequence; merge; sync }`
+  lives on `CommandBook` (field 6) and is never persisted; `Expectation`,
+  `CommandRequest`, `ContextualCommandRequest`, `SagaHandleRequest`,
+  `ProcessManagerCoordinatorRequest` and `ResponseMeta` are deleted.
+  `CommandResponse` is `{ events, Outcome outcome }`, with
+  `Outcome { delivery; projections }`. `CommandPage` is provenance + body
+  only.
 
 Wire breaks are accepted pre-freeze: removed fields and messages are deleted
 outright, with no `reserved` statements.
@@ -54,9 +62,6 @@ From pass 2:
   `CommandResponse.reaction_errors`. Sagas and PMs always run asynchronously.
   Replay, migration and recovery tooling has no silent mode: it either lets
   reactions run or rebuilds projections afterwards.
-- `SagaHandleRequest.sync_mode` and `ProcessManagerCoordinatorRequest.sync_mode`
-  only fed CASCADE recursion and are now vestigial. Decide whether to delete
-  them in a later proto pass.
 - Delete the compensation outbox's notification path: `Notification`,
   `RejectionNotification`, `Compensate`, `HandleCompensation`,
   `RevocationResponse`, `BusinessResponse`, `SagaCompensationFailed`,
@@ -86,16 +91,58 @@ From pass 2:
 - `Cover.edition` is now a string. Move divergence points into edition
   configuration (`Edition`/`DomainDivergence` are gone from the wire).
 - `EventRef` is now `{ Cover stream; sequence }`. `Provenance` holds
-  `{actor, correlation_id}`, `Expectation` holds `{sequence, strategy}`, and
-  `CommandMeta` is deleted.
+  `{actor, correlation_id}`, and `CommandMeta` is deleted. (`Expectation`
+  went in pass 3; see below.)
 - Reflective dispatch: the `CommandPage.body` arm picks the pipeline
   (`Command` goes to decide, `Fact` to ingest), and the payload type URL picks
   the handler. Deduplicate before business code: causation on
   (event, component, index), facts on `external_id` per target stream. Return
-  `ResponseMeta.outcome` (`APPLIED`/`DUPLICATE`), and never persist it.
-- Refuse a `Fact` that carries `expect` as `INVALID_ARGUMENT` (a pass-2
-  judgement, see open questions). Dead-letter a failing fact handler and
-  alert on it.
+  `Outcome.delivery` (`APPLIED`/`DUPLICATE`), and never persist it.
+- Refuse a `Fact` that sets `handling.expected_sequence` as
+  `INVALID_ARGUMENT` (a pass-2 judgement, see open questions). Dead-letter a
+  failing fact handler and alert on it.
+
+From pass 3:
+
+- `HandleCommand` takes `CommandBook` directly (HTTP:
+  `POST /v1/ch/{cover.domain}/commands`). `SagaService.Handle`,
+  `SagaCoordinatorService.Execute` and `ProcessManagerCoordinatorService.Handle`
+  take `EventBook` directly. Delete the request wrappers in code.
+- Resolve `CommandBook.handling` in place before business code: stamp
+  `expected_sequence` when absent, and fill `merge` and `sync` from
+  configuration when unspecified. `ContextualCommand` and business code see
+  only resolved handling. Never persist it.
+- Configuration for merge strategy and sync mode, per command type and per
+  component. Precedence, highest first: `Handling` (when set and allowed),
+  command-type config, component config, built-in default (STRICT, ASYNC).
+  Config can forbid overriding a field per command type or component; a
+  command that sets a forbidden field is refused `INVALID_ARGUMENT`, never
+  silently ignored. The config shape still needs designing.
+- Reaction commands (saga, PM) leave `Handling` unset. Refuse one that sets
+  `expected_sequence` or `sync` as a reactor bug (`INVALID_ARGUMENT`, never
+  delivered). Delete the per-command sync floor (`reaction_sync_mode` and
+  the `PageHeader.sync_mode` preservation in the saga and PM stamping);
+  reaction delivery mode comes from component config.
+- **Core and the router disagree on explicit sequences in reaction
+  commands.** Core's saga and PM stamping keeps an explicit sequence
+  (`Some(SequenceType::Sequence(_)) => continue` in
+  `orchestration/saga/mod.rs` and `orchestration/process_manager/mod.rs`);
+  the router's `stamp_pages` replaces it. Resolved in pass 3: forbid it.
+  Core must refuse it, as above, rather than pass it through.
+- **Core's merge default is commutative; the protos default to STRICT.**
+  `CommandPageExt::effective_merge_strategy` calls
+  `MergeStrategy::or_default_commutative`. The wire contract (and pass 3's
+  built-in default) is STRICT, and `COMMUTATIVE` no longer exists on the
+  wire. Core must default to STRICT when neither `Handling` nor config sets
+  a strategy.
+- DLQ: store `rejected_command` as received (handling as sent). Replay
+  `AS_IS` keeps it; `FRESH_SEQUENCE` clears `handling.expected_sequence` so
+  the coordinator stamps the head (today it re-stamps page headers from a
+  query). Replay must stop hardcoding `SyncMode::Simple` over the stored
+  handling.
+- `EventRequest.sync_mode` (projector `HandleSync`) was not touched by
+  pass 3; it is an event-delivery wrapper, not command handling. Decide
+  whether it stays.
 
 ### angzarr-router
 
@@ -104,6 +151,10 @@ From pass 2:
 - Mirror the pass-2 dispatch: route on body arm, then type URL. Delete the
   compensation, undo and speculative dispatch, and the notification
   envelopes.
+- Pass 3: `angzarr_router_dispatch_saga` takes `EventBook` bytes (not
+  `SagaHandleRequest`). Reaction stamping leaves `Handling` unset and
+  refuses a handler-set `expected_sequence` or `sync`; drop the
+  `PageHeader.sync_mode` preservation.
 
 ### Client libraries (go, rust, python, java, csharp, cpp, typescript)
 
@@ -117,7 +168,8 @@ From pass 2:
   the delivered window.
 - Delete the compensation handlers, `undoes`/`compensates` codegen, rejection
   fan-out and the speculative client APIs. Regenerate for the new
-  `CommandPage` shape (`expect`, `provenance`, `body`).
+  `CommandPage` shape (`provenance`, `body`) and `CommandBook.handling`;
+  clients send `CommandBook` directly and read `CommandResponse.outcome`.
 - Leftover 2PC in generated Python (pass 1 audit).
 
 ### Examples (examples-*, poker protos)
@@ -134,7 +186,11 @@ From pass 2:
   `snapshot_retention`, `rejection_notification` (removed in pass 2), and
   `page_header` (removed in pass 1). A strict site build fails until
   `reference/patterns.mdx` and its siblings are rewritten. New regions are
-  available: `provenance`, `expectation`, `response_meta`.
+  available: `provenance`, `handling`, `outcome` (pass 3 replaced the
+  pass-2 `expectation` and `response_meta` regions). The `sync_mode` and
+  `merge_strategy` regions now say "unspecified means the configured
+  default"; the merge-strategy and sync-mode tables need the config
+  precedence.
 - Feature specs still exercise the removed features: CASCADE (6 files),
   ISOLATED (3), notifications and compensation (4), speculative execution
   (3), `undoes` (2), and others. Rewrite or delete them.
@@ -193,12 +249,13 @@ From pass 2:
     manual-only, and `contracts.yml` runs lint alone. Revisit at angzarr's
     v0.1.0 freeze, or before hatpick stores production events.
 
-## Queued questions
+## Resolved questions
 
-- **Merge strategy placement** (queued by the user): should the conflict
-  strategy travel in the message (`Expectation.strategy`, today) or be
-  configured externally (per domain or per command type)? It stays in
-  `Expectation` until decided.
+- **Merge strategy placement** (resolved in pass 3): both. Configuration
+  sets the default per command type and per component, and
+  `CommandBook.handling.merge` overrides it where configuration allows. The
+  same holds for sync mode. See the `Handling` region in `types.proto` for
+  the precedence.
 
 ## Open questions
 
@@ -220,6 +277,13 @@ From pass 2:
 - **Codegen marker for facts.** On the wire the `Fact` arm marks a fact. Open:
   how codegen knows to emit an infallible ingest handler for a payload type
   (a `CommandOptions` flag, a separate `(fact)` option, or a naming rule).
-- **`expect` on a Fact.** Pass 2 documents a Fact carrying `expect` as
-  malformed (`INVALID_ARGUMENT`). The alternative is to ignore it and stamp
+- **`expected_sequence` on a Fact.** Pass 2 documented a Fact carrying an
+  expectation as malformed (`INVALID_ARGUMENT`), and pass 3 keeps that for
+  `handling.expected_sequence`. The alternative is to ignore it and stamp
   the head. Confirm.
+- **Forbidden overrides.** Pass 3 refuses a command that sets a `Handling`
+  field configuration forbids (`INVALID_ARGUMENT`), rather than ignoring
+  it. Confirm.
+- **`merge` on a reaction command.** Pass 3 forbids `expected_sequence` and
+  `sync` on reaction commands but tolerates `merge`, which has no effect on
+  a stamped command. Confirm, or forbid it too.

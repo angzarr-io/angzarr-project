@@ -135,16 +135,16 @@ message GetDeadLetterResponse {
 
 // Replay semantics.
 //
-//   AS_IS           — preserve the original sequence on the rejected
-//                     command. Likely to fail again with
+//   AS_IS           — replay the rejected command as received, Handling
+//                     included (its expected sequence, if any, is kept). Likely to fail again with
 //                     FAILED_PRECONDITION when state has moved on;
 //                     useful as a diagnostic "reproduce the failure"
 //                     mode.
-//   FRESH_SEQUENCE  — fetch the aggregate's current next_sequence
-//                     via EventQueryService and rewrite the command's
-//                     CommandPage.expect.sequence before publishing. Best
-//                     chance of success but the payload may still
-//                     depend on stale state (operator's judgment).
+//   FRESH_SEQUENCE  — clear the command's handling.expected_sequence
+//                     before publishing, so the coordinator stamps the
+//                     current head. Best chance of success but the
+//                     payload may still depend on stale state
+//                     (operator's judgment).
 enum ReplayMode {
   REPLAY_MODE_UNSPECIFIED = 0;
   REPLAY_MODE_AS_IS = 1;

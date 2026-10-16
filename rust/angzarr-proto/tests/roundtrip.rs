@@ -1,7 +1,7 @@
 use angzarr_proto::v1::{
     command, command_page, event_meta, Causation, Command, CommandBook, CommandPage, Cover,
-    DeliveryOutcome, EventMeta, EventPage, EventRef, Expectation, Fact, FactOrigin, MergeStrategy,
-    Provenance, RequestOrigin, ResponseMeta, UpcastRequest, Uuid,
+    DeliveryOutcome, EventMeta, EventPage, EventRef, Fact, FactOrigin, Handling, MergeStrategy,
+    Outcome, Projection, Provenance, RequestOrigin, SyncMode, UpcastRequest, Uuid,
 };
 use prost::{Message, Name};
 
@@ -89,7 +89,7 @@ fn event_origins() -> [event_meta::Origin; 3] {
     ]
 }
 
-fn book(body: command_page::Body, expect: Option<Expectation>) -> CommandBook {
+fn book(body: command_page::Body, handling: Option<Handling>) -> CommandBook {
     CommandBook {
         cover: Some(Cover {
             domain: "draws".into(),
@@ -97,10 +97,10 @@ fn book(body: command_page::Body, expect: Option<Expectation>) -> CommandBook {
             edition: String::new(), // main timeline
         }),
         page: Some(CommandPage {
-            expect,
             provenance: Some(provenance()),
             body: Some(body),
         }),
+        handling,
     }
 }
 
@@ -118,10 +118,11 @@ fn fact_body() -> command_page::Body {
     })
 }
 
-fn expect() -> Option<Expectation> {
-    Some(Expectation {
-        sequence: u64::from(u32::MAX) + 1,
-        strategy: MergeStrategy::MergeAggregateHandles as i32,
+fn handling() -> Option<Handling> {
+    Some(Handling {
+        expected_sequence: Some(u64::from(u32::MAX) + 1),
+        merge: MergeStrategy::MergeAggregateHandles as i32,
+        sync: SyncMode::Decision as i32,
     })
 }
 
@@ -140,7 +141,7 @@ fn round_trip<M: Message + Default>(m: &M) -> M {
 #[test]
 fn command_page_round_trips_for_every_body_arm() {
     for body in bodies() {
-        let original = book(body.clone(), expect());
+        let original = book(body.clone(), handling());
         let decoded = round_trip(&original);
         assert_eq!(decoded, original);
         let page = decoded.page.expect("single page");
@@ -181,22 +182,47 @@ fn command_arm_carries_its_causation() {
 }
 
 #[test]
-fn absent_expectation_is_distinct_from_zero() {
+fn absent_expected_sequence_is_distinct_from_zero() {
     let body = bodies()[0].clone();
-    let absent = round_trip(&book(body.clone(), None));
-    assert_eq!(absent.page.unwrap().expect, None);
+    let absent = round_trip(&book(body.clone(), Some(Handling::default())));
+    assert_eq!(absent.handling.unwrap().expected_sequence, None);
 
-    let zero = Some(Expectation::default());
+    let zero = Some(Handling {
+        expected_sequence: Some(0),
+        ..Handling::default()
+    });
     let decoded = round_trip(&book(body, zero));
-    assert_eq!(decoded.page.unwrap().expect, zero);
+    assert_eq!(decoded.handling, zero);
+    assert_eq!(decoded.handling.unwrap().expected_sequence, Some(0));
 }
 
 #[test]
-fn expectation_round_trips_sequence_and_strategy() {
-    let decoded = round_trip(&book(bodies()[0].clone(), expect()));
-    let e = decoded.page.unwrap().expect.expect("expectation");
-    assert_eq!(e.sequence, u64::from(u32::MAX) + 1);
-    assert_eq!(e.strategy(), MergeStrategy::MergeAggregateHandles);
+fn handling_rides_the_command_book_not_the_page() {
+    let decoded = round_trip(&book(bodies()[0].clone(), handling()));
+    let h = decoded.handling.expect("handling");
+    assert_eq!(h.expected_sequence, Some(u64::from(u32::MAX) + 1));
+    assert_eq!(h.merge(), MergeStrategy::MergeAggregateHandles);
+    assert_eq!(h.sync(), SyncMode::Decision);
+
+    // The page is provenance + body only: encoding it with and without the
+    // book's handling yields the same page bytes.
+    let with = book(bodies()[0].clone(), handling());
+    let without = book(bodies()[0].clone(), None);
+    assert_eq!(
+        with.page.unwrap().encode_to_vec(),
+        without.page.unwrap().encode_to_vec()
+    );
+}
+
+#[test]
+fn unset_handling_reads_as_unspecified_defaults() {
+    // Unspecified merge/sync mean "use configuration", not STRICT/ASYNC.
+    let h = round_trip(&book(bodies()[0].clone(), None))
+        .handling
+        .unwrap_or_default();
+    assert_eq!(h.expected_sequence, None);
+    assert_eq!(h.merge(), MergeStrategy::MergeUnspecified);
+    assert_eq!(h.sync(), SyncMode::Unspecified);
 }
 
 #[test]
@@ -246,17 +272,29 @@ fn event_meta_is_field_8_and_appended_after_the_page_body() {
 }
 
 #[test]
-fn response_meta_round_trips_each_outcome() {
-    for outcome in [
+fn outcome_round_trips_each_delivery_with_projections() {
+    let projection = Projection {
+        cover: Some(Cover {
+            domain: "draws".into(),
+            root: Some(uuid(0xcd)),
+            edition: String::new(),
+        }),
+        projector: "draw-history".into(),
+        sequence: u64::from(u32::MAX) + 2,
+        projection: Some(any("/draws.v1.DrawHistory", &[4])),
+    };
+    for delivery in [
         DeliveryOutcome::Unspecified,
         DeliveryOutcome::Applied,
         DeliveryOutcome::Duplicate,
     ] {
-        let original = ResponseMeta {
-            outcome: outcome as i32,
+        let original = Outcome {
+            delivery: delivery as i32,
+            projections: vec![projection.clone()],
         };
         let decoded = round_trip(&original);
-        assert_eq!(decoded.outcome(), outcome);
+        assert_eq!(decoded.delivery(), delivery);
+        assert_eq!(decoded.projections, vec![projection.clone()]);
     }
     assert_eq!(
         DeliveryOutcome::Duplicate.as_str_name(),
@@ -270,7 +308,7 @@ fn type_names_are_io_angzarr_v1() {
     assert_eq!(EventMeta::full_name(), "io.angzarr.v1.EventMeta");
     assert_eq!(EventRef::full_name(), "io.angzarr.v1.EventRef");
     assert_eq!(Provenance::full_name(), "io.angzarr.v1.Provenance");
-    assert_eq!(Expectation::full_name(), "io.angzarr.v1.Expectation");
+    assert_eq!(Handling::full_name(), "io.angzarr.v1.Handling");
     assert_eq!(CommandPage::full_name(), "io.angzarr.v1.CommandPage");
     assert_eq!(Command::full_name(), "io.angzarr.v1.Command");
     assert_eq!(Fact::full_name(), "io.angzarr.v1.Fact");
@@ -278,7 +316,7 @@ fn type_names_are_io_angzarr_v1() {
     assert_eq!(RequestOrigin::full_name(), "io.angzarr.v1.RequestOrigin");
     assert_eq!(Causation::full_name(), "io.angzarr.v1.Causation");
     assert_eq!(FactOrigin::full_name(), "io.angzarr.v1.FactOrigin");
-    assert_eq!(ResponseMeta::full_name(), "io.angzarr.v1.ResponseMeta");
+    assert_eq!(Outcome::full_name(), "io.angzarr.v1.Outcome");
     assert_eq!(UpcastRequest::full_name(), "io.angzarr.v1.UpcastRequest");
     // angzarr's TYPE_URL_PREFIX is "/" (see types.proto), which is prost's
     // default when no type-name domain is configured.
