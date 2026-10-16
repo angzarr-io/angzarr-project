@@ -78,7 +78,7 @@ message Edition {
 // Used when creating historical branches or coordinating saga writes across domains.
 message DomainDivergence {
   string domain = 1; // Domain name
-  uint32 sequence = 2; // Divergence sequence number
+  uint64 sequence = 2; // Divergence sequence number
 }
 // endregion
 
@@ -224,9 +224,13 @@ message PayloadReference {
 // region page_header
 // Shared header for CommandPage and EventPage.
 // Encodes sequence type and provenance for framework processing.
+//
+// Sequences are uint64 wherever they appear (page headers, snapshots,
+// next_sequence, divergence points, query ranges, DLQ details): a stream's
+// sequence space is not bounded at 2^32.
 message PageHeader {
   oneof sequence_type {
-    uint32 sequence = 1; // Explicit sequence: client commands and persisted events
+    uint64 sequence = 1; // Explicit sequence: client commands and persisted events
     ExternalDeferredSequence external_deferred = 2; // External fact (Stripe, FedEx, etc.)
     AngzarrDeferredSequence angzarr_deferred = 3; // Saga-produced command/fact
   }
@@ -284,7 +288,7 @@ message ExternalDeferredSequence {
 // never be dropped as a duplicate of that command.
 message AngzarrDeferredSequence {
   Cover source = 1; // Full source aggregate (domain + root + edition) - rejection routes here
-  uint32 source_seq = 2; // Sequence of the triggering event
+  uint64 source_seq = 2; // Sequence of the triggering event
   // Registered name of the producing component (saga/PM). Coordinator-stamped;
   // emitters leave it empty.
   string source_component = 3;
@@ -311,6 +315,71 @@ message EventPage {
 
   reserved 6, 7;
   reserved "no_commit", "cascade_id";
+  EventMeta meta = 8; // Audit provenance: who, when recorded, why (see EventMeta)
+}
+// endregion
+
+// region event_ref
+// Identifies one event: the page at `sequence` in the stream
+// (domain, edition, root). This is an event's identity — no separate event
+// id is minted — and is how one event names another (EventMeta.cause,
+// CommandMeta.cause).
+message EventRef {
+  string domain = 1; // Domain of the stream holding the event
+  // Edition name of the stream. The main timeline is canonically "angzarr";
+  // readers treat "", "angzarr" and unset as the same timeline (see Edition).
+  string edition = 2;
+  UUID root = 3; // Aggregate root of the stream
+  uint64 sequence = 4; // The event's PageHeader.sequence within that stream
+}
+// endregion
+
+// region event_meta
+// Audit provenance of one persisted event. Every field is optional on the
+// wire: a writer that does not record provenance leaves `meta` unset, and an
+// unset field means "not recorded", never a meaningful empty value.
+//
+// The event's own identity is the EventRef of its page (its stream plus
+// PageHeader.sequence); EventMeta does not repeat it.
+message EventMeta {
+  // When the event was durably recorded, stamped by the server that persisted
+  // it. Distinct from EventPage.created_at, which is business time and may be
+  // supplied by the emitter (e.g. an external fact's original occurrence).
+  google.protobuf.Timestamp recorded_at = 1;
+  // Who caused the event. Opaque and pseudonymous: an identifier whose mapping
+  // to a real person lives outside the event store, so erasing the mapping
+  // anonymises the history without rewriting any event. Never an email,
+  // name or other direct identifier.
+  string actor = 2;
+  // Identifier of the inbound request (e.g. one API call) whose command
+  // produced the event. With command_index it locates the producing command.
+  string request_id = 3;
+  // Position, within the request, of the command that produced the event.
+  uint32 command_index = 4;
+  // Workflow correlation in effect when the event was recorded. Opaque. Same
+  // meaning as Cover.correlation_id, recorded per page so it survives an
+  // event being re-booked under a different cover.
+  string correlation_id = 5;
+  // The event that caused this one, when it was produced in reaction to
+  // another event (a saga, process manager or policy reacting to `cause`).
+  // Unset for events produced directly by an external command.
+  EventRef cause = 6;
+  // Version of the business rules (handler code / configuration) that decided
+  // the event. Opaque to the framework; used to explain a historical decision.
+  string rules_version = 7;
+}
+// endregion
+
+// region command_meta
+// Audit provenance carried by a command, from which the resulting events'
+// EventMeta is stamped. Same field meanings as EventMeta; unset fields mean
+// "not supplied".
+message CommandMeta {
+  string actor = 1; // Opaque, pseudonymous identity of who issued the command (see EventMeta.actor)
+  string request_id = 2; // Inbound request the command belongs to
+  uint32 command_index = 3; // Position of the command within that request
+  string correlation_id = 4; // Workflow correlation; opaque (see EventMeta.correlation_id)
+  EventRef cause = 5; // Event this command reacts to; unset for externally issued commands
 }
 // endregion
 
@@ -320,7 +389,7 @@ message EventPage {
 message Snapshot {
   // Field 1 removed pre-v0.1.0; original name not recorded.
   reserved 1;
-  uint32 sequence = 2;
+  uint64 sequence = 2;
   google.protobuf.Any state = 3;
   SnapshotRetention retention = 4; // Controls cleanup behavior
   // Wall-clock timestamp the snapshot was persisted. A TemporalQuery
@@ -340,7 +409,7 @@ message EventBook {
   // Field 5 removed: snapshot_state unified into snapshot field
   reserved 4, 5;
   reserved "correlation_id", "snapshot_state";
-  uint32 next_sequence = 6; // Computed on load, never stored: (last page seq OR snapshot seq if no pages) + 1
+  uint64 next_sequence = 6; // Computed on load, never stored: (last page seq OR snapshot seq if no pages) + 1
 }
 // endregion
 
@@ -364,7 +433,7 @@ message EventRequest {
 message Projection {
   Cover cover = 1;
   string projector = 2;
-  uint32 sequence = 3;
+  uint64 sequence = 3;
   google.protobuf.Any projection = 4;
 }
 
@@ -375,6 +444,7 @@ message CommandPage {
     google.protobuf.Any command = 3;
     PayloadReference external = 4; // Claim check: payload stored externally
   }
+  CommandMeta meta = 5; // Audit provenance stamped onto the events this command produces
 }
 
 message CommandBook {
@@ -412,12 +482,12 @@ message ContextualCommandRequest {
 
 // Query types
 message SequenceRange {
-  uint32 lower = 1;
-  optional uint32 upper = 2; // If not set, query to latest
+  uint64 lower = 1;
+  optional uint64 upper = 2; // If not set, query to latest
 }
 
 message SequenceSet {
-  repeated uint32 values = 1;
+  repeated uint64 values = 1;
 }
 
 // Temporal query: retrieve aggregate state at a point in history.
@@ -435,7 +505,7 @@ message SequenceSet {
 message TemporalQuery {
   oneof point_in_time {
     google.protobuf.Timestamp as_of_time = 1; // Events with created_at <= this
-    uint32 as_of_sequence = 2; // Events with sequence <= this
+    uint64 as_of_sequence = 2; // Events with sequence <= this
   }
 }
 
@@ -577,7 +647,7 @@ message RejectionNotification {
 message Compensate {
   reserved 1;
   reserved "target";
-  repeated uint32 sequences = 2;  // Sequences of the events the command produced
+  repeated uint64 sequences = 2;  // Sequences of the events the command produced
   string reason = 3;              // Why compensation is needed (the failure that aborted the request)
   string command_type = 4;        // Fully-qualified type of the executed command being undone
 }
@@ -591,8 +661,8 @@ message Compensate {
 // Sequence mismatch details for DLQ entries.
 // Contains expected vs actual sequence for debugging and replay.
 message SequenceMismatchDetails {
-  uint32 expected_sequence = 1; // What the command expected
-  uint32 actual_sequence = 2; // What the aggregate was at
+  uint64 expected_sequence = 1; // What the command expected
+  uint64 actual_sequence = 2; // What the aggregate was at
   MergeStrategy merge_strategy = 3; // Strategy that triggered DLQ routing
 }
 

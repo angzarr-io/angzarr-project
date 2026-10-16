@@ -68,7 +68,7 @@ message SagaResponse {
 // System event when compensation fails/requested
 message SagaCompensationFailed {
   Cover triggering_aggregate = 1;
-  uint32 triggering_event_sequence = 2;
+  uint64 triggering_event_sequence = 2;
   reserved 3;
   reserved "saga_name";
   string rejection_reason = 4;

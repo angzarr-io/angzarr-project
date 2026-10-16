@@ -1,0 +1,44 @@
+//! Generates the domain-neutral `io.angzarr.v1` types from this repo's
+//! canonical protos (lifted from angzarr-router's `crates/router/build.rs`).
+//!
+//! Only `types.proto` (with `sererr/v1/sererr.proto`, which it imports) and
+//! `upcaster.proto` are compiled. prost-build emits messages only: the
+//! `UpcasterService` in upcaster.proto is skipped because no service generator
+//! is configured. Nothing here pulls in `google.api`.
+//!
+//! Requires `protoc` on PATH (or `PROTOC` set): prost-build 0.14 does not
+//! bundle it.
+
+use std::path::PathBuf;
+
+/// Resolves the proto root: env override first, then this repo's `proto/`.
+fn proto_root() -> PathBuf {
+    if let Ok(root) = std::env::var("ANGZARR_PROJECT_PROTO") {
+        return PathBuf::from(root);
+    }
+    let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let repo_proto = manifest.join("../../proto");
+    if repo_proto.join("io/angzarr/v1/types.proto").exists() {
+        return repo_proto;
+    }
+    panic!("angzarr protos not found at ../../proto; set ANGZARR_PROJECT_PROTO");
+}
+
+fn main() {
+    let root = proto_root();
+    let files = [
+        root.join("io/angzarr/v1/types.proto"),
+        root.join("io/angzarr/v1/upcaster.proto"),
+        root.join("sererr/v1/sererr.proto"),
+    ];
+    println!("cargo:rerun-if-env-changed=ANGZARR_PROJECT_PROTO");
+    println!("cargo:rerun-if-env-changed=PROTOC");
+    for f in &files {
+        println!("cargo:rerun-if-changed={}", f.display());
+    }
+
+    prost_build::Config::new()
+        .enable_type_names()
+        .compile_protos(&files, &[root])
+        .expect("prost: compile angzarr domain-neutral protos");
+}
