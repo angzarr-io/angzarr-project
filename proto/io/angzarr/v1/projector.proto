@@ -24,8 +24,11 @@ service ProjectorService {
 
 // ProjectorCoordinatorService: orchestrates projection processing
 service ProjectorCoordinatorService {
-  // Sync processing - returns projection based on sync_mode
-  rpc HandleSync(EventRequest) returns (Projection) {
+  // Synchronous processing: project the events and return the projection.
+  // "Sync" is in the name; the request is the EventBook itself, with no
+  // mode wrapper. The command coordinator's HandleSync (SIMPLE) calls this
+  // for each synchronous projector.
+  rpc HandleSync(EventBook) returns (Projection) {
     option (google.api.http) = {
       post: "/v1/projector/sync"
       body: "*"

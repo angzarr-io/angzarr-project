@@ -135,6 +135,14 @@ message GetDeadLetterResponse {
 
 // Replay semantics.
 //
+// Delivery. A replay is published to the command bus and processed as an
+// ASYNC command (the coordinator's HandleAsync): the call returns once the
+// command is enqueued, not when it is decided. There is no hardcoded or
+// per-replay sync mode. A replayed command that fails again is retried or
+// dead-lettered like any asynchronous command; follow its new_correlation_id
+// (ReplayDeadLetterOk) for the outcome. A replayed reaction command carries
+// no Handling (FRESH_SEQUENCE has nothing to clear).
+//
 //   AS_IS           — replay the rejected command as received, Handling
 //                     included (its expected sequence, if any, is kept). Likely to fail again with
 //                     FAILED_PRECONDITION when state has moved on;

@@ -1,6 +1,8 @@
 // DOC: This file is referenced in docs/docs/reference/patterns.mdx
-//      Update documentation when making changes to MergeStrategy, SyncMode,
-//      Handling, Cover (editions), Snapshot, or the CommandPage body.
+//      Update documentation when making changes to MergeStrategy, Handling,
+//      Cover (editions), Snapshot, or the CommandPage body. The command
+//      handling modes (DECISION, ASYNC, SIMPLE) are RPCs, documented in
+//      command_handler.proto.
 
 syntax = "proto3";
 package io.angzarr.v1;
@@ -36,7 +38,7 @@ message UUID {
 // Stream identity, and nothing else: one stream is (domain, edition, root).
 // Everything that varies per write or per page (correlation, actor, origin)
 // lives on the page and its meta (CommandPage, EventMeta), and how a command
-// is handled (expected sequence, merge, sync) lives on CommandBook.handling;
+// is handled (expected sequence, merge) lives on CommandBook.handling;
 // never on the Cover. Parent/child relationships between aggregates are
 // carried in domain event payloads, not in the Cover.
 message Cover {
@@ -72,38 +74,6 @@ message Cover {
   // as long as its TTL, a database persists. DeleteEditionEvents (meta.proto)
   // discards a non-main edition explicitly.
   string edition = 4;
-}
-// endregion
-
-// region sync_mode
-// How much of a command's processing the caller waits for. Carried by
-// Handling.sync; caller-scoped (see Handling).
-//
-// SYNC_MODE_UNSPECIFIED (the zero value) means "not specified": the
-// configured default applies (see Handling), and ASYNC when configuration
-// sets none. After the coordinator resolves Handling, sync is never
-// UNSPECIFIED.
-//
-// Impact ordering (lowest to highest):
-//   ASYNC < DECISION < SIMPLE
-//
-// No mode waits for reactions. Sagas and process managers always run
-// asynchronously, after the command's events are persisted; the commands they
-// emit are separate commands with their own outcomes. Every mode publishes
-// the persisted events downstream: there is no mode that writes silently, so
-// replay, migration and recovery tooling either lets reactions run or
-// rebuilds projections afterwards.
-//
-// DECISION is the standard synchronous accept/reject: the aggregate's accept
-// path (events persisted + returned) and reject path (CommandRejectedError)
-// are both observable; projectors and reactions run asynchronously.
-// SIMPLE additionally waits for synchronous projectors and returns their
-// results.
-enum SyncMode {
-  SYNC_MODE_UNSPECIFIED = 0; // Not specified: the configured default applies (ASYNC if none)
-  SYNC_MODE_ASYNC = 1; // Async: fire and forget (default)
-  SYNC_MODE_SIMPLE = 2; // Sync accept/reject plus sync projectors; reactions run async
-  SYNC_MODE_DECISION = 4; // Sync aggregate accept/reject only; projectors + reactions run async
 }
 // endregion
 
@@ -337,13 +307,6 @@ message EventBook {
 }
 // endregion
 
-// Request wrapper for event delivery (e.g. synchronous projection).
-// Adds execution metadata (sync_mode) to EventBook.
-message EventRequest {
-  EventBook events = 1;
-  SyncMode sync_mode = 2;
-}
-
 message Projection {
   Cover cover = 1;
   string projector = 2;
@@ -357,37 +320,48 @@ message Projection {
 // command was handled), and identity, business data and provenance never
 // live here.
 //
+// How much of the processing the caller waits for is NOT handling: it is a
+// call-level choice, made by which coordinator RPC the caller uses (Handle,
+// HandleAsync or HandleSync; see the command_modes region in
+// command_handler.proto).
+//
 // As sent, then resolved. Before the coordinator, Handling holds what the
 // sender asked for, and any field may be unset. Before business code runs,
 // the coordinator resolves it in place: it stamps expected_sequence when
-// absent, and fills merge and sync from configuration when unspecified.
-// From then on (ContextualCommand, business code) every field is concrete.
-// A dead letter stores the book as received, with Handling as sent (see
+// absent, and fills merge from configuration when unspecified. From then on
+// (ContextualCommand, business code) every field is concrete. A dead letter
+// stores the book as received, with Handling as sent (see
 // AngzarrDeadLetter).
 //
-// Defaults come from configuration. Merge strategy and sync mode are
-// configured per command type and per component (the aggregate, saga or
-// process manager). Precedence, highest first:
+// Defaults come from configuration. The merge strategy is configured per
+// command type and per component (the aggregate, saga or process manager).
+// Precedence, highest first:
 //   1. Handling, when the field is set and configuration allows the override
 //   2. configuration for the command type (its payload's type URL)
 //   3. configuration for the component
-//   4. the built-in default: STRICT, ASYNC
-// Configuration may forbid overriding a field for a command type or
-// component. A command that sets a forbidden field is refused as malformed
-// (INVALID_ARGUMENT) before deduplication or business code; it is never
-// silently ignored.
+//   4. the built-in default: STRICT
 //
-// Reaction commands (emitted by sagas and process managers) leave Handling
-// unset. A reactor never knows the destination's state, so the destination
-// always stamps expected_sequence, and the reaction's delivery mode comes
-// from the component's configuration. A reaction command that sets
-// expected_sequence or sync is a reactor bug: the coordinator refuses it as
-// malformed (INVALID_ARGUMENT) and never delivers it. merge has no effect
-// on a stamped command.
+// Violations are refused loudly, never silently ignored. Each of these is
+// malformed, refused before deduplication or business code:
+//   - a field that configuration forbids overriding for the command type or
+//     component;
+//   - expected_sequence on a Fact (see below);
+//   - any Handling on a reaction command (see below).
+// A client's malformed command is answered INVALID_ARGUMENT, by every
+// coordinator RPC (HandleAsync included: it validates before enqueueing).
+// A reaction command has no caller to answer, so it is dead-lettered as a
+// reactor bug (and alerted), never delivered.
+//
+// Reaction commands (emitted by sagas and process managers) carry NO
+// Handling at all: expected_sequence and merge are both forbidden. A reactor
+// never knows the destination's state, so the destination always stamps
+// expected_sequence, and with a stamped sequence merge can never apply. How
+// a reaction command is delivered comes from the emitting component's
+// configuration. An empty Handling (no field set) is the same as none.
 //
 // Facts (CommandPage.body = Fact) cannot be refused, so no sequence check
-// applies: a Fact that sets expected_sequence is malformed (INVALID_ARGUMENT),
-// refused before deduplication or ingest. The coordinator stamps it.
+// applies: a Fact that sets expected_sequence is malformed and refused as
+// above. The coordinator always stamps a Fact.
 message Handling {
   // The stream state the command was issued against: the expected
   // next_sequence of the target stream.
@@ -406,10 +380,6 @@ message Handling {
   // Conflict strategy on a stale expected_sequence (see MergeStrategy).
   // Unspecified: the configured default.
   MergeStrategy merge = 2;
-  // How much of the command's processing the caller waits for (see
-  // SyncMode). Caller-scoped: it governs this request's response only.
-  // Unspecified: the configured default.
-  SyncMode sync = 3;
 }
 // endregion
 
@@ -446,7 +416,8 @@ message Command {
 }
 
 // A fact: something that already happened outside the system (a webhook,
-// an integration), delivered through HandleCommand like any command.
+// an integration), delivered through the command coordinator like any
+// command (Handle, HandleAsync or HandleSync).
 //
 // Fact handlers are infallible: they record the fact (possibly together
 // with events that flag it, e.g. a payment received for an unknown order)
@@ -454,6 +425,11 @@ message Command {
 // rejection: the command is dead-lettered and alerted, never answered as a
 // rejection. The framework deduplicates on source.external_id before the
 // handler runs.
+//
+// A Fact is never checked against a sequence: the coordinator always stamps
+// the head. A book whose Fact sets handling.expected_sequence is malformed
+// and refused loudly (INVALID_ARGUMENT), before deduplication or ingest;
+// it is never silently stamped over (see Handling).
 message Fact {
   google.protobuf.Any payload = 1; // The fact; its type URL picks the ingest handler
   FactOrigin source = 2; // Where it came from; carries the idempotency key
@@ -464,8 +440,8 @@ message Fact {
 // Exactly one command addressed to one stream, with how it is to be
 // handled. Commands are not batched: a CommandBook holds a single page.
 // (EventBooks, by contrast, group the pages of one stream under a shared
-// Cover.) CommandBook is the request itself: HandleCommand takes it
-// directly, with no request wrapper.
+// Cover.) CommandBook is the request itself: the coordinator's Handle,
+// HandleAsync and HandleSync take it directly, with no request wrapper.
 message CommandBook {
   Cover cover = 1; // The target stream (domain, edition, root)
   CommandPage page = 3;
@@ -482,8 +458,8 @@ message CommandBook {
 // result is CommandResponse.events.
 message Outcome {
   DeliveryOutcome delivery = 1;
-  // Synchronous projector results. Produced only because the resolved
-  // Handling.sync was SIMPLE; empty for every other mode. (Projectors
+  // Synchronous projector results. Produced only by the coordinator's
+  // HandleSync (SIMPLE); empty for Handle (DECISION). (Projectors
   // persist their own read models; these are copies returned to the caller.)
   repeated Projection projections = 2;
 }
@@ -503,7 +479,7 @@ message ContextualCommand {
   // snapshot plus pages up to the head) and the command, whose handling is
   // always resolved by the time it arrives here (see Handling):
   // expected_sequence provided by the caller or stamped by the coordinator
-  // (always stamped for a Fact), and merge and sync concrete. Under
+  // (always stamped for a Fact), and merge concrete. Under
   // AGGREGATE_HANDLES the pages from handling.expected_sequence to the head
   // are the conflict window decide resolves.
   EventBook events = 1;

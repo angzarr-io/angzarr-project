@@ -2,7 +2,7 @@
 
 ## Status
 
-Open. Records what the three `feat/audit-meta` proto passes leave for angzarr's
+Open. Records what the four `feat/audit-meta` proto passes leave for angzarr's
 code, the known gaps the audit surfaced, and the questions still to decide.
 The protos under `proto/io/angzarr/` and the `rust/angzarr-proto` crate are
 the only things these passes changed. Nothing listed here is done.
@@ -14,7 +14,7 @@ the only things these passes changed. Nothing listed here is done.
   removed; PayloadReference made transport-only; the DRY refactor (`Cover`,
   `EventRef`, `Provenance`, `Expectation`); the `Command`/`Fact` body oneof;
   `ResponseMeta`.
-- Pass 3 (this change): handling separated from identity, business data
+- Pass 3 (9ded171): handling separated from identity, business data
   and provenance. `Handling { optional expected_sequence; merge; sync }`
   lives on `CommandBook` (field 6) and is never persisted; `Expectation`,
   `CommandRequest`, `ContextualCommandRequest`, `SagaHandleRequest`,
@@ -22,6 +22,15 @@ the only things these passes changed. Nothing listed here is done.
   `CommandResponse` is `{ events, Outcome outcome }`, with
   `Outcome { delivery; projections }`. `CommandPage` is provenance + body
   only.
+- Pass 4 (this change): sync is a call-level choice, not handling.
+  `Handling.sync` (field 3) and the `SyncMode` enum are deleted; `Handling`
+  is `{ optional expected_sequence = 1; merge = 2 }`. The command
+  coordinator has one RPC per mode: `Handle` (DECISION), `HandleAsync`
+  (ASYNC, returns `google.protobuf.Empty`) and `HandleSync` (SIMPLE;
+  projector results in `Outcome.projections`), replacing `HandleCommand`.
+  `EventRequest` is deleted: the projector coordinator's `HandleSync` takes
+  `EventBook`. Reaction commands carry no `Handling` at all, and violations
+  are refused loudly.
 
 Wire breaks are accepted pre-freeze: removed fields and messages are deleted
 outright, with no `reserved` statements.
@@ -99,28 +108,27 @@ From pass 2:
   (event, component, index), facts on `external_id` per target stream. Return
   `Outcome.delivery` (`APPLIED`/`DUPLICATE`), and never persist it.
 - Refuse a `Fact` that sets `handling.expected_sequence` as
-  `INVALID_ARGUMENT` (a pass-2 judgement, see open questions). Dead-letter a
+  `INVALID_ARGUMENT` (confirmed in pass 4). Dead-letter a
   failing fact handler and alert on it.
 
 From pass 3:
 
-- `HandleCommand` takes `CommandBook` directly (HTTP:
-  `POST /v1/ch/{cover.domain}/commands`). `SagaService.Handle`,
+- The coordinator takes `CommandBook` directly (pass 4 renamed
+  `HandleCommand` to `Handle`; see below). `SagaService.Handle`,
   `SagaCoordinatorService.Execute` and `ProcessManagerCoordinatorService.Handle`
   take `EventBook` directly. Delete the request wrappers in code.
 - Resolve `CommandBook.handling` in place before business code: stamp
-  `expected_sequence` when absent, and fill `merge` and `sync` from
-  configuration when unspecified. `ContextualCommand` and business code see
+  `expected_sequence` when absent, and fill `merge` from configuration when
+  unspecified (pass 4 removed `sync`). `ContextualCommand` and business code see
   only resolved handling. Never persist it.
-- Configuration for merge strategy and sync mode, per command type and per
-  component. Precedence, highest first: `Handling` (when set and allowed),
-  command-type config, component config, built-in default (STRICT, ASYNC).
+- Configuration for merge strategy, per command type and per component.
+  Precedence, highest first: `Handling` (when set and allowed),
+  command-type config, component config, built-in default (STRICT).
   Config can forbid overriding a field per command type or component; a
   command that sets a forbidden field is refused `INVALID_ARGUMENT`, never
   silently ignored. The config shape still needs designing.
-- Reaction commands (saga, PM) leave `Handling` unset. Refuse one that sets
-  `expected_sequence` or `sync` as a reactor bug (`INVALID_ARGUMENT`, never
-  delivered). Delete the per-command sync floor (`reaction_sync_mode` and
+- Reaction commands (saga, PM) carry no `Handling` (tightened in pass 4,
+  below). Delete the per-command sync floor (`reaction_sync_mode` and
   the `PageHeader.sync_mode` preservation in the saga and PM stamping);
   reaction delivery mode comes from component config.
 - **Core and the router disagree on explicit sequences in reaction
@@ -138,11 +146,50 @@ From pass 3:
 - DLQ: store `rejected_command` as received (handling as sent). Replay
   `AS_IS` keeps it; `FRESH_SEQUENCE` clears `handling.expected_sequence` so
   the coordinator stamps the head (today it re-stamps page headers from a
-  query). Replay must stop hardcoding `SyncMode::Simple` over the stored
-  handling.
-- `EventRequest.sync_mode` (projector `HandleSync`) was not touched by
-  pass 3; it is an event-delivery wrapper, not command handling. Decide
-  whether it stays.
+  query). Replay must stop hardcoding `SyncMode::Simple` (pass 4: replay
+  delivers through `HandleAsync`; see below).
+
+From pass 4:
+
+- Three coordinator RPCs, one per mode, replacing `HandleCommand` and every
+  `sync_mode` read (`sync_policy.rs`, `with_sync_mode`, the aggregate
+  service's `Handling.sync` resolution):
+  - `Handle` (DECISION), `POST /v1/ch/{cover.domain}/commands`: accept or
+    reject synchronously, return the persisted events; projectors and
+    reactions run async.
+  - `HandleAsync` (ASYNC), `POST /v1/ch/{cover.domain}/commands:async`:
+    validate (refusing malformed books `INVALID_ARGUMENT`), enqueue durably,
+    return `Empty`. Deduplication happens when the command is processed. A
+    later business rejection is retried when retryable and otherwise
+    dead-lettered, as for reaction commands.
+  - `HandleSync` (SIMPLE), `POST /v1/ch/{cover.domain}/commands:sync`: as
+    `Handle`, then wait for the synchronous projectors and return their
+    results in `Outcome.projections`.
+  The mode never reaches business code (`ContextualCommand` has no mode).
+- Projector coordinator: `HandleSync(EventBook)`. Delete `EventRequest`
+  (core's `ProjectorCoord::handle_sync` already ignores `sync_mode`, and the
+  aggregate coordinator only ever sent SIMPLE), `EVENT_REQUEST_MISSING_EVENTS`
+  and the fact path's `EventRequest` wrapper.
+- PM outbox delivery mode from configuration: the PM coordinator picks the
+  RPC (`Handle` or `HandleAsync`) from the PM's component config instead of
+  the hardcoded Simple. Saga command delivery likewise follows the saga's
+  config (today `SyncMode::Async` is hardcoded in `handlers/core/saga.rs`
+  and `handlers/core/process_manager.rs`). Reactions never use
+  `HandleSync`: no caller waits for their projections.
+- DLQ replay has no hardcoded mode: it publishes the stored command to the
+  command bus and the bus consumer processes it as `HandleAsync` does. The
+  admin call returns once enqueued (`ReplayDeadLetterOk` carries no
+  decision); the operator follows `new_correlation_id`. Reason: replay
+  already rides the bus, its response has no decision to carry, and a
+  failing replay goes back through the same retry/dead-letter path as any
+  asynchronous command. Revisit if operators need a synchronous verdict
+  (that would be `Handle` and a decision on `ReplayDeadLetterOk`).
+- Refuse violations loudly: a client book that sets a forbidden `Handling`
+  field, or `expected_sequence` on a `Fact`, is `INVALID_ARGUMENT` from all
+  three RPCs. A reaction command (saga or PM output) with any `Handling`
+  field set (`expected_sequence` or `merge`) is a reactor bug: dead-letter
+  and alert it, never deliver it, never strip it silently. An empty
+  `Handling` message counts as unset.
 
 ### angzarr-router
 
@@ -153,8 +200,8 @@ From pass 3:
   envelopes.
 - Pass 3: `angzarr_router_dispatch_saga` takes `EventBook` bytes (not
   `SagaHandleRequest`). Reaction stamping leaves `Handling` unset and
-  refuses a handler-set `expected_sequence` or `sync`; drop the
-  `PageHeader.sync_mode` preservation.
+  refuses (dead-letters) a reaction command with any `Handling` field set,
+  `merge` included; drop the `PageHeader.sync_mode` preservation.
 
 ### Client libraries (go, rust, python, java, csharp, cpp, typescript)
 
@@ -170,6 +217,10 @@ From pass 3:
   fan-out and the speculative client APIs. Regenerate for the new
   `CommandPage` shape (`provenance`, `body`) and `CommandBook.handling`;
   clients send `CommandBook` directly and read `CommandResponse.outcome`.
+- Pass 4: call `Handle`, `HandleAsync` or `HandleSync` instead of
+  `HandleCommand` with a sync mode. A library may expose
+  `handle(book, mode)` as sugar, where the mode selects the RPC and is never
+  sent; `SyncMode` is gone from the generated types.
 - Leftover 2PC in generated Python (pass 1 audit).
 
 ### Examples (examples-*, poker protos)
@@ -187,10 +238,11 @@ From pass 3:
   `page_header` (removed in pass 1). A strict site build fails until
   `reference/patterns.mdx` and its siblings are rewritten. New regions are
   available: `provenance`, `handling`, `outcome` (pass 3 replaced the
-  pass-2 `expectation` and `response_meta` regions). The `sync_mode` and
-  `merge_strategy` regions now say "unspecified means the configured
-  default"; the merge-strategy and sync-mode tables need the config
-  precedence.
+  pass-2 `expectation` and `response_meta` regions). Pass 4 deleted the
+  `sync_mode` region from `types.proto`; the modes table should embed the
+  `command_modes` region of `command_handler.proto`. The `merge_strategy`
+  region says "unspecified means the configured default", and the
+  merge-strategy table needs the config precedence.
 - Feature specs still exercise the removed features: CASCADE (6 files),
   ISOLATED (3), notifications and compensation (4), speculative execution
   (3), `undoes` (2), and others. Rewrite or delete them.
@@ -253,9 +305,23 @@ From pass 3:
 
 - **Merge strategy placement** (resolved in pass 3): both. Configuration
   sets the default per command type and per component, and
-  `CommandBook.handling.merge` overrides it where configuration allows. The
-  same holds for sync mode. See the `Handling` region in `types.proto` for
-  the precedence.
+  `CommandBook.handling.merge` overrides it where configuration allows. See
+  the `Handling` region in `types.proto` for the precedence. (Pass 3 said
+  the same of sync mode; pass 4 made sync a call-level choice instead.)
+- **Sync mode placement** (resolved in pass 4): not handling. It is the
+  caller's choice of coordinator RPC: `Handle` (DECISION), `HandleAsync`
+  (ASYNC), `HandleSync` (SIMPLE). Reaction and PM-outbox delivery follow
+  component configuration.
+- **`EventRequest.sync_mode`** (resolved in pass 4): deleted with
+  `EventRequest`. The projector coordinator's `HandleSync` takes
+  `EventBook`; "sync" is in the name.
+- **Refuse or ignore** (resolved in pass 4): refuse loudly. A forbidden
+  override is `INVALID_ARGUMENT` for clients, never silently ignored.
+- **`merge` on a reaction command** (resolved in pass 4): forbidden. Reaction
+  commands carry no `Handling` at all; any field set is a reactor bug,
+  dead-lettered.
+- **`expected_sequence` on a Fact** (resolved in pass 4): refused
+  `INVALID_ARGUMENT`, not ignored and stamped over.
 
 ## Open questions
 
@@ -277,13 +343,3 @@ From pass 3:
 - **Codegen marker for facts.** On the wire the `Fact` arm marks a fact. Open:
   how codegen knows to emit an infallible ingest handler for a payload type
   (a `CommandOptions` flag, a separate `(fact)` option, or a naming rule).
-- **`expected_sequence` on a Fact.** Pass 2 documented a Fact carrying an
-  expectation as malformed (`INVALID_ARGUMENT`), and pass 3 keeps that for
-  `handling.expected_sequence`. The alternative is to ignore it and stamp
-  the head. Confirm.
-- **Forbidden overrides.** Pass 3 refuses a command that sets a `Handling`
-  field configuration forbids (`INVALID_ARGUMENT`), rather than ignoring
-  it. Confirm.
-- **`merge` on a reaction command.** Pass 3 forbids `expected_sequence` and
-  `sync` on reaction commands but tolerates `merge`, which has no effect on
-  a stamped command. Confirm, or forbid it too.

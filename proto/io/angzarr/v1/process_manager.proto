@@ -83,8 +83,10 @@ message ProcessManagerHandleResponse {
   repeated EventBook process_events = 1;
   // Remote: Commands to issue to other aggregates, delivered through the
   // outbox (see ProcessManagerService) under the PM's configured delivery
-  // mode. Handling stays unset: a command that sets
-  // handling.expected_sequence or handling.sync is a PM bug, refused as
-  // malformed (INVALID_ARGUMENT) and never delivered (see Handling).
+  // mode (which coordinator RPC delivers it); the command never chooses it.
+  // Each carries NO Handling: handling is left unset (or empty). A command
+  // that sets any Handling field (expected_sequence or merge) is a PM bug,
+  // refused loudly: dead-lettered and alerted, never delivered, never
+  // silently stripped (see Handling).
   repeated CommandBook commands = 2;
 }

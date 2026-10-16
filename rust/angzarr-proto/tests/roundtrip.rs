@@ -1,7 +1,7 @@
 use angzarr_proto::v1::{
     command, command_page, event_meta, Causation, Command, CommandBook, CommandPage, Cover,
     DeliveryOutcome, EventMeta, EventPage, EventRef, Fact, FactOrigin, Handling, MergeStrategy,
-    Outcome, Projection, Provenance, RequestOrigin, SyncMode, UpcastRequest, Uuid,
+    Outcome, Projection, Provenance, RequestOrigin, UpcastRequest, Uuid,
 };
 use prost::{Message, Name};
 
@@ -122,7 +122,6 @@ fn handling() -> Option<Handling> {
     Some(Handling {
         expected_sequence: Some(u64::from(u32::MAX) + 1),
         merge: MergeStrategy::MergeAggregateHandles as i32,
-        sync: SyncMode::Decision as i32,
     })
 }
 
@@ -202,7 +201,6 @@ fn handling_rides_the_command_book_not_the_page() {
     let h = decoded.handling.expect("handling");
     assert_eq!(h.expected_sequence, Some(u64::from(u32::MAX) + 1));
     assert_eq!(h.merge(), MergeStrategy::MergeAggregateHandles);
-    assert_eq!(h.sync(), SyncMode::Decision);
 
     // The page is provenance + body only: encoding it with and without the
     // book's handling yields the same page bytes.
@@ -216,13 +214,28 @@ fn handling_rides_the_command_book_not_the_page() {
 
 #[test]
 fn unset_handling_reads_as_unspecified_defaults() {
-    // Unspecified merge/sync mean "use configuration", not STRICT/ASYNC.
+    // Unspecified merge means "use configuration", not STRICT.
     let h = round_trip(&book(bodies()[0].clone(), None))
         .handling
         .unwrap_or_default();
     assert_eq!(h.expected_sequence, None);
     assert_eq!(h.merge(), MergeStrategy::MergeUnspecified);
-    assert_eq!(h.sync(), SyncMode::Unspecified);
+}
+
+#[test]
+fn handling_carries_no_sync_mode() {
+    // Sync is a call-level choice (which coordinator RPC), not handling. A
+    // pre-pass-4 sender's field 3 (sync = DECISION) is not part of Handling:
+    // it decodes to nothing and does not survive re-encoding.
+    let current = Handling {
+        expected_sequence: Some(5),
+        merge: MergeStrategy::MergeStrict as i32,
+    };
+    let mut legacy = current.encode_to_vec();
+    legacy.extend_from_slice(&[0x18, 0x04]); // field 3, varint 4
+    let decoded = Handling::decode(legacy.as_slice()).expect("decode");
+    assert_eq!(decoded, current);
+    assert_eq!(decoded.encode_to_vec(), current.encode_to_vec());
 }
 
 #[test]

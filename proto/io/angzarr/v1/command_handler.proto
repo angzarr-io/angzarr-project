@@ -3,6 +3,7 @@ package io.angzarr.v1;
 
 import "io/angzarr/v1/types.proto";
 import "google/api/annotations.proto";
+import "google/protobuf/empty.proto";
 
 option csharp_namespace = "Angzarr";
 option go_package = "github.com/benjaminabbitt/angzarr/client/go/proto/io/angzarr/v1;angzarr";
@@ -20,8 +21,10 @@ service CommandHandlerService {
   //
   // By the time Handle is called the coordinator has already deduplicated
   // caused commands and facts and resolved the command's Handling: checked
-  // or stamped the expected sequence and applied the configured merge and
-  // sync defaults (see Handling), so decide always sees a concrete sequence.
+  // or stamped the expected sequence and applied the configured merge
+  // default (see Handling), so decide always sees a concrete sequence.
+  // Which coordinator RPC the caller used (the command mode) is not passed
+  // on: business code behaves the same in every mode.
   //
   // Reflective dispatch: the body arm's message type picks the pipeline
   // (Command -> decide, which may reject; Fact -> ingest, which never
@@ -37,31 +40,102 @@ service CommandHandlerService {
   rpc Handle(ContextualCommand) returns (EventBook);
 }
 
-// CommandHandlerCoordinatorService: orchestrates command processing for domain aggregates
+// region command_modes
+// CommandHandlerCoordinatorService: the client-facing entry point for
+// commands and facts into a domain's aggregates. (CommandHandlerService,
+// above, is the business-logic service the coordinator calls.)
+//
+// Command modes. How much of a command's processing the caller waits for is
+// a call-level choice, never part of the command: one RPC per mode.
+//
+//   Handle       DECISION  Accept or reject synchronously; returns the
+//                          persisted events. Projectors and reactions run
+//                          asynchronously.
+//   HandleAsync  ASYNC     Validate, enqueue and return. Nothing about the
+//                          decision comes back.
+//   HandleSync   SIMPLE    As DECISION, and also waits for the synchronous
+//                          projectors; their results come back in
+//                          CommandResponse.outcome.projections.
+//
+// Impact ordering (lowest to highest): ASYNC < DECISION < SIMPLE.
+//
+// No mode waits for reactions. Sagas and process managers always run
+// asynchronously, after the command's events are persisted; the commands
+// they emit are separate commands with their own outcomes. Every mode
+// publishes the persisted events downstream: there is no mode that writes
+// silently, so replay, migration and recovery tooling either lets reactions
+// run or rebuilds projections afterwards.
+//
+// Every mode refuses a malformed command loudly with INVALID_ARGUMENT,
+// never ignoring the offending field: a Handling field that configuration
+// forbids overriding, or expected_sequence on a Fact (see Handling).
+//
+// Reaction commands (saga and process-manager output) and process-manager
+// outbox deliveries are not client calls: the delivering component's
+// configuration chooses their mode, never the message.
+//
+// Client libraries may expose a single handle(book, mode) call as API sugar
+// over these three RPCs; the mode still selects the RPC, and is never sent
+// on the wire.
+//
+// What-if execution is an ordinary command whose cover names an edition
+// (see Cover.edition), in any mode; there is no speculative RPC.
 service CommandHandlerCoordinatorService {
-  // Process one command. The CommandBook is the request: its handling says
-  // how to treat it (expected sequence, merge strategy, sync mode), with
-  // unspecified fields taken from configuration (see Handling). Facts (external realities) are injected here, in the Fact arm of
-  // CommandPage.body. A caused command or fact whose idempotency key was
-  // already processed (see the origin region in types.proto) is not handed
-  // to business code again; the response carries the events of the first
-  // delivery, with outcome.delivery DUPLICATE.
+  // DECISION. Process one command and answer with its decision. The
+  // CommandBook is the request: its handling says how to treat it (expected
+  // sequence, merge strategy), with unspecified fields taken from
+  // configuration (see Handling). Facts (external realities) are injected
+  // here too, in the Fact arm of CommandPage.body.
   //
-  // What-if execution is an ordinary HandleCommand whose cover names an
-  // edition (see Cover.edition); there is no speculative RPC.
-  rpc HandleCommand(CommandBook) returns (CommandResponse) {
+  // Accepted: the response carries the persisted events, with
+  // outcome.delivery APPLIED. A caused command or fact whose idempotency key
+  // was already processed (see the origin region in types.proto) is not
+  // handed to business code again; the response carries the events of the
+  // first delivery, with outcome.delivery DUPLICATE. outcome.projections is
+  // always empty. Rejected: a gRPC error status (a stale sequence under
+  // STRICT is a retryable FAILED_PRECONDITION).
+  rpc Handle(CommandBook) returns (CommandResponse) {
     option (google.api.http) = {
       post: "/v1/ch/{cover.domain}/commands"
       body: "*"
     };
   }
+  // ASYNC. Validate the command, enqueue it durably and return. The OK
+  // response says only that the command was accepted for processing: no
+  // decision has been made, and deduplication happens when it is processed,
+  // so there are no events and no delivery outcome to report.
+  //
+  // Validation happens before enqueueing: a malformed command (see Handling)
+  // is refused INVALID_ARGUMENT here, never enqueued. A business rejection
+  // happens later, with no caller to answer: like a reaction command's, it
+  // is retried when retryable and otherwise dead-lettered. A caller that
+  // needs the outcome uses Handle, or follows the command's correlation_id
+  // (EventStreamFilter).
+  rpc HandleAsync(CommandBook) returns (google.protobuf.Empty) {
+    option (google.api.http) = {
+      post: "/v1/ch/{cover.domain}/commands:async"
+      body: "*"
+    };
+  }
+  // SIMPLE. As Handle (DECISION), and also waits for the domain's
+  // synchronous projectors to project the persisted events; their results
+  // come back in outcome.projections. The projectors run on the committed
+  // events, so a projector failure never undoes the decision.
+  rpc HandleSync(CommandBook) returns (CommandResponse) {
+    option (google.api.http) = {
+      post: "/v1/ch/{cover.domain}/commands:sync"
+      body: "*"
+    };
+  }
 }
+// endregion
 
 // Response to one command: its business result (the events) and what the
 // system did with it (the outcome).
 message CommandResponse {
   EventBook events = 1; // Events from the target aggregate
-  // Results of handling: delivery outcome and, under SIMPLE, synchronous
-  // projector results. Response-only, never persisted (see Outcome).
+  // Results of handling: delivery outcome and, from HandleSync (SIMPLE),
+  // synchronous projector results. Response-only, never persisted (see
+  // Outcome).
   Outcome outcome = 5;
 }
