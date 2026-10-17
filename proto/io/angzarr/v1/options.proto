@@ -2,6 +2,7 @@ syntax = "proto3";
 package io.angzarr.v1;
 
 import "google/protobuf/descriptor.proto";
+import "io/angzarr/v1/types.proto";
 
 option csharp_namespace = "Angzarr";
 option go_package = "github.com/benjaminabbitt/angzarr/client/go/proto/io/angzarr/v1;angzarr";
@@ -22,15 +23,10 @@ option ruby_package = "Angzarr";
 // the generic framework services and the Any envelope so the coordinator
 // remains domain-blind.
 
-// ComponentKind identifies which dispatch component a message declaration
-// generates.
-enum ComponentKind {
-  COMPONENT_KIND_UNSPECIFIED = 0;
-  COMPONENT_KIND_AGGREGATE = 1;
-  COMPONENT_KIND_SAGA = 2;
-  COMPONENT_KIND_PROCESS_MANAGER = 3;
-  COMPONENT_KIND_PROJECTOR = 4;
-}
+// ComponentKind (which dispatch component a declaration generates) is
+// defined in types.proto, beside the runtime messages that also carry it
+// (ComponentDescriptor, AngzarrDeadLetter). types.proto imports nothing from
+// this file, so there is no cycle.
 
 // Component declaration carried on a message. The annotated message is the
 // component's anchor: for AGGREGATE / PROCESS_MANAGER / PROJECTOR it is the

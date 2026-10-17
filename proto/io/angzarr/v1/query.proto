@@ -13,6 +13,10 @@ option java_package = "io.angzarr";
 option ruby_package = "Angzarr";
 
 // EventQueryService: query interface for retrieving events
+//
+// Editions: a Query or CorrelationQuery naming a non-main edition that was
+// never created (EditionAdminService.CreateEdition, meta.proto) is refused
+// NOT_FOUND.
 service EventQueryService {
   // Get a single EventBook (unary) - use for explicit queries with gRPC tooling
   rpc GetEventBook(Query) returns (EventBook) {
@@ -22,10 +26,23 @@ service EventQueryService {
   rpc GetEvents(Query) returns (stream EventBook) {
     option (google.api.http) = {get: "/v1/query/{cover.domain}/events/stream"};
   }
-  // Bidirectional sync - not exposed via REST (use gRPC directly)
-  rpc Synchronize(stream Query) returns (stream EventBook);
-  // List all aggregate roots (SSE)
-  rpc GetAggregateRoots(google.protobuf.Empty) returns (stream AggregateRoot) {
+  // Every event of one correlation, across all domains: one EventBook per
+  // stream holding that stream's pages with the correlation, in sequence
+  // order (see CorrelationQuery in types.proto, which also says how to
+  // derive forward causation from the result). A Query's correlation
+  // selector stays within one domain; this RPC does not. An empty
+  // correlation_id is INVALID_ARGUMENT; a correlation with no events is an
+  // empty stream, not NOT_FOUND.
+  rpc GetCorrelatedEvents(CorrelationQuery) returns (stream EventBook) {
+    option (google.api.http) = {get: "/v1/query/correlations/{correlation_id}/events"};
+  }
+  // List every stream (SSE): one Cover (domain, edition, root) per stream.
+  rpc GetAggregateRoots(google.protobuf.Empty) returns (stream Cover) {
     option (google.api.http) = {get: "/v1/query/aggregates"};
   }
+  // (Synchronize, a bidirectional stream answering each Query with
+  // GetEventBook's result, was deleted in pass 6. It was not the catch-up
+  // subscription the site describes: it never switched to live events. Use
+  // GetEvents for bulk reads and EventStreamService.Subscribe for live
+  // events.)
 }

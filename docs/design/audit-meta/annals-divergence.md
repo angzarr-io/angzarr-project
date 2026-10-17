@@ -35,6 +35,13 @@ runtimes. This is accepted.
   runtime relies on the value, not only reports it. How it does so is
   annals' own design, in annals' `docs/design/audit.md`. The proto comment on
   `EventMeta.rules_version` points here.
+- **No root-request pointer in angzarr (D2, pass 6).** angzarr records only
+  correlation and causation on a reaction's events: correlation is enough to
+  find the workflow (`GetCorrelatedEvents`), and the request is reachable by
+  walking causation. annals' draft keeps the originating request on every
+  event. That is either a documented annals divergence or annals drops it;
+  annals decides, in its own design. On the wire, `EventMeta.origin` is a
+  single `Origin`, so a reaction's event can carry only its causation there.
 - **Provenance is stamped the same way.** annals stamps `EventMeta` (actor,
   correlation, origin, `base_sequence`, `recorded_at`) as the contract
   requires. Its chains are a different execution model, not a different wire

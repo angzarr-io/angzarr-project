@@ -98,9 +98,9 @@ message ProcessManagerHandleResponse {
   // outbox (see ProcessManagerService) under the PM's configured delivery
   // mode (which coordinator RPC delivers it); the command never chooses it.
   // Each carries NO Handling: handling is left unset (or empty). A command
-  // that sets any Handling field (expected_sequence or merge) is a PM bug,
-  // refused loudly: dead-lettered and alerted, never delivered, never
-  // silently stripped (see Handling). Provenance is left empty for the
+  // that sets any Handling field (expected_sequence or conflict_resolution)
+  // is a PM bug, refused loudly: dead-lettered and alerted, never
+  // delivered, never silently stripped (see Handling). Provenance is left empty for the
   // coordinator to stamp from the trigger (actor and correlation_id); a
   // differing value is refused the same way.
   repeated CommandBook commands = 2;

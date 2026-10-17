@@ -1,7 +1,9 @@
 syntax = "proto3";
 package io.angzarr.v1;
 
-import "io/angzarr/v1/types.proto";
+import "google/api/annotations.proto";
+import "google/protobuf/empty.proto";
+import "google/protobuf/timestamp.proto";
 
 option csharp_namespace = "Angzarr";
 option go_package = "github.com/benjaminabbitt/angzarr/client/go/proto/io/angzarr/v1;angzarr";
@@ -10,15 +12,79 @@ option java_package = "io.angzarr";
 option ruby_package = "Angzarr";
 
 // ============================================================================
-// Meta Domain (_angzarr) - Infrastructure commands/events
+// Administrative operations
 // ============================================================================
+//
+// Administrative operations are not CQRS: they are not domain commands, they
+// write no event to any stream (main or edition), and they are never
+// replayed, projected or reacted to. They change the framework's own
+// records (here, the edition registry) and are authorised as operator
+// actions, taking the operator from the call's credentials.
 
-// Delete all events for an edition+domain combination: the explicit way to
-// discard a non-main edition (e.g. a finished what-if), whatever its storage
-// backend's own lifetime (see Cover.edition in types.proto).
-// Restricted to non-main editions: a request whose edition is "" (the main
-// timeline) is rejected and deletes nothing.
-message DeleteEditionEvents {
-  string edition = 1; // Edition name to delete from
-  string domain = 2; // Domain to delete from
+// region edition_admin
+// EditionAdminService: creates and deletes editions (see Cover.edition in
+// types.proto).
+//
+// Editions need an explicit create. A non-main edition name is usable only
+// after CreateEdition; a command, query or subscription naming a never-created
+// edition is refused loudly (NOT_FOUND), so a misspelt edition can never be
+// given storage. The main timeline "" always exists and can be neither
+// created nor deleted.
+service EditionAdminService {
+  // Create an edition: record its divergence point and its store.
+  //   INVALID_ARGUMENT     name is "" (main always exists), or the
+  //                        divergence point is in the future;
+  //   ALREADY_EXISTS       the edition already exists;
+  //   FAILED_PRECONDITION  store names an edition store that is not
+  //                        configured.
+  rpc CreateEdition(CreateEditionRequest) returns (Edition) {
+    option (google.api.http) = {
+      post: "/v1/admin/editions"
+      body: "*"
+    };
+  }
+  // Delete an edition: its record, and everything stored under it in every
+  // domain (events, snapshots, projector output and idempotency claims),
+  // whatever its store's own lifetime. Main is never touched.
+  //   INVALID_ARGUMENT  name is "" (the main timeline is never deleted);
+  //   NOT_FOUND         the edition was never created (or is already
+  //                     deleted).
+  rpc DeleteEdition(DeleteEditionRequest) returns (google.protobuf.Empty) {
+    option (google.api.http) = {delete: "/v1/admin/editions/{name}"};
+  }
 }
+
+message CreateEditionRequest {
+  string name = 1; // The edition name; never ""
+  // Where the edition branches from main: the edition reads main's events
+  // recorded at or before this time (in every stream, a prefix, since
+  // recorded_at is non-decreasing per stream; see TemporalQuery), and writes
+  // only to itself. Unset: main's head at the moment of the create (the
+  // server's create time).
+  google.protobuf.Timestamp diverge_at = 2;
+  // The edition store to place the edition in: a store name from
+  // configuration. Empty: the configured default edition store.
+  string store = 3;
+}
+
+message DeleteEditionRequest {
+  string name = 1; // The edition name; "" is refused
+}
+
+// An edition's record: everything about an edition that is not wire data.
+// Written by CreateEdition, removed by DeleteEdition; never an event.
+message Edition {
+  string name = 1;
+  // The recorded divergence point (see CreateEditionRequest.diverge_at),
+  // always set: the requested time, or the create time when none was given.
+  google.protobuf.Timestamp diverged_at = 2;
+  // The store the edition lives in: the requested store, or the name of the
+  // default edition store at create time when none was given (so later
+  // changes to the default do not move an existing edition).
+  string store = 3;
+  google.protobuf.Timestamp created_at = 4;
+  // The operator who created it: an opaque pseudonymous actor id (like
+  // Provenance.actor), from the call's credentials.
+  string created_by = 5;
+}
+// endregion

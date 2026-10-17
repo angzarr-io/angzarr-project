@@ -1,8 +1,9 @@
 use angzarr_proto::v1::{
-    command, command_page, event_meta, idempotency_claim, Causation, Command, CommandBook,
-    CommandPage, ComponentDescriptor, Cover, DeliveryOutcome, EventMeta, EventPage, EventRef, Fact,
-    FactOrigin, Handling, IdempotencyClaim, MergeStrategy, Outcome, Projection, ProjectorFailure,
-    Provenance, RequestOrigin, UpcastRequest, Uuid,
+    angzarr_dead_letter, command_page, origin, AngzarrDeadLetter, Causation, Command, CommandBook,
+    CommandPage, ComponentDescriptor, ComponentKind, ConflictResolution, ContextualCommand, Cover,
+    DeliveryOutcome, EventBook, EventMeta, EventPage, EventRef, Fact, FactOrigin, Handling,
+    IdempotencyClaim, Origin, Outcome, Projection, ProjectorFailure, Provenance, RequestOrigin,
+    Snapshot, UpcastRequest, Uuid,
 };
 use prost::{Message, Name};
 
@@ -60,10 +61,10 @@ fn fact_origin() -> FactOrigin {
     }
 }
 
-fn meta(origin: event_meta::Origin) -> EventMeta {
+fn meta(kind: origin::Kind) -> EventMeta {
     EventMeta {
         provenance: Some(provenance()),
-        origin: Some(origin),
+        origin: Some(Origin { kind: Some(kind) }),
         recorded_at: Some(prost_types::Timestamp {
             seconds: 1_700_000_001,
             nanos: 0,
@@ -73,7 +74,7 @@ fn meta(origin: event_meta::Origin) -> EventMeta {
     }
 }
 
-fn page(origin: event_meta::Origin) -> EventPage {
+fn page(origin: origin::Kind) -> EventPage {
     EventPage {
         // Above u32::MAX: the widened sequence survives the wire.
         sequence: u64::from(u32::MAX) + 7,
@@ -82,15 +83,17 @@ fn page(origin: event_meta::Origin) -> EventPage {
     }
 }
 
-fn event_origins() -> [event_meta::Origin; 3] {
+fn origins() -> [origin::Kind; 3] {
     [
-        event_meta::Origin::Request(request()),
-        event_meta::Origin::Causation(causation()),
-        event_meta::Origin::Fact(fact_origin()),
+        origin::Kind::Request(request()),
+        origin::Kind::Causation(causation()),
+        origin::Kind::Fact(fact_origin()),
     ]
 }
 
-fn book(body: command_page::Body, handling: Option<Handling>) -> CommandBook {
+/// A command page: the body arm says what the payload is, the shared Origin
+/// says why it exists.
+fn book(body: command_page::Body, kind: origin::Kind, handling: Option<Handling>) -> CommandBook {
     CommandBook {
         cover: Some(Cover {
             domain: "draws".into(),
@@ -100,38 +103,43 @@ fn book(body: command_page::Body, handling: Option<Handling>) -> CommandBook {
         page: Some(CommandPage {
             provenance: Some(provenance()),
             body: Some(body),
+            origin: Some(Origin { kind: Some(kind) }),
         }),
         handling,
     }
 }
 
-fn command_body(origin: command::Origin) -> command_page::Body {
+fn command_body() -> command_page::Body {
     command_page::Body::Command(Command {
         payload: Some(any("/draws.v1.Draw", &[9])),
-        origin: Some(origin),
     })
 }
 
 fn fact_body() -> command_page::Body {
     command_page::Body::Fact(Fact {
         payload: Some(any("/payments.v1.PaymentReceived", &[7])),
-        source: Some(fact_origin()),
     })
 }
 
 fn handling() -> Option<Handling> {
     Some(Handling {
         expected_sequence: Some(u64::from(u32::MAX) + 1),
-        merge: MergeStrategy::MergeAggregateHandles as i32,
+        conflict_resolution: ConflictResolution::AggregateHandles as i32,
     })
 }
 
-fn bodies() -> [command_page::Body; 3] {
+/// The valid (arm, origin) pairs: a Command with a request or causation
+/// origin, a Fact with a fact origin.
+fn pages() -> [(command_page::Body, origin::Kind); 3] {
     [
-        command_body(command::Origin::Request(request())),
-        command_body(command::Origin::Causation(causation())),
-        fact_body(),
+        (command_body(), origin::Kind::Request(request())),
+        (command_body(), origin::Kind::Causation(causation())),
+        (fact_body(), origin::Kind::Fact(fact_origin())),
     ]
+}
+
+fn request_book(handling: Option<Handling>) -> CommandBook {
+    book(command_body(), origin::Kind::Request(request()), handling)
 }
 
 fn round_trip<M: Message + Default>(m: &M) -> M {
@@ -139,74 +147,95 @@ fn round_trip<M: Message + Default>(m: &M) -> M {
 }
 
 #[test]
-fn command_page_round_trips_for_every_body_arm() {
-    for body in bodies() {
-        let original = book(body.clone(), handling());
+fn command_page_round_trips_every_arm_with_its_origin() {
+    for (body, kind) in pages() {
+        let original = book(body.clone(), kind.clone(), handling());
         let decoded = round_trip(&original);
         assert_eq!(decoded, original);
         let page = decoded.page.expect("single page");
         assert_eq!(page.provenance, Some(provenance()));
         assert_eq!(page.body, Some(body));
+        assert_eq!(page.origin, Some(Origin { kind: Some(kind) }));
     }
 }
 
 #[test]
-fn fact_arm_carries_its_fact_origin() {
-    let decoded = round_trip(&book(fact_body(), None));
-    match decoded.page.unwrap().body {
-        Some(command_page::Body::Fact(f)) => {
-            assert_eq!(f.source.unwrap().external_id, "pi_1234");
+fn fact_origin_rides_the_page_not_the_fact_arm() {
+    let decoded = round_trip(&book(fact_body(), origin::Kind::Fact(fact_origin()), None));
+    let page = decoded.page.unwrap();
+    match (page.body, page.origin.and_then(|o| o.kind)) {
+        (Some(command_page::Body::Fact(f)), Some(origin::Kind::Fact(o))) => {
+            assert_eq!(o.external_id, "pi_1234");
             assert_eq!(f.payload.unwrap().type_url, "/payments.v1.PaymentReceived");
         }
-        other => panic!("expected fact arm, got {other:?}"),
+        other => panic!("expected fact arm with fact origin, got {other:?}"),
     }
 }
 
 #[test]
-fn command_arm_carries_its_causation() {
+fn command_page_origin_carries_its_causation() {
     let decoded = round_trip(&book(
-        command_body(command::Origin::Causation(causation())),
+        command_body(),
+        origin::Kind::Causation(causation()),
         None,
     ));
-    match decoded.page.unwrap().body {
-        Some(command_page::Body::Command(Command {
-            origin: Some(command::Origin::Causation(c)),
-            ..
-        })) => {
+    match decoded.page.unwrap().origin.and_then(|o| o.kind) {
+        Some(origin::Kind::Causation(c)) => {
             assert_eq!(c.component, "list-to-draw");
             assert_eq!(c.index, 2);
             assert_eq!(c.event, Some(cause()));
         }
-        other => panic!("expected command arm with causation, got {other:?}"),
+        other => panic!("expected causation origin, got {other:?}"),
+    }
+}
+
+#[test]
+fn one_origin_message_is_shared_by_page_meta_and_claim() {
+    // The page's origin is copied unchanged onto the event meta and used as
+    // the claim key: one type, byte-identical, no mapping.
+    for (body, kind) in pages() {
+        let page_origin = book(body, kind.clone(), None).page.unwrap().origin.unwrap();
+        let meta_origin = meta(kind.clone()).origin.unwrap();
+        let claim = IdempotencyClaim {
+            key: Some(page_origin.clone()),
+            ..IdempotencyClaim::default()
+        };
+        assert_eq!(page_origin, meta_origin);
+        assert_eq!(
+            round_trip(&claim).key.unwrap().encode_to_vec(),
+            meta_origin.encode_to_vec()
+        );
     }
 }
 
 #[test]
 fn absent_expected_sequence_is_distinct_from_zero() {
-    let body = bodies()[0].clone();
-    let absent = round_trip(&book(body.clone(), Some(Handling::default())));
+    let absent = round_trip(&request_book(Some(Handling::default())));
     assert_eq!(absent.handling.unwrap().expected_sequence, None);
 
     let zero = Some(Handling {
         expected_sequence: Some(0),
         ..Handling::default()
     });
-    let decoded = round_trip(&book(body, zero));
+    let decoded = round_trip(&request_book(zero));
     assert_eq!(decoded.handling, zero);
     assert_eq!(decoded.handling.unwrap().expected_sequence, Some(0));
 }
 
 #[test]
 fn handling_rides_the_command_book_not_the_page() {
-    let decoded = round_trip(&book(bodies()[0].clone(), handling()));
+    let decoded = round_trip(&request_book(handling()));
     let h = decoded.handling.expect("handling");
     assert_eq!(h.expected_sequence, Some(u64::from(u32::MAX) + 1));
-    assert_eq!(h.merge(), MergeStrategy::MergeAggregateHandles);
+    assert_eq!(
+        h.conflict_resolution(),
+        ConflictResolution::AggregateHandles
+    );
 
-    // The page is provenance + body only: encoding it with and without the
-    // book's handling yields the same page bytes.
-    let with = book(bodies()[0].clone(), handling());
-    let without = book(bodies()[0].clone(), None);
+    // The page is provenance + body + origin only: encoding it with and
+    // without the book's handling yields the same page bytes.
+    let with = request_book(handling());
+    let without = request_book(None);
     assert_eq!(
         with.page.unwrap().encode_to_vec(),
         without.page.unwrap().encode_to_vec()
@@ -215,12 +244,95 @@ fn handling_rides_the_command_book_not_the_page() {
 
 #[test]
 fn unset_handling_reads_as_unspecified_defaults() {
-    // Unspecified merge means "use configuration", not STRICT.
-    let h = round_trip(&book(bodies()[0].clone(), None))
-        .handling
-        .unwrap_or_default();
+    // Unspecified conflict resolution means "use configuration", not STRICT.
+    let h = round_trip(&request_book(None)).handling.unwrap_or_default();
     assert_eq!(h.expected_sequence, None);
-    assert_eq!(h.merge(), MergeStrategy::MergeUnspecified);
+    assert_eq!(h.conflict_resolution(), ConflictResolution::Unspecified);
+}
+
+#[test]
+fn conflict_resolution_values_are_lint_conformant_and_keep_their_numbers() {
+    // Renamed from MergeStrategy; the numbers are unchanged, and COMMUTATIVE
+    // is restored (opt-in, resolved in the client library) at its old 1.
+    for (value, number, name) in [
+        (
+            ConflictResolution::Unspecified,
+            0,
+            "CONFLICT_RESOLUTION_UNSPECIFIED",
+        ),
+        (
+            ConflictResolution::Commutative,
+            1,
+            "CONFLICT_RESOLUTION_COMMUTATIVE",
+        ),
+        (ConflictResolution::Strict, 2, "CONFLICT_RESOLUTION_STRICT"),
+        (
+            ConflictResolution::AggregateHandles,
+            3,
+            "CONFLICT_RESOLUTION_AGGREGATE_HANDLES",
+        ),
+    ] {
+        assert_eq!(value as i32, number);
+        assert_eq!(value.as_str_name(), name);
+        assert_eq!(ConflictResolution::from_str_name(name), Some(value));
+        let h = Handling {
+            expected_sequence: Some(4),
+            conflict_resolution: value as i32,
+        };
+        assert_eq!(round_trip(&h).conflict_resolution(), value);
+    }
+}
+
+#[test]
+fn contextual_command_carries_the_conflict_nonce() {
+    let nonce = vec![0x9e; 16];
+    let original = ContextualCommand {
+        events: Some(EventBook {
+            next_sequence: 12,
+            ..EventBook::default()
+        }),
+        command: Some(request_book(handling())),
+        conflict_nonce: nonce.clone(),
+    };
+    let decoded = round_trip(&original);
+    assert_eq!(decoded, original);
+    assert_eq!(decoded.conflict_nonce, nonce);
+
+    // Under STRICT there is no nonce: empty, and absent from the wire. The
+    // nonce is field 3 (tag 0x1a), written after the book and the command.
+    let strict = ContextualCommand {
+        conflict_nonce: vec![],
+        ..original.clone()
+    };
+    let with = original.encode_to_vec();
+    let without = strict.encode_to_vec();
+    assert!(with.starts_with(&without));
+    assert_eq!(
+        &with[without.len()..],
+        &[&[0x1a, 16][..], &nonce[..]].concat()[..]
+    );
+    assert!(round_trip(&strict).conflict_nonce.is_empty());
+}
+
+#[test]
+fn snapshot_records_state_type_and_rules_version() {
+    let original = Snapshot {
+        sequence: u64::from(u32::MAX) + 9,
+        state: Some(any("/draws.v1.DrawState", &[1, 1])),
+        rules_version: "rules-3".into(),
+    };
+    let decoded = round_trip(&original);
+    assert_eq!(decoded, original);
+    // Both halves of the load-time validity check survive the wire: the
+    // state type (the Any's type URL) and the rules version.
+    assert_eq!(decoded.state.unwrap().type_url, "/draws.v1.DrawState");
+    assert_eq!(decoded.rules_version, "rules-3");
+    // Field 5: a fresh number (4 was the pass-2 retention field).
+    let bare = Snapshot {
+        rules_version: "r".into(),
+        ..Snapshot::default()
+    };
+    assert_eq!(bare.encode_to_vec(), vec![0x2a, 1, b'r']);
 }
 
 #[test]
@@ -230,7 +342,7 @@ fn handling_carries_no_sync_mode() {
     // it decodes to nothing and does not survive re-encoding.
     let current = Handling {
         expected_sequence: Some(5),
-        merge: MergeStrategy::MergeStrict as i32,
+        conflict_resolution: ConflictResolution::Strict as i32,
     };
     let mut legacy = current.encode_to_vec();
     legacy.extend_from_slice(&[0x18, 0x04]); // field 3, varint 4
@@ -241,12 +353,12 @@ fn handling_carries_no_sync_mode() {
 
 #[test]
 fn event_meta_round_trips_every_origin_with_base_sequence_and_provenance() {
-    for origin in event_origins() {
-        let original = page(origin.clone());
+    for kind in origins() {
+        let original = page(kind.clone());
         let decoded = round_trip(&original);
         assert_eq!(decoded, original);
         let meta = decoded.meta.unwrap();
-        assert_eq!(meta.origin, Some(origin));
+        assert_eq!(meta.origin, Some(Origin { kind: Some(kind) }));
         assert_eq!(meta.base_sequence, u64::from(u32::MAX) + 7);
         assert_eq!(meta.provenance, Some(provenance()));
         assert_eq!(meta.rules_version, "rules-3");
@@ -264,9 +376,9 @@ fn event_ref_nests_a_cover_with_its_edition() {
     assert_eq!(decoded.sequence, u64::MAX);
 
     // Nested deeper: event meta -> causation -> event ref -> cover.
-    let p = round_trip(&page(event_meta::Origin::Causation(causation())));
-    match p.meta.unwrap().origin {
-        Some(event_meta::Origin::Causation(c)) => {
+    let p = round_trip(&page(origin::Kind::Causation(causation())));
+    match p.meta.unwrap().origin.and_then(|o| o.kind) {
+        Some(origin::Kind::Causation(c)) => {
             assert_eq!(c.event.unwrap().stream.unwrap().edition, "what-if")
         }
         other => panic!("expected causation, got {other:?}"),
@@ -275,7 +387,7 @@ fn event_ref_nests_a_cover_with_its_edition() {
 
 #[test]
 fn event_meta_is_field_8_and_appended_after_the_page_body() {
-    let mut p = page(event_origins()[0].clone());
+    let mut p = page(origins()[0].clone());
     p.sequence = 0; // default: not encoded, so meta is the last field written
     let with = p.encode_to_vec();
     p.meta = None;
@@ -294,7 +406,8 @@ fn outcome_round_trips_each_delivery_with_projections_and_failures() {
             edition: String::new(),
         }),
         projector: "draw-history".into(),
-        sequence: u64::from(u32::MAX) + 2,
+        // The stream's next_sequence after the projected events.
+        next_sequence: u64::from(u32::MAX) + 2,
         projection: Some(any("/draws.v1.DrawHistory", &[4])),
     };
     // HandleSync answers OK with the successful projections beside the
@@ -336,12 +449,8 @@ fn outcome_round_trips_each_delivery_with_projections_and_failures() {
 
 #[test]
 fn idempotency_claim_round_trips_each_key_kind_with_an_empty_range() {
-    let keys = [
-        idempotency_claim::Key::Request(request()),
-        idempotency_claim::Key::Causation(causation()),
-        idempotency_claim::Key::Fact(fact_origin()),
-    ];
-    for key in keys {
+    for kind in origins() {
+        let key = Origin { kind: Some(kind) };
         // Zero events is a valid applied outcome, and it is claimed too.
         let original = IdempotencyClaim {
             stream: Some(Cover {
@@ -374,13 +483,36 @@ fn idempotency_claim_round_trips_each_key_kind_with_an_empty_range() {
 fn component_descriptor_declares_rules_version() {
     let original = ComponentDescriptor {
         name: "draw-system".into(),
-        component_type: "aggregate".into(),
+        kind: ComponentKind::Aggregate as i32,
         inputs: vec![],
         rules_version: "rules-3".into(),
     };
     let decoded = round_trip(&original);
     assert_eq!(decoded, original);
     assert_eq!(decoded.rules_version, "rules-3");
+    assert_eq!(decoded.kind(), ComponentKind::Aggregate);
+}
+
+#[test]
+fn dead_letter_names_its_component_kind_and_takes_the_cover_from_its_payload() {
+    let rejected = request_book(handling());
+    let original = AngzarrDeadLetter {
+        payload: Some(angzarr_dead_letter::Payload::RejectedCommand(
+            rejected.clone(),
+        )),
+        source_component: "list-to-draw".into(),
+        source_component_kind: ComponentKind::Saga as i32,
+        ..AngzarrDeadLetter::default()
+    };
+    let decoded = round_trip(&original);
+    assert_eq!(decoded, original);
+    assert_eq!(decoded.source_component_kind(), ComponentKind::Saga);
+    match decoded.payload {
+        Some(angzarr_dead_letter::Payload::RejectedCommand(b)) => {
+            assert_eq!(b.cover, rejected.cover)
+        }
+        other => panic!("expected rejected command, got {other:?}"),
+    }
 }
 
 #[test]
@@ -397,6 +529,7 @@ fn type_names_are_io_angzarr_v1() {
     assert_eq!(RequestOrigin::full_name(), "io.angzarr.v1.RequestOrigin");
     assert_eq!(Causation::full_name(), "io.angzarr.v1.Causation");
     assert_eq!(FactOrigin::full_name(), "io.angzarr.v1.FactOrigin");
+    assert_eq!(Origin::full_name(), "io.angzarr.v1.Origin");
     assert_eq!(Outcome::full_name(), "io.angzarr.v1.Outcome");
     assert_eq!(
         IdempotencyClaim::full_name(),
@@ -414,12 +547,12 @@ fn type_names_are_io_angzarr_v1() {
         "sererr.v1.CapturedError"
     );
 
-    let p = page(event_origins()[1].clone());
+    let p = page(origins()[1].clone());
     let packed = prost_types::Any::from_msg(&p).expect("pack");
     assert_eq!(packed.type_url, "/io.angzarr.v1.EventPage");
     assert_eq!(packed.to_msg::<EventPage>().expect("unpack"), p);
 
-    let b = book(fact_body(), None);
+    let b = book(fact_body(), origin::Kind::Fact(fact_origin()), None);
     let packed = prost_types::Any::from_msg(&b).expect("pack");
     assert_eq!(packed.type_url, "/io.angzarr.v1.CommandBook");
     assert_eq!(packed.to_msg::<CommandBook>().expect("unpack"), b);

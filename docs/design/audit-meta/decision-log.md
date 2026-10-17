@@ -1,4 +1,4 @@
-# Audit-meta decision log (passes 1–5)
+# Audit-meta decision log (passes 1–6)
 
 Part of the [audit-meta design record](../audit-meta-followups.md).
 
@@ -81,6 +81,9 @@ deleted. Conflict-resolution helpers live in the client libraries.
 - Cost: users of `COMMUTATIVE` move the rule into decide.
 - Aligns with: optimistic concurrency, and Axon's `ConflictResolver`, where
   the handler sees the unseen events.
+- **Partly reversed in pass 6** (decision 6.12): `COMMUTATIVE` is back, as an
+  opt-in resolver in the client libraries, never a coordinator-side diff or a
+  `Replay` RPC. `MANUAL` stays deleted.
 
 **1.9 `Cover.ext` is removed.** Parent references live in event payloads,
 and sagas route from payloads.
@@ -94,10 +97,15 @@ outright.
   changes.
 - Cost: old binaries mis-decode new data. This is accepted until v0.1.0.
 - Diverges from: protobuf's own guidance, deliberately, while pre-freeze.
+- **Superseded in pass 6** (decision 6.6, D6): reserve from the first stored
+  production event onwards. Deletions up to and including pass 6 stay
+  unreserved.
 
 **1.11 Editions stay in wire identity, and the main timeline is `""`.**
 `Cover.edition` and `EventRef.stream.edition` carry it, and
-`DeleteEditionEvents` refuses `""`.
+`DeleteEditionEvents` refuses `""`. (Pass 6 replaced `DeleteEditionEvents`
+with the administrative `DeleteEdition`, which also refuses `""`; decision
+6.5.)
 - Why: an edition's events can never be mistaken for, or copied as,
   main-timeline events. Placement is a storage choice.
 - Cost: the edition column stays in every schema.
@@ -162,6 +170,10 @@ and the type URL picks the handler. `ReactionOrigin` is renamed `Causation`.
 - Why: the arm is the fact marker, so a fact structurally cannot carry a
   causation origin.
 - Cost: regenerated clients.
+- **Origins revised in pass 6** (decision 6.1, D1): the arms stay, but the
+  per-arm origins (`Command.origin`, `Fact.source`) moved to one shared
+  `Origin` on the page, and "a fact cannot carry a causation origin" is now a
+  validation rule rather than a structural one.
 
 **2.9 The dedup signal is an enum, never persisted** (now
 `Outcome.delivery`).
@@ -212,7 +224,8 @@ aggregate, and a claim is written in the same transaction as the append. The
 outcome is an applied sequence range, and zero events is allowed. Concurrency
 is optimistic. A duplicate re-reads its events by range.
 - Why: `HandleAsync` and DLQ replay deliver at least once, and request-origin
-  commands had no deduplication at all (W1).
+  commands had no deduplication at all (W1). Dedup inferred from event rows
+  left no claim for a decision that emitted no events (W2).
 - Cost: a store. A backend without atomic claims cannot offer `HandleAsync`
   or replay.
 - Aligns with: Stripe and the IETF Idempotency-Key draft (client keys, a
@@ -248,7 +261,7 @@ the source checkpoint, dispatched, then cleared, so that only keys remain.
 Redelivery re-sends verbatim. There is no purity contract and no
 nondeterminism dead-letter.
 - Why: without it, a reactor re-run can emit different commands under the
-  same causation keys (W2). The user was wary of purity contracts: only
+  same causation keys (W3). The user was wary of purity contracts: only
   workflow engines require determinism.
 - Cost: an outbox write per reaction.
 - Aligns with: the NServiceBus outbox, MassTransit's transactional outbox and
@@ -349,6 +362,188 @@ intentional divergence. See [annals-divergence.md](annals-divergence.md).
 **5.21 Scope: protos and documentation only.** No angzarr code changes now.
 The user is not taking on heavy refactoring, and everything is recorded in
 the [backlog](backlog.md).
+
+## Pass 6: the debatable items decided
+
+The user decided the review's D1–D11 (see
+[critical-review.md](critical-review.md)) before this pass, and added the
+restoration of `COMMUTATIVE` during it. As before, only the protos, the
+`rust/angzarr-proto` crate and these documents changed. Wire breaks are
+accepted, and this round's deletions stay unreserved (6.6).
+
+**6.1 One `Origin` message (D1).** `Origin { oneof kind { RequestOrigin
+request; Causation causation; FactOrigin fact; } }` is the only origin
+shape. It is on the command page (`CommandPage.origin`, field 7), copied
+unchanged onto every event (`EventMeta.origin`, field 12, replacing the
+inline oneof), and is the idempotency key (`IdempotencyClaim.key`, field 10,
+replacing its inline oneof). `Command.origin` and `Fact.source` are
+deleted.
+- Validation: a Fact requires a fact origin (with a non-empty
+  `external_id`); a Command requires a request or causation origin, and a
+  Command sent with no origin is a keyless request (recorded as an empty
+  `RequestOrigin`, so `EventMeta.origin` is always set). A mismatch is
+  refused loudly: `INVALID_ARGUMENT` for a client, dead-letter and alert for
+  a reactor.
+- **Pass-6 choice: the `Command`/`Fact` arms stay**, each now holding only
+  its payload. The arm still carries the payload's kind (a decision request
+  or an already-happened fact) and drives reflective dispatch (decide or
+  ingest), and generated code and the router's arm-versus-handler guard key
+  on it. The origin says why the command exists; the arm says what it is.
+  Collapsing to one `payload` plus the origin would make the origin double
+  as the dispatch marker, which is the conflation D1 set out to remove.
+- Why: the union was stated three times, splitting provenance across page
+  and arm and needing mapping code in every language.
+- Cost: "a fact cannot carry a causation" is no longer structural: it is a
+  coordinator check (backlog OR-1).
+- Aligns with: correlation and causation as message metadata, separate from
+  the message body (NServiceBus headers, Marten metadata).
+
+**6.2 No root-request pointer (D2).** Correlation is enough: every event of
+a workflow carries the originating correlation, and `GetCorrelatedEvents`
+(6.4) returns the workflow. A reaction's events keep only their causation.
+annals' request-on-every-event is a documented divergence, or annals drops
+it (see [annals-divergence.md](annals-divergence.md)).
+- Aligns with: correlation as the workflow id (NServiceBus
+  `ConversationId`), without MassTransit's separate `InitiatorId`.
+
+**6.3 An optional attempt-audit sink (D3).** Attempts and their outcomes
+(rejections included) are reported to an optional observability sink, never
+to the event store. Only the interface and in-memory and no-op
+implementations are planned; they are angzarr core code, held until the user
+says when. The interface specification is backlog AU-1. No proto changed.
+- Why: a rejection leaves nothing in any stream, and an operator sometimes
+  needs to see what was tried.
+- Aligns with: the NServiceBus audit queue, kept outside the business
+  store.
+
+**6.4 A cross-domain correlation query (D4).** `EventQueryService.
+GetCorrelatedEvents(CorrelationQuery { correlation_id, edition })` streams
+one `EventBook` per stream holding its pages of that correlation, across all
+domains. `Query.correlation_id` stays within one domain.
+- Forward causation is derived, not queried: reaction provenance copies the
+  trigger's correlation, so the result is closed under "what did this event
+  cause". The events caused by E are the result pages whose
+  `EventMeta.origin.causation.event` equals E's `EventRef`.
+- Backend indexes (a correlation index per backend) are backlog CQ-1.
+- Aligns with: KurrentDB's `$by_correlation_id` system projection.
+
+**6.5 Editions need an explicit, administrative create (D5).** A new
+`EditionAdminService` in `meta.proto` has `CreateEdition` and
+`DeleteEdition`. They are administrative operations: no domain command, no
+event, no replay.
+- `CreateEditionRequest { name, diverge_at, store }` records the divergence
+  point (a time: the edition reads main's prefix recorded at or before it;
+  the default is main's head at create) and an optional non-default edition
+  store. The record is `Edition { name, diverged_at, store, created_at,
+  created_by }`.
+- A created edition with no store uses the default edition store (its name
+  is recorded at create, so a later change of the default does not move
+  it). A never-created name used by a command, query or subscription is
+  refused `NOT_FOUND`.
+- `DeleteEdition` deletes the record and everything stored under the
+  edition in every domain (events, snapshots, projector output, claims). It
+  refuses `""` (`INVALID_ARGUMENT`) and an unknown name (`NOT_FOUND`).
+- **Pass-6 choice: the RPCs live in a new `EditionAdminService` in
+  `meta.proto`** (package `io.angzarr.v1`). `meta.proto` held
+  `DeleteEditionEvents` with no service. The status console's
+  `io.angzarr.status.v1` package is the operations console's own DLQ API,
+  and editions are framework administration rather than a console concern.
+  `meta.proto`'s "meta domain commands/events" framing is replaced by
+  "administrative operations, not CQRS".
+- **`DeleteEditionEvents` is retired.** It deleted one (edition, domain);
+  `DeleteEdition` deletes the whole edition, and a per-domain delete has no
+  user.
+- Cost: what-if callers must create an edition first.
+
+**6.6 Reserve from the first stored production event (D6).** Supersedes
+1.10. Up to and including this pass, removed fields stay unreserved; from
+the first production event any store keeps, every removal reserves its
+number and name in the same change. The policy is written in
+`proto/buf.yaml`. It ties to the gate-wire-compat trigger (backlog GAP-3).
+
+**6.7 The AGGREGATE_HANDLES nonce (D7).** `ContextualCommand.conflict_nonce`
+(bytes, field 3) is set when the resolved resolution is AGGREGATE_HANDLES or
+COMMUTATIVE, and empty under STRICT. The client library passes it to the
+handler and demands `resolve_conflicts(window, nonce)` with exactly that
+value before the handler returns; otherwise it discards the output and fails
+the command as stale (`ABORTED`).
+- **Pass-6 choice: an opaque per-delivery value minted by the coordinator**,
+  not `expected_sequence` itself. A handler cannot satisfy the check without
+  receiving the parameter, which is the point. It is never persisted or
+  returned, and the coordinator does not check it: enforcement is local to
+  the client library, with no gRPC round trip.
+- Set even for an empty window, so the handler path is uniform.
+- Aligns with: Axon, which fails a command when conflicting events exist and
+  the handler never examined them.
+
+**6.8 Snapshots record what produced them (D8).** `Snapshot.rules_version`
+(field 5; 4 was pass 2's retention field) is stamped by the framework, and
+the state type is the `Any` type URL. On load, a mismatch with the current
+registration (state type or `ComponentDescriptor.rules_version`) discards the
+snapshot and replays from events.
+- Cost: a deployment that changes `rules_version` replays every stream on its
+  next load. That is the price of never migrating snapshots.
+- Aligns with: snapshots as caches (Marten, Axon, Eventuous), invalidated
+  rather than upcast.
+
+**6.9 Cleanups (D9).**
+- `AggregateRoot` is deleted; `GetAggregateRoots` streams `Cover`, which
+  carries the edition.
+- `ComponentKind` moves from `options.proto` to `types.proto`, and
+  `options.proto` imports `types.proto` (no cycle: `types.proto` imports
+  nothing from it). `ComponentDescriptor.component_type` becomes `kind`
+  (field 5); `AngzarrDeadLetter.source_component_type` becomes
+  `source_component_kind` (field 15); `StoredDeadLetter.source_component_type`
+  becomes `source_component_kind` (field 14), so `dlq_admin.proto` imports
+  `types.proto`.
+- `AngzarrDeadLetter.cover` is dropped: the payload's cover is the stream.
+- `Projection.sequence` becomes `next_sequence` (field 3 kept): it holds the
+  stream's next_sequence after the projected events (client-rust sets it
+  from `book.next_sequence`).
+- **Pass-6 choice: `Synchronize` is deleted.** Core implements it as a
+  bidirectional stream that answers each incoming `Query` with
+  `GetEventBook`'s result. It never switches to live events, so it is not the
+  catch-up subscription the site's `pitch.mdx` advertises. It skips the
+  unary RPC's validation, is exposed through the gateway despite "not
+  REST", and has no production caller (only core's own unit test). Bulk
+  reads are `GetEvents`, and live events are `EventStreamService.Subscribe`.
+  A real catch-up subscription, if wanted, is a new design, not this RPC.
+- The edition admin RPCs (6.5).
+
+**6.10 `MergeStrategy` becomes `ConflictResolution` (D10).** Values are
+`CONFLICT_RESOLUTION_*` (lint-conformant), with numbers unchanged, and
+`Handling.merge` becomes `Handling.conflict_resolution`. Cover, Book and Page
+are kept.
+- Aligns with: Axon's "conflict resolution".
+
+**6.11 The fact codegen marker is resolved (D11).** Handler registration
+(`#[handles_fact]` / ingest) is the declaration, and the router guards arm
+against handler kind. There is no proto flag. `CommandPage`'s comment now
+says so, matching the index and backlog FA-3.
+
+**6.12 `COMMUTATIVE` is restored, opt-in, in the client libraries (user,
+during pass 6).** `CONFLICT_RESOLUTION_COMMUTATIVE = 1` (its old number).
+- The window and the nonce are delivered exactly as under
+  AGGREGATE_HANDLES, with the same snapshot bound (at or below
+  `expected_sequence-1`). The client library compares, by protobuf
+  reflection, the state fields the window changed with those the command's
+  events change. If they are disjoint, the library acknowledges the nonce
+  itself; otherwise the command fails as stale (`ABORTED`). There is no
+  `Replay` RPC and no coordinator-side diff.
+- Opt-in only: per command type or per component in configuration, or in
+  `Handling` where configuration allows. STRICT stays the default.
+- **Reverses part of 1.8**, which deleted `COMMUTATIVE` because it hid
+  business decisions inside the framework. The reason for the reversal is
+  goal 2: implementors should not have to write conflict logic for the
+  common case of non-overlapping edits. Moving the resolver into the client
+  library, behind an explicit opt-in, removes the earlier objections: the
+  coordinator stays domain-blind, there is no replay RPC, and nothing is the
+  default.
+- Diverges from: every mainstream framework. None of Axon, Marten,
+  Eventuous, KurrentDB or NServiceBus ships automatic field-overlap merging.
+  It is justified by goal 2, and it is opt-in because a structural diff
+  cannot see semantic links between fields: two commands that touch
+  different fields can still break an invariant that spans them.
 
 ## Corrections
 

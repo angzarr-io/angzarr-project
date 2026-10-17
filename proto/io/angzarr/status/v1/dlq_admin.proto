@@ -13,6 +13,7 @@ package io.angzarr.status.v1;
 
 import "google/api/annotations.proto";
 import "google/protobuf/timestamp.proto";
+import "io/angzarr/v1/types.proto";
 
 option csharp_namespace = "Angzarr.Status";
 option go_package = "github.com/benjaminabbitt/angzarr/client/go/proto/io/angzarr/status/v1;angzarrstatus";
@@ -51,7 +52,7 @@ message StoredDeadLetter {
   RejectionType rejection_type = 6;
   string details = 7;             // free-form debug detail
   string source_component = 8;
-  string source_component_type = 9;
+  io.angzarr.v1.ComponentKind source_component_kind = 14; // AngzarrDeadLetter.source_component_kind
   google.protobuf.Timestamp occurred_at = 10;
   google.protobuf.Timestamp created_at = 11;
   // JSON string. Empty when decoding failed entirely (the row is still

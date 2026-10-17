@@ -1,7 +1,7 @@
 // DOC: This file is referenced in docs/docs/reference/patterns.mdx
-//      Update documentation when making changes to MergeStrategy, Handling,
-//      Cover (editions), Snapshot, or the CommandPage body. The command
-//      handling modes (DECISION, ASYNC, SIMPLE) are RPCs, documented in
+//      Update documentation when making changes to ConflictResolution,
+//      Handling, Cover (editions), Snapshot, Origin, or the CommandPage
+//      body. The command handling modes (DECISION, ASYNC, SIMPLE) are RPCs, documented in
 //      command_handler.proto.
 
 syntax = "proto3";
@@ -38,7 +38,8 @@ message UUID {
 // Stream identity, and nothing else: one stream is (domain, edition, root).
 // Everything that varies per write or per page (correlation, actor, origin)
 // lives on the page and its meta (CommandPage, EventMeta), and how a command
-// is handled (expected sequence, merge) lives on CommandBook.handling;
+// is handled (expected sequence, conflict resolution) lives on
+// CommandBook.handling;
 // never on the Cover. Parent/child relationships between aggregates are
 // carried in domain event payloads, not in the Cover.
 message Cover {
@@ -52,39 +53,50 @@ message Cover {
   // (here and in EventRef.stream), so an edition's events can never be
   // mistaken for, or copied as, main-timeline events.
   //
-  // Everything else about an edition is edition CONFIGURATION, not wire
-  // data: its divergence points (where it branches from main, per domain;
-  // reads fall through to main up to the divergence) and its storage.
+  // Explicit create. A non-main edition exists only once it has been created
+  // with EditionAdminService.CreateEdition (meta.proto), an administrative
+  // operation, never a domain command or event. Using a name that was never
+  // created (in a command, a query or a subscription) is refused loudly
+  // (NOT_FOUND), never silently given storage: a misspelt edition cannot
+  // write anywhere. The edition record (Edition in meta.proto) holds
+  // everything about an edition that is not wire data: its divergence point
+  // (where it branches from main; reads fall through to main up to it,
+  // recorded at create, by default main's head at that moment) and its
+  // store.
   //
   // What-if execution. A what-if is a command run in an edition: send an
   // ordinary CommandBook whose cover names the edition. There is no
   // separate speculative RPC. Reactions (sagas, process managers) stay in
   // the edition of the event they react to.
   //
-  // Storage. A configured edition uses its own storage configuration; an
-  // unconfigured (unknown) edition falls back to the configured default
-  // edition store, which may be in memory, redis, another persistent store,
-  // or the existing production database (the edition is part of the storage
-  // key, and the edition column stays in every database schema so the
-  // existing database can host editions). Placement never changes the wire
-  // contract. Projector output follows the edition's storage configuration:
-  // an in-memory edition's projections are kept in memory.
+  // Storage. CreateEdition may name a non-default edition store; a created
+  // edition with no store named uses the configured default edition store,
+  // which may be in memory, redis, another persistent store, or the existing
+  // production database (the edition is part of the storage key, and the
+  // edition column stays in every database schema so the existing database
+  // can host editions). Placement never changes the wire contract. Projector
+  // output follows the edition's storage: an in-memory edition's projections
+  // are kept in memory.
   //
   // Lifetime follows the backend: memory lives as long as the process, redis
-  // as long as its TTL, a database persists. DeleteEditionEvents (meta.proto)
-  // discards a non-main edition explicitly.
+  // as long as its TTL, a database persists. EditionAdminService.DeleteEdition
+  // (meta.proto) discards a non-main edition explicitly; it refuses "".
   string edition = 4;
 }
 // endregion
 
-// region merge_strategy
-// Conflict strategy: how the aggregate coordinator treats a command whose
+// region conflict_resolution
+// Conflict resolution: how the aggregate coordinator treats a command whose
 // expected sequence (Handling.expected_sequence) differs from the stream's
-// head (a stale command). Carried by Handling.merge.
+// head (a stale command). Carried by Handling.conflict_resolution. Three
+// resolutions: STRICT (the default), AGGREGATE_HANDLES and COMMUTATIVE.
+// (Renamed from MergeStrategy: Axon calls the same choice conflict
+// resolution.)
 //
-// MERGE_UNSPECIFIED (the zero value) means "not specified": the configured
-// default applies (see Handling), and STRICT when configuration sets none.
-// After the coordinator resolves Handling, merge is never UNSPECIFIED.
+// CONFLICT_RESOLUTION_UNSPECIFIED (the zero value) means "not specified":
+// the configured default applies (see Handling), and STRICT when
+// configuration sets none. After the coordinator resolves Handling,
+// conflict_resolution is never UNSPECIFIED.
 //
 // The strategy matters only for commands whose sender provided
 // expected_sequence. A command without one is stamped by the framework with
@@ -101,13 +113,49 @@ message Cover {
 // delivered with the command is at or below expected_sequence-1, never one
 // that has already folded part of the window (see ContextualCommand).
 //
+// Safety default (the nonce). Under AGGREGATE_HANDLES the handler cannot
+// silently ignore the window: the coordinator delivers a nonce with the
+// command (ContextualCommand.conflict_nonce), and the client library demands
+// that the handler call resolve_conflicts(...) with that value before it
+// returns. A handler that returns without doing so (or passes another value)
+// fails the command as stale (ABORTED), exactly as STRICT would have. This
+// is enforced locally, in the client library, with no gRPC round trip.
+// (Axon's ConflictResolver likewise fails a command whose handler never
+// examined the conflicting events.)
+//
+// COMMUTATIVE (opt-in): the client library resolves the window
+// automatically, so business code writes no conflict logic. The window and
+// the nonce are delivered exactly as under AGGREGATE_HANDLES, and the same
+// snapshot rule applies (the delivered snapshot is at or below
+// expected_sequence-1, so the window arrives as pages). The library, not
+// the handler, then compares, by protobuf reflection, the state fields the
+// window's events changed (the state folded to expected_sequence versus
+// the state folded to the head) with the state fields the command's events
+// change. Disjoint: the library acknowledges the nonce itself
+// (resolve_conflicts) and the command's events are kept. Overlapping: the
+// command fails as stale (ABORTED), as under STRICT. Everything happens
+// locally in the client library: there is no Replay RPC and no
+// coordinator-side diff; to the coordinator COMMUTATIVE is delivered
+// exactly like AGGREGATE_HANDLES.
+//
+// COMMUTATIVE is a justified divergence from established frameworks (none
+// of Axon, Marten, Eventuous, KurrentDB or NServiceBus ships automatic
+// field-overlap merging): it serves goal 2, hiding CQRS/ES complexity so
+// implementors do not write conflict logic. It is opt-in only, never a
+// default, because a structural diff cannot see semantic links between
+// fields (two commands touching different fields can still violate an
+// invariant that spans them). It is enabled per command type or per
+// component in configuration, or in Handling where configuration allows the
+// override; STRICT stays the default.
+//
 // Conflict-resolution helpers live in the per-client libraries, computed
 // locally over the events delivered with the command; there is no
 // framework RPC for conflict resolution.
-enum MergeStrategy {
-  MERGE_UNSPECIFIED = 0; // Not specified: the configured default applies (STRICT if none)
-  MERGE_STRICT = 2; // Reject on sequence mismatch (optimistic concurrency); default without config
-  MERGE_AGGREGATE_HANDLES = 3; // decide receives the window and applies its own conflict rule
+enum ConflictResolution {
+  CONFLICT_RESOLUTION_UNSPECIFIED = 0; // Not specified: the configured default applies (STRICT if none)
+  CONFLICT_RESOLUTION_COMMUTATIVE = 1; // Opt-in: the client library accepts iff the window and the command touch disjoint state fields
+  CONFLICT_RESOLUTION_STRICT = 2; // Reject on sequence mismatch (optimistic concurrency); default without config
+  CONFLICT_RESOLUTION_AGGREGATE_HANDLES = 3; // decide receives the window and applies its own conflict rule
 }
 // endregion
 
@@ -210,9 +258,22 @@ message Provenance {
 // endregion
 
 // region origin
-// Why a command exists, and therefore why the events it produced exist.
-// A command's origin sits in its body arm (Command.origin or Fact.source);
-// EventMeta.origin persists the full union, request | causation | fact.
+// Why a command exists, and therefore why the events it produced exist. One
+// message, Origin (request | causation | fact), is used everywhere an origin
+// appears: on the command (CommandPage.origin), on every event the command
+// produces (EventMeta.origin), and as the idempotency key
+// (IdempotencyClaim.key). Nothing maps one origin shape onto another.
+//
+// Validation (the body arm and the origin must agree; see CommandPage):
+//   Fact arm      requires origin.fact (it carries the external_id key).
+//   Command arm   requires origin.request or origin.causation, never
+//                 origin.fact. A Command sent with no origin is a keyless
+//                 request: it is recorded as an empty RequestOrigin.
+// Violations are refused loudly, never repaired: a client's command is
+// answered INVALID_ARGUMENT; a reaction command is dead-lettered and
+// alerted as a reactor bug. (Pass 6 replaced the per-arm origin fields,
+// which made a mismatch unrepresentable, with this one message plus
+// validation.)
 //
 // Idempotency: the claim model. The coordinator deduplicates every keyed
 // command before business code runs, against an idempotency key store (see
@@ -297,9 +358,20 @@ message Causation {
 message FactOrigin {
   // Idempotency key from the external system (e.g. "pi_1234" from Stripe).
   // The framework deduplicates on it, per addressed aggregate, before
-  // business code runs, and keeps the claim 7 days.
+  // business code runs, and keeps the claim 7 days. Required: a Fact whose
+  // external_id is empty is refused INVALID_ARGUMENT.
   string external_id = 1;
   string description = 2; // Human-readable origin (e.g. "Stripe webhook")
+}
+
+// Why a command (and so its events) exists: exactly one of the three. See
+// the validation rules at the top of this region.
+message Origin {
+  oneof kind {
+    RequestOrigin request = 1; // Issued by a caller as part of one inbound request
+    Causation causation = 2; // Emitted by a saga, process manager or policy reacting to an event
+    FactOrigin fact = 3; // Something that already happened outside the system
+  }
 }
 // endregion
 
@@ -315,12 +387,11 @@ message FactOrigin {
 message IdempotencyClaim {
   // The addressed aggregate: the claim's scope. (stream, key) is unique.
   Cover stream = 1;
-  // The key: the producing command's origin, exactly as it arrived.
-  oneof key {
-    RequestOrigin request = 2; // (request_id, index); request_id never empty here
-    Causation causation = 3; // (event, component, index)
-    FactOrigin fact = 4; // external_id (description is not part of the key)
-  }
+  // The key: the producing command's origin, exactly as it arrived. For a
+  // request, (request_id, index) with request_id never empty here; for a
+  // causation, (event, component, index); for a fact, external_id only
+  // (description is not part of the key).
+  Origin key = 10;
   // Hash of the body payload as received (type URL and value bytes); a
   // later delivery of the key is compared against it.
   bytes fingerprint = 5;
@@ -343,7 +414,7 @@ message IdempotencyClaim {
 // sets meta: an EventBook returned by business code whose pages carry meta
 // is refused (see CommandHandlerService.Handle).
 //
-// base_sequence and recorded_at are always recorded, and
+// origin, base_sequence and recorded_at are always recorded, and
 // provenance.correlation_id is never empty on a persisted event (see
 // Provenance). Every other field is optional on the wire: an empty value
 // means "not recorded", never a meaningful empty value.
@@ -356,13 +427,11 @@ message IdempotencyClaim {
 // share one provenance, one origin, one base_sequence and one rules_version.
 message EventMeta {
   Provenance provenance = 1; // Copied from the producing command (actor, correlation)
-  // Why the producing command exists (see the origin region). The command's
-  // body does not persist with its events, so the full union is kept here.
-  oneof origin {
-    RequestOrigin request = 2;
-    Causation causation = 3;
-    FactOrigin fact = 4;
-  }
+  // Why the producing command exists: the command's CommandPage.origin,
+  // copied unchanged (see the origin region). Always recorded: a keyless
+  // request is recorded as an empty RequestOrigin. The event that caused
+  // this one, if any, is origin.causation.event.
+  Origin origin = 12;
   // When the event was durably recorded, stamped by the server that persisted
   // it. The only timestamp an event carries; TemporalQuery.as_of_time selects
   // by it.
@@ -378,8 +447,8 @@ message EventMeta {
   // produced this event. Always recorded, for every origin and strategy; 0
   // means the decision saw an empty stream. It equals the producing
   // command's Handling.expected_sequence when that was stamped, or provided
-  // and checked under STRICT; under AGGREGATE_HANDLES it is the head decide
-  // saw, which may be past the provided sequence. (Renamed from decided_at:
+  // and checked under STRICT; under AGGREGATE_HANDLES and COMMUTATIVE it is
+  // the head decide saw, which may be past the provided sequence. (Renamed from decided_at:
   // it is a sequence, not a time.)
   uint64 base_sequence = 6;
   // Version of the business rules (handler code / configuration) that decided
@@ -403,6 +472,17 @@ message EventMeta {
 // configured per domain and following the edition's storage configuration;
 // the default keeps the newest snapshot only. Business milestones are domain
 // events, never retained snapshots.
+//
+// Validity. A snapshot records what produced it: the state's type (the type
+// URL of `state`) and the rules version of the component that folded it
+// (rules_version). On every load that would start from a snapshot, the
+// framework compares both with the component's current registration (its
+// registered state type and ComponentDescriptor.rules_version). On any
+// mismatch the snapshot is discarded, never decoded into the new state
+// type, and the state is replayed from events (sequence 0, or an older kept
+// snapshot that does match). A state-schema change or a rules change
+// therefore never needs a snapshot migration: the next load replays, and
+// the next snapshot is written under the current registration.
 message Snapshot {
   // Sequence of the last event folded into `state`. A TemporalQuery
   // as_of_time T may start from this snapshot iff that event's
@@ -410,9 +490,17 @@ message Snapshot {
   // prefix recorded by T (see TemporalQuery).
   //
   // Business code may return a snapshot's state with its events (see
-  // CommandHandlerService.Handle); the framework sets the sequence.
+  // CommandHandlerService.Handle); the framework sets the sequence and the
+  // rules_version.
   uint64 sequence = 2;
+  // The folded state. Its type URL is the state type recorded with the
+  // snapshot and compared on load (see Validity above).
   google.protobuf.Any state = 3;
+  // Rules version of the component that folded `state`: its
+  // ComponentDescriptor.rules_version at the time, stamped by the framework,
+  // never by business code. Compared on load (see Validity above); an empty
+  // value matches only a component that declares none.
+  string rules_version = 5;
 }
 // endregion
 
@@ -426,10 +514,15 @@ message EventBook {
 }
 // endregion
 
+// One projector's output for one stream.
 message Projection {
-  Cover cover = 1;
-  string projector = 2;
-  uint64 sequence = 3;
+  Cover cover = 1; // The stream projected
+  string projector = 2; // Registered name of the projector
+  // The projector's position in the stream after this projection: the
+  // stream's next_sequence once the projected events are applied, i.e. the
+  // sequence of the last projected event + 1. (Renamed from `sequence`,
+  // which read as the last event's sequence.)
+  uint64 next_sequence = 3;
   google.protobuf.Any projection = 4;
 }
 
@@ -447,13 +540,13 @@ message Projection {
 // As sent, then resolved. Before the coordinator, Handling holds what the
 // sender asked for, and any field may be unset. Before business code runs,
 // the coordinator resolves it in place: it stamps expected_sequence when
-// absent, and fills merge from configuration when unspecified. From then on
+// absent, and fills conflict_resolution from configuration when unspecified. From then on
 // (ContextualCommand, business code) every field is concrete. A dead letter
 // stores the book as received, with Handling as sent (see
 // AngzarrDeadLetter).
 //
-// Defaults come from configuration. The merge strategy is configured per
-// command type and per component (the aggregate, saga or process manager).
+// Defaults come from configuration. The conflict resolution is configured
+// per command type and per component (the aggregate, saga or process manager).
 // Precedence, highest first:
 //   1. Handling, when the field is set and configuration allows the override
 //   2. configuration for the command type (its payload's type URL)
@@ -465,16 +558,18 @@ message Projection {
 //   - a field that configuration forbids overriding for the command type or
 //     component;
 //   - expected_sequence on a Fact (see below);
-//   - any Handling on a reaction command (see below).
+//   - any Handling on a reaction command (see below);
+//   - a body arm and origin that disagree (see the origin region).
 // A client's malformed command is answered INVALID_ARGUMENT, by every
 // coordinator RPC (HandleAsync included: it validates before enqueueing).
 // A reaction command has no caller to answer, so it is dead-lettered as a
 // reactor bug (and alerted), never delivered.
 //
 // Reaction commands (emitted by sagas and process managers) carry NO
-// Handling at all: expected_sequence and merge are both forbidden. A reactor
-// never knows the destination's state, so the destination always stamps
-// expected_sequence, and with a stamped sequence merge can never apply. How
+// Handling at all: expected_sequence and conflict_resolution are both
+// forbidden. A reactor never knows the destination's state, so the
+// destination always stamps expected_sequence, and with a stamped sequence
+// conflict resolution can never apply. How
 // a reaction command is delivered comes from the emitting component's
 // configuration. An empty Handling (no field set) is the same as none.
 //
@@ -486,9 +581,10 @@ message Handling {
   // next_sequence of the target stream.
   //
   // If provided, the command is rejected before business code unless the
-  // stream is at expected_sequence, or the resolved merge strategy is
-  // AGGREGATE_HANDLES, in which case decide receives the events since
-  // expected_sequence and applies its own conflict rule. If absent, the
+  // stream is at expected_sequence, or the resolved conflict resolution is
+  // AGGREGATE_HANDLES or COMMUTATIVE, in which case decide receives the
+  // events since expected_sequence and the conflict rule is applied (by
+  // decide, or by the client library's COMMUTATIVE resolver). If absent, the
   // framework stamps the head it decides against, before business code.
   //
   // Either way, the check or the stamp happens in the framework before the
@@ -496,35 +592,48 @@ message Handling {
   // sequence, and the version decided against is recorded on every
   // resulting event (EventMeta.base_sequence).
   optional uint64 expected_sequence = 1;
-  // Conflict strategy on a stale expected_sequence (see MergeStrategy).
+  // What to do with a stale expected_sequence (see ConflictResolution).
   // Unspecified: the configured default.
-  MergeStrategy merge = 2;
+  ConflictResolution conflict_resolution = 2;
 }
 // endregion
 
 // region command_page
-// One command: provenance, and a body that is either a decision-requesting
-// Command or an already-happened Fact. How the command is handled is not
-// part of the page (see CommandBook.handling).
+// One command: provenance, origin, and a body that is either a
+// decision-requesting Command or an already-happened Fact. How the command
+// is handled is not part of the page (see CommandBook.handling).
 //
 // Reflective dispatch. The framework picks the pipeline from which body arm
 // is set (the arm's message type): a Command goes through decide (fallible:
 // it may be rejected), a Fact through ingest (infallible). Within the
 // pipeline the payload's type URL picks the handler. On the wire the arm is
-// the fact marker.
+// the fact marker; in code, the handler registration (a fact handler,
+// e.g. #[handles_fact] / ingest, versus a command handler) is the
+// declaration, and the router refuses an arm that does not match the
+// registered handler's kind. There is no proto flag for facts.
 //
-// Facts cannot carry a causation origin: Fact has no such field, so a
-// reaction can never inject a fact. Reactions emit Commands.
+// The arm says what kind of payload this is; the origin says why it exists.
+// They must agree (see the origin region): a Fact requires a fact origin, and
+// a Command requires a request or causation origin. A reaction can never
+// inject a fact: reactions emit Commands with a causation origin, and a
+// reactor that emits a Fact, or a Command with any other origin, is refused
+// (dead-lettered and alerted).
 message CommandPage {
   Provenance provenance = 2; // Stamped onto the events this command produces
   oneof body {
     Command command = 3; // Asks the aggregate to decide; may be rejected
     Fact fact = 4; // Records something that already happened; never rejected
   }
+  // Why this command exists, and its idempotency key (see the origin
+  // region). Copied unchanged onto every event it produces
+  // (EventMeta.origin).
+  Origin origin = 7;
 }
 
 // A command proper: a request for the aggregate to decide. decide may emit
 // events or reject it.
+//
+// Its origin is CommandPage.origin: a request or a causation, never a fact.
 //
 // Idempotency (see the claim model in the origin region): the origin is the
 // key, claimed per addressed aggregate only when the command is applied. A
@@ -532,11 +641,6 @@ message CommandPage {
 // key reused with a different payload is refused FAILED_PRECONDITION.
 message Command {
   google.protobuf.Any payload = 1; // The domain command; its type URL picks the handler
-  // Why the command exists (see the origin region).
-  oneof origin {
-    RequestOrigin request = 2; // Issued by a caller
-    Causation causation = 3; // Emitted by a saga, process manager or policy
-  }
 }
 
 // A fact: something that already happened outside the system (a webhook,
@@ -548,7 +652,8 @@ message Command {
 // and never reject it. A failing fact handler is a bug, not a business
 // rejection: the fact is dead-lettered and alerted, and the sender is
 // answered "accepted, parked" (OK, Outcome.delivery PARKED, no events),
-// never a rejection. The framework deduplicates on source.external_id, per
+// never a rejection. The framework deduplicates on the page's
+// origin.fact.external_id (a Fact requires a fact origin), per
 // addressed aggregate, before the handler runs; only an applied fact is
 // claimed (see the claim model in the origin region), so a parked fact
 // redelivered by its source runs ingest again.
@@ -559,7 +664,6 @@ message Command {
 // it is never silently stamped over (see Handling).
 message Fact {
   google.protobuf.Any payload = 1; // The fact; its type URL picks the ingest handler
-  FactOrigin source = 2; // Where it came from; carries the idempotency key
 }
 // endregion
 
@@ -637,14 +741,34 @@ message ContextualCommand {
   // snapshot plus pages up to the head) and the command, whose handling is
   // always resolved by the time it arrives here (see Handling):
   // expected_sequence provided by the caller or stamped by the coordinator
-  // (always stamped for a Fact), and merge concrete. Under
-  // AGGREGATE_HANDLES the pages from handling.expected_sequence to the head
-  // are the conflict window decide resolves, and they are always delivered
-  // as pages: events.snapshot, when present, has sequence <=
+  // (always stamped for a Fact), and conflict_resolution concrete. Under
+  // AGGREGATE_HANDLES and COMMUTATIVE (delivered identically) the pages
+  // from handling.expected_sequence to the head are the conflict window,
+  // and they are always delivered as pages: events.snapshot, when present,
+  // has sequence <=
   // expected_sequence-1 (and there is no snapshot when expected_sequence is
   // 0), so no part of the window is hidden inside snapshot state.
   EventBook events = 1;
   CommandBook command = 2;
+  // The conflict nonce. Set when, and only when, the resolved
+  // conflict_resolution is AGGREGATE_HANDLES or COMMUTATIVE (including an
+  // empty window, so the handler path is uniform); empty under STRICT.
+  // Under COMMUTATIVE the client library's own resolver acknowledges it
+  // (see ConflictResolution); the handler never sees it. An opaque value
+  // minted by the coordinator per delivery, never persisted and never
+  // returned.
+  //
+  // The client library passes it to the handler as a parameter, and demands
+  // that the handler call resolve_conflicts(window, nonce) with exactly this
+  // value before returning: that call is the handler's declaration that it
+  // examined the window. If the handler returns without it, or with another
+  // value, the library discards the handler's output and fails the command
+  // as stale (ABORTED, as STRICT would), logging the handler bug loudly.
+  // Enforcement is local to the client library: no gRPC round trip, and the
+  // coordinator does not check it. A value minted per delivery (rather than
+  // expected_sequence itself) means a handler cannot satisfy the check
+  // without receiving the parameter.
+  bytes conflict_nonce = 3;
 }
 
 // Query types
@@ -678,8 +802,10 @@ message TemporalQuery {
   }
 }
 
-// Selects events. cover.domain is required, and cover.edition picks the
-// timeline ("" = main).
+// Selects events within one domain. cover.domain is required, and
+// cover.edition picks the timeline ("" = main; any other name must have been
+// created, see Cover.edition). For every event of one correlation across
+// all domains, use EventQueryService.GetCorrelatedEvents (CorrelationQuery).
 //   By stream:       cover { domain, root }
 //   By correlation:  cover { domain } + correlation_id; every stream of the
 //                    domain is searched, one EventBook per matching stream
@@ -695,14 +821,35 @@ message Query {
   // Correlation selector: when non-empty, only pages whose
   // EventMeta.provenance.correlation_id equals it are returned. Correlation
   // is recorded per page only (covers carry none); all pages of one write
-  // share one correlation. Never crosses cover.domain.
+  // share one correlation. Never crosses cover.domain (CorrelationQuery
+  // does).
   string correlation_id = 6;
 }
 
-message AggregateRoot {
-  string domain = 1;
-  UUID root = 2;
+// region correlation_query
+// Selects every event of one correlation, across all domains: the whole
+// workflow a request or a fact started. Answered by
+// EventQueryService.GetCorrelatedEvents as one EventBook per stream (domain,
+// edition, root) holding that stream's pages with this correlation, in
+// sequence order. The order of books is unspecified.
+//
+// Forward causation is derivable from the result, with no further query.
+// Every reaction command (and so every event it produces) carries its
+// trigger's correlation (see Provenance), so the result is closed under
+// "what did this event cause": the events caused by event E are exactly the
+// result pages whose EventMeta.origin.causation.event equals E's EventRef
+// (E's book cover plus its EventPage.sequence). Indexing the result on
+// origin.causation.event gives the forward graph; pages with a request or
+// fact origin are its roots. Rejected commands leave no events, so they do
+// not appear (see the attempt-audit sink in the design record).
+message CorrelationQuery {
+  string correlation_id = 1; // Required; INVALID_ARGUMENT when empty
+  // The timeline ("" = main). A non-main edition must have been created,
+  // and is read as the edition reads it (its own events, and main's up to
+  // its divergence point).
+  string edition = 2;
 }
+// endregion
 
 // region event_stream_filter
 // Subscription filter for event streaming: matches events whose
@@ -769,8 +916,10 @@ message PayloadRetrievalFailedDetails {
 //   rejected_events   re-delivered to the one component that failed
 //                     (source_component), never re-published to every
 //                     subscriber.
+//
+// The stream concerned is the payload's own cover (rejected_command.cover or
+// rejected_events.cover); the entry does not repeat it.
 message AngzarrDeadLetter {
-  Cover cover = 1; // Stream the failed message concerns: domain, edition, root
   oneof payload {
     // Command that failed, stored as received: its Handling is as sent,
     // before the coordinator resolved it (see Handling). Replay AS_IS keeps
@@ -788,7 +937,7 @@ message AngzarrDeadLetter {
   google.protobuf.Timestamp occurred_at = 7;
   map<string, string> metadata = 8; // Additional context
   string source_component = 10; // Which component sent to DLQ
-  string source_component_type = 11; // "aggregate" | "saga" | "projector" | "process_manager"
+  ComponentKind source_component_kind = 15; // Its kind
 }
 // endregion
 
@@ -802,11 +951,24 @@ message Target {
   string domain = 1;
 }
 
+// ComponentKind identifies a kind of dispatch component: in a component
+// declaration ((io.angzarr.v1.component) in options.proto), in a
+// registration (ComponentDescriptor.kind) and in a dead letter
+// (AngzarrDeadLetter.source_component_kind). Defined here, beside the
+// runtime messages; options.proto imports it.
+enum ComponentKind {
+  COMPONENT_KIND_UNSPECIFIED = 0;
+  COMPONENT_KIND_AGGREGATE = 1;
+  COMPONENT_KIND_SAGA = 2;
+  COMPONENT_KIND_PROCESS_MANAGER = 3;
+  COMPONENT_KIND_PROJECTOR = 4;
+}
+
 // Component self-description, given when a component registers with its
 // coordinator.
 message ComponentDescriptor {
   string name = 1;
-  string component_type = 2;
+  ComponentKind kind = 5;
   repeated Target inputs = 3; // Domains I subscribe to (event types I consume)
   // Version of the business rules this running component decides with
   // (handler code and configuration; e.g. a build id or release tag).

@@ -22,8 +22,8 @@ service CommandHandlerService {
   // By the time Handle is called the coordinator has already deduplicated
   // keyed commands and facts (see the claim model in types.proto) and
   // resolved the command's Handling: checked
-  // or stamped the expected sequence and applied the configured merge
-  // default (see Handling), so decide always sees a concrete sequence.
+  // or stamped the expected sequence and applied the configured conflict
+  // resolution default (see Handling), so decide always sees a concrete sequence.
   // Which coordinator RPC the caller used (the command mode) is not passed
   // on: business code behaves the same in every mode.
   //
@@ -79,7 +79,10 @@ service CommandHandlerService {
 //
 // Every mode refuses a malformed command loudly with INVALID_ARGUMENT,
 // never ignoring the offending field: a Handling field that configuration
-// forbids overriding, or expected_sequence on a Fact (see Handling).
+// forbids overriding, expected_sequence on a Fact (see Handling), a body arm
+// and origin that disagree (a Fact without a fact origin, a Command with
+// one; see the origin region in types.proto), or a non-main edition that
+// was never created (NOT_FOUND; see Cover.edition).
 //
 // Idempotency is the same in every mode (see the claim model in the origin
 // region of types.proto): a keyed command is deduplicated per addressed
@@ -121,7 +124,7 @@ service CommandHandlerService {
 service CommandHandlerCoordinatorService {
   // DECISION. Process one command and answer with its decision. The
   // CommandBook is the request: its handling says how to treat it (expected
-  // sequence, merge strategy), with unspecified fields taken from
+  // sequence, conflict resolution), with unspecified fields taken from
   // configuration (see Handling). Facts (external realities) are injected
   // here too, in the Fact arm of CommandPage.body.
   //
@@ -147,7 +150,7 @@ service CommandHandlerCoordinatorService {
   // so there are no events and no delivery outcome to report.
   //
   // The command must carry an idempotency key: a request origin with a
-  // non-empty request_id, or a fact's external_id. Asynchronous delivery is
+  // non-empty request_id, or a fact's external_id (CommandPage.origin). Asynchronous delivery is
   // at least once, and the key is what makes redelivery safe; a keyless
   // command is refused INVALID_ARGUMENT. On a backend without atomic claims
   // HandleAsync answers UNIMPLEMENTED.

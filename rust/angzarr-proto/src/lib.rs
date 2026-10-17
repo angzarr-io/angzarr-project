@@ -2,10 +2,13 @@
 //!
 //! Generated from `proto/` in this repository: `io.angzarr.v1` books, pages
 //! (the `CommandPage` body: `Command` or `Fact`), covers, `Handling` (on
-//! `CommandBook`), provenance (`Provenance`, `EventMeta`, `EventRef`, the
-//! origin messages `RequestOrigin`, `Causation`, `FactOrigin`), the
-//! response-only `Outcome`, the storage-only `IdempotencyClaim` schema,
-//! `ComponentDescriptor`, and the upcaster request/response messages, plus
+//! `CommandBook`, with `ConflictResolution`), `ContextualCommand` (with the
+//! conflict nonce), provenance (`Provenance`, `EventMeta`, `EventRef`, and
+//! the one `Origin` message over `RequestOrigin`, `Causation` and
+//! `FactOrigin`, shared by the page, the event meta and the claim key),
+//! snapshots (with their `rules_version`), the response-only `Outcome`, the
+//! storage-only `IdempotencyClaim` schema, `ComponentDescriptor` and
+//! `ComponentKind`, and the upcaster request/response messages, plus
 //! `sererr.v1`, which `types.proto` imports. Every message implements [`prost::Name`] with no type-name domain,
 //! so `prost_types::Any::from_msg` yields type URLs of the form
 //! `/io.angzarr.v1.EventPage`, matching angzarr's TYPE_URL_PREFIX ("/").

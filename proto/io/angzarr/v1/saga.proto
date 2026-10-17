@@ -12,11 +12,12 @@ option ruby_package = "Angzarr";
 
 // SagaService: stateless translation from source events to commands.
 //
-// Every emitted command is a Command (never a Fact) whose origin is a
-// Causation (see types.proto): it records the event being reacted to. It
-// carries no Handling (see Handling): the destination always stamps its
-// head before business code, merge never applies, and delivery mode (which
-// coordinator RPC delivers it) comes from the saga's configuration.
+// Every emitted command is a Command (never a Fact) whose CommandPage.origin
+// is a Causation (see types.proto): it records the event being reacted to.
+// It carries no Handling (see Handling): the destination always stamps its
+// head before business code, conflict resolution never applies, and
+// delivery mode (which coordinator RPC delivers it) comes from the saga's
+// configuration.
 //
 // Sagas carry choreographed flows, including their refusals: a target that
 // must refuse records the refusal as a domain event, and a saga subscribed
@@ -65,9 +66,9 @@ service SagaCoordinatorService {
 message SagaResponse {
   // Commands for other aggregates; each carries a Causation origin and NO
   // Handling: handling is left unset (or empty). A command that sets any
-  // Handling field (expected_sequence or merge) is a saga bug, refused
-  // loudly: dead-lettered and alerted, never delivered, never silently
-  // stripped (see Handling). Provenance is likewise left empty for the
+  // Handling field (expected_sequence or conflict_resolution) is a saga
+  // bug, refused loudly: dead-lettered and alerted, never delivered, never
+  // silently stripped (see Handling). Provenance is likewise left empty for the
   // coordinator to stamp from the trigger; an actor or correlation_id that
   // differs from the trigger's is refused the same way. Delivery mode comes
   // from the saga's configuration, never from the command.

@@ -1,8 +1,8 @@
-# Code follow-up backlog (passes 1–5)
+# Code follow-up backlog (passes 1–6)
 
 Part of the [audit-meta design record](../audit-meta-followups.md).
 
-The five `feat/audit-meta` passes changed only the protos and the
+The six `feat/audit-meta` passes changed only the protos and the
 `rust/angzarr-proto` crate. **Nothing in this backlog is done.** It is the
 durable record of the code work the new contract implies: the user is not
 taking on heavy angzarr refactoring now, and this list must not be lost.
@@ -113,7 +113,7 @@ range.**
 - Settled when: the user decides, and the decision is recorded in
   `types.proto`.
 
-## OB: transient reactor outbox (pass 5, W2)
+## OB: transient reactor outbox (pass 5, W3)
 
 **OB-1** [core] **The saga transient outbox.**
 - What: store a `SagaResponse`'s commands atomically with the saga's source
@@ -151,6 +151,19 @@ range.**
   PM-only outbox.
 - Why: the outbox now covers all reactors.
 - Settled when: the docs match the protos.
+
+**OB-6** [core, router] **Per-event causation for saga output (W3a).**
+- What: a saga receives a whole `EventBook`, and core stamps causation with
+  the book's maximum sequence (`source_max_sequence` in
+  `orchestration/saga/mod.rs`). That is imprecise for audit, and the key
+  changes if catch-up delivers the events in different chunks. Either
+  deliver one triggering event per saga call, or have the router report which
+  event produced each command, so the coordinator stamps the exact
+  `Causation.event`.
+- Why: W3(a), the one part of W3 that pass 5 left open. `Causation.event` is
+  "always the triggering event" in the contract.
+- Settled when: re-chunked catch-up re-sends commands with identical keys,
+  and each command's `Causation.event` names the event it answers.
 
 ## PS: provenance stamping and correlation (passes 1 and 5, W4/W5)
 
@@ -317,8 +330,8 @@ range.**
   editions.
 
 **ED-3** [core] **Main is `""` only.**
-- What: drop the `"angzarr"` alias, and make `DeleteEditionEvents` reject
-  `""`.
+- What: drop the `"angzarr"` alias. (The `""` refusal moved to
+  `DeleteEdition`, EA-1.)
 - Why: pass 1.
 - Settled when: no alias remains, and a test covers the rejection.
 
@@ -326,10 +339,10 @@ range.**
 - What: per-edition storage routing and sharding, a configured default
   edition store (memory, redis, a persistent store or the existing database),
   the edition column kept in every schema, and projector output following the
-  edition's storage. Divergence points move into edition configuration.
-- Why: passes 1 and 2.
-- Settled when: an unconfigured what-if runs on the default store, and a
-  configured edition runs on its own store.
+  edition's storage. Divergence points live in the edition record (EA-1).
+- Why: passes 1, 2 and 6.
+- Settled when: a created edition with no store runs on the default store,
+  and an edition created with a store runs on that store.
 
 ## SN: snapshots (passes 2 and 5, W12)
 
@@ -347,6 +360,19 @@ range.**
   the default keeps the newest only. The config shape needs designing.
 - Why: pass 2.
 - Settled when: the config is documented, and the default is tested.
+
+**SN-3** [core] **Snapshot version-discard (pass 6, D8).**
+- What: stamp `Snapshot.rules_version` from the component's
+  `ComponentDescriptor.rules_version` when a snapshot is written. On every
+  load that would start from a snapshot, compare its state type URL with the
+  registered state type and its `rules_version` with the current one; on a
+  mismatch, skip it (falling back to an older matching snapshot, or sequence
+  0) and replay. Count discards in a metric. Business code never sets the
+  field.
+- Why: `types.proto`, Snapshot "Validity".
+- Settled when: changing the state type or the rules version makes the next
+  load replay from events, never decode the old state, and the replayed
+  state equals a full replay.
 
 ## RT: recorded_at and temporal queries (passes 2 and 5, W13)
 
@@ -445,9 +471,10 @@ range.**
 
 **PR-2** [core] **Hard rejections of PM commands.**
 - What: retry when retryable, otherwise dead-letter. Whether the PM should
-  also learn of the rejection is open (D8).
+  also learn of the rejection is open (an open question in the index; it is
+  not one of the review's D items).
 - Why: pass 2.
-- Settled when: D8 is decided and implemented.
+- Settled when: the question is decided and implemented.
 
 ## FA: the fact pipeline (pass 2)
 
@@ -474,14 +501,15 @@ range.**
 ## HD: Handling resolution (passes 1 and 3)
 
 **HD-1** [core] **Resolve Handling in place.**
-- What: stamp `expected_sequence` when absent, and fill `merge` from
-  configuration. `ContextualCommand` sees only resolved handling, which is
+- What: stamp `expected_sequence` when absent, and fill
+  `conflict_resolution` from configuration. `ContextualCommand` sees only resolved handling, which is
   never persisted.
 - Why: pass 3.
 - Settled when: decide never sees an unspecified field.
 
-**HD-2** [core] **Merge configuration.**
-- What: configure the merge strategy per command type and per component.
+**HD-2** [core] **Conflict-resolution configuration.**
+- What: configure the conflict resolution per command type and per
+  component (including the opt-in COMMUTATIVE, CR-1).
   Precedence: Handling, then command type, then component, then STRICT. Add
   forbid-override, which is refused `INVALID_ARGUMENT`. The config shape
   needs designing.
@@ -498,20 +526,24 @@ range.**
 - Why: passes 3 and 4.
 - Settled when: core and the router behave identically.
 
-**HD-4** [core] **The default merge is STRICT.**
+**HD-4** [core] **The default conflict resolution is STRICT.**
 - What: `CommandPageExt::effective_merge_strategy` calls
-  `MergeStrategy::or_default_commutative`. Make it default to STRICT.
-- Why: `COMMUTATIVE` is gone from the wire.
+  `MergeStrategy::or_default_commutative`. Make it default to STRICT, and
+  rename to `ConflictResolution` (pass 6, D10).
+- Why: COMMUTATIVE is opt-in only (pass 6); it is never the default.
 - Settled when: an unconfigured stale command is `ABORTED`.
 
-**HD-5** [core, clients] **Two strategies, checked before business code.**
-- What: keep only `STRICT` and `AGGREGATE_HANDLES`, and deliver the conflict
-  window with the command. Check or stamp the expected sequence before
-  business code. Clients get conflict-resolution helpers for
-  `AGGREGATE_HANDLES`, computed locally over the delivered window (no
-  framework RPC).
-- Why: pass 1.
-- Settled when: no other strategy remains in code.
+**HD-5** [core, clients] **Three resolutions, checked before business
+code.**
+- What: keep only `STRICT`, `AGGREGATE_HANDLES` and the client-side
+  `COMMUTATIVE` (no `MANUAL`, no coordinator-side commutative diff, no
+  `Replay` RPC), and deliver the conflict window with the command. Check or
+  stamp the expected sequence before business code. Clients get
+  conflict-resolution helpers for `AGGREGATE_HANDLES`, computed locally over
+  the delivered window (no framework RPC).
+- Why: passes 1 and 6.
+- Settled when: no other resolution remains in code, and core's commutative
+  diff is gone (CR-1 replaces it in the clients).
 
 ## WS: wire-shape migration (passes 1–3)
 
@@ -605,6 +637,208 @@ range.**
 - Why: pass 2.
 - Settled when: the router builds on `angzarr-proto`.
 
+## OR: one Origin (pass 6, D1)
+
+**OR-1** [core] **Validate arm against origin.**
+- What: read the origin from `CommandPage.origin` (no longer from the
+  `Command`/`Fact` arms), and refuse a mismatch before deduplication: a Fact
+  without a fact origin or with an empty `external_id`, a Command with a fact
+  origin. `INVALID_ARGUMENT` for a client; dead-letter and alert for a
+  reactor (including a reactor that emits a Fact). A Command with no origin
+  is a keyless request, recorded as an empty `RequestOrigin`.
+- Why: `types.proto`, origin region. The rule was structural before pass 6
+  and is now a check.
+- Settled when: each mismatch is refused in every mode, and none reaches
+  business code.
+
+**OR-2** [core, router, clients] **Use the shared `Origin` everywhere.**
+- What: `EventMeta.origin` is the page's `Origin`, copied unchanged;
+  `IdempotencyClaim.key` is an `Origin`; the claim store's key columns follow.
+  Delete the per-arm origin mapping code in every language.
+- Why: D1: one shape, no mapping.
+- Settled when: no code maps one origin shape onto another.
+
+## CQ: cross-domain correlation query (pass 6, D4)
+
+**CQ-1** [core] **A correlation index in every backend.**
+- What: an index on `EventMeta.provenance.correlation_id` across all
+  domains (and per edition) in each storage backend, so
+  `GetCorrelatedEvents` does not scan. Postgres and SQLite: an index on a
+  correlation column. Bigtable and other key-value stores: a secondary
+  index table keyed by (edition, correlation, stream, sequence), written in
+  the append. KurrentDB-backed: the `$by_correlation_id` system projection.
+- Why: D4; the indexes were deferred to the backlog by decision.
+- Settled when: every backend answers a correlation query in time
+  proportional to the result, not to the store.
+
+**CQ-2** [core, clients] **Serve `GetCorrelatedEvents`, and a forward-causation helper.**
+- What: implement the RPC (validation, editions, one book per stream, the
+  HTTP route). Client libraries offer a helper that indexes the result on
+  `origin.causation.event` to answer "what did this event cause".
+- Why: `query.proto`, `CorrelationQuery` in `types.proto`.
+- Settled when: a saga chain across three domains comes back in one call,
+  and the helper rebuilds its causation tree.
+
+## EA: edition administration (pass 6, D5)
+
+**EA-1** [core] **The edition registry and its admin RPCs.**
+- What: store `Edition` records (name, `diverged_at`, store, created_at,
+  created_by) and serve `EditionAdminService.CreateEdition` and
+  `DeleteEdition` with the documented codes. `DeleteEdition` removes the
+  record and the edition's events, snapshots, projector output and claims in
+  every domain. Administrative only: nothing is written to any stream.
+  Retire core's `DeleteEditionEvents` storage method.
+- Why: `meta.proto`.
+- Settled when: create, delete, the `""` refusal and the unknown-name
+  refusal are tested.
+
+**EA-2** [core] **Refuse never-created editions everywhere.**
+- What: every command, query and subscription naming a non-main edition
+  checks the registry and answers `NOT_FOUND` for an unknown name. Remove the
+  "unknown edition falls back to the default store" path.
+- Why: D5: a misspelt edition must never get storage.
+- Settled when: a command to a misspelt edition writes nothing and is
+  refused.
+
+**EA-3** [core] **Divergence records drive the main fall-through.**
+- What: an edition read falls through to main's events with `recorded_at`
+  at or before the edition's `diverged_at`, in every stream. Make the
+  default point exact: a time stamped at create can tie with a main event
+  appended concurrently (equal `recorded_at`), and clocks differ across
+  coordinator instances. Settle on one rule (for example, stamp
+  `diverged_at` through the same non-decreasing clock as appends, or record
+  per-stream heads lazily on the edition's first access to a stream) and
+  document it.
+- Why: the divergence point is now recorded, so it must be exact.
+- Settled when: a what-if created at main's head never sees a main event
+  appended after the create returned.
+
+**EA-4** [clients, site, project] **What-if callers create editions first.**
+- What: client helpers for `CreateEdition`/`DeleteEdition`, the what-if
+  examples and feature specs updated to create the edition, and the site's
+  edition pages rewritten.
+- Why: D5.
+- Settled when: no example or spec uses an edition it did not create.
+
+## NC: the conflict nonce (pass 6, D7)
+
+**NC-1** [clients, router] **The nonce helper in each client library.**
+- What: in each language (go, rust, python, java, csharp, cpp, typescript
+  and the router), pass `ContextualCommand.conflict_nonce` to the handler as
+  a parameter under AGGREGATE_HANDLES and COMMUTATIVE, provide
+  `resolve_conflicts(window, nonce)`, and on handler return check that it was
+  called with exactly the delivered value. Otherwise discard the output,
+  answer `ABORTED`, and log the handler bug. Local only: no gRPC call.
+- Why: `types.proto`, `ContextualCommand.conflict_nonce` and the
+  conflict_resolution region.
+- Settled when: in every language, a handler that ignores the window fails
+  stale, one that resolves it succeeds, and one that passes a made-up value
+  fails.
+
+**NC-2** [core] **Mint the nonce.**
+- What: the coordinator mints a fresh opaque value per delivery under
+  AGGREGATE_HANDLES and COMMUTATIVE (empty window included) and leaves it
+  empty under STRICT. Never persisted, never returned.
+- Why: as NC-1.
+- Settled when: two deliveries of one command carry different nonces.
+
+## CR: COMMUTATIVE in the client libraries (pass 6)
+
+**CR-1** [clients, router] **The reflection-diff resolver in each language.**
+- What: in each language, an opt-in COMMUTATIVE resolver: fold the state to
+  `expected_sequence` and to the head, diff the two by protobuf reflection
+  to get the fields the window changed, compute the fields the command's
+  events change (folding them over the head state), and if the sets are
+  disjoint acknowledge the nonce (NC-1) and keep the output; otherwise fail
+  `ABORTED`. Define field granularity (top-level fields, nested message
+  paths, repeated and map fields as wholes or per entry) once, in a
+  cross-language parity spec. Delete core's coordinator-side commutative
+  diff.
+- Why: decision 6.12; `ConflictResolution` in `types.proto`.
+- Settled when: the parity spec passes in every language: disjoint edits
+  succeed, overlapping edits fail stale, and the handler writes no conflict
+  code.
+
+**CR-2** [core] **Configuration names COMMUTATIVE as opt-in.**
+- What: the conflict-resolution config (HD-2) accepts COMMUTATIVE per
+  command type or component, and as a `Handling` override where allowed. It
+  is never a default.
+- Why: decision 6.12.
+- Settled when: COMMUTATIVE applies only where configured or overridden.
+
+## CL: D9 cleanups (pass 6)
+
+**CL-1** [core, clients] **`AggregateRoot` is deleted.**
+- What: `GetAggregateRoots` streams `Cover` (with the edition).
+- Why: D9.
+- Settled when: no `AggregateRoot` remains.
+
+**CL-2** [core, clients, router] **`ComponentKind` replaces the type strings.**
+- What: `ComponentDescriptor.kind`, `AngzarrDeadLetter.source_component_kind`
+  and `StoredDeadLetter.source_component_kind` replace the strings. The DLQ
+  publishers and the `dlq_entries` table store the enum; the console filters
+  on it. Codegen imports `ComponentKind` from `types.proto`.
+- Why: D9.
+- Settled when: no component-type string remains on the wire or in the DLQ
+  table.
+
+**CL-3** [core] **Drop `AngzarrDeadLetter.cover`.**
+- What: publishers and the status console take the stream from the
+  payload's cover (`rejected_command.cover` or `rejected_events.cover`).
+- Why: D9.
+- Settled when: no code reads a dead letter's own cover.
+
+**CL-4** [core, clients, router] **`Projection.next_sequence`.**
+- What: rename the field in every user (client-rust sets it from
+  `book.next_sequence`; core's projector coordinator sets 0).
+- Why: D9.
+- Settled when: every producer sets the stream's next_sequence after the
+  projected events.
+
+**CL-5** [core, clients, site] **Delete `Synchronize`.**
+- What: remove core's `EventQueryService::synchronize` and its test, the
+  client-rust test backend's stub, the gateway route, and the site's
+  `pitch.mdx` claim that it is a catch-up subscription.
+- Why: decision 6.9.
+- Settled when: no `Synchronize` remains.
+
+## AU: attempt-audit sink (pass 6, D3)
+
+**AU-1** [core] **An optional attempt-audit observability sink.**
+Held until the user says when. Core code: the interface plus in-memory and
+no-op implementations only.
+- What, the interface specification:
+  - **Shape.** One trait (or interface) per coordinator,
+    `AttemptSink::record(&self, attempt: &Attempt)`, non-blocking and
+    infallible from the caller's view: a sink error or slowness never fails,
+    delays or changes command handling (it is buffered or dropped, and
+    counted by a metric).
+  - **Composable.** A command-handler coordinator takes zero or more sinks;
+    a fan-out sink combines several. The default is the no-op sink.
+  - **What is reported.** One `Attempt` per delivery that reaches the
+    coordinator, reported once its outcome is known: the target stream
+    (`Cover`), the command type URL, the arm (command or fact), the
+    `Origin`, the `Provenance`, `Handling` as received and as resolved, the
+    RPC (mode), the receive time, the duration, the rules version, the
+    payload fingerprint, and optionally the payload bytes (configurable,
+    since a payload may hold personal data). The outcome is one of: APPLIED
+    (with the sequence range), DUPLICATE, PARKED, a rejection (the gRPC code
+    and message: a business rejection, a stale sequence, a fingerprint
+    mismatch), a malformed refusal (`INVALID_ARGUMENT`, including
+    arm/origin mismatches and unknown editions), or a handler bug
+    (`INTERNAL`). `HandleAsync` reports the enqueue (ACCEPTED) and, later,
+    the processed outcome as a second attempt record with the same key.
+  - **Never in the event store.** Attempts are observability, not domain
+    history: no stream, no projection, no replay, and no effect on
+    idempotency claims.
+  - **Implementations.** No-op (the default) and in-memory (a bounded
+    buffer, readable in tests and development). Durable sinks (a log, an
+    audit queue) are left to deployments.
+- Why: D3: rejections and attempts leave nothing in any stream.
+- Settled when: the user says when; then the interface is in core, both
+  implementations are tested, and a rejected command shows up in the
+  in-memory sink with its code.
+
 ## GAP: gaps carried from earlier passes
 
 **GAP-1** [core] **Upcasting runs only on aggregate loads.**
@@ -631,17 +865,20 @@ range.**
 - What: `just proto-breaking` is manual, and `contracts.yml` lints only.
 - Why: wire breaks are accepted pre-freeze.
 - Settled when: it gates at v0.1.0, or before hatpick stores production
-  events.
+  events. The same moment starts `reserved` statements for every removed
+  field (decision 6.6, D6, written in `proto/buf.yaml`).
 
 ## DOC: site, feature specs and branches
 
 **DOC-1** [site] **Fix the embedded proto regions.**
 - What: the site embeds regions that no longer exist: `edition`,
   `snapshot_retention`, `rejection_notification`, `page_header` and
-  `sync_mode`. Use `provenance`, `handling`, `outcome`, `command_modes`, and
-  the new `idempotency_claim`. The merge-strategy table needs the config
-  precedence, and the stale-sequence code is now `ABORTED`.
-- Why: passes 1–5.
+  `sync_mode`, and (pass 6) `merge_strategy`. Use `provenance`, `handling`,
+  `outcome`, `command_modes`, `idempotency_claim`, and (pass 6)
+  `conflict_resolution`, `correlation_query` and `edition_admin`. The
+  conflict-resolution table needs the config precedence, the nonce and
+  COMMUTATIVE, and the stale-sequence code is now `ABORTED`.
+- Why: passes 1–6.
 - Settled when: a strict site build passes.
 
 **DOC-2** [site] **Rewrite the stale pages.**
@@ -691,14 +928,14 @@ range.**
 | Workstream | Items |
 |---|---|
 | KS: idempotency key store | 10 |
-| OB: transient reactor outbox | 5 |
+| OB: transient reactor outbox | 6 |
 | PS: provenance stamping and correlation | 5 |
 | BO: business output is payloads only | 3 |
 | RV: rules_version declaration | 2 |
 | MD: the three RPC modes and the Outcome | 6 |
 | ST: status codes | 2 |
 | ED: editions, external sinks, CloudEvent id | 4 |
-| SN: snapshots | 2 |
+| SN: snapshots | 3 |
 | RT: recorded_at and temporal queries | 2 |
 | DQ: DLQ replay | 6 |
 | RN: renames | 2 |
@@ -708,9 +945,16 @@ range.**
 | WS: wire-shape migration | 5 |
 | RM: removed features | 6 |
 | TG: type generation and router | 2 |
+| OR: one Origin (pass 6) | 2 |
+| CQ: cross-domain correlation query (pass 6) | 2 |
+| EA: edition administration (pass 6) | 4 |
+| NC: the conflict nonce (pass 6) | 2 |
+| CR: COMMUTATIVE in the client libraries (pass 6) | 2 |
+| CL: D9 cleanups (pass 6) | 5 |
+| AU: attempt-audit sink (pass 6, held) | 1 |
 | GAP: carried gaps | 3 |
 | DOC: site, specs, branches | 6 |
-| **Total** | **81** |
+| **Total** | **101** |
 
 ## By-repo index
 
@@ -718,9 +962,9 @@ An item tagged with several repos appears under each of them.
 
 | Repo | Items |
 |---|---|
-| core | KS-1–6, KS-8–10, OB-1–3, OB-5, PS-1–5, BO-1, RV-1, MD-1–5, ST-1, ED-1–4, SN-1–2, RT-1–2, DQ-1–6, RN-1–2, PR-1–2, FA-1–2, HD-1–5, WS-1–5, RM-1–3, RM-6, TG-1, GAP-1–2 |
-| router | OB-4, PS-2, RN-1, FA-3, HD-3, WS-2, TG-1–2 |
-| clients (go, rust, python, java, csharp, cpp, typescript) | KS-7, BO-2, RV-2, MD-6, ST-2, RN-1–2, FA-3, HD-5, WS-1–2, RM-4, RM-6, TG-1 |
+| core | KS-1–6, KS-8–10, OB-1–3, OB-5–6, PS-1–5, BO-1, RV-1, MD-1–5, ST-1, ED-1–4, SN-1–3, RT-1–2, DQ-1–6, RN-1–2, PR-1–2, FA-1–2, HD-1–5, WS-1–5, RM-1–3, RM-6, TG-1, OR-1–2, CQ-1–2, EA-1–3, NC-2, CR-2, CL-1–5, AU-1, GAP-1–2 |
+| router | OB-4, OB-6, PS-2, RN-1, FA-3, HD-3, WS-2, TG-1–2, OR-2, NC-1, CR-1, CL-2, CL-4 |
+| clients (go, rust, python, java, csharp, cpp, typescript) | KS-7, BO-2, RV-2, MD-6, ST-2, RN-1–2, FA-3, HD-5, WS-1–2, RM-4, RM-6, TG-1, OR-2, CQ-2, EA-4, NC-1, CR-1, CL-1–2, CL-4–5 |
 | examples | BO-3, WS-2, RM-5 |
-| site | RN-2, DOC-1–4 |
-| project (features, CI, branches) | GAP-3, DOC-5–6 |
+| site | RN-2, EA-4, CL-5, DOC-1–4 |
+| project (features, CI, branches) | EA-4, GAP-3, DOC-5–6 |
