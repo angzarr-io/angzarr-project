@@ -49,7 +49,9 @@ runtimes. This is accepted.
 
 ## Where annals still follows angzarr
 
-- Stream identity is (domain, edition, root), and main is `""`.
+- Stream identity is (domain, edition, root), and main is the unset edition
+  (pass 7): annals' `Option<EditionName>` with `None` = main is exactly the
+  wire's `optional string edition`, and a set edition is never empty.
 - Sequences are u64, and `EventPage.sequence` is always definite.
 - Correlation is always set. Causation names the triggering event.
 - Facts use an infallible `ingest`. Strict replay: an unknown type URL fails,

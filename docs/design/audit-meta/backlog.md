@@ -1,8 +1,8 @@
-# Code follow-up backlog (passes 1–6)
+# Code follow-up backlog (passes 1–7)
 
 Part of the [audit-meta design record](../audit-meta-followups.md).
 
-The six `feat/audit-meta` passes changed only the protos and the
+The seven `feat/audit-meta` passes changed only the protos and the
 `rust/angzarr-proto` crate. **Nothing in this backlog is done.** It is the
 durable record of the code work the new contract implies: the user is not
 taking on heavy angzarr refactoring now, and this list must not be lost.
@@ -314,7 +314,7 @@ range.**
 - Why: one contract across languages.
 - Settled when: the parity tests agree.
 
-## ED: editions, external sinks and the CloudEvent id (passes 1, 2 and 5, W10)
+## ED: editions, external sinks and the CloudEvent id (passes 1, 2, 5 and 7, W10)
 
 **ED-1** [core] **Suppress non-main editions at external sinks.**
 - What: CloudEvents HTTP and Kafka sinks, and any other external automation,
@@ -323,17 +323,24 @@ range.**
 - Settled when: a what-if command produces no sink delivery.
 
 **ED-2** [core] **The default CloudEvent id and source include the edition.**
-- What: id `{domain}:{edition}:{root}:{sequence}`, source `angzarr/{domain}`
-  on main and `angzarr/{domain}/editions/{edition}` otherwise.
-- Why: W10.
+- What: id `{domain}:{root}:{sequence}` on main (edition unset, no edition
+  segment) and `{domain}:{edition}:{root}:{sequence}` on a named edition;
+  source `angzarr/{domain}` on main and `angzarr/{domain}/editions/{edition}`
+  otherwise.
+- Why: W10; the main shape is pass 7 (decision 7.1).
 - Settled when: the ids of the same (domain, root, sequence) differ across
   editions.
 
-**ED-3** [core] **Main is `""` only.**
-- What: drop the `"angzarr"` alias. (The `""` refusal moved to
-  `DeleteEdition`, EA-1.)
-- Why: pass 1.
-- Settled when: no alias remains, and a test covers the rejection.
+**ED-3** [core, clients] **Main is the unset edition.**
+- What: model the edition as an option (`None` = main) through core's
+  coordinators, queries, subscriptions and storage, and drop the `"angzarr"`
+  alias and any `""`-means-main handling. Refuse a **set** empty edition
+  (`Cover.edition`, `CorrelationQuery.edition`) with `INVALID_ARGUMENT`.
+  Client helpers build main covers with the edition unset. How a backend
+  stores main (for example NULL) is its own choice.
+- Why: pass 7 (decision 7.1), superseding pass 1's "main is `""`".
+- Settled when: no alias or `""`-as-main path remains, an unset edition
+  reads and writes main, and a test covers the set-`""` refusal.
 
 **ED-4** [core] **Edition storage.**
 - What: per-edition storage routing and sharding, a configured default
@@ -689,8 +696,9 @@ code.**
   every domain. Administrative only: nothing is written to any stream.
   Retire core's `DeleteEditionEvents` storage method.
 - Why: `meta.proto`.
-- Settled when: create, delete, the `""` refusal and the unknown-name
-  refusal are tested.
+- Settled when: create, delete, the empty-name refusal (`INVALID_ARGUMENT`:
+  a name is required, and main has none) and the unknown-name refusal are
+  tested.
 
 **EA-2** [core] **Refuse never-created editions everywhere.**
 - What: every command, query and subscription naming a non-main edition
@@ -964,7 +972,7 @@ An item tagged with several repos appears under each of them.
 |---|---|
 | core | KS-1–6, KS-8–10, OB-1–3, OB-5–6, PS-1–5, BO-1, RV-1, MD-1–5, ST-1, ED-1–4, SN-1–3, RT-1–2, DQ-1–6, RN-1–2, PR-1–2, FA-1–2, HD-1–5, WS-1–5, RM-1–3, RM-6, TG-1, OR-1–2, CQ-1–2, EA-1–3, NC-2, CR-2, CL-1–5, AU-1, GAP-1–2 |
 | router | OB-4, OB-6, PS-2, RN-1, FA-3, HD-3, WS-2, TG-1–2, OR-2, NC-1, CR-1, CL-2, CL-4 |
-| clients (go, rust, python, java, csharp, cpp, typescript) | KS-7, BO-2, RV-2, MD-6, ST-2, RN-1–2, FA-3, HD-5, WS-1–2, RM-4, RM-6, TG-1, OR-2, CQ-2, EA-4, NC-1, CR-1, CL-1–2, CL-4–5 |
+| clients (go, rust, python, java, csharp, cpp, typescript) | KS-7, BO-2, RV-2, MD-6, ST-2, ED-3, RN-1–2, FA-3, HD-5, WS-1–2, RM-4, RM-6, TG-1, OR-2, CQ-2, EA-4, NC-1, CR-1, CL-1–2, CL-4–5 |
 | examples | BO-3, WS-2, RM-5 |
 | site | RN-2, EA-4, CL-5, DOC-1–4 |
 | project (features, CI, branches) | EA-4, GAP-3, DOC-5–6 |

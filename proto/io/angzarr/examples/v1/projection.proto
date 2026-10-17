@@ -23,7 +23,8 @@ message TrainingProjection {
   string hand_root = 1;
   uint32 sequence = 2;
   bytes player_root = 3;
-  string edition = 4;
+  // The hand's Cover.edition, with the same convention: unset = main.
+  optional string edition = 4;
 
   // Hole cards (encoded rank*4+suit, 0-51).
   int32 hole_card_1 = 5;

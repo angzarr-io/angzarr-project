@@ -2,7 +2,7 @@
 
 ## Status
 
-Open. The six `feat/audit-meta` passes changed **only** the protos under
+Open. The seven `feat/audit-meta` passes changed **only** the protos under
 `proto/io/angzarr/` and the `rust/angzarr-proto` crate. No angzarr code has
 changed. The user is not taking on heavy angzarr refactoring now, so every
 code consequence is recorded in the backlog, which is the part that must not
@@ -10,7 +10,7 @@ be lost.
 
 Wire breaks are accepted pre-freeze. Reservation policy (D6, pass 6):
 removed fields and messages are deleted outright, with no `reserved`
-statements, up to and including pass 6. From the first stored production
+statements, up to and including pass 7. From the first stored production
 event onwards, every removal reserves its number and name (see
 `proto/buf.yaml` and backlog GAP-3).
 
@@ -18,7 +18,7 @@ event onwards, every removal reserves its number and name (see
 
 | Document | Contents |
 |---|---|
-| [audit-meta/decision-log.md](audit-meta/decision-log.md) | Every decision of passes 1–6: why, the accepted cost, and the standard it aligns with. Also the corrections (Event Modeling, KurrentDB, Axon). |
+| [audit-meta/decision-log.md](audit-meta/decision-log.md) | Every decision of passes 1–7: why, the accepted cost, and the standard it aligns with. Also the corrections (Event Modeling, KurrentDB, Axon). |
 | [audit-meta/critical-review-source.md](audit-meta/critical-review-source.md) | The post-pass-4 critical review's own record (authoritative for the findings' content). |
 | [audit-meta/critical-review.md](audit-meta/critical-review.md) | The status of each review finding: W1–W14, D1–D11, FINE and annals fitness, with where each was resolved. |
 | [audit-meta/idempotency.md](audit-meta/idempotency.md) | The idempotency research (a comparison table) and the chosen key-store design, with its alignments and divergences. |
@@ -55,7 +55,7 @@ event onwards, every removal reserves its number and name (see
     `HandleAsync`.
   - PM replies routed by correlation.
   - DLQ replay keeps keys and is audited (`StoredDeadLetter.replays`).
-- **Pass 6** (this change): the review's debatable items D1–D11, as decided
+- **Pass 6** (650d774): the review's debatable items D1–D11, as decided
   by the user, plus the restoration of COMMUTATIVE. Each is in the decision
   log (6.1–6.12).
   - One `Origin` message on the page, in `EventMeta` and as the claim key;
@@ -74,6 +74,11 @@ event onwards, every removal reserves its number and name (see
     `conflict_resolution`, and `CONFLICT_RESOLUTION_COMMUTATIVE` restored as
     an opt-in client-library resolver.
   - The review record reconciled against its source.
+- **Pass 7** (this change): the main timeline is the **unset** edition, not
+  `""` (decision 7.1, by the user). `Cover.edition` and
+  `CorrelationQuery.edition` are `optional string`; a set empty edition is
+  refused `INVALID_ARGUMENT`; the edition admin names are required and
+  non-empty; the main CloudEvent id has no edition segment.
 
 ## Resolved questions
 
@@ -110,6 +115,8 @@ event onwards, every removal reserves its number and name (see
   events, snapshots, projector output and claims, in every domain.
 - **Unknown editions** (pass 6): refused `NOT_FOUND`; only created editions
   get storage.
+- **The main timeline's name** (pass 7): it has none. Main is the unset
+  edition; a set `""` is malformed (`INVALID_ARGUMENT`).
 
 ## Open questions
 

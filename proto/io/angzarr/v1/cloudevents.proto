@@ -24,9 +24,10 @@ option ruby_package = "Angzarr";
 // HTTP webhook, Kafka, and any other automation with effects outside
 // angzarr). CloudEvents projected from a non-main edition (a what-if; see
 // Cover.edition) are never delivered to them, whatever the projector
-// returns. The edition is nevertheless part of the default id and source,
-// so a CloudEvent's identity can never collide across timelines (e.g. in
-// an edition's own internal sinks or logs).
+// returns. A named edition is nevertheless part of the default id and
+// source (main, which is unnamed, adds no segment), so a CloudEvent's
+// identity can never collide across timelines (e.g. in an edition's own
+// internal sinks or logs).
 message CloudEvent {
   // Event type (e.g., "com.example.order.created").
   // Default: the original event's fully-qualified message name (the text
@@ -46,12 +47,14 @@ message CloudEvent {
   map<string, string> extensions = 3;
 
   // Optional overrides. Framework uses Cover/EventPage values if not set.
-  // Default: {domain}:{edition}:{root_id}:{sequence}, where {edition} is
-  // the event's Cover.edition ("" on the main timeline, giving
-  // "{domain}::{root_id}:{sequence}"). Domains never contain ':'.
+  // Default: {domain}:{root_id}:{sequence} on the main timeline (Cover.edition
+  // unset: no edition segment), and {domain}:{edition}:{root_id}:{sequence}
+  // on a named edition. The shapes cannot collide: domains, root ids and
+  // sequences never contain ':', so a main id has exactly three segments and
+  // an edition id at least four.
   optional string id = 4;
-  // Default: angzarr/{domain} on the main timeline, and
-  // angzarr/{domain}/editions/{edition} on a non-main edition.
+  // Default: angzarr/{domain} on the main timeline (no edition segment),
+  // and angzarr/{domain}/editions/{edition} on a named edition.
   optional string source = 5;
   optional string subject = 6; // Default: aggregate root ID
 }

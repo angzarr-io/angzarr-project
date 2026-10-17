@@ -47,9 +47,11 @@ message Cover {
   UUID root = 1;
   // Edition: the NAME of the timeline the stream belongs to.
   //
-  // Main timeline: the empty string "". It is the canonical and only name of
-  // the main timeline (proto3 unset == ""). Every non-empty name is a
-  // non-main edition. Editions are part of stream identity on the wire
+  // Main timeline: unset (absent). The main timeline has no name; there is
+  // no magic value for it. A set edition is a named, non-main edition and
+  // must be non-empty: a set empty string is malformed and refused
+  // INVALID_ARGUMENT wherever a Cover is accepted. Editions are part of
+  // stream identity on the wire
   // (here and in EventRef.stream), so an edition's events can never be
   // mistaken for, or copied as, main-timeline events.
   //
@@ -80,8 +82,9 @@ message Cover {
   //
   // Lifetime follows the backend: memory lives as long as the process, redis
   // as long as its TTL, a database persists. EditionAdminService.DeleteEdition
-  // (meta.proto) discards a non-main edition explicitly; it refuses "".
-  string edition = 4;
+  // (meta.proto) discards a named edition explicitly; main cannot be named,
+  // so it can never be deleted.
+  optional string edition = 4;
 }
 // endregion
 
@@ -803,7 +806,7 @@ message TemporalQuery {
 }
 
 // Selects events within one domain. cover.domain is required, and
-// cover.edition picks the timeline ("" = main; any other name must have been
+// cover.edition picks the timeline (unset = main; a set name must have been
 // created, see Cover.edition). For every event of one correlation across
 // all domains, use EventQueryService.GetCorrelatedEvents (CorrelationQuery).
 //   By stream:       cover { domain, root }
@@ -844,10 +847,11 @@ message Query {
 // not appear (see the attempt-audit sink in the design record).
 message CorrelationQuery {
   string correlation_id = 1; // Required; INVALID_ARGUMENT when empty
-  // The timeline ("" = main). A non-main edition must have been created,
-  // and is read as the edition reads it (its own events, and main's up to
-  // its divergence point).
-  string edition = 2;
+  // The timeline, as Cover.edition: unset = main; a set name must be
+  // non-empty (a set "" is refused INVALID_ARGUMENT) and must have been
+  // created, and is read as the edition reads it (its own events, and
+  // main's up to its divergence point).
+  optional string edition = 2;
 }
 // endregion
 

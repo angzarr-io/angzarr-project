@@ -1,4 +1,4 @@
-# Audit-meta decision log (passes 1–6)
+# Audit-meta decision log (passes 1–7)
 
 Part of the [audit-meta design record](../audit-meta-followups.md).
 
@@ -109,6 +109,8 @@ with the administrative `DeleteEdition`, which also refuses `""`; decision
 - Why: an edition's events can never be mistaken for, or copied as,
   main-timeline events. Placement is a storage choice.
 - Cost: the edition column stays in every schema.
+- **Superseded in pass 7** (decision 7.1): editions stay in wire identity,
+  but main is the **unset** edition (`optional string edition`), not `""`.
 
 **1.12 `rust/angzarr-proto` is a leaf crate.** It is prost only (no tonic,
 no `google.api`) and builds for wasm32.
@@ -213,7 +215,7 @@ are deleted.
 **4.2 DLQ replay delivers through `HandleAsync`.** Replay already rides the
 bus, and its response carries no decision.
 
-## Pass 5 (this change): the critical review's fixes
+## Pass 5 (b5a4da8): the critical review's fixes
 
 The review's findings are in [critical-review.md](critical-review.md). The
 idempotency research and design are in [idempotency.md](idempotency.md).
@@ -298,6 +300,8 @@ the default CloudEvent id and source (W10).**
 - Pass-5 choice: the id is `{domain}:{edition}:{root}:{sequence}` (main gives
   `{domain}::{root}:{sequence}`). The source is `angzarr/{domain}` on main and
   `angzarr/{domain}/editions/{edition}` otherwise.
+- **Amended in pass 7** (decision 7.1): main has no edition segment, so its
+  id is `{domain}:{root}:{sequence}`; the source rule is unchanged.
 
 **5.11 HandleSync answers OK, with per-projector failures in the `Outcome`
 (W11).** It adds `Outcome.projector_failures` and `ProjectorFailure
@@ -363,7 +367,7 @@ intentional divergence. See [annals-divergence.md](annals-divergence.md).
 The user is not taking on heavy refactoring, and everything is recorded in
 the [backlog](backlog.md).
 
-## Pass 6: the debatable items decided
+## Pass 6 (650d774): the debatable items decided
 
 The user decided the review's D1–D11 (see
 [critical-review.md](critical-review.md)) before this pass, and added the
@@ -443,6 +447,8 @@ event, no replay.
 - `DeleteEdition` deletes the record and everything stored under the
   edition in every domain (events, snapshots, projector output, claims). It
   refuses `""` (`INVALID_ARGUMENT`) and an unknown name (`NOT_FOUND`).
+  (Pass 7, decision 7.1: main is unnamed, so the `""` rule reads "the name is
+  required and non-empty"; the code is unchanged.)
 - **Pass-6 choice: the RPCs live in a new `EditionAdminService` in
   `meta.proto`** (package `io.angzarr.v1`). `meta.proto` held
   `DeleteEditionEvents` with no service. The status console's
@@ -544,6 +550,51 @@ during pass 6).** `CONFLICT_RESOLUTION_COMMUTATIVE = 1` (its old number).
   It is justified by goal 2, and it is opt-in because a structural diff
   cannot see semantic links between fields: two commands that touch
   different fields can still break an invariant that spans them.
+
+## Pass 7: the main timeline is the unset edition
+
+Decided by the user. As before, only the protos, the `rust/angzarr-proto`
+crate and these documents changed, wire breaks are accepted, and nothing is
+reserved: no field was removed, and the 6.6 policy (deletions unreserved
+until the first stored production event) now covers passes up to and
+including 7.
+
+**7.1 Main is the absent edition, not `""` (supersedes 1.11's "main is
+`""`").** `Cover.edition` becomes `optional string edition` (field 4
+kept), so `EventRef.stream` and every other nested `Cover` follow.
+- **Unset means main.** A set edition is a named edition and must be
+  non-empty: a set `""` is malformed and refused `INVALID_ARGUMENT`
+  wherever a `Cover` is accepted. Explicit presence makes the two
+  distinguishable on the wire.
+- `CorrelationQuery.edition` becomes `optional string` with the same
+  convention.
+- `CreateEditionRequest.name` and `DeleteEditionRequest.name` stay plain
+  strings, documented as required and non-empty. Main cannot be named to
+  them at all, so `DeleteEdition`'s "refuses `""`" rule becomes "a name is
+  required" (`INVALID_ARGUMENT` when empty), and `CreateEdition` likewise.
+  They stay plain strings because `DeleteEdition`'s name is an HTTP path
+  segment and neither RPC has a main case to express. `Edition.name` is
+  always non-empty.
+- CloudEvents: the default id is `{domain}:{root}:{sequence}` on main (no
+  edition segment) and `{domain}:{edition}:{root}:{sequence}` on a named
+  edition; three segments against at least four, since domains, roots and
+  sequences never contain `:`. The source is unchanged: `angzarr/{domain}`
+  on main and `angzarr/{domain}/editions/{edition}` otherwise.
+- The example `TrainingProjection.edition` follows the same convention.
+- Why: no magic value. `""` as main relied on proto3's implicit default, so
+  "forgot to set it" and "meant main" were the same bytes, and the empty
+  string had to be special-cased in every refusal rule and in the CloudEvent
+  id (the old `{domain}::{root}:{sequence}`). With explicit presence, main is
+  simply the absence of an edition, which is also how annals models it
+  (`Option<EditionName>`, `None` = main), and a malformed `""` is caught
+  instead of silently meaning main.
+- Cost: every generated client sees a presence-tracked field (`Option` in
+  Rust, a pointer in Go, `HasField` in Python, and so on), and core's edition
+  handling and its CloudEvent id change (backlog ED-2, ED-3, EA-1). The
+  storage representation of main (for example NULL in the edition column) is
+  each backend's choice and never reaches the wire.
+- Aligns with: protobuf's own guidance to use explicit presence when unset
+  and empty must differ.
 
 ## Corrections
 

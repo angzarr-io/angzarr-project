@@ -28,12 +28,14 @@ option ruby_package = "Angzarr";
 // Editions need an explicit create. A non-main edition name is usable only
 // after CreateEdition; a command, query or subscription naming a never-created
 // edition is refused loudly (NOT_FOUND), so a misspelt edition can never be
-// given storage. The main timeline "" always exists and can be neither
-// created nor deleted.
+// given storage. The main timeline has no name (Cover.edition unset), always
+// exists, and can be neither created nor deleted: these RPCs take a required,
+// non-empty name, so main cannot be named to them.
 service EditionAdminService {
   // Create an edition: record its divergence point and its store.
-  //   INVALID_ARGUMENT     name is "" (main always exists), or the
-  //                        divergence point is in the future;
+  //   INVALID_ARGUMENT     name is empty (a name is required; main is
+  //                        unnamed and always exists), or the divergence
+  //                        point is in the future;
   //   ALREADY_EXISTS       the edition already exists;
   //   FAILED_PRECONDITION  store names an edition store that is not
   //                        configured.
@@ -46,7 +48,8 @@ service EditionAdminService {
   // Delete an edition: its record, and everything stored under it in every
   // domain (events, snapshots, projector output and idempotency claims),
   // whatever its store's own lifetime. Main is never touched.
-  //   INVALID_ARGUMENT  name is "" (the main timeline is never deleted);
+  //   INVALID_ARGUMENT  name is empty (a name is required; main is unnamed
+  //                     and can never be deleted);
   //   NOT_FOUND         the edition was never created (or is already
   //                     deleted).
   rpc DeleteEdition(DeleteEditionRequest) returns (google.protobuf.Empty) {
@@ -55,7 +58,7 @@ service EditionAdminService {
 }
 
 message CreateEditionRequest {
-  string name = 1; // The edition name; never ""
+  string name = 1; // The edition name: required, non-empty
   // Where the edition branches from main: the edition reads main's events
   // recorded at or before this time (in every stream, a prefix, since
   // recorded_at is non-decreasing per stream; see TemporalQuery), and writes
@@ -68,13 +71,13 @@ message CreateEditionRequest {
 }
 
 message DeleteEditionRequest {
-  string name = 1; // The edition name; "" is refused
+  string name = 1; // The edition name: required, non-empty
 }
 
 // An edition's record: everything about an edition that is not wire data.
 // Written by CreateEdition, removed by DeleteEdition; never an event.
 message Edition {
-  string name = 1;
+  string name = 1; // Always non-empty (main has no name and no record)
   // The recorded divergence point (see CreateEditionRequest.diverge_at),
   // always set: the requested time, or the create time when none was given.
   google.protobuf.Timestamp diverged_at = 2;

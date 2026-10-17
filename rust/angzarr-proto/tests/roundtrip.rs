@@ -1,9 +1,9 @@
 use angzarr_proto::v1::{
     angzarr_dead_letter, command_page, origin, AngzarrDeadLetter, Causation, Command, CommandBook,
-    CommandPage, ComponentDescriptor, ComponentKind, ConflictResolution, ContextualCommand, Cover,
-    DeliveryOutcome, EventBook, EventMeta, EventPage, EventRef, Fact, FactOrigin, Handling,
-    IdempotencyClaim, Origin, Outcome, Projection, ProjectorFailure, Provenance, RequestOrigin,
-    Snapshot, UpcastRequest, Uuid,
+    CommandPage, ComponentDescriptor, ComponentKind, ConflictResolution, ContextualCommand,
+    CorrelationQuery, Cover, DeliveryOutcome, EventBook, EventMeta, EventPage, EventRef, Fact,
+    FactOrigin, Handling, IdempotencyClaim, Origin, Outcome, Projection, ProjectorFailure,
+    Provenance, RequestOrigin, Snapshot, UpcastRequest, Uuid,
 };
 use prost::{Message, Name};
 
@@ -33,7 +33,7 @@ fn cause() -> EventRef {
         stream: Some(Cover {
             domain: "lists".into(),
             root: Some(uuid(0xab)),
-            edition: "what-if".into(),
+            edition: Some("what-if".into()),
         }),
         sequence: u64::MAX,
     }
@@ -98,7 +98,7 @@ fn book(body: command_page::Body, kind: origin::Kind, handling: Option<Handling>
         cover: Some(Cover {
             domain: "draws".into(),
             root: Some(uuid(0xcd)),
-            edition: String::new(), // main timeline
+            edition: None, // main timeline (unset)
         }),
         page: Some(CommandPage {
             provenance: Some(provenance()),
@@ -371,7 +371,7 @@ fn event_ref_nests_a_cover_with_its_edition() {
     let decoded = round_trip(&cause());
     let stream = decoded.stream.expect("stream");
     assert_eq!(stream.domain, "lists");
-    assert_eq!(stream.edition, "what-if");
+    assert_eq!(stream.edition.as_deref(), Some("what-if"));
     assert_eq!(stream.root, Some(uuid(0xab)));
     assert_eq!(decoded.sequence, u64::MAX);
 
@@ -379,10 +379,63 @@ fn event_ref_nests_a_cover_with_its_edition() {
     let p = round_trip(&page(origin::Kind::Causation(causation())));
     match p.meta.unwrap().origin.and_then(|o| o.kind) {
         Some(origin::Kind::Causation(c)) => {
-            assert_eq!(c.event.unwrap().stream.unwrap().edition, "what-if")
+            assert_eq!(
+                c.event.unwrap().stream.unwrap().edition.as_deref(),
+                Some("what-if")
+            )
         }
         other => panic!("expected causation, got {other:?}"),
     }
+}
+
+/// Main is unset, not a magic name: an unset edition is absent from the wire
+/// and decodes as None (main); a set empty string is a different value on the
+/// wire (explicit presence), so a server can refuse it as malformed rather
+/// than read it as main; a named edition round-trips.
+#[test]
+fn edition_unset_is_main_and_a_set_empty_string_is_distinguishable() {
+    let cover = |edition: Option<&str>| Cover {
+        domain: "draws".into(),
+        root: Some(uuid(0xcd)),
+        edition: edition.map(Into::into),
+    };
+
+    let main = cover(None);
+    let main_bytes = main.encode_to_vec();
+    assert_eq!(round_trip(&main).edition, None);
+    assert_eq!(Cover::default().edition, None, "the default cover is main");
+
+    let empty = cover(Some(""));
+    let empty_bytes = empty.encode_to_vec();
+    // Field 4, wire type 2, length 0: present on the wire though empty.
+    assert!(empty_bytes.ends_with(&[0x22, 0x00]));
+    assert_ne!(empty_bytes, main_bytes);
+    assert_eq!(round_trip(&empty).edition.as_deref(), Some(""));
+
+    let named = cover(Some("what-if"));
+    assert_eq!(round_trip(&named), named);
+    assert_eq!(round_trip(&named).edition.as_deref(), Some("what-if"));
+
+    // CorrelationQuery.edition follows the same convention.
+    for edition in [None, Some(String::new()), Some("what-if".to_string())] {
+        let q = CorrelationQuery {
+            correlation_id: "corr-1".into(),
+            edition: edition.clone(),
+        };
+        assert_eq!(round_trip(&q).edition, edition);
+    }
+    assert_ne!(
+        CorrelationQuery {
+            correlation_id: "corr-1".into(),
+            edition: None,
+        }
+        .encode_to_vec(),
+        CorrelationQuery {
+            correlation_id: "corr-1".into(),
+            edition: Some(String::new()),
+        }
+        .encode_to_vec()
+    );
 }
 
 #[test]
@@ -403,7 +456,7 @@ fn outcome_round_trips_each_delivery_with_projections_and_failures() {
         cover: Some(Cover {
             domain: "draws".into(),
             root: Some(uuid(0xcd)),
-            edition: String::new(),
+            edition: None,
         }),
         projector: "draw-history".into(),
         // The stream's next_sequence after the projected events.
@@ -456,7 +509,7 @@ fn idempotency_claim_round_trips_each_key_kind_with_an_empty_range() {
             stream: Some(Cover {
                 domain: "draws".into(),
                 root: Some(uuid(0xcd)),
-                edition: String::new(),
+                edition: None,
             }),
             key: Some(key.clone()),
             fingerprint: vec![0x5a; 32],
