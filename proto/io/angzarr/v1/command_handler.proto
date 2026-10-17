@@ -20,7 +20,8 @@ service CommandHandlerService {
   // CommandPage.body.
   //
   // By the time Handle is called the coordinator has already deduplicated
-  // caused commands and facts and resolved the command's Handling: checked
+  // keyed commands and facts (see the claim model in types.proto) and
+  // resolved the command's Handling: checked
   // or stamped the expected sequence and applied the configured merge
   // default (see Handling), so decide always sees a concrete sequence.
   // Which coordinator RPC the caller used (the command mode) is not passed
@@ -29,14 +30,24 @@ service CommandHandlerService {
   // Reflective dispatch: the body arm's message type picks the pipeline
   // (Command -> decide, which may reject; Fact -> ingest, which never
   // rejects), and the payload's type URL picks the handler. A failing fact
-  // handler is a bug, not a business rejection: the command is
-  // dead-lettered (and alerted), never answered as a rejection.
+  // handler is a bug, not a business rejection: the fact is dead-lettered
+  // (and alerted) and the sender answered PARKED, never a rejection.
   //
   // A rejection is answered as a gRPC error status, never as a response
   // message. There is no compensation input: an aggregate that must refuse
   // something in a choreographed flow records the refusal as a domain event
   // (e.g. ReservationDeclined), which a saga translates into commands for
   // whoever must respond.
+  //
+  // Business output is payloads, plus an optional snapshot state, and
+  // nothing else. The returned EventBook carries pages with only a payload
+  // set (and, optionally, snapshot.state). The coordinator supplies the
+  // cover (the command's), every sequence and every EventMeta. Output that
+  // sets page meta or a page sequence, or a cover other than the command's
+  // (empty counts as the command's), is a handler bug: the coordinator
+  // refuses it and persists nothing. A caller of Handle or HandleSync is
+  // answered INTERNAL; an asynchronous or reaction delivery is
+  // dead-lettered and alerted. It is never treated as a business rejection.
   rpc Handle(ContextualCommand) returns (EventBook);
 }
 
@@ -70,6 +81,33 @@ service CommandHandlerService {
 // never ignoring the offending field: a Handling field that configuration
 // forbids overriding, or expected_sequence on a Fact (see Handling).
 //
+// Idempotency is the same in every mode (see the claim model in the origin
+// region of types.proto): a keyed command is deduplicated per addressed
+// aggregate before business code runs, only an applied outcome is claimed,
+// and a duplicate is answered from the claimed range. HandleAsync requires a
+// key (see below); Handle and HandleSync accept a keyless request, which is
+// simply not deduplicated.
+//
+// Status codes. One set, used by every coordinator and by every framework
+// retry loop (reaction delivery, the PM and saga outbox, asynchronous
+// commands, projector retries):
+//   Retryable:  UNAVAILABLE, DEADLINE_EXCEEDED, RESOURCE_EXHAUSTED, ABORTED.
+//   Terminal:   every other code, notably INVALID_ARGUMENT (malformed),
+//               FAILED_PRECONDITION (a business rejection, or a request key
+//               reused with a different payload), NOT_FOUND,
+//               PERMISSION_DENIED, UNIMPLEMENTED and INTERNAL (a handler
+//               bug).
+// ABORTED is a stale expected_sequence under STRICT (a failed
+// test-and-set). Retrying it means re-reading and re-issuing: a caller does
+// that itself, and the framework retries ABORTED only for commands whose
+// expected_sequence it stamped. A queued command with a caller-provided
+// expected_sequence that is ABORTED is dead-lettered with
+// SequenceMismatchDetails, since resending it verbatim cannot succeed.
+//
+// Backend capability. HandleAsync (and DLQ replay, which delivers through
+// it) answers UNIMPLEMENTED on a storage backend that cannot write an
+// idempotency claim atomically with the append (see IdempotencyClaim).
+//
 // Reaction commands (saga and process-manager output) and process-manager
 // outbox deliveries are not client calls: the delivering component's
 // configuration chooses their mode, never the message.
@@ -88,12 +126,15 @@ service CommandHandlerCoordinatorService {
   // here too, in the Fact arm of CommandPage.body.
   //
   // Accepted: the response carries the persisted events, with
-  // outcome.delivery APPLIED. A caused command or fact whose idempotency key
-  // was already processed (see the origin region in types.proto) is not
-  // handed to business code again; the response carries the events of the
-  // first delivery, with outcome.delivery DUPLICATE. outcome.projections is
-  // always empty. Rejected: a gRPC error status (a stale sequence under
-  // STRICT is a retryable FAILED_PRECONDITION).
+  // outcome.delivery APPLIED. A command or fact whose idempotency key is
+  // already claimed (see the origin region in types.proto) is not handed to
+  // business code again; the response carries the claimed events, re-read
+  // from the stream, with outcome.delivery DUPLICATE. A fact whose ingest
+  // handler fails is answered OK with outcome.delivery PARKED and no events
+  // ("accepted, parked"; it is dead-lettered). outcome.projections and
+  // outcome.projector_failures are always empty. Rejected: a gRPC error
+  // status, and the key is not claimed (a stale sequence under STRICT is
+  // ABORTED; see the status codes above).
   rpc Handle(CommandBook) returns (CommandResponse) {
     option (google.api.http) = {
       post: "/v1/ch/{cover.domain}/commands"
@@ -104,6 +145,12 @@ service CommandHandlerCoordinatorService {
   // response says only that the command was accepted for processing: no
   // decision has been made, and deduplication happens when it is processed,
   // so there are no events and no delivery outcome to report.
+  //
+  // The command must carry an idempotency key: a request origin with a
+  // non-empty request_id, or a fact's external_id. Asynchronous delivery is
+  // at least once, and the key is what makes redelivery safe; a keyless
+  // command is refused INVALID_ARGUMENT. On a backend without atomic claims
+  // HandleAsync answers UNIMPLEMENTED.
   //
   // Validation happens before enqueueing: a malformed command (see Handling)
   // is refused INVALID_ARGUMENT here, never enqueued. A business rejection
@@ -120,7 +167,11 @@ service CommandHandlerCoordinatorService {
   // SIMPLE. As Handle (DECISION), and also waits for the domain's
   // synchronous projectors to project the persisted events; their results
   // come back in outcome.projections. The projectors run on the committed
-  // events, so a projector failure never undoes the decision.
+  // events, so a projector failure never undoes the decision and never
+  // turns the answer into an error: once the decision commits, HandleSync
+  // answers OK with the events, the projections that succeeded, and one
+  // outcome.projector_failures entry per projector that failed (whose
+  // events then follow the asynchronous projection path's retries).
   rpc HandleSync(CommandBook) returns (CommandResponse) {
     option (google.api.http) = {
       post: "/v1/ch/{cover.domain}/commands:sync"

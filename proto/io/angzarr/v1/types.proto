@@ -93,11 +93,13 @@ message Cover {
 // The concurrency window is the run of events the command did not see:
 // sequences expected .. head-1.
 //
-// STRICT: any mismatch rejects with a retryable FAILED_PRECONDITION, before
-// business code runs.
+// STRICT: any mismatch rejects with ABORTED (a failed test-and-set: the
+// caller re-reads and re-issues), before business code runs.
 // AGGREGATE_HANDLES: no coordinator check; decide receives the events since
 // the expected sequence (the window) with the command and applies its own
-// conflict rule.
+// conflict rule. The window is always delivered as pages: the snapshot
+// delivered with the command is at or below expected_sequence-1, never one
+// that has already folded part of the window (see ContextualCommand).
 //
 // Conflict-resolution helpers live in the per-client libraries, computed
 // locally over the events delivered with the command; there is no
@@ -179,8 +181,21 @@ message EventRef {
 // region provenance
 // Who issued a command and which workflow it belongs to. Carried by every
 // command (CommandPage.provenance) and copied unchanged onto every event the
-// command produces (EventMeta.provenance). Empty fields mean "not supplied",
-// never a meaningful empty value.
+// command produces (EventMeta.provenance). On a command, empty fields mean
+// "not supplied", never a meaningful empty value.
+//
+// Reaction commands. The coordinator stamps a reaction command's provenance
+// from the triggering event's EventMeta.provenance: the same actor and the
+// same correlation_id. A reactor leaves both empty; a reaction command that
+// sets either to a different value is a reactor bug, refused (dead-lettered
+// and alerted, never delivered). A reactor cannot start a new workflow or act
+// as someone else.
+//
+// Correlation is never empty on a persisted event. The coordinator uses the
+// caller's correlation_id when supplied; otherwise it derives one
+// deterministically from the command's key (request_id for a request,
+// external_id for a fact), so every retry of one request lands in one
+// correlation; a keyless request gets a freshly minted one.
 message Provenance {
   // Who caused the command. Opaque and pseudonymous: an identifier whose
   // mapping to a real person lives outside the event store, so erasing the
@@ -199,26 +214,75 @@ message Provenance {
 // A command's origin sits in its body arm (Command.origin or Fact.source);
 // EventMeta.origin persists the full union, request | causation | fact.
 //
-// Idempotency. The framework deduplicates caused commands and facts before
-// business code runs (inbox style): a redelivered command whose key was
-// already processed does not reach the handler; the response carries the
-// events the first delivery produced, with Outcome.delivery DUPLICATE.
-//   causation — keyed on (event, component, index)
-//   fact      — keyed on external_id, per target stream
-// Request-origin commands are not deduplicated by the framework.
+// Idempotency: the claim model. The coordinator deduplicates every keyed
+// command before business code runs, against an idempotency key store (see
+// IdempotencyClaim). Each origin supplies the key:
+//   request   — (request_id, index)
+//   causation — (event, component, index)
+//   fact      — external_id
+// A request-origin command with no request_id has no key and is not
+// deduplicated; HandleAsync and DLQ replay require one (see
+// command_handler.proto).
+//
+// Scope. A key is claimed per addressed aggregate: the key store is keyed on
+// (CommandBook.cover, key), so the same key sent to two streams is two
+// claims.
+//
+// Claims. Only an APPLIED outcome is claimed, and the claim is written in the
+// same transaction as the event append, so a claim exists iff its events do.
+// Concurrent deliveries of one key race on that write with optimistic
+// concurrency (the stream's expected sequence and the claim's uniqueness):
+// exactly one commits, and the loser re-reads and answers DUPLICATE. An
+// applied outcome is a sequence range on the addressed stream; zero events
+// is a valid applied outcome (an empty range), and it is claimed too.
+//
+// Rejections are released, not claimed. A rejected command (a gRPC error
+// status) writes nothing, so a retry with the same key runs business code
+// again. The same holds for a failed fact ingest (answered PARKED).
+//
+// Duplicates. A delivery whose key is already claimed does not reach
+// business code: the coordinator re-reads the claimed range from the stream
+// and answers with those events and Outcome.delivery DUPLICATE.
+//
+// Fingerprint. Each claim records a fingerprint of the command as received:
+// a hash over the serialized body payload (its google.protobuf.Any, type URL
+// and value bytes, exactly as they arrived; the coordinator never
+// re-serialises before hashing). SDKs serialise deterministically so an
+// honest retry reproduces the same bytes. A request key that arrives again
+// with a different fingerprint is refused FAILED_PRECONDITION (the key was
+// reused for a different command) and is never answered DUPLICATE. Causation
+// and fact keys record the fingerprint too; how a mismatch on them is
+// answered is open (see docs/design/audit-meta/idempotency.md).
+//
+// Retention. A claim expires 24 hours after it was written for a request key
+// and 7 days after for a causation or fact key; after expiry the key may run
+// again. DLQ replay refuses an entry older than its key's retention unless
+// the operator overrides it (see dlq_admin.proto).
+//
+// Backend capability. The claim must be atomic with the append. A storage
+// backend that cannot write both in one transaction offers no HandleAsync
+// and no DLQ replay (both answer UNIMPLEMENTED), because both deliver at
+// least once and rely on the claim to make redelivery safe.
 
 // A command issued directly by a caller, as part of one inbound request
-// (e.g. one API call).
+// (e.g. one API call). (request_id, index) is the command's idempotency key
+// at the addressed aggregate, kept 24 hours (see the claim model above).
 message RequestOrigin {
-  string request_id = 1; // Identifier of the inbound request
+  // Identifier of the inbound request, chosen by the caller and reused
+  // verbatim on every retry of that request. Empty means "no key": the
+  // command is not deduplicated, and HandleAsync refuses it.
+  string request_id = 1;
   uint32 index = 2; // Position of the command within that request
 }
 
 // A command emitted by a saga, process manager or policy reacting to an
 // event. The tuple (event, component, index) is the command's idempotency
-// key at the destination.
+// key at the destination, kept 7 days.
 message Causation {
-  EventRef event = 1; // The event being reacted to
+  // The event being reacted to: always the triggering event, never the
+  // reactor's own earlier event. A process manager's command names the
+  // trigger it is answering, like a saga's.
+  EventRef event = 1;
   // Registered name of the reacting component. Stamped by the coordinator;
   // emitters leave it empty.
   string component = 2;
@@ -232,26 +296,64 @@ message Causation {
 // system (a webhook, an integration). See Fact.
 message FactOrigin {
   // Idempotency key from the external system (e.g. "pi_1234" from Stripe).
-  // The framework deduplicates on it, per target stream, before business
-  // code runs.
+  // The framework deduplicates on it, per addressed aggregate, before
+  // business code runs, and keeps the claim 7 days.
   string external_id = 1;
   string description = 2; // Human-readable origin (e.g. "Stripe webhook")
 }
 // endregion
 
+// region idempotency_claim
+// STORAGE-ONLY: one row of the idempotency key store, documented here as a
+// schema so every storage backend records the same thing. No RPC carries it
+// and no client sends or receives it; backends may store it as columns
+// rather than as this encoded message. See the claim model in the origin
+// region.
+//
+// Written in the same transaction as the events it records, and only for an
+// APPLIED outcome: rejections and parked facts are never claimed.
+message IdempotencyClaim {
+  // The addressed aggregate: the claim's scope. (stream, key) is unique.
+  Cover stream = 1;
+  // The key: the producing command's origin, exactly as it arrived.
+  oneof key {
+    RequestOrigin request = 2; // (request_id, index); request_id never empty here
+    Causation causation = 3; // (event, component, index)
+    FactOrigin fact = 4; // external_id (description is not part of the key)
+  }
+  // Hash of the body payload as received (type URL and value bytes); a
+  // later delivery of the key is compared against it.
+  bytes fingerprint = 5;
+  // The applied outcome: events first_sequence .. first_sequence+event_count-1
+  // of `stream`. event_count 0 is a valid applied outcome with no events, and
+  // first_sequence is then the stream's next_sequence at the time.
+  uint64 first_sequence = 6;
+  uint64 event_count = 7;
+  // When the claim was written (the append's EventMeta.recorded_at) and when
+  // it lapses: 24 hours later for a request key, 7 days for causation and
+  // fact keys.
+  google.protobuf.Timestamp claimed_at = 8;
+  google.protobuf.Timestamp expires_at = 9;
+}
+// endregion
+
 // region event_meta
 // Provenance of one persisted event, stamped by the framework from the
-// producing command. Every persisted event carries meta.
+// producing command. Every persisted event carries meta. Business code never
+// sets meta: an EventBook returned by business code whose pages carry meta
+// is refused (see CommandHandlerService.Handle).
 //
-// decided_at is always recorded. Every other field is optional on the wire:
-// an empty value means "not recorded", never a meaningful empty value.
+// base_sequence and recorded_at are always recorded, and
+// provenance.correlation_id is never empty on a persisted event (see
+// Provenance). Every other field is optional on the wire: an empty value
+// means "not recorded", never a meaningful empty value.
 //
 // The event's own identity is the EventRef of its page (its stream plus
 // EventPage.sequence); EventMeta does not repeat it. The event that caused
 // this one is not a separate field: it is origin.causation.event.
 //
 // One write is the events one command produced. All pages of one write
-// share one provenance, one origin and one decided_at.
+// share one provenance, one origin, one base_sequence and one rules_version.
 message EventMeta {
   Provenance provenance = 1; // Copied from the producing command (actor, correlation)
   // Why the producing command exists (see the origin region). The command's
@@ -264,17 +366,30 @@ message EventMeta {
   // When the event was durably recorded, stamped by the server that persisted
   // it. The only timestamp an event carries; TemporalQuery.as_of_time selects
   // by it.
+  //
+  // Non-decreasing per stream: the coordinator stamps
+  // max(previous event's recorded_at, now), so a clock step backwards never
+  // makes a later event look older. Events of one write share one
+  // recorded_at. Because of this, the events recorded at or before any time
+  // T are always a prefix of the stream (see TemporalQuery).
   google.protobuf.Timestamp recorded_at = 5;
-  // The version the decision was made against: the length of the stream
-  // (its next_sequence, the number of events in it) that decide saw when it
+  // The base the decision was made against: the length of the stream (its
+  // next_sequence, the number of events in it) that decide saw when it
   // produced this event. Always recorded, for every origin and strategy; 0
   // means the decision saw an empty stream. It equals the producing
   // command's Handling.expected_sequence when that was stamped, or provided
   // and checked under STRICT; under AGGREGATE_HANDLES it is the head decide
-  // saw, which may be past the provided sequence.
-  uint64 decided_at = 6;
+  // saw, which may be past the provided sequence. (Renamed from decided_at:
+  // it is a sequence, not a time.)
+  uint64 base_sequence = 6;
   // Version of the business rules (handler code / configuration) that decided
-  // the event. Opaque to the framework; used to explain a historical decision.
+  // the event. Declared by the deciding component when it registers
+  // (ComponentDescriptor.rules_version) and stamped by the coordinator;
+  // business code never sets it. Opaque to the framework; used to explain a
+  // historical decision. Empty when the component declared none.
+  // (annals, which shares these protos, treats rules_version as
+  // load-bearing rather than opaque: a documented divergence, see
+  // docs/design/audit-meta/annals-divergence.md.)
   string rules_version = 7;
 }
 // endregion
@@ -291,7 +406,11 @@ message EventMeta {
 message Snapshot {
   // Sequence of the last event folded into `state`. A TemporalQuery
   // as_of_time T may start from this snapshot iff that event's
-  // EventMeta.recorded_at <= T (see TemporalQuery).
+  // EventMeta.recorded_at <= T, i.e. iff the snapshot lies within the
+  // prefix recorded by T (see TemporalQuery).
+  //
+  // Business code may return a snapshot's state with its events (see
+  // CommandHandlerService.Handle); the framework sets the sequence.
   uint64 sequence = 2;
   google.protobuf.Any state = 3;
 }
@@ -375,7 +494,7 @@ message Handling {
   // Either way, the check or the stamp happens in the framework before the
   // command reaches business code, so decide always sees a concrete
   // sequence, and the version decided against is recorded on every
-  // resulting event (EventMeta.decided_at).
+  // resulting event (EventMeta.base_sequence).
   optional uint64 expected_sequence = 1;
   // Conflict strategy on a stale expected_sequence (see MergeStrategy).
   // Unspecified: the configured default.
@@ -406,6 +525,11 @@ message CommandPage {
 
 // A command proper: a request for the aggregate to decide. decide may emit
 // events or reject it.
+//
+// Idempotency (see the claim model in the origin region): the origin is the
+// key, claimed per addressed aggregate only when the command is applied. A
+// rejected command is not claimed, so the same key may be retried; a request
+// key reused with a different payload is refused FAILED_PRECONDITION.
 message Command {
   google.protobuf.Any payload = 1; // The domain command; its type URL picks the handler
   // Why the command exists (see the origin region).
@@ -422,9 +546,12 @@ message Command {
 // Fact handlers are infallible: they record the fact (possibly together
 // with events that flag it, e.g. a payment received for an unknown order)
 // and never reject it. A failing fact handler is a bug, not a business
-// rejection: the command is dead-lettered and alerted, never answered as a
-// rejection. The framework deduplicates on source.external_id before the
-// handler runs.
+// rejection: the fact is dead-lettered and alerted, and the sender is
+// answered "accepted, parked" (OK, Outcome.delivery PARKED, no events),
+// never a rejection. The framework deduplicates on source.external_id, per
+// addressed aggregate, before the handler runs; only an applied fact is
+// claimed (see the claim model in the origin region), so a parked fact
+// redelivered by its source runs ingest again.
 //
 // A Fact is never checked against a sequence: the coordinator always stamps
 // the head. A book whose Fact sets handling.expected_sequence is malformed
@@ -462,14 +589,45 @@ message Outcome {
   // HandleSync (SIMPLE); empty for Handle (DECISION). (Projectors
   // persist their own read models; these are copies returned to the caller.)
   repeated Projection projections = 2;
+  // Synchronous projectors that failed on this command's events. HandleSync
+  // answers OK whenever the decision committed: a projector failure never
+  // undoes it and never turns the response into an error status. Each
+  // failing projector appears here instead of in projections, and its
+  // events are retried or dead-lettered on the asynchronous projection
+  // path. Empty for Handle (DECISION).
+  repeated ProjectorFailure projector_failures = 3;
 }
 
-// Whether this delivery ran business code or was answered from a previous
-// delivery (see the idempotency notes in the origin region).
+// One synchronous projector that failed during HandleSync.
+message ProjectorFailure {
+  string projector = 1; // Registered name of the projector
+  // The failure as a gRPC status code (google.rpc.Code numbering) and
+  // message. Whether the projection will be retried follows the retryable
+  // set in command_handler.proto.
+  int32 code = 2;
+  string message = 3;
+}
+
+// What the coordinator did with this delivery of a command. The claim model
+// behind APPLIED and DUPLICATE is in the origin region.
+//
+//   APPLIED    business code ran and the result committed: the events are
+//              new (possibly none), and the command's key, if any, is now
+//              claimed for that sequence range.
+//   DUPLICATE  the key was already claimed: business code did not run, and
+//              the events are the claimed range, re-read from the stream.
+//   PARKED     a Fact whose ingest handler failed: the fact was accepted and
+//              dead-lettered for an operator, with no events. Ingest failure
+//              is a bug, never a rejection, so the sender is answered OK and
+//              must not treat it as a refusal; the key is not claimed.
+//
+// A rejection is never an outcome: it is a gRPC error status, and the key
+// is released (not claimed), so the same key may be retried.
 enum DeliveryOutcome {
   DELIVERY_OUTCOME_UNSPECIFIED = 0; // Not reported
   DELIVERY_OUTCOME_APPLIED = 1; // Business code ran for this delivery; the events are new
-  DELIVERY_OUTCOME_DUPLICATE = 2; // Already processed; the events are those of the first delivery
+  DELIVERY_OUTCOME_DUPLICATE = 2; // Already claimed; the events are re-read from the claimed range
+  DELIVERY_OUTCOME_PARKED = 3; // Fact accepted but its ingest failed; dead-lettered, no events
 }
 // endregion
 
@@ -481,7 +639,10 @@ message ContextualCommand {
   // expected_sequence provided by the caller or stamped by the coordinator
   // (always stamped for a Fact), and merge concrete. Under
   // AGGREGATE_HANDLES the pages from handling.expected_sequence to the head
-  // are the conflict window decide resolves.
+  // are the conflict window decide resolves, and they are always delivered
+  // as pages: events.snapshot, when present, has sequence <=
+  // expected_sequence-1 (and there is no snapshot when expected_sequence is
+  // 0), so no part of the window is hidden inside snapshot state.
   EventBook events = 1;
   CommandBook command = 2;
 }
@@ -502,16 +663,17 @@ message SequenceSet {
 // but only from one that cannot contain state from after the point:
 // - as_of_sequence N: a snapshot with sequence <= N, followed by pages
 //   snapshot.sequence+1 .. N.
-// - as_of_time T: a snapshot whose last folded event (the page at
-//   snapshot.sequence) has EventMeta.recorded_at <= T, followed by the pages
-//   after snapshot.sequence up to the last page whose EventMeta.recorded_at
-//   <= T.
+// - as_of_time T: the stream's prefix up to and including the last event
+//   whose EventMeta.recorded_at <= T. recorded_at is non-decreasing per
+//   stream (see EventMeta), so this is a prefix: no later event can have an
+//   earlier recorded_at. The book may start from a snapshot whose last
+//   folded event (the page at snapshot.sequence) lies in that prefix.
 // Without a qualifying kept snapshot (by default only the newest is kept)
 // the book carries no snapshot and every page from 0 up to the point. Either
 // way, folding the book yields the same state as a full replay to the point.
 message TemporalQuery {
   oneof point_in_time {
-    google.protobuf.Timestamp as_of_time = 1; // Events with EventMeta.recorded_at <= this
+    google.protobuf.Timestamp as_of_time = 1; // The prefix of events with EventMeta.recorded_at <= this
     uint64 as_of_sequence = 2; // Events with sequence <= this
   }
 }
@@ -596,6 +758,17 @@ message PayloadRetrievalFailedDetails {
 //
 // Among other failures, a fact whose ingest handler fails lands here: a
 // failing fact handler is a bug, never a business rejection (see Fact).
+//
+// Replay (see dlq_admin.proto). An entry is immutable once written; replays
+// of it are recorded beside it in the admin store (StoredDeadLetter.replays).
+// A replay keeps the original provenance, origin and idempotency key: it is
+// a redelivery of the same message, never a new command, so the key store
+// answers it DUPLICATE if the original did apply after all.
+//   rejected_command  re-sent to the coordinator as an asynchronous command
+//                     (HandleAsync), carrying its original key.
+//   rejected_events   re-delivered to the one component that failed
+//                     (source_component), never re-published to every
+//                     subscriber.
 message AngzarrDeadLetter {
   Cover cover = 1; // Stream the failed message concerns: domain, edition, root
   oneof payload {
@@ -629,9 +802,17 @@ message Target {
   string domain = 1;
 }
 
-// Component self-description.
+// Component self-description, given when a component registers with its
+// coordinator.
 message ComponentDescriptor {
   string name = 1;
   string component_type = 2;
   repeated Target inputs = 3; // Domains I subscribe to (event types I consume)
+  // Version of the business rules this running component decides with
+  // (handler code and configuration; e.g. a build id or release tag).
+  // Opaque. Declared here, once per registration, and stamped by the
+  // coordinator onto every event the component's decisions produce
+  // (EventMeta.rules_version); business code never sets it per event. A
+  // deployment that changes rules re-registers with a new value.
+  string rules_version = 4;
 }

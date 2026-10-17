@@ -1,345 +1,106 @@
-# Audit-meta proto passes: follow-ups and known gaps
+# Audit-meta proto passes: design record (index)
 
 ## Status
 
-Open. Records what the four `feat/audit-meta` proto passes leave for angzarr's
-code, the known gaps the audit surfaced, and the questions still to decide.
-The protos under `proto/io/angzarr/` and the `rust/angzarr-proto` crate are
-the only things these passes changed. Nothing listed here is done.
-
-- Pass 1 (9cfed59, 17bc1cd): provenance meta, uint64 sequences, one-command
-  books, the origin oneof, facts as commands, no reservations.
-- Pass 2 (46404df): CASCADE/ISOLATED, compensation and notification,
-  speculative execution, snapshot retention and `undoes`/`compensates`
-  removed; PayloadReference made transport-only; the DRY refactor (`Cover`,
-  `EventRef`, `Provenance`, `Expectation`); the `Command`/`Fact` body oneof;
-  `ResponseMeta`.
-- Pass 3 (9ded171): handling separated from identity, business data
-  and provenance. `Handling { optional expected_sequence; merge; sync }`
-  lives on `CommandBook` (field 6) and is never persisted; `Expectation`,
-  `CommandRequest`, `ContextualCommandRequest`, `SagaHandleRequest`,
-  `ProcessManagerCoordinatorRequest` and `ResponseMeta` are deleted.
-  `CommandResponse` is `{ events, Outcome outcome }`, with
-  `Outcome { delivery; projections }`. `CommandPage` is provenance + body
-  only.
-- Pass 4 (this change): sync is a call-level choice, not handling.
-  `Handling.sync` (field 3) and the `SyncMode` enum are deleted; `Handling`
-  is `{ optional expected_sequence = 1; merge = 2 }`. The command
-  coordinator has one RPC per mode: `Handle` (DECISION), `HandleAsync`
-  (ASYNC, returns `google.protobuf.Empty`) and `HandleSync` (SIMPLE;
-  projector results in `Outcome.projections`), replacing `HandleCommand`.
-  `EventRequest` is deleted: the projector coordinator's `HandleSync` takes
-  `EventBook`. Reaction commands carry no `Handling` at all, and violations
-  are refused loudly.
+Open. The five `feat/audit-meta` passes changed **only** the protos under
+`proto/io/angzarr/` and the `rust/angzarr-proto` crate. No angzarr code has
+changed. The user is not taking on heavy angzarr refactoring now, so every
+code consequence is recorded in the backlog, which is the part that must not
+be lost.
 
 Wire breaks are accepted pre-freeze: removed fields and messages are deleted
 outright, with no `reserved` statements.
 
-## Code follow-ups, by repo
+## Documents
 
-### core (coordinator, storage, bus)
+| Document | Contents |
+|---|---|
+| [audit-meta/decision-log.md](audit-meta/decision-log.md) | Every decision of passes 1–5: why, the accepted cost, and the standard it aligns with. Also the corrections (Event Modeling, KurrentDB, Axon). |
+| [audit-meta/critical-review.md](audit-meta/critical-review.md) | The post-pass-4 critical review: W1–W14, D1–D11 and the FINE items, each with its status. |
+| [audit-meta/idempotency.md](audit-meta/idempotency.md) | The idempotency research (a comparison table) and the chosen key-store design, with its alignments and divergences. |
+| [audit-meta/backlog.md](audit-meta/backlog.md) | **The code follow-up backlog**, by workstream with a by-repo index. 81 items, each with what, why, and what settles it. |
+| [audit-meta/annals-divergence.md](audit-meta/annals-divergence.md) | Why annals keeps its atomic in-process chain, and what it does and does not need as a result. |
 
-From pass 1:
+## Passes
 
-- Widen sequences to u64 end to end: the `EventStore` trait, Postgres
-  `INTEGER`/`i32` casts, and Bigtable's `{:010}` key padding.
-- Remove `Cover.ext` and the storage `ext` columns, along with router
-  stamping and the roughly 60 core sites that read it. Parent references move
-  into domain event payloads, and sagas route from payloads.
-- Correlation is per page only. Stop reading it from `Cover`, and implement
-  `Query.correlation_id` (one correlation per write).
-- Delete `PageHeader`, the deferred-sequence types, `HandleFact`/`HandleEvent`/
-  `Replay`, `EventRequest.skip_handler`, and saga/PM facts.
-- Check or stamp the expected sequence before business code, and record
-  `EventMeta.decided_at` on every event.
-- Keep only `STRICT` and `AGGREGATE_HANDLES`. Under `AGGREGATE_HANDLES`,
-  deliver the conflict window with the command.
-- Main edition is `""` only: drop the `"angzarr"` alias, and have
-  `DeleteEditionEvents` reject `""`.
-- Make storage edition routing and sharding configurable per edition.
-- Persist provenance: stamp `EventMeta` on every page the coordinator writes.
-  Until this lands, angzarr-run streams lose causation.
-- Known core bugs (filed in angzarr's log): the correlation query ignores the
-  domain (uncurious-president), and cached replays relabel correlation
-  (unpaved-ultimate).
-- `CommandBook` runs only its first page, and extra pages are silently
-  ignored. The wire now holds exactly one page, so the code should match.
-
-From pass 2:
-
-- Delete `CASCADE`, `ISOLATED` and the cascade error modes, along with
-  `CommandResponse.reaction_errors`. Sagas and PMs always run asynchronously.
-  Replay, migration and recovery tooling has no silent mode: it either lets
-  reactions run or rebuilds projections afterwards.
-- Delete the compensation outbox's notification path: `Notification`,
-  `RejectionNotification`, `Compensate`, `HandleCompensation`,
-  `RevocationResponse`, `BusinessResponse`, `SagaCompensationFailed`,
-  `CompensationDeliveryFailedDetails` and escalation forwarding. Keep the
-  outbox for a PM's own command delivery only. `CommandHandlerService.Handle`
-  now returns an `EventBook`, and a rejection is a gRPC status.
-- Implement PM reply handling: a target's answer reaches the PM as a trigger
-  whose causation names the PM's event. A hard rejection of a saga or PM
-  command is retried when retryable and dead-lettered otherwise (see open
-  questions).
-- Delete every speculative RPC. Implement what-ifs as commands in an edition:
-  - configured editions use their own storage config;
-  - unconfigured editions fall back to a configured default edition store
-    (memory, redis, persistent, or the existing database);
-  - the edition column stays in every schema;
-  - projector output follows the edition's storage config.
-- Snapshot policy: delete `SnapshotRetention`. Frequency and keep-count become
-  framework/storage config, per domain and following the edition's storage.
-  The default keeps the newest only. Temporal queries start from the nearest
-  kept snapshot or from 0. The config shape still needs designing.
-- `EventPage.created_at` is gone. Stamp and index `EventMeta.recorded_at`, and
-  make `TemporalQuery.as_of_time` and snapshot selection use the recorded_at
-  of the event at `snapshot.sequence`. `Snapshot.created_at` is deleted too.
-- PayloadReference is out of the persisted pages. Move claim-checking into a
-  bus envelope owned by the transport layer, and resolve it before anything
-  else sees the message.
-- `Cover.edition` is now a string. Move divergence points into edition
-  configuration (`Edition`/`DomainDivergence` are gone from the wire).
-- `EventRef` is now `{ Cover stream; sequence }`. `Provenance` holds
-  `{actor, correlation_id}`, and `CommandMeta` is deleted. (`Expectation`
-  went in pass 3; see below.)
-- Reflective dispatch: the `CommandPage.body` arm picks the pipeline
-  (`Command` goes to decide, `Fact` to ingest), and the payload type URL picks
-  the handler. Deduplicate before business code: causation on
-  (event, component, index), facts on `external_id` per target stream. Return
-  `Outcome.delivery` (`APPLIED`/`DUPLICATE`), and never persist it.
-- Refuse a `Fact` that sets `handling.expected_sequence` as
-  `INVALID_ARGUMENT` (confirmed in pass 4). Dead-letter a
-  failing fact handler and alert on it.
-
-From pass 3:
-
-- The coordinator takes `CommandBook` directly (pass 4 renamed
-  `HandleCommand` to `Handle`; see below). `SagaService.Handle`,
-  `SagaCoordinatorService.Execute` and `ProcessManagerCoordinatorService.Handle`
-  take `EventBook` directly. Delete the request wrappers in code.
-- Resolve `CommandBook.handling` in place before business code: stamp
-  `expected_sequence` when absent, and fill `merge` from configuration when
-  unspecified (pass 4 removed `sync`). `ContextualCommand` and business code see
-  only resolved handling. Never persist it.
-- Configuration for merge strategy, per command type and per component.
-  Precedence, highest first: `Handling` (when set and allowed),
-  command-type config, component config, built-in default (STRICT).
-  Config can forbid overriding a field per command type or component; a
-  command that sets a forbidden field is refused `INVALID_ARGUMENT`, never
-  silently ignored. The config shape still needs designing.
-- Reaction commands (saga, PM) carry no `Handling` (tightened in pass 4,
-  below). Delete the per-command sync floor (`reaction_sync_mode` and
-  the `PageHeader.sync_mode` preservation in the saga and PM stamping);
-  reaction delivery mode comes from component config.
-- **Core and the router disagree on explicit sequences in reaction
-  commands.** Core's saga and PM stamping keeps an explicit sequence
-  (`Some(SequenceType::Sequence(_)) => continue` in
-  `orchestration/saga/mod.rs` and `orchestration/process_manager/mod.rs`);
-  the router's `stamp_pages` replaces it. Resolved in pass 3: forbid it.
-  Core must refuse it, as above, rather than pass it through.
-- **Core's merge default is commutative; the protos default to STRICT.**
-  `CommandPageExt::effective_merge_strategy` calls
-  `MergeStrategy::or_default_commutative`. The wire contract (and pass 3's
-  built-in default) is STRICT, and `COMMUTATIVE` no longer exists on the
-  wire. Core must default to STRICT when neither `Handling` nor config sets
-  a strategy.
-- DLQ: store `rejected_command` as received (handling as sent). Replay
-  `AS_IS` keeps it; `FRESH_SEQUENCE` clears `handling.expected_sequence` so
-  the coordinator stamps the head (today it re-stamps page headers from a
-  query). Replay must stop hardcoding `SyncMode::Simple` (pass 4: replay
-  delivers through `HandleAsync`; see below).
-
-From pass 4:
-
-- Three coordinator RPCs, one per mode, replacing `HandleCommand` and every
-  `sync_mode` read (`sync_policy.rs`, `with_sync_mode`, the aggregate
-  service's `Handling.sync` resolution):
-  - `Handle` (DECISION), `POST /v1/ch/{cover.domain}/commands`: accept or
-    reject synchronously, return the persisted events; projectors and
-    reactions run async.
-  - `HandleAsync` (ASYNC), `POST /v1/ch/{cover.domain}/commands:async`:
-    validate (refusing malformed books `INVALID_ARGUMENT`), enqueue durably,
-    return `Empty`. Deduplication happens when the command is processed. A
-    later business rejection is retried when retryable and otherwise
-    dead-lettered, as for reaction commands.
-  - `HandleSync` (SIMPLE), `POST /v1/ch/{cover.domain}/commands:sync`: as
-    `Handle`, then wait for the synchronous projectors and return their
-    results in `Outcome.projections`.
-  The mode never reaches business code (`ContextualCommand` has no mode).
-- Projector coordinator: `HandleSync(EventBook)`. Delete `EventRequest`
-  (core's `ProjectorCoord::handle_sync` already ignores `sync_mode`, and the
-  aggregate coordinator only ever sent SIMPLE), `EVENT_REQUEST_MISSING_EVENTS`
-  and the fact path's `EventRequest` wrapper.
-- PM outbox delivery mode from configuration: the PM coordinator picks the
-  RPC (`Handle` or `HandleAsync`) from the PM's component config instead of
-  the hardcoded Simple. Saga command delivery likewise follows the saga's
-  config (today `SyncMode::Async` is hardcoded in `handlers/core/saga.rs`
-  and `handlers/core/process_manager.rs`). Reactions never use
-  `HandleSync`: no caller waits for their projections.
-- DLQ replay has no hardcoded mode: it publishes the stored command to the
-  command bus and the bus consumer processes it as `HandleAsync` does. The
-  admin call returns once enqueued (`ReplayDeadLetterOk` carries no
-  decision); the operator follows `new_correlation_id`. Reason: replay
-  already rides the bus, its response has no decision to carry, and a
-  failing replay goes back through the same retry/dead-letter path as any
-  asynchronous command. Revisit if operators need a synchronous verdict
-  (that would be `Handle` and a decision on `ReplayDeadLetterOk`).
-- Refuse violations loudly: a client book that sets a forbidden `Handling`
-  field, or `expected_sequence` on a `Fact`, is `INVALID_ARGUMENT` from all
-  three RPCs. A reaction command (saga or PM output) with any `Handling`
-  field set (`expected_sequence` or `merge`) is a reactor bug: dead-letter
-  and alert it, never deliver it, never strip it silently. An empty
-  `Handling` message counts as unset.
-
-### angzarr-router
-
-- Remap onto `angzarr-proto` via `extern_path`. This ends the triple type
-  generation (gap 9).
-- Mirror the pass-2 dispatch: route on body arm, then type URL. Delete the
-  compensation, undo and speculative dispatch, and the notification
-  envelopes.
-- Pass 3: `angzarr_router_dispatch_saga` takes `EventBook` bytes (not
-  `SagaHandleRequest`). Reaction stamping leaves `Handling` unset and
-  refuses (dead-letters) a reaction command with any `Handling` field set,
-  `merge` included; drop the `PageHeader.sync_mode` preservation.
-
-### Client libraries (go, rust, python, java, csharp, cpp, typescript)
-
-- u64 sequences everywhere (pass 1).
-- Python's `unpack_parent_cover` goes with `Cover.ext` (pass 1).
-- Fact handlers as an infallible interface with no error arm (annals:
-  `Domain::ingest(&state, fact) -> Vec<Event>` beside fallible `decide`).
-  Codegen also needs to know which handlers are fact handlers (see open
-  questions).
-- Conflict-resolution helpers for `AGGREGATE_HANDLES`, computed locally over
-  the delivered window.
-- Delete the compensation handlers, `undoes`/`compensates` codegen, rejection
-  fan-out and the speculative client APIs. Regenerate for the new
-  `CommandPage` shape (`provenance`, `body`) and `CommandBook.handling`;
-  clients send `CommandBook` directly and read `CommandResponse.outcome`.
-- Pass 4: call `Handle`, `HandleAsync` or `HandleSync` instead of
-  `HandleCommand` with a sync mode. A library may expose
-  `handle(book, mode)` as sugar, where the mode selects the RPC and is never
-  sent; `SyncMode` is gone from the generated types.
-- Leftover 2PC in generated Python (pass 1 audit).
-
-### Examples (examples-*, poker protos)
-
-- Poker protos used `Cover.ext` (pass 1).
-- The `compensates: DealCards` annotations on `TableHandSaga` and `TableState`
-  were removed from `proto/io/angzarr/examples/v1` so the protos build. The
-  example code that implemented that compensation needs reworking as a
-  refusal event plus a saga.
-
-### angzarr-project (site, features, parity)
-
-- The site embeds proto regions that no longer exist: `edition`,
-  `snapshot_retention`, `rejection_notification` (removed in pass 2), and
-  `page_header` (removed in pass 1). A strict site build fails until
-  `reference/patterns.mdx` and its siblings are rewritten. New regions are
-  available: `provenance`, `handling`, `outcome` (pass 3 replaced the
-  pass-2 `expectation` and `response_meta` regions). Pass 4 deleted the
-  `sync_mode` region from `types.proto`; the modes table should embed the
-  `command_modes` region of `command_handler.proto`. The `merge_strategy`
-  region says "unspecified means the configured default", and the
-  merge-strategy table needs the config precedence.
-- Feature specs still exercise the removed features: CASCADE (6 files),
-  ISOLATED (3), notifications and compensation (4), speculative execution
-  (3), `undoes` (2), and others. Rewrite or delete them.
-- Stale 2PC tasks in core's `tasks.md`, and leftover 2PC in stale branches.
-
-## Known gaps
-
-7. **Upcasting runs only on aggregate loads.** Sagas, PMs, projectors and
-   queries see raw stored versions. A missing upcaster rule silently drops
-   the event on rebuild, when it should fail. annals plans strict replay (an
-   unknown type URL fails, naming it, with golden-fixture checks in CI).
-   angzarr should do the same on every read path.
-
-8. **No multi-stream unit of work, and upcasters are 1:1.** angzarr appends
-   one command's events to one stream per write, and an upcaster maps one
-   stored event to one current event. For comparison (from knowledge, not
-   verified for this note):
-   - **Marten**: one session can append to many streams and commit them in
-     one Postgres transaction. Upcasting is 1:1 (one old event type to one
-     new).
-   - **Axon**: a `UnitOfWork` spans the handling of one message, including
-     events applied to several aggregates. Upcasters work over an
-     intermediate representation and can split one event into N, or drop
-     it.
-   - **KurrentDB** (EventStoreDB): one stream per append, and no
-     multi-stream transactions. Consistency across streams is by process
-     managers and idempotency.
-
-   annals (hatpick's runtime) stages atomic chains across streams in one
-   Postgres transaction. angzarr would need a coordinator-level UoW to match.
-
-9. **Triple Rust type generation.** core, angzarr-router and client-rust each
-   generate `io.angzarr.v1` from the protos. Remap them onto `angzarr-proto`
-   via `extern_path`, so there is one set of types.
-
-10. **Stale docs.** About ten pages: the merge-strategy and sync-mode tables,
-    upcasting, the facts audit claims, the glossary, and every page about
-    CASCADE, compensation, speculative execution and snapshot retention. In
-    `site/src/content/docs/components/commands-vs-facts.md`:
-    - The "Axon Framework" section claims Axon distinguishes "decision
-      commands" from "notification commands". This is unverified. From
-      knowledge, Axon has no such concept (its command handlers are uniform),
-      so the claim needs checking against Axon's reference guide, and
-      probably removing.
-    - The same page's "Angzarr's Solution" section (facts as events with a
-      fact sequence indicator) is superseded by the `Fact` arm.
-
-11. **The `feat/blackjack-spec` branch exercises removed features.** Its
-    features include `cascade_error_mode.feature`,
-    `compensation_delivery.feature`, `snapshot_retention.feature`,
-    `speculative_client.feature`, ISOLATED in `sync_modes.feature`, and
-    blackjack saga/PM scenarios built on compensation. It needs rebasing
-    onto the new contract, or those scenarios retiring.
-
-12. **`buf breaking` doesn't gate merges.** `just proto-breaking` is
-    manual-only, and `contracts.yml` runs lint alone. Revisit at angzarr's
-    v0.1.0 freeze, or before hatpick stores production events.
+- **Pass 1** (9cfed59, 17bc1cd): provenance meta, uint64 sequences, one
+  command per book, the origin oneof, facts as commands, no reservations.
+- **Pass 2** (46404df): CASCADE/ISOLATED, compensation and notification,
+  speculative execution, snapshot retention and `undoes`/`compensates`
+  removed. `PayloadReference` made transport-only. The DRY refactor (`Cover`,
+  `EventRef`, `Provenance`). The `Command`/`Fact` body oneof.
+- **Pass 3** (9ded171): `Handling { optional expected_sequence; merge }` on
+  `CommandBook`, resolved in place and never persisted. The request wrappers
+  deleted. `CommandResponse { events, Outcome outcome }`.
+- **Pass 4** (8a803c9): sync is a call-level choice, one coordinator RPC per
+  mode: `Handle` (DECISION), `HandleAsync` (ASYNC), `HandleSync` (SIMPLE).
+  `SyncMode` and `EventRequest` deleted.
+- **Pass 5** (this change): the critical review's fixes. Each item below is
+  recorded in the decision log.
+  - The idempotency claim model, and `IdempotencyClaim`.
+  - The transient reactor outbox.
+  - Reaction provenance stamping, and correlation that is never empty.
+  - Business output as payloads only.
+  - `ComponentDescriptor.rules_version`.
+  - Edition sink suppression, and the edition in the CloudEvent id.
+  - `Outcome.projector_failures`, `DELIVERY_OUTCOME_PARKED`, and one
+    retryable status set (stale sequence is now `ABORTED`).
+  - The AGGREGATE_HANDLES snapshot bound.
+  - A monotonic `recorded_at`, and `as_of_time` as a prefix.
+  - Renames: `decided_at` to `base_sequence`, and projector `Handle` to
+    `HandleAsync`.
+  - PM replies routed by correlation.
+  - DLQ replay keeps keys and is audited (`StoredDeadLetter.replays`).
 
 ## Resolved questions
 
-- **Merge strategy placement** (resolved in pass 3): both. Configuration
-  sets the default per command type and per component, and
-  `CommandBook.handling.merge` overrides it where configuration allows. See
-  the `Handling` region in `types.proto` for the precedence. (Pass 3 said
-  the same of sync mode; pass 4 made sync a call-level choice instead.)
-- **Sync mode placement** (resolved in pass 4): not handling. It is the
-  caller's choice of coordinator RPC: `Handle` (DECISION), `HandleAsync`
-  (ASYNC), `HandleSync` (SIMPLE). Reaction and PM-outbox delivery follow
-  component configuration.
-- **`EventRequest.sync_mode`** (resolved in pass 4): deleted with
-  `EventRequest`. The projector coordinator's `HandleSync` takes
-  `EventBook`; "sync" is in the name.
-- **Refuse or ignore** (resolved in pass 4): refuse loudly. A forbidden
-  override is `INVALID_ARGUMENT` for clients, never silently ignored.
-- **`merge` on a reaction command** (resolved in pass 4): forbidden. Reaction
-  commands carry no `Handling` at all; any field set is a reactor bug,
-  dead-lettered.
-- **`expected_sequence` on a Fact** (resolved in pass 4): refused
-  `INVALID_ARGUMENT`, not ignored and stamped over.
+- **Merge strategy placement** (pass 3): configuration sets the default per
+  command type and per component. `CommandBook.handling.merge` overrides it
+  where configuration allows. Whether the override should exist at all is
+  debatable item D9.
+- **Sync mode placement** (pass 4): not handling. It is the caller's choice
+  of coordinator RPC.
+- **`EventRequest.sync_mode`** (pass 4): deleted with `EventRequest`.
+- **Refuse or ignore** (pass 4): refuse loudly. `INVALID_ARGUMENT` for
+  clients; dead-letter for reaction commands.
+- **`merge` on a reaction command** (pass 4): forbidden. Reaction commands
+  carry no `Handling`.
+- **`expected_sequence` on a Fact** (pass 4): refused `INVALID_ARGUMENT`.
+- **Codegen marker for facts** (after pass 2): no proto flag. The handler
+  registration (`#[handles_fact]` / ingest) is the declaration, and the router
+  guards the arm against the handler kind.
+- **Request-origin idempotency** (pass 5): a key store. See
+  [idempotency.md](audit-meta/idempotency.md).
+- **Reactor nondeterminism** (pass 5): a transient outbox for all reactors,
+  with no purity contract.
+- **The parked-fact answer** (pass 5): a `DeliveryOutcome` value, not an
+  `Outcome` field.
+- **Where `rules_version` is declared** (pass 5): `ComponentDescriptor`.
+- **Where the DLQ replay audit lives** (pass 5): `StoredDeadLetter.replays`.
+  The published `AngzarrDeadLetter` stays immutable.
 
 ## Open questions
 
-- **Edition lifetime per backend.** Memory lasts the process, redis its TTL,
-  a database persists. Open: whether a TTL or GC policy is configured per
-  edition, what happens to an edition whose backend evicts it mid-use, and
-  whether `DeleteEditionEvents` must also clear the edition's projections and
-  snapshots.
-- **Multi-instance affinity for in-memory editions.** With several
-  coordinator instances, an in-memory edition lives in one process. Requests
-  for that edition need affinity (routing on edition name), a shared backend
-  (fall back to redis), or a rule that in-memory editions are single-instance
-  only.
-- **Hard rejections of saga/PM commands.** With notifications gone, a
-  non-retryable rejection of a reaction command is dead-lettered. Open:
-  whether a PM should instead learn of it (for example, a framework-recorded
-  event on the PM's own stream). Business refusals are expected to be domain
-  events, so this concerns validation and precondition failures only.
-- **Codegen marker for facts.** On the wire the `Fact` arm marks a fact. Open:
-  how codegen knows to emit an infallible ingest handler for a payload type
-  (a `CommandOptions` flag, a separate `(fact)` option, or a naming rule).
+- **D1–D11**, the debatable review items, are still to be put to the user.
+  See [critical-review.md](audit-meta/critical-review.md).
+- **Edition lifetime per backend.** Memory lasts as long as the process, redis
+  as long as its TTL, and a database persists. Open:
+  - whether a TTL or GC policy is configured per edition;
+  - what happens to an edition whose backend evicts it mid-use;
+  - whether `DeleteEditionEvents` must also clear the edition's projections
+    and snapshots.
+- **Multi-instance affinity for in-memory editions.** An in-memory edition
+  lives in one process. Options:
+  - affinity: routing on the edition name;
+  - a shared backend: falling back to redis;
+  - a rule that in-memory editions are single-instance only.
+  (Related to D6.)
+- **Hard rejections of saga and PM commands.** They are dead-lettered. Open:
+  whether a PM should also learn of them, through a framework-recorded event
+  on its own stream. This is D8.
+- **Fingerprint mismatch on causation and fact keys.** Answer DUPLICATE and
+  alert, or refuse and dead-letter (backlog KS-10).
+- **Reactions on backends without atomic claims.** Refuse to host them, or
+  run them with a loud warning (backlog KS-8).
+- **Repeated parks of one fact.** One DLQ entry per key, or one per attempt
+  (backlog KS-9).

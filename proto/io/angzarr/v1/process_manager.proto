@@ -29,23 +29,33 @@ option ruby_package = "Angzarr";
 //
 // Replies. A PM handles the replies to its own commands: a target's
 // answer, including a refusal recorded as a domain event, reaches the PM as
-// a trigger (an event whose EventMeta causation names the PM's own event),
-// and the PM decides the next step in its own workflow state. There is no
-// compensation or notification channel. A hard rejection of a PM's command
-// is retried when retryable and otherwise dead-lettered.
+// a trigger, and the PM decides the next step in its own workflow state.
+// Replies route to the PM instance by correlation: a PM's commands carry the
+// trigger's correlation_id (stamped by the coordinator; see Provenance), so
+// the target's events carry it too, and the PM subscribed to that domain
+// receives them under the same correlation. Causation always names the
+// triggering event: a PM command's Causation.event is the trigger it reacted
+// to, never one of the PM's own process events, and a reply event's causation
+// names the PM's command's trigger in turn. There is no compensation or
+// notification channel. A hard rejection of a PM's command is retried when
+// retryable and otherwise dead-lettered.
 //
-// Outbox. The coordinator's outbox exists only to deliver a PM's own
-// commands: the commands of a ProcessManagerHandleResponse are recorded with
-// its process_events and delivered at least once afterwards. The
-// destination deduplicates them on their Causation tuple.
+// Transient outbox. Everything a PM returns (process_events and commands)
+// goes through the transient outbox described on SagaResponse: stored
+// atomically with the PM's source checkpoint (here, with the append of its
+// process_events), dispatched, then cleared, leaving only the commands'
+// idempotency keys. Redelivery re-sends the stored commands verbatim, so the
+// PM is never re-run for a trigger whose output is stored and need not be
+// pure or deterministic. The destination deduplicates on the Causation
+// tuple.
 service ProcessManagerService {
   // Handle with trigger + process state. Returns commands for other
   // aggregates and events for the PM's own domain.
   //
   // PMs do not rebuild destination aggregate state — they translate
   // events into commands. Emitted commands are Commands (never Facts) whose
-  // origin is a Causation, exactly as saga commands are (see Causation in
-  // types.proto).
+  // origin is a Causation naming the trigger, exactly as saga commands are
+  // (see Causation in types.proto).
   rpc Handle(ProcessManagerHandleRequest) returns (ProcessManagerHandleResponse);
 }
 
@@ -80,6 +90,9 @@ message ProcessManagerHandleResponse {
   // These are persisted via AggregateCoordinator to the PM's domain.
   // Each book is merged by the coordinator, which owns the cover and page
   // concatenation policy; a PM that emits a single book sends a 1-element list.
+  // Business output only: payloads (and an optional snapshot state). Page
+  // meta, sequences and a cover other than the PM's own stream are refused,
+  // as for an aggregate (see CommandHandlerService.Handle).
   repeated EventBook process_events = 1;
   // Remote: Commands to issue to other aggregates, delivered through the
   // outbox (see ProcessManagerService) under the PM's configured delivery
@@ -87,6 +100,8 @@ message ProcessManagerHandleResponse {
   // Each carries NO Handling: handling is left unset (or empty). A command
   // that sets any Handling field (expected_sequence or merge) is a PM bug,
   // refused loudly: dead-lettered and alerted, never delivered, never
-  // silently stripped (see Handling).
+  // silently stripped (see Handling). Provenance is left empty for the
+  // coordinator to stamp from the trigger (actor and correlation_id); a
+  // differing value is refused the same way.
   repeated CommandBook commands = 2;
 }

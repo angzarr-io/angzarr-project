@@ -1,0 +1,726 @@
+# Code follow-up backlog (passes 1–5)
+
+Part of the [audit-meta design record](../audit-meta-followups.md).
+
+The five `feat/audit-meta` passes changed only the protos and the
+`rust/angzarr-proto` crate. **Nothing in this backlog is done.** It is the
+durable record of the code work the new contract implies: the user is not
+taking on heavy angzarr refactoring now, and this list must not be lost.
+
+Items are grouped by **workstream**. Each item is tagged with its repos and
+its pass or finding, and gives three things:
+- **What**: the change.
+- **Why**: the contract text or finding that requires it.
+- **Settled when**: the check that closes it.
+
+A [by-repo index](#by-repo-index) follows the workstreams.
+
+Repos:
+- **core**: the coordinator, storage, bus, DLQ and status console.
+- **router**: angzarr-router.
+- **clients**: client-go, -rust, -python, -java, -csharp, -cpp and
+  -typescript, with their codegen.
+- **examples**: examples-* and the poker protos.
+- **site**: angzarr-project `site/`.
+- **project**: angzarr-project features, parity, CI and branches.
+
+Code is located by signature or file, never by line number. Core paths are
+relative to the core repository root.
+
+---
+
+## KS: idempotency key store (pass 5, W1)
+
+**KS-1** [core] **The claim store in every backend.**
+- What: implement the `IdempotencyClaim` schema in each storage backend,
+  with uniqueness on (stream, key). Write the claim in the same transaction
+  as the event append. Add a capability flag on the storage trait for
+  "atomic claims".
+- Why: a claim must exist if and only if its events do (`types.proto`, origin
+  region).
+- Settled when: on every backend that sets the flag, two concurrent
+  deliveries of one key yield exactly one APPLIED and one DUPLICATE, with
+  identical events.
+
+**KS-2** [core] **Check before business code, and answer duplicates from the
+range.**
+- What: look the key up before decide or ingest. On a hit, re-read
+  `first_sequence .. +event_count` and answer `DELIVERY_OUTCOME_DUPLICATE`.
+  Claim zero-event outcomes too. This replaces today's causation and fact
+  dedup and adds request keys.
+- Why: the claim model. W1: request-origin commands were not deduplicated.
+- Settled when: dedup tests pass for each key kind (request, causation,
+  fact), including a zero-event command that is answered DUPLICATE with no
+  events.
+
+**KS-3** [core] **Release rejections, and never claim parked facts.**
+- What: claims are written only on commit of an applied outcome.
+- Why: rejections are released (Wolverine-style).
+- Settled when: a command rejected, then retried with the same key after the
+  state changes, applies.
+
+**KS-4** [core] **The fingerprint.**
+- What: hash the body payload's `Any` (type URL and value) exactly as
+  received, never re-serialised. A request key that arrives with a different
+  fingerprint is refused `FAILED_PRECONDITION`.
+- Why: the claim model's fingerprint rule.
+- Settled when: the same key with a changed payload is refused, and the same
+  key with identical bytes is answered DUPLICATE.
+
+**KS-5** [core] **Retention and expiry.**
+- What: set `expires_at` to 24 hours for request keys and 7 days for
+  causation and fact keys. Garbage-collect expired claims, and treat an
+  expired claim as absent.
+- Why: retention. These windows also gate DLQ replay (DQ-3).
+- Settled when: an expiry test shows a key running again after its window,
+  and a GC job is wired into each backend.
+
+**KS-6** [core] **`HandleAsync` key requirement and backend capability.**
+- What: refuse a keyless command with `INVALID_ARGUMENT`, and answer
+  `UNIMPLEMENTED` on backends without atomic claims (as replay does, DQ-3).
+- Why: `command_handler.proto`, the HandleAsync and backend-capability text.
+- Settled when: both refusals are tested.
+
+**KS-7** [clients] **Deterministic serialisation and request keys.**
+- What: every SDK serialises payloads deterministically. Examples: Go
+  `proto.MarshalOptions{Deterministic: true}`, sorted map entries in the
+  others, and prost's field order in Rust. Every SDK's command helpers set
+  `RequestOrigin.request_id` (and `index`), and reuse it verbatim on retry.
+- Why: the fingerprint is taken over the bytes as received, so an honest
+  retry must reproduce them.
+- Settled when: a cross-language golden test produces identical bytes for a
+  payload with map fields, and retry helpers keep the key.
+
+**KS-8** [core] **Reactions on backends without atomic claims.**
+- What: decide, then implement, what sagas and PMs do on such a backend:
+  refuse to run, or run with a loud warning.
+- Why: an open question in [idempotency.md](idempotency.md). Reaction
+  delivery is at least once.
+- Settled when: the user decides, and the decision is recorded in the protos.
+
+**KS-9** [core] **Dead-letter entries for parked facts.**
+- What: deduplicate DLQ entries per (stream, `external_id`), so a source that
+  keeps redelivering a fact whose ingest fails updates one entry rather than
+  adding entries.
+- Why: parked facts are not claimed.
+- Settled when: N redeliveries of a failing fact leave one DLQ entry, with an
+  attempt count.
+
+**KS-10** [core] **Fingerprint mismatch on causation and fact keys.**
+- What: implement the user's decision: DUPLICATE plus an alert, or refusal
+  plus a dead letter.
+- Why: still open in [idempotency.md](idempotency.md).
+- Settled when: the user decides, and the decision is recorded in
+  `types.proto`.
+
+## OB: transient reactor outbox (pass 5, W2)
+
+**OB-1** [core] **The saga transient outbox.**
+- What: store a `SagaResponse`'s commands atomically with the saga's source
+  checkpoint (position store), dispatch them, then clear the outbox, keeping
+  only the keys. Today saga commands are sent directly, with
+  `SyncMode::Async` hardcoded in `handlers/core/saga.rs`.
+- Why: `saga.proto`, the transient outbox text.
+- Settled when: in a crash-injection test (crash after store, before
+  dispatch), the restart re-sends byte-identical commands with the same keys,
+  and the saga is not re-run for that trigger.
+
+**OB-2** [core] **The PM transient outbox.**
+- What: store a PM's `process_events` append, its commands and its checkpoint
+  in one transaction, then dispatch and clear. Remove any notion of reactor
+  determinism or nondeterminism dead-lettering.
+- Why: `process_manager.proto`, the transient outbox text.
+- Settled when: the OB-1 test passes for PMs, including process events.
+
+**OB-3** [core] **Co-locate checkpoints and outboxes.**
+- What: the position store and the outbox must share a transaction, so the
+  backend matrix gains a "transient outbox" capability.
+- Why: "stored atomically with the source checkpoint".
+- Settled when: every backend either supports it or refuses to host
+  reactors (see KS-8).
+
+**OB-4** [router] **Reactor output returns to the coordinator.**
+- What: router dispatch functions (for example
+  `angzarr_router_dispatch_saga`) return the reactor's output for the
+  coordinator to store, and never send it themselves.
+- Why: the outbox owns dispatch.
+- Settled when: the router API has no send path for reaction commands.
+
+**OB-5** [core] **Outbox documentation.**
+- What: rewrite `src/bus/README.md` and the patterns docs, which describe a
+  PM-only outbox.
+- Why: the outbox now covers all reactors.
+- Settled when: the docs match the protos.
+
+## PS: provenance stamping and correlation (passes 1 and 5, W4/W5)
+
+**PS-1** [core] **Persist provenance.**
+- What: stamp `EventMeta` on every page the coordinator writes: provenance,
+  origin, `base_sequence`, `recorded_at` and `rules_version`.
+- Why: pass 1. Until this lands, angzarr-run streams lose causation. (The plan
+  once listed this as "not adopted" for that pass's scope. It is still
+  required code.)
+- Settled when: a round-trip test reads back full meta for each origin kind.
+
+**PS-2** [core, router] **Stamp reaction provenance from the trigger.**
+- What: copy actor and `correlation_id` from the triggering event's
+  `EventMeta.provenance`, and stamp `Causation.component` and `index`. A
+  reaction command whose provenance differs from the trigger's is
+  dead-lettered and alerted.
+- Why: W4 and W5 (the `Provenance` region).
+- Settled when: tests show a reactor setting a foreign actor is refused, and
+  an empty one is stamped.
+
+**PS-3** [core] **Correlation is never empty.**
+- What: use the caller's value. Otherwise derive it deterministically from
+  the key: a name-based UUID over `request_id`, or over `external_id` for a
+  fact. Mint a fresh value for keyless requests.
+- Why: W5.
+- Settled when: retries of one keyless-correlation request land in one
+  correlation, and no persisted event has an empty correlation.
+
+**PS-4** [core] **Correlation is per page only.**
+- What: stop reading correlation from `Cover`, and implement
+  `Query.correlation_id` (one correlation per write).
+- Why: pass 1.
+- Settled when: query-by-correlation works across a domain's streams.
+
+**PS-5** [core] **Fix the filed core bugs.**
+- What: the correlation query ignores the domain (uncurious-president), and
+  cached replays relabel correlation (unpaved-ultimate). Both are in
+  angzarr's task log.
+- Why: they corrupt the provenance this contract relies on.
+- Settled when: both tasks are closed.
+
+## BO: business output is payloads only (pass 5, W7)
+
+**BO-1** [core] **Validate handler output.**
+- What: validate `CommandHandlerService.Handle` output and PM
+  `process_events`. Page `meta` and `sequence` must be unset, and the cover
+  empty or equal to the command's. On a violation, persist nothing: answer
+  `INTERNAL` to `Handle`/`HandleSync` callers, and dead-letter and alert on
+  asynchronous and reaction paths.
+- Why: `command_handler.proto`, `CommandHandlerService.Handle`.
+- Settled when: each violation kind is refused in a test.
+
+**BO-2** [clients] **Codegen returns payloads, not raw books.**
+- What: when `CommandOptions.emits` is empty, generated handlers return raw
+  payloads (`Any`, plus an optional snapshot state), not a raw `EventBook`.
+  Remove every SDK path that lets a handler set a cover, sequence or meta.
+- Why: the "custom covers" escape hatch is gone (`options.proto`).
+- Settled when: no generated handler signature mentions `EventBook` as
+  output.
+
+**BO-3** [examples] **Fix handlers that set covers, sequences or meta.**
+- What: update the examples that do this.
+- Why: BO-1 would refuse them.
+- Settled when: the example suites pass against BO-1.
+
+## RV: rules_version declaration (pass 5, W8)
+
+**RV-1** [core] **Stamp the declared rules version.**
+- What: accept `ComponentDescriptor.rules_version` at registration, and stamp
+  it into `EventMeta.rules_version` on every event an aggregate's or PM's
+  decision produces. Business code never sets it.
+- Why: W8.
+- Settled when: a re-registration with a new value changes the stamp on
+  subsequent events only.
+
+**RV-2** [clients] **Declare a rules version.**
+- What: SDK component registration takes a rules version, defaulting to a
+  build id or release tag from the environment.
+- Why: W8.
+- Settled when: every SDK sends it in its `ComponentDescriptor`.
+
+## MD: the three RPC modes and the Outcome (passes 4 and 5, W11)
+
+**MD-1** [core] **Three coordinator RPCs replace `HandleCommand`.**
+- What: `Handle` (DECISION), `HandleAsync` (ASYNC, returns `Empty`) and
+  `HandleSync` (SIMPLE) replace `HandleCommand` and every `sync_mode` read
+  (`sync_policy.rs`, `with_sync_mode`, the aggregate service's
+  `Handling.sync` resolution). The mode never reaches business code.
+- Why: pass 4.
+- Settled when: the coordinator-contract features pass for each RPC.
+
+**MD-2** [core] **HandleSync reports projector failures.**
+- What: HandleSync answers OK once the decision commits. Each synchronous
+  projector failure goes into `Outcome.projector_failures` (name, code,
+  message), and the failed projection continues on the asynchronous path.
+- Why: W11.
+- Settled when: with a failing projector, the call is OK, the events are
+  present, and one failure entry is reported.
+
+**MD-3** [core] **"Accepted, parked" for failed facts.**
+- What: a failed fact ingest is answered OK with `DELIVERY_OUTCOME_PARKED`
+  and no events, then dead-lettered and alerted.
+- Why: W11.
+- Settled when: a test covers it on all three RPCs.
+
+**MD-4** [core] **The projector coordinator takes `EventBook`.**
+- What: `HandleSync(EventBook)`. Delete `EventRequest`,
+  `EVENT_REQUEST_MISSING_EVENTS` and the fact path's `EventRequest` wrapper.
+- Why: pass 4.
+- Settled when: no `EventRequest` remains.
+
+**MD-5** [core] **Reaction delivery mode comes from configuration.**
+- What: the PM outbox and saga delivery choose `Handle` or `HandleAsync`
+  from component configuration. Today `SyncMode::Async` is hardcoded in
+  `handlers/core/saga.rs` and `handlers/core/process_manager.rs`. Reactions
+  never use `HandleSync`.
+- Why: pass 4.
+- Settled when: a config switch changes the RPC used.
+
+**MD-6** [clients] **Clients call the three RPCs.**
+- What: call `Handle`, `HandleAsync` or `HandleSync`. Optional sugar:
+  `handle(book, mode)`, where the mode selects the RPC and is never sent.
+  Surface `projector_failures` and `PARKED`.
+- Why: passes 4 and 5.
+- Settled when: no SDK references `SyncMode` or `HandleCommand`.
+
+## ST: status codes (pass 5, W11)
+
+**ST-1** [core] **One retryable set.**
+- What: in `src/utils/retry.rs` (`is_retryable_status`),
+  `src/dlq/trigger.rs` (`CodeDlqExt::classify_for_dlq`) and
+  `src/client_traits.rs`, make exactly `UNAVAILABLE`, `DEADLINE_EXCEEDED`,
+  `RESOURCE_EXHAUSTED` and `ABORTED` retryable.
+  - A stale sequence becomes `ABORTED`: `single_sequence_check` and
+    `storage::error::SEQUENCE_CONFLICT`. Message-prefix parsing of
+    `FAILED_PRECONDITION` goes.
+  - `INTERNAL`, `UNKNOWN`, `DATA_LOSS` and `CANCELLED` stop being retried, so
+    backends must map transient storage faults to `UNAVAILABLE`.
+  - A queued command whose caller-provided `expected_sequence` is `ABORTED`
+    is dead-lettered with `SequenceMismatchDetails`.
+- Why: the status-codes text in `command_handler.proto`. Core's R2-15 set
+  differs from it.
+- Settled when: one table-driven test is shared by every retry loop (command,
+  saga, PM, projector, DLQ trigger).
+
+**ST-2** [clients] **Client retry helpers.**
+- What: use the same set, and drop any `FAILED_PRECONDITION` message parsing.
+- Why: one contract across languages.
+- Settled when: the parity tests agree.
+
+## ED: editions, external sinks and the CloudEvent id (passes 1, 2 and 5, W10)
+
+**ED-1** [core] **Suppress non-main editions at external sinks.**
+- What: CloudEvents HTTP and Kafka sinks, and any other external automation,
+  drop output projected from non-main editions, counted by a metric.
+- Why: W10 (`cloudevents.proto`, `projector.proto`).
+- Settled when: a what-if command produces no sink delivery.
+
+**ED-2** [core] **The default CloudEvent id and source include the edition.**
+- What: id `{domain}:{edition}:{root}:{sequence}`, source `angzarr/{domain}`
+  on main and `angzarr/{domain}/editions/{edition}` otherwise.
+- Why: W10.
+- Settled when: the ids of the same (domain, root, sequence) differ across
+  editions.
+
+**ED-3** [core] **Main is `""` only.**
+- What: drop the `"angzarr"` alias, and make `DeleteEditionEvents` reject
+  `""`.
+- Why: pass 1.
+- Settled when: no alias remains, and a test covers the rejection.
+
+**ED-4** [core] **Edition storage.**
+- What: per-edition storage routing and sharding, a configured default
+  edition store (memory, redis, a persistent store or the existing database),
+  the edition column kept in every schema, and projector output following the
+  edition's storage. Divergence points move into edition configuration.
+- Why: passes 1 and 2.
+- Settled when: an unconfigured what-if runs on the default store, and a
+  configured edition runs on its own store.
+
+## SN: snapshots (passes 2 and 5, W12)
+
+**SN-1** [core] **The AGGREGATE_HANDLES snapshot bound.**
+- What: under AGGREGATE_HANDLES, load a snapshot with sequence at or below
+  `expected_sequence-1`, or none when `expected_sequence` is 0, so that the
+  window arrives as pages.
+- Why: W12.
+- Settled when: with a snapshot inside the window, decide still receives
+  every window page.
+
+**SN-2** [core] **Snapshot policy configuration.**
+- What: delete `SnapshotRetention`. Snapshot frequency and keep-count become
+  per-domain storage configuration that follows the edition's storage, and
+  the default keeps the newest only. The config shape needs designing.
+- Why: pass 2.
+- Settled when: the config is documented, and the default is tested.
+
+## RT: recorded_at and temporal queries (passes 2 and 5, W13)
+
+**RT-1** [core] **A monotonic `recorded_at`.**
+- What: stamp `recorded_at` = max(the previous event's `recorded_at`, now)
+  per stream, one value per write, and index it. `EventPage.created_at` and
+  `Snapshot.created_at` are gone.
+- Why: W13.
+- Settled when: with an injected backwards clock step, a test still yields
+  non-decreasing values.
+
+**RT-2** [core] **`as_of_time` is a prefix.**
+- What: `TemporalQuery.as_of_time` returns the prefix up to the last event
+  with `recorded_at <= T`. Snapshot selection uses the `recorded_at` of the
+  event at `snapshot.sequence`. Queries start from the nearest kept snapshot
+  in the prefix, or from 0.
+- Why: W13.
+- Settled when: as-of results equal a full replay to the same point.
+
+## DQ: DLQ replay (passes 3, 4 and 5, W9)
+
+**DQ-1** [core] **Replay keeps the original identity.**
+- What: keep the original provenance, origin and keys. Delete
+  `new_correlation_id` minting (`src/status/handlers/dlq.rs`,
+  `src/dlq/audit.rs`), and set `ReplayDeadLetterOk.correlation_id` to the
+  original.
+- Why: W9.
+- Settled when: replaying an entry whose original did apply is answered
+  DUPLICATE.
+
+**DQ-2** [core] **The replay audit record.**
+- What: extend `dlq_replay_audit` (`migrations/status/{postgres,sqlite}`).
+  Add the operator (from the call's credentials, pseudonymous),
+  `retention_overridden`, an outcome of PENDING/APPLIED/DUPLICATE/FAILED,
+  `outcome_at` and `detail`. Drop `new_correlation_id` and
+  `original_correlation_id`. Surface the records as
+  `StoredDeadLetter.replays`, and move the outcome on from PENDING when the
+  replayed delivery is decided, correlating by key. (The H-31
+  `idempotency_key` column guards the replay *request* and stays.)
+- Why: W9 (`dlq_admin.proto`).
+- Settled when: `GetDeadLetter` shows a replay going PENDING, then APPLIED.
+
+**DQ-3** [core] **Replay refusals.**
+- What: a keyless command entry is refused `FAILED_PRECONDITION`. An entry
+  past its key's retention is refused `FAILED_PRECONDITION` unless
+  `override_retention` is set. A backend without atomic claims answers
+  `UNIMPLEMENTED`.
+- Why: W9 and the claim model.
+- Settled when: each refusal is tested.
+
+**DQ-4** [core] **Event-book replay targets the failed component.**
+- What: replay `rejected_events` to `source_component` only.
+  `FRESH_SEQUENCE` on an event entry is `INVALID_ARGUMENT`.
+- Why: W9.
+- Settled when: other subscribers do not see the replay.
+
+**DQ-5** [core] **Command replay rides the bus.**
+- What: store `rejected_command` as received (with Handling as sent).
+  `AS_IS` keeps it, and `FRESH_SEQUENCE` clears
+  `handling.expected_sequence`. Publish to the bus to be processed as
+  `HandleAsync` processes commands: no hardcoded `SyncMode::Simple`, and no
+  re-stamping of page headers from a query.
+- Why: passes 3 and 4.
+- Settled when: replay has no mode parameter internally.
+
+**DQ-6** [core] **The status console shows replays.**
+- What: the DLQ panel lists each entry's replays and their outcomes.
+- Why: operators need the audit trail.
+- Settled when: the UI shows the replay history.
+
+## RN: renames (pass 5, W14)
+
+**RN-1** [core, router, clients] **`decided_at` becomes `base_sequence`.**
+- What: rename `EventMeta.decided_at` to `base_sequence` everywhere, and
+  record it on every event.
+- Why: W14. The field is a sequence, not a time.
+- Settled when: no `decided_at` remains outside history.
+
+**RN-2** [core, clients, site] **The projector coordinator's `HandleAsync`.**
+- What: rename the projector coordinator's `Handle` to `HandleAsync`, at HTTP
+  `POST /v1/projector/async` (gateway and Envoy routes too). Update the site's
+  architecture diagrams, and the stale `service ProjectorCoordinator` block in
+  `pitch.mdx`.
+- Why: W14.
+- Settled when: the gateway serves the new path, and the old one is gone.
+
+## PR: process-manager replies (passes 2 and 5, W6)
+
+**PR-1** [core] **Route replies by correlation.**
+- What: route replies to the PM instance by `correlation_id`. A PM command's
+  `Causation.event` is its trigger, never a PM process event.
+- Why: W6. This **corrects** the pass-2 backlog item, which said a reply's
+  causation "names the PM's event".
+- Settled when: a PM receives a target's refusal event under its correlation
+  and acts on it.
+
+**PR-2** [core] **Hard rejections of PM commands.**
+- What: retry when retryable, otherwise dead-letter. Whether the PM should
+  also learn of the rejection is open (D8).
+- Why: pass 2.
+- Settled when: D8 is decided and implemented.
+
+## FA: the fact pipeline (pass 2)
+
+**FA-1** [core] **Reflective dispatch.**
+- What: the body arm picks the pipeline (Command goes to decide, Fact to
+  ingest), and the type URL picks the handler.
+- Why: pass 2.
+- Settled when: a fact never reaches decide.
+
+**FA-2** [core] **Refuse and park.**
+- What: refuse a `Fact` that sets `expected_sequence` (`INVALID_ARGUMENT`).
+  A failing ingest is dead-lettered, alerted and answered PARKED (MD-3).
+- Why: passes 2, 4 and 5.
+- Settled when: both are tested.
+
+**FA-3** [clients, router] **Infallible fact handlers.**
+- What: fact handlers are an infallible interface with no error arm (annals:
+  `Domain::ingest(&state, fact) -> Vec<Event>`). The handler registration
+  (`#[handles_fact]` / ingest) is the codegen declaration, with no proto flag,
+  and the router guards the arm against the handler kind.
+- Why: pass 2. The codegen marker question is resolved.
+- Settled when: a fact handler cannot return an error in any SDK.
+
+## HD: Handling resolution (passes 1 and 3)
+
+**HD-1** [core] **Resolve Handling in place.**
+- What: stamp `expected_sequence` when absent, and fill `merge` from
+  configuration. `ContextualCommand` sees only resolved handling, which is
+  never persisted.
+- Why: pass 3.
+- Settled when: decide never sees an unspecified field.
+
+**HD-2** [core] **Merge configuration.**
+- What: configure the merge strategy per command type and per component.
+  Precedence: Handling, then command type, then component, then STRICT. Add
+  forbid-override, which is refused `INVALID_ARGUMENT`. The config shape
+  needs designing.
+- Why: pass 3.
+- Settled when: the config is documented, and the precedence is tested.
+
+**HD-3** [core, router] **Reaction commands carry no Handling.**
+- What: a reaction command with any `Handling` field set is dead-lettered.
+  Delete `reaction_sync_mode` and the `PageHeader.sync_mode` preservation.
+  Resolve the core/router disagreement on explicit sequences: core's
+  `Some(SequenceType::Sequence(_)) => continue` in
+  `orchestration/saga/mod.rs` and `orchestration/process_manager/mod.rs`
+  must refuse instead.
+- Why: passes 3 and 4.
+- Settled when: core and the router behave identically.
+
+**HD-4** [core] **The default merge is STRICT.**
+- What: `CommandPageExt::effective_merge_strategy` calls
+  `MergeStrategy::or_default_commutative`. Make it default to STRICT.
+- Why: `COMMUTATIVE` is gone from the wire.
+- Settled when: an unconfigured stale command is `ABORTED`.
+
+**HD-5** [core, clients] **Two strategies, checked before business code.**
+- What: keep only `STRICT` and `AGGREGATE_HANDLES`, and deliver the conflict
+  window with the command. Check or stamp the expected sequence before
+  business code. Clients get conflict-resolution helpers for
+  `AGGREGATE_HANDLES`, computed locally over the delivered window (no
+  framework RPC).
+- Why: pass 1.
+- Settled when: no other strategy remains in code.
+
+## WS: wire-shape migration (passes 1–3)
+
+**WS-1** [core, clients] **u64 sequences end to end.**
+- What: the `EventStore` trait, Postgres `INTEGER`/`i32` casts, Bigtable's
+  `{:010}` key padding, and every SDK.
+- Why: pass 1.
+- Settled when: a stream past 2^32 round-trips.
+
+**WS-2** [core, router, clients, examples] **Remove `Cover.ext`.**
+- What: storage `ext` columns, router stamping, about 60 core sites, Python's
+  `unpack_parent_cover`, and the poker protos. Parent references move into
+  payloads.
+- Why: pass 1.
+- Settled when: no `ext` remains.
+
+**WS-3** [core] **Delete obsolete types and RPCs.**
+- What: `PageHeader`, the deferred-sequence types,
+  `HandleFact`/`HandleEvent`/`Replay`, `EventRequest.skip_handler`, saga/PM
+  facts, `CommandMeta`, and the request wrappers. `SagaService.Handle`,
+  `SagaCoordinatorService.Execute` and `ProcessManagerCoordinatorService.Handle`
+  take `EventBook`.
+- Why: passes 1–3.
+- Settled when: core builds against the new protos.
+
+**WS-4** [core] **One page per `CommandBook`.**
+- What: execute exactly one page. Today extra pages are silently ignored.
+- Why: pass 1.
+- Settled when: the code matches the wire.
+
+**WS-5** [core] **`PayloadReference` moves to the transport.**
+- What: claim-checking moves into a transport-owned bus envelope, resolved
+  before anything else sees the message.
+- Why: pass 2.
+- Settled when: no persisted page carries a reference.
+
+## RM: removed features (pass 2)
+
+**RM-1** [core] **Delete cascades.**
+- What: delete `CASCADE`, `ISOLATED`, the cascade error modes and
+  `CommandResponse.reaction_errors`.
+- Why: decision 2.1.
+- Settled when: none of them remain.
+
+**RM-2** [core] **Delete the compensation and notification path.**
+- What: delete `Notification`, `RejectionNotification`, `Compensate`,
+  `HandleCompensation`, `RevocationResponse`, `BusinessResponse`,
+  `SagaCompensationFailed`, `CompensationDeliveryFailedDetails` and escalation
+  forwarding.
+- Why: decision 2.2.
+- Settled when: none of them remain.
+
+**RM-3** [core] **Delete speculative execution.**
+- What: delete every speculative RPC. What-ifs become commands in an edition
+  (ED-4).
+- Why: decision 2.4.
+- Settled when: none remain.
+
+**RM-4** [clients] **Delete removed features from the SDKs.**
+- What: delete the compensation handlers, `undoes`/`compensates` codegen,
+  rejection fan-out and the speculative APIs. Regenerate for `CommandPage`
+  (`provenance`, `body`), `CommandBook.handling` and
+  `CommandResponse.outcome`.
+- Why: pass 2.
+- Settled when: the SDKs build against the protos.
+
+**RM-5** [examples] **Rework the poker compensation.**
+- What: rework the `compensates: DealCards` behaviour (`TableHandSaga`,
+  `TableState`) as a refusal event plus a saga.
+- Why: the annotations were removed.
+- Settled when: the poker examples pass.
+
+**RM-6** [clients, core] **Clear leftover 2PC.**
+- What: leftover 2PC in generated Python, stale 2PC tasks in core's
+  `tasks.md`, and stale branches.
+- Why: the pass-1 audit.
+- Settled when: none remain.
+
+## TG: type generation and the router (gap 9)
+
+**TG-1** [core, router, clients] **One set of Rust types.**
+- What: remap core, angzarr-router and client-rust onto `angzarr-proto`
+  through `extern_path`.
+- Why: the same types are generated three times (four with the crate).
+- Settled when: one generation remains.
+
+**TG-2** [router] **Mirror the new dispatch.**
+- What: dispatch on the body arm, then the type URL. Delete the compensation,
+  undo and speculative dispatch and the notification envelopes.
+  `angzarr_router_dispatch_saga` takes `EventBook` bytes.
+- Why: pass 2.
+- Settled when: the router builds on `angzarr-proto`.
+
+## GAP: gaps carried from earlier passes
+
+**GAP-1** [core] **Upcasting runs only on aggregate loads.**
+- What: sagas, PMs, projectors and queries see raw stored versions, and a
+  missing rule silently drops the event on rebuild. Upcast on every read
+  path, and fail on an unknown type URL, naming it (as annals' strict replay
+  does).
+- Why: correctness on rebuild.
+- Settled when: every read path upcasts, and golden fixtures run in CI.
+
+**GAP-2** [core] **No multi-stream unit of work, and 1:1 upcasters.**
+- What: angzarr appends one command's events to one stream per write, and an
+  upcaster maps one event to one. For comparison:
+  - Marten: one session appends to many streams in one transaction.
+  - Axon: a `UnitOfWork` spans one message. Upcasters can split or drop
+    events.
+  - **KurrentDB: `MultiStreamAppend` (25.1 and later).** This corrects the
+    earlier "no multi-stream transactions".
+  - annals: atomic chains across streams in one transaction.
+- Why: matching annals would need a coordinator-level unit of work.
+- Settled when: the user decides whether angzarr wants one.
+
+**GAP-3** [project] **`buf breaking` does not gate merges.**
+- What: `just proto-breaking` is manual, and `contracts.yml` lints only.
+- Why: wire breaks are accepted pre-freeze.
+- Settled when: it gates at v0.1.0, or before hatpick stores production
+  events.
+
+## DOC: site, feature specs and branches
+
+**DOC-1** [site] **Fix the embedded proto regions.**
+- What: the site embeds regions that no longer exist: `edition`,
+  `snapshot_retention`, `rejection_notification`, `page_header` and
+  `sync_mode`. Use `provenance`, `handling`, `outcome`, `command_modes`, and
+  the new `idempotency_claim`. The merge-strategy table needs the config
+  precedence, and the stale-sequence code is now `ABORTED`.
+- Why: passes 1–5.
+- Settled when: a strict site build passes.
+
+**DOC-2** [site] **Rewrite the stale pages.**
+- What: about ten pages: the merge-strategy and sync-mode tables, upcasting,
+  the facts audit claims, the glossary (`cover.md`, `cloud-event.md` with the
+  new id format), and every page on CASCADE, compensation, speculative
+  execution and snapshot retention.
+- Why: passes 1–5.
+- Settled when: no page describes removed behaviour.
+
+**DOC-3** [site] **Correct `components/commands-vs-facts.md`.**
+- What: remove the Axon "decision vs notification commands" claim (C3).
+  Replace "Angzarr's Solution" (facts as events with a fact sequence) with
+  the `Fact` arm. Cite Equinox ingesters, not Event Modeling (C1).
+- Why: the corrections.
+- Settled when: the page matches the protos.
+
+**DOC-4** [site] **Add pages for the pass-5 contract.**
+- What: idempotency (keys, scope, retention, required `request_id`), the
+  transient reactor outbox, status codes, PARKED, edition sink suppression,
+  and the DLQ replay audit.
+- Why: pass 5.
+- Settled when: each topic has a page.
+
+**DOC-5** [project] **Rewrite the feature specs.**
+- What: retire the specs for removed features (CASCADE 6, ISOLATED 3,
+  notifications and compensation 4, speculative 3, `undoes` 2). Add
+  coordinator-contract specs for pass 5: key dedup per kind, rejection
+  release, fingerprint mismatch, PARKED, `projector_failures`, ABORTED
+  retries, edition sink suppression, and the replay audit.
+- Why: passes 2 and 5.
+- Settled when: `just contracts` passes with the new specs.
+
+**DOC-6** [project] **The `feat/blackjack-spec` branch.**
+- What: the branch exercises removed features
+  (`cascade_error_mode.feature`, `compensation_delivery.feature`,
+  `snapshot_retention.feature`, `speculative_client.feature`, ISOLATED in
+  `sync_modes.feature`, compensation-based blackjack flows). Rebase it or
+  retire those scenarios.
+- Why: passes 2 and 4.
+- Settled when: the branch is rebased or closed.
+
+---
+
+## Counts
+
+| Workstream | Items |
+|---|---|
+| KS: idempotency key store | 10 |
+| OB: transient reactor outbox | 5 |
+| PS: provenance stamping and correlation | 5 |
+| BO: business output is payloads only | 3 |
+| RV: rules_version declaration | 2 |
+| MD: the three RPC modes and the Outcome | 6 |
+| ST: status codes | 2 |
+| ED: editions, external sinks, CloudEvent id | 4 |
+| SN: snapshots | 2 |
+| RT: recorded_at and temporal queries | 2 |
+| DQ: DLQ replay | 6 |
+| RN: renames | 2 |
+| PR: process-manager replies | 2 |
+| FA: fact pipeline | 3 |
+| HD: Handling resolution | 5 |
+| WS: wire-shape migration | 5 |
+| RM: removed features | 6 |
+| TG: type generation and router | 2 |
+| GAP: carried gaps | 3 |
+| DOC: site, specs, branches | 6 |
+| **Total** | **81** |
+
+## By-repo index
+
+An item tagged with several repos appears under each of them.
+
+| Repo | Items |
+|---|---|
+| core | KS-1–6, KS-8–10, OB-1–3, OB-5, PS-1–5, BO-1, RV-1, MD-1–5, ST-1, ED-1–4, SN-1–2, RT-1–2, DQ-1–6, RN-1–2, PR-1–2, FA-1–2, HD-1–5, WS-1–5, RM-1–3, RM-6, TG-1, GAP-1–2 |
+| router | OB-4, PS-2, RN-1, FA-3, HD-3, WS-2, TG-1–2 |
+| clients (go, rust, python, java, csharp, cpp, typescript) | KS-7, BO-2, RV-2, MD-6, ST-2, RN-1–2, FA-3, HD-5, WS-1–2, RM-4, RM-6, TG-1 |
+| examples | BO-3, WS-2, RM-5 |
+| site | RN-2, DOC-1–4 |
+| project (features, CI, branches) | GAP-3, DOC-5–6 |

@@ -57,6 +57,34 @@ message StoredDeadLetter {
   // JSON string. Empty when decoding failed entirely (the row is still
   // surfaced — clients can fall back to `payload` bytes).
   string payload_view = 12;
+  // Every replay of this entry, oldest first: the audit record of who
+  // replayed it, when, how and with what result. `payload` itself never
+  // changes; replays are recorded here, beside it.
+  repeated DeadLetterReplay replays = 13;
+}
+
+// One replay of a dead-letter entry, recorded in the entry when the replay
+// is requested and updated when its result is known.
+message DeadLetterReplay {
+  // Who replayed it: the authenticated caller of ReplayDeadLetter, as an
+  // opaque pseudonymous actor id (like Provenance.actor). Taken from the
+  // call's credentials, never from the request body.
+  string operator = 1;
+  google.protobuf.Timestamp replayed_at = 2; // When the replay was requested
+  ReplayMode mode = 3; // The mode applied
+  bool retention_overridden = 4; // The operator overrode the key-retention refusal
+  ReplayOutcome outcome = 5; // PENDING until the replayed delivery is decided
+  google.protobuf.Timestamp outcome_at = 6; // When outcome left PENDING
+  string detail = 7; // Human-readable detail (e.g. the new rejection's reason)
+}
+
+// What became of one replay.
+enum ReplayOutcome {
+  REPLAY_OUTCOME_UNSPECIFIED = 0;
+  REPLAY_OUTCOME_PENDING = 1; // Enqueued; not yet decided
+  REPLAY_OUTCOME_APPLIED = 2; // Business code ran and committed (or the component processed the events)
+  REPLAY_OUTCOME_DUPLICATE = 3; // The key was already claimed: the original did apply
+  REPLAY_OUTCOME_FAILED = 4; // Failed again: rejected or re-dead-lettered (see detail)
 }
 
 // RFC 7807 — Problem Details for HTTP APIs. Used when a tile's
@@ -135,17 +163,37 @@ message GetDeadLetterResponse {
 
 // Replay semantics.
 //
-// Delivery. A replay is published to the command bus and processed as an
-// ASYNC command (the coordinator's HandleAsync): the call returns once the
-// command is enqueued, not when it is decided. There is no hardcoded or
-// per-replay sync mode. A replayed command that fails again is retried or
-// dead-lettered like any asynchronous command; follow its new_correlation_id
-// (ReplayDeadLetterOk) for the outcome. A replayed reaction command carries
-// no Handling (FRESH_SEQUENCE has nothing to clear).
+// Same message, same keys. A replay is a redelivery, never a new command: it
+// keeps the original provenance (actor and correlation_id), origin and
+// idempotency key. If the original did apply after all, the key store
+// answers the replay DUPLICATE, so a replay can never apply a command twice.
+// The replay itself (operator, time, mode, outcome) is recorded in the
+// entry (StoredDeadLetter.replays), not on the replayed message.
+//
+// Command entries. Published to the command bus and processed as an ASYNC
+// command (the coordinator's HandleAsync): the call returns once the command
+// is enqueued, not when it is decided; the recorded replay's outcome is
+// PENDING until then. There is no hardcoded or per-replay sync mode. A
+// replayed command that fails again is retried or dead-lettered like any
+// asynchronous command. A replayed reaction command carries no Handling
+// (FRESH_SEQUENCE has nothing to clear).
+//
+// Refusals (the call fails; nothing is published or recorded):
+//   - the entry's command has no idempotency key (a request origin with an
+//     empty request_id): FAILED_PRECONDITION;
+//   - the entry is older than its key's retention (24 hours for a request
+//     key, 7 days for causation and fact keys; see IdempotencyClaim), so
+//     the key store can no longer recognise a duplicate:
+//     FAILED_PRECONDITION, unless override_retention is set;
+//   - the backend has no atomic idempotency claims: UNIMPLEMENTED.
+//
+// Event entries (rejected_events). Re-delivered to the one component that
+// failed (AngzarrDeadLetter.source_component), never re-published to every
+// subscriber. Only AS_IS applies; FRESH_SEQUENCE is INVALID_ARGUMENT.
 //
 //   AS_IS           — replay the rejected command as received, Handling
 //                     included (its expected sequence, if any, is kept). Likely to fail again with
-//                     FAILED_PRECONDITION when state has moved on;
+//                     ABORTED when state has moved on;
 //                     useful as a diagnostic "reproduce the failure"
 //                     mode.
 //   FRESH_SEQUENCE  — clear the command's handling.expected_sequence
@@ -162,22 +210,27 @@ enum ReplayMode {
 message ReplayDeadLetterRequest {
   int64 id = 1;
   ReplayMode replay_mode = 2;
+  // Replay even though the entry is older than its key's retention. The
+  // key store may no longer recognise a duplicate, so the operator accepts
+  // the risk of applying the command twice. Recorded in the replay.
+  bool override_retention = 3;
 }
 
-// Successful replay outcome. The dead-letter row stays in
-// `dlq_entries` (the operator can `Delete` it explicitly when
-// they've confirmed the new command flow); the replayed command
-// gets a NEW correlation_id and a `replayed_from_dlq_id` +
-// `original_correlation_id` metadata pair so downstream observers
-// can trace the lineage.
+// Successful replay request. The dead-letter row stays in `dlq_entries`
+// (the operator can `Delete` it explicitly once the outcome is confirmed),
+// and the replay is recorded in it (StoredDeadLetter.replays). The replayed
+// message keeps its original correlation_id; follow that, or re-read the
+// entry, for the outcome.
 message ReplayDeadLetterOk {
-  // Fresh correlation_id stamped on the replayed command.
-  string new_correlation_id = 1;
+  // The original correlation_id, kept on the replayed message.
+  string correlation_id = 1;
   // RFC-3339 timestamp of when the replay was published.
   google.protobuf.Timestamp replayed_at = 2;
   // The mode that was applied. Echoed back so callers can confirm
   // (esp. when REPLAY_MODE_UNSPECIFIED was sent → server defaults).
   ReplayMode applied_mode = 3;
+  // The replay as recorded in the entry (outcome PENDING for a command).
+  DeadLetterReplay replay = 4;
 }
 
 message ReplayDeadLetterResponse {
@@ -234,9 +287,10 @@ service DlqAdminService {
     };
   }
 
-  // Replay a dead-letter entry through the command bus. The
-  // original row is left in place — operators delete explicitly
-  // after confirming the replay's downstream outcome.
+  // Replay a dead-letter entry: a command through the command bus
+  // (HandleAsync), an event book to the component that failed. The
+  // original row is left in place, and the replay is recorded in it;
+  // operators delete explicitly after confirming the outcome.
   rpc ReplayDeadLetter(ReplayDeadLetterRequest) returns (ReplayDeadLetterResponse) {
     option (google.api.http) = {
       post: "/api/dlq/{id}/replay"

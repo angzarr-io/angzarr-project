@@ -30,8 +30,10 @@ service SagaService {
 }
 
 // SagaCoordinatorService: orchestrates saga execution.
-// Stamps framework provenance (Causation.component and index) onto the
-// emitted commands, delivers them and retries retryable failures.
+// Stamps framework provenance onto the emitted commands (Causation.component
+// and index, and Provenance actor and correlation_id copied from the
+// triggering event; see Provenance), records them in the transient outbox
+// (see SagaResponse), delivers them and retries retryable failures.
 service SagaCoordinatorService {
   // Execute saga: translate source events → commands, deliver to targets.
   // The request is the source EventBook; the saga's configuration, not the
@@ -47,13 +49,27 @@ service SagaCoordinatorService {
 // Sagas are pure translators: source events → commands. The request is the
 // source EventBook and carries no destination state or sequences.
 
-// Response from saga - commands for other aggregates
+// Response from saga - commands for other aggregates.
+//
+// Transient outbox. ALL reactor output (a saga's commands here, and a
+// process manager's events and commands) goes through a transient outbox.
+// The coordinator stores the output atomically with the reactor's source
+// checkpoint (its position past the triggering event), then dispatches it,
+// then clears it: once dispatched, only the commands' idempotency keys
+// remain. A crash before dispatch completes re-sends the stored output
+// verbatim; the reactor is never re-run for a trigger whose output is
+// stored, so the keys re-sent are the keys first recorded and the
+// destinations deduplicate them. Reactors therefore carry NO purity or
+// determinism requirement: one run's output is recorded once and re-sent
+// as recorded.
 message SagaResponse {
   // Commands for other aggregates; each carries a Causation origin and NO
   // Handling: handling is left unset (or empty). A command that sets any
   // Handling field (expected_sequence or merge) is a saga bug, refused
   // loudly: dead-lettered and alerted, never delivered, never silently
-  // stripped (see Handling). Delivery mode comes from the saga's
-  // configuration, never from the command.
+  // stripped (see Handling). Provenance is likewise left empty for the
+  // coordinator to stamp from the trigger; an actor or correlation_id that
+  // differs from the trigger's is refused the same way. Delivery mode comes
+  // from the saga's configuration, never from the command.
   repeated CommandBook commands = 1;
 }

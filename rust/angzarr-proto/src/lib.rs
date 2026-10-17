@@ -4,7 +4,8 @@
 //! (the `CommandPage` body: `Command` or `Fact`), covers, `Handling` (on
 //! `CommandBook`), provenance (`Provenance`, `EventMeta`, `EventRef`, the
 //! origin messages `RequestOrigin`, `Causation`, `FactOrigin`), the
-//! response-only `Outcome`, and the upcaster request/response messages, plus
+//! response-only `Outcome`, the storage-only `IdempotencyClaim` schema,
+//! `ComponentDescriptor`, and the upcaster request/response messages, plus
 //! `sererr.v1`, which `types.proto` imports. Every message implements [`prost::Name`] with no type-name domain,
 //! so `prost_types::Any::from_msg` yields type URLs of the form
 //! `/io.angzarr.v1.EventPage`, matching angzarr's TYPE_URL_PREFIX ("/").

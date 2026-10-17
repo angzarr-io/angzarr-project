@@ -94,9 +94,13 @@ message CommandOptions {
   // ambiguous reference.
   string component = 1;
   // Fully-qualified event type(s) this command emits. When set, the generated
-  // handler returns the typed events and the framework builds the EventBook and
-  // stamps sequences; when empty, the handler returns the raw EventBook (the
-  // escape hatch for multi-type emission, custom covers, snapshots).
+  // handler returns the typed events; when empty, it returns raw payloads
+  // (google.protobuf.Any), for multi-type emission. Either way business
+  // output is payloads plus an optional snapshot state, nothing more: the
+  // framework builds the EventBook, uses the command's cover, and stamps
+  // sequences and EventMeta. A handler cannot choose a different cover,
+  // sequence or meta; output that sets any of them is refused (see
+  // CommandHandlerService.Handle).
   repeated string emits = 2;
 }
 

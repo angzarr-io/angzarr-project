@@ -1,7 +1,8 @@
 use angzarr_proto::v1::{
-    command, command_page, event_meta, Causation, Command, CommandBook, CommandPage, Cover,
-    DeliveryOutcome, EventMeta, EventPage, EventRef, Fact, FactOrigin, Handling, MergeStrategy,
-    Outcome, Projection, Provenance, RequestOrigin, UpcastRequest, Uuid,
+    command, command_page, event_meta, idempotency_claim, Causation, Command, CommandBook,
+    CommandPage, ComponentDescriptor, Cover, DeliveryOutcome, EventMeta, EventPage, EventRef, Fact,
+    FactOrigin, Handling, IdempotencyClaim, MergeStrategy, Outcome, Projection, ProjectorFailure,
+    Provenance, RequestOrigin, UpcastRequest, Uuid,
 };
 use prost::{Message, Name};
 
@@ -67,7 +68,7 @@ fn meta(origin: event_meta::Origin) -> EventMeta {
             seconds: 1_700_000_001,
             nanos: 0,
         }),
-        decided_at: u64::from(u32::MAX) + 7,
+        base_sequence: u64::from(u32::MAX) + 7,
         rules_version: "rules-3".into(),
     }
 }
@@ -239,14 +240,14 @@ fn handling_carries_no_sync_mode() {
 }
 
 #[test]
-fn event_meta_round_trips_every_origin_with_decided_at_and_provenance() {
+fn event_meta_round_trips_every_origin_with_base_sequence_and_provenance() {
     for origin in event_origins() {
         let original = page(origin.clone());
         let decoded = round_trip(&original);
         assert_eq!(decoded, original);
         let meta = decoded.meta.unwrap();
         assert_eq!(meta.origin, Some(origin));
-        assert_eq!(meta.decided_at, u64::from(u32::MAX) + 7);
+        assert_eq!(meta.base_sequence, u64::from(u32::MAX) + 7);
         assert_eq!(meta.provenance, Some(provenance()));
         assert_eq!(meta.rules_version, "rules-3");
         assert!(meta.recorded_at.is_some());
@@ -285,7 +286,7 @@ fn event_meta_is_field_8_and_appended_after_the_page_body() {
 }
 
 #[test]
-fn outcome_round_trips_each_delivery_with_projections() {
+fn outcome_round_trips_each_delivery_with_projections_and_failures() {
     let projection = Projection {
         cover: Some(Cover {
             domain: "draws".into(),
@@ -296,23 +297,90 @@ fn outcome_round_trips_each_delivery_with_projections() {
         sequence: u64::from(u32::MAX) + 2,
         projection: Some(any("/draws.v1.DrawHistory", &[4])),
     };
+    // HandleSync answers OK with the successful projections beside the
+    // failed ones; a failure never replaces the events.
+    let failure = ProjectorFailure {
+        projector: "draw-stats".into(),
+        code: 14, // UNAVAILABLE
+        message: "stats store down".into(),
+    };
     for delivery in [
         DeliveryOutcome::Unspecified,
         DeliveryOutcome::Applied,
         DeliveryOutcome::Duplicate,
+        DeliveryOutcome::Parked,
     ] {
         let original = Outcome {
             delivery: delivery as i32,
             projections: vec![projection.clone()],
+            projector_failures: vec![failure.clone()],
         };
         let decoded = round_trip(&original);
+        assert_eq!(decoded, original);
         assert_eq!(decoded.delivery(), delivery);
         assert_eq!(decoded.projections, vec![projection.clone()]);
+        assert_eq!(decoded.projector_failures, vec![failure.clone()]);
     }
     assert_eq!(
         DeliveryOutcome::Duplicate.as_str_name(),
         "DELIVERY_OUTCOME_DUPLICATE"
     );
+    // A failed fact ingest is "accepted, parked": its own outcome, neither a
+    // rejection nor APPLIED.
+    assert_eq!(DeliveryOutcome::Parked as i32, 3);
+    assert_eq!(
+        DeliveryOutcome::Parked.as_str_name(),
+        "DELIVERY_OUTCOME_PARKED"
+    );
+}
+
+#[test]
+fn idempotency_claim_round_trips_each_key_kind_with_an_empty_range() {
+    let keys = [
+        idempotency_claim::Key::Request(request()),
+        idempotency_claim::Key::Causation(causation()),
+        idempotency_claim::Key::Fact(fact_origin()),
+    ];
+    for key in keys {
+        // Zero events is a valid applied outcome, and it is claimed too.
+        let original = IdempotencyClaim {
+            stream: Some(Cover {
+                domain: "draws".into(),
+                root: Some(uuid(0xcd)),
+                edition: String::new(),
+            }),
+            key: Some(key.clone()),
+            fingerprint: vec![0x5a; 32],
+            first_sequence: u64::from(u32::MAX) + 3,
+            event_count: 0,
+            claimed_at: Some(prost_types::Timestamp {
+                seconds: 1_700_000_001,
+                nanos: 0,
+            }),
+            expires_at: Some(prost_types::Timestamp {
+                seconds: 1_700_086_401,
+                nanos: 0,
+            }),
+        };
+        let decoded = round_trip(&original);
+        assert_eq!(decoded, original);
+        assert_eq!(decoded.key, Some(key));
+        assert_eq!(decoded.first_sequence, u64::from(u32::MAX) + 3);
+        assert_eq!(decoded.event_count, 0);
+    }
+}
+
+#[test]
+fn component_descriptor_declares_rules_version() {
+    let original = ComponentDescriptor {
+        name: "draw-system".into(),
+        component_type: "aggregate".into(),
+        inputs: vec![],
+        rules_version: "rules-3".into(),
+    };
+    let decoded = round_trip(&original);
+    assert_eq!(decoded, original);
+    assert_eq!(decoded.rules_version, "rules-3");
 }
 
 #[test]
@@ -330,6 +398,10 @@ fn type_names_are_io_angzarr_v1() {
     assert_eq!(Causation::full_name(), "io.angzarr.v1.Causation");
     assert_eq!(FactOrigin::full_name(), "io.angzarr.v1.FactOrigin");
     assert_eq!(Outcome::full_name(), "io.angzarr.v1.Outcome");
+    assert_eq!(
+        IdempotencyClaim::full_name(),
+        "io.angzarr.v1.IdempotencyClaim"
+    );
     assert_eq!(UpcastRequest::full_name(), "io.angzarr.v1.UpcastRequest");
     // angzarr's TYPE_URL_PREFIX is "/" (see types.proto), which is prost's
     // default when no type-name domain is configured.
