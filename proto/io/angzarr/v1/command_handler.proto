@@ -153,7 +153,7 @@ service CommandHandlerCoordinatorService {
   // so there are no events and no delivery outcome to report.
   //
   // The command must carry a client-supplied idempotency key: a request
-  // origin with a non-empty request_id (and minted unset), or a fact's
+  // origin with a set request_id (and minted unset), or a fact's
   // external_id (CommandPage.origin). Asynchronous delivery is at least
   // once, and only a client key makes redelivery safe (a minted request id
   // never deduplicates), so a command without one is refused

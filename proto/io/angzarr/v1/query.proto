@@ -30,11 +30,13 @@ service EventQueryService {
   // stream holding that stream's pages with the correlation, in sequence
   // order (see CorrelationQuery in types.proto, which also says how to
   // derive forward causation from the result). A Query's correlation
-  // selector stays within one domain; this RPC does not. An empty
-  // correlation_id is INVALID_ARGUMENT; a correlation with no events is an
-  // empty stream, not NOT_FOUND.
+  // selector stays within one domain; this RPC does not. An unset
+  // correlation_id, or one that is not 16 bytes, is INVALID_ARGUMENT; a
+  // correlation with no events is an empty stream, not NOT_FOUND. REST: the
+  // path segment is the UUID's bytes, so transcoding takes base64
+  // (URL-safe), not canonical UUID text (see UUID in types.proto).
   rpc GetCorrelatedEvents(CorrelationQuery) returns (stream EventBook) {
-    option (google.api.http) = {get: "/v1/query/correlations/{correlation_id}/events"};
+    option (google.api.http) = {get: "/v1/query/correlations/{correlation_id.value}/events"};
   }
   // List every stream (SSE): one Cover (domain, edition, root) per stream.
   rpc GetAggregateRoots(google.protobuf.Empty) returns (stream Cover) {

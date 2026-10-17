@@ -2,7 +2,7 @@
 
 ## Status
 
-Open. The eight `feat/audit-meta` passes changed **only** the protos under
+Open. The nine `feat/audit-meta` passes changed **only** the protos under
 `proto/io/angzarr/` and the `rust/angzarr-proto` crate. No angzarr code has
 changed. The user is not taking on heavy angzarr refactoring now, so every
 code consequence is recorded in the backlog, which is the part that must not
@@ -10,7 +10,7 @@ be lost.
 
 Wire breaks are accepted pre-freeze. Reservation policy (D6, pass 6):
 removed fields and messages are deleted outright, with no `reserved`
-statements, up to and including pass 8. From the first stored production
+statements, up to and including pass 9. From the first stored production
 event onwards, every removal reserves its number and name (see
 `proto/buf.yaml` and backlog GAP-3).
 
@@ -18,12 +18,12 @@ event onwards, every removal reserves its number and name (see
 
 | Document | Contents |
 |---|---|
-| [audit-meta/decision-log.md](audit-meta/decision-log.md) | Every decision of passes 1–8: why, the accepted cost, and the standard it aligns with. Also the corrections (Event Modeling, KurrentDB, Axon). |
+| [audit-meta/decision-log.md](audit-meta/decision-log.md) | Every decision of passes 1–9: why, the accepted cost, and the standard it aligns with. Also the corrections (Event Modeling, KurrentDB, Axon). |
 | [audit-meta/critical-review-source.md](audit-meta/critical-review-source.md) | The post-pass-4 critical review's own record (authoritative for the findings' content). |
 | [audit-meta/critical-review.md](audit-meta/critical-review.md) | The status of each review finding: W1–W14, D1–D11, FINE and annals fitness, with where each was resolved. |
 | [audit-meta/idempotency.md](audit-meta/idempotency.md) | The idempotency research (a comparison table) and the chosen key-store design, with its alignments and divergences. |
-| [audit-meta/backlog.md](audit-meta/backlog.md) | **The code follow-up backlog**, by workstream with a by-repo index. 104 items, each with what, why, and what settles it. |
-| [audit-meta/annals-divergence.md](audit-meta/annals-divergence.md) | Why annals keeps its atomic in-process chain, and what it does and does not need as a result. Also where annals now matches angzarr: conflict units, fingerprints, minted ids. |
+| [audit-meta/backlog.md](audit-meta/backlog.md) | **The code follow-up backlog**, by workstream with a by-repo index. 108 items, each with what, why, and what settles it. |
+| [audit-meta/annals-divergence.md](audit-meta/annals-divergence.md) | Why annals keeps its atomic in-process chain, and what it does and does not need as a result. Also where annals now matches angzarr: conflict units, fingerprints, minted ids, UUID-typed request and correlation ids, v5 derived ids. |
 
 ## Passes
 
@@ -79,7 +79,7 @@ event onwards, every removal reserves its number and name (see
   `CorrelationQuery.edition` are `optional string`; a set empty edition is
   refused `INVALID_ARGUMENT`; the edition admin names are required and
   non-empty; the main CloudEvent id has no edition segment.
-- **Pass 8** (this change): decisions 8.1–8.3, by the user.
+- **Pass 8** (682af21): decisions 8.1–8.3, by the user.
   - **Conflict units for COMMUTATIVE** (`options.proto`, `conflict_units`
     region): `(commutative_state)` on the state message (50106),
     `(conflict)` = `ConflictUnit { descend, element_key, ordered }` on its
@@ -91,15 +91,34 @@ event onwards, every removal reserves its number and name (see
     nonce, otherwise `ABORTED`. COMMUTATIVE on a state without
     `commutative_state` is malformed. Replaces 6.12's "reflection diff".
   - **Minted ids are UUIDv7** (the `minted_ids` region of `types.proto`);
-    client ids stay opaque.
+    client ids stay opaque (superseded for request and correlation ids by
+    pass 9).
   - **Request ids are always assigned**: `RequestOrigin.minted` (field 3)
     marks a coordinator-minted id, recorded for audit and never
     deduplicating; only client-supplied ids are keys. An absent correlation
-    is the request id verbatim (a fact's: its `external_id`); nothing mints
-    a correlation.
+    is the request id verbatim (a fact's: its `external_id`, superseded by
+    pass 9); nothing mints a correlation.
   - **annals** generates `changed()` from the same markers (same golden
     suite), and now fingerprints request keys like angzarr: neither is a
     divergence.
+- **Pass 9** (this change): decisions 9.1–9.3, by the user.
+  - **One UUID type**: `RequestOrigin.request_id`, `Provenance`,
+    `Query`, `CorrelationQuery`, `EventStreamFilter`, `StoredDeadLetter`
+    and `ReplayDeadLetterOk` `correlation_id` change from `string` to the
+    16-byte `UUID` (types.proto `uuid` region), for storage cost. Client
+    request and correlation ids must be UUIDs (any version); a set one that
+    is not 16 bytes is `INVALID_ARGUMENT`. `FactOrigin.external_id`,
+    actors and the CloudEvent `id` stay strings. Protobuf JSON shows base64:
+    accepted.
+  - **v5 derived ids** (`derived_ids` region): `compute_root(domain, key)` =
+    UUIDv5(`d4741b1a-52cd-43cf-add1-3dbb9615510b`, `"{domain}:{key}"`); a
+    fact's absent correlation = UUIDv5(`e9ef0ae2-6fc6-4c14-b713-ef03971dd867`,
+    `external_id`). Caller-chosen roots are any 16 bytes, derived roots v5,
+    minted roots v7.
+  - **Text is a boundary concern**: canonical lowercase hyphenated text only
+    at display and input, through per-language helpers. Rust:
+    `angzarr_proto::ids` (`Display`, `FromStr`, byte and `uuid::Uuid`
+    conversions, `compute_root`, `fact_correlation`). Others: backlog UU-1.
 
 ### Worked example: hatpick's `ListState`
 
@@ -163,8 +182,14 @@ carries both and the crate's tests read the markers back from descriptors.
   protoc plugin with a shared golden suite (backlog CR-1).
 - **Client-supplied versus minted request ids** (pass 8): a bool,
   `RequestOrigin.minted`, rather than a second id field (decision 8.3).
-- **Correlation when absent** (pass 8): the request id verbatim, or a
-  fact's `external_id` verbatim; never minted, never hashed.
+- **Correlation when absent** (pass 8, revised in pass 9): the request id
+  verbatim; for a fact, UUIDv5(`ANGZARR_FACT_CORRELATION_NAMESPACE`,
+  `external_id`); never minted.
+- **How UUIDs travel** (pass 9): one 16-byte `UUID` message for every UUID,
+  request and correlation ids included; text only at display and input
+  boundaries; base64 in protobuf JSON accepted.
+- **One namespace or two for derived ids** (pass 9): two, so a fact's
+  correlation can never equal a derived root.
 
 ## Open questions
 

@@ -17,8 +17,14 @@
 //! so `prost_types::Any::from_msg` yields type URLs of the form
 //! `/io.angzarr.v1.EventPage`, matching angzarr's TYPE_URL_PREFIX ("/").
 //!
+//! [`ids`] adds the boundary helpers for the wire `UUID`: canonical text
+//! through `Display`/`FromStr`, conversions to and from `[u8; 16]` and
+//! [`uuid::Uuid`] (re-exported), and the UUIDv5 derivations
+//! [`ids::compute_root`] and [`ids::fact_correlation`].
+//!
 //! No gRPC services, tonic, or `google.api` annotations: this crate is a
-//! dependency leaf and builds for `wasm32-unknown-unknown`.
+//! dependency leaf (beyond prost, only `uuid` without default features) and
+//! builds for `wasm32-unknown-unknown`.
 //!
 //! Module nesting mirrors proto package segments exactly so prost's
 //! cross-package `super::` references resolve.
@@ -40,3 +46,7 @@ pub mod io {
 }
 
 pub use io::angzarr::v1;
+
+pub mod ids;
+
+pub use uuid;

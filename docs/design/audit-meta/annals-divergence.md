@@ -58,8 +58,23 @@ runtimes. This is accepted.
   wire's `optional string edition`, and a set edition is never empty.
 - Sequences are u64, and `EventPage.sequence` is always definite.
 - Correlation is always set. Causation names the triggering event. When
-  absent, correlation is the request id verbatim (a fact: its `external_id`
-  verbatim), as in angzarr (pass 8).
+  absent, correlation is the request id verbatim (pass 8); for a fact it is
+  UUIDv5(`ANGZARR_FACT_CORRELATION_NAMESPACE`, `external_id`), as in
+  angzarr (pass 9; pass 8 had `external_id` verbatim).
+- **One UUID type (pass 9).** annals holds request ids and correlation ids
+  as UUIDs (the wire's 16-byte `UUID`, `uuid::Uuid` in Rust), never as
+  strings: its `RequestId`/correlation types, the `record_command` keys and
+  its storage columns (Postgres `uuid`) change accordingly, and a
+  client-supplied request id that is not a UUID is refused, as angzarr
+  refuses it `INVALID_ARGUMENT`. Text appears only at display and input,
+  through `angzarr_proto::ids` (`Display`/`FromStr`). `external_id` stays a
+  string.
+- **Derived ids are UUIDv5 (pass 9).** Derived roots are
+  `angzarr_proto::ids::compute_root(domain, key)` = UUIDv5 under
+  `ANGZARR_ROOT_NAMESPACE` of `"{domain}:{key}"`, and a fact's correlation
+  is `angzarr_proto::ids::fact_correlation(external_id)`. annals uses these
+  functions rather than its own derivation, so both runtimes give one
+  business key the same root.
 - **Minted ids are UUIDv7** and **request ids are always assigned**: a
   request without a client-supplied id gets a minted v7 flagged
   `RequestOrigin.minted`, recorded for audit, never deduplicating (pass 8;

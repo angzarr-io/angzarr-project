@@ -15,10 +15,14 @@ option ruby_package = "Angzarr";
 service EventStreamService {
   // Subscribe to events whose EventMeta.provenance.correlation_id matches (required).
   // Correlation is recorded per page only; all pages of one write share one
-  // correlation. Returns INVALID_ARGUMENT if correlation_id is empty
-  // REST: Server-Sent Events (SSE) stream
+  // correlation. Returns INVALID_ARGUMENT if correlation_id is unset or not
+  // 16 bytes.
+  // REST: Server-Sent Events (SSE) stream. The path segment is the UUID's
+  // bytes field, so HTTP transcoding takes it as base64 (URL-safe), not as
+  // canonical UUID text (the accepted cost of UUID-typed ids; see UUID in
+  // types.proto).
   rpc Subscribe(EventStreamFilter) returns (stream EventBook) {
-    option (google.api.http) = {get: "/v1/stream/{correlation_id}"};
+    option (google.api.http) = {get: "/v1/stream/{correlation_id.value}"};
   }
 }
 // endregion

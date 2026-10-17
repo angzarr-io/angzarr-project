@@ -44,9 +44,11 @@ enum RejectionType {
 // framework `DescriptorPool`. User-domain types not yet in the pool
 // stay as `{"@type": type_url, "value_b64": "..."}` placeholders.
 message StoredDeadLetter {
-  int64 id = 1;
+  int64 id = 1; // Store-assigned row number (not an identifier, so not a UUID)
   string domain = 2;
-  string correlation_id = 3;
+  // The dead-lettered message's correlation (a UUID; see
+  // io.angzarr.v1.UUID).
+  io.angzarr.v1.UUID correlation_id = 3;
   bytes payload = 4;
   string rejection_reason = 5;
   RejectionType rejection_type = 6;
@@ -108,7 +110,10 @@ message ListDeadLettersRequest {
   // AIP-160 filter string. Grammar (simple AND-only for v1):
   //   field "=" string-literal { "AND" field "=" string-literal }
   // Recognised fields: domain, correlation_id, rejection_type,
-  // source_component, occurred_after, occurred_before.
+  // source_component, occurred_after, occurred_before. The filter is text,
+  // so it is an input boundary: a correlation_id literal is the UUID's
+  // canonical text (hyphenated 8-4-4-4-12 hex, either case), parsed by the
+  // server; one that does not parse is INVALID_ARGUMENT.
   // Example: `domain = "player" AND rejection_type = "sequence_mismatch"`
   string filter = 1;
 
@@ -181,7 +186,7 @@ message GetDeadLetterResponse {
 //
 // Refusals (the call fails; nothing is published or recorded):
 //   - the entry's command has no client-supplied idempotency key (a request
-//     origin whose request_id is empty or was minted by the coordinator,
+//     origin whose request_id is unset or was minted by the coordinator,
 //     RequestOrigin.minted; a minted id never deduplicates):
 //     FAILED_PRECONDITION;
 //   - the entry is older than its key's retention (24 hours for a request
@@ -226,7 +231,7 @@ message ReplayDeadLetterRequest {
 // entry, for the outcome.
 message ReplayDeadLetterOk {
   // The original correlation_id, kept on the replayed message.
-  string correlation_id = 1;
+  io.angzarr.v1.UUID correlation_id = 1;
   // RFC-3339 timestamp of when the replay was published.
   google.protobuf.Timestamp replayed_at = 2;
   // The mode that was applied. Echoed back so callers can confirm

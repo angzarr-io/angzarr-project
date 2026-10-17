@@ -1,8 +1,8 @@
-# Code follow-up backlog (passes 1–8)
+# Code follow-up backlog (passes 1–9)
 
 Part of the [audit-meta design record](../audit-meta-followups.md).
 
-The eight `feat/audit-meta` passes changed only the protos and the
+The nine `feat/audit-meta` passes changed only the protos and the
 `rust/angzarr-proto` crate. **Nothing in this backlog is done.** It is the
 durable record of the code work the new contract implies: the user is not
 taking on heavy angzarr refactoring now, and this list must not be lost.
@@ -189,17 +189,19 @@ range.**
   an empty one is stamped.
 
 **PS-3** [core] **Correlation is never empty.**
-- What: use the caller's value. Otherwise set it, before business code, to
-  the origin's key VERBATIM: `request_id` for a request (always present
-  after MI-3, client-supplied or minted), `external_id` for a fact. No
-  hashing, no name-based UUID, and no correlation minting of its own
-  (pass 8, decision 8.3, supersedes the earlier name-based-UUID wording).
-  Causation commands keep the trigger's (PS-2).
-- Why: W5; decision 8.3.
+- What: use the caller's value (a UUID). Otherwise set it, before business
+  code, from the origin: the `request_id` verbatim for a request (always
+  present after MI-3, client-supplied or minted), and
+  UUIDv5(`ANGZARR_FACT_CORRELATION_NAMESPACE`, `external_id`) for a fact
+  (UU-2). No correlation minting of its own. Causation commands keep the
+  trigger's (PS-2). (Pass 9, decision 9.2, supersedes pass 8's
+  "`external_id` verbatim, no name-based UUID".)
+- Why: W5; decisions 8.3 and 9.2.
 - Settled when: retries of one client-keyed request without a correlation
   land in one correlation equal to its `request_id`; a request without a
-  client key gets its minted request id as correlation; and no persisted
-  event has an empty correlation.
+  client key gets its minted request id as correlation; redeliveries of one
+  fact land in the documented v5 correlation; and no persisted event has an
+  unset correlation.
 
 **PS-4** [core] **Correlation is per page only.**
 - What: stop reading correlation from `Cover`, and implement
@@ -801,14 +803,15 @@ plugin generates `changed()` for every language, held to a golden suite.**
 ## MI: minted ids and always-assigned request ids (pass 8)
 
 **MI-1** [core] **Mint UUIDv7 in core.**
-- What: every identifier core mints is a UUIDv7 (RFC 9562), as canonical
-  lowercase text in string fields and 16 bytes in `UUID`: today the minted
-  request id (MI-3). Replace any v4 or ad-hoc id generation core keeps for
+- What: every identifier core mints is a UUIDv7 (RFC 9562), as 16 bytes in
+  `UUID` (pass 9: every UUID field is one): today the minted request id
+  (MI-3). Replace any v4 or ad-hoc id generation core keeps for
   identifiers (DQ-1 deletes the DLQ's `new_correlation_id` minting
-  outright). Client-supplied ids are never parsed or validated as UUIDs.
+  outright). Client-supplied UUIDs are checked for length only (UU-4),
+  never for version.
 - Why: decision 8.2; the `minted_ids` region of `types.proto`.
-- Settled when: every id core mints parses as a version-7 UUID, and a
-  non-UUID client id passes through untouched.
+- Settled when: every id core mints is a version-7 UUID, and a client id of
+  another version passes through untouched.
 
 **MI-2** [clients] **Mint UUIDv7 in the client libraries.**
 - What: wherever an SDK generates an id for its caller (a command helper's
@@ -820,7 +823,7 @@ plugin generates `changed()` for every language, held to a golden suite.**
 
 **MI-3** [core, clients] **Always-assigned request ids.**
 - What: after validation and before deduplication, a request-origin command
-  whose `request_id` is empty (or a Command with no origin) gets a minted
+  whose `request_id` is unset (or a Command with no origin) gets a minted
   UUIDv7 in `request_id`, with `minted = true` and (for a missing origin)
   `index = 0`, recorded in `EventMeta.origin`. A client command that
   arrives with `minted` set is refused `INVALID_ARGUMENT`. A minted id is
@@ -829,11 +832,65 @@ plugin generates `changed()` for every language, held to a golden suite.**
   correlation then follows PS-3. Clients expose `minted` when reading
   origins and never set it.
 - Why: decision 8.3 (supersedes "refuse keyless" in annals too).
-- Settled when: every persisted event has a non-empty
+- Settled when: every persisted event has a set
   `origin.request.request_id` (for request origins); two identical
   keyless requests both apply, with different minted ids; a client-set
   `minted` is refused; and a client-keyed retry is still answered
   DUPLICATE.
+
+## UU: one UUID type, v5 derived ids, text at the boundary (pass 9)
+
+**UU-1** [clients] **UUID display and input helpers in every client.**
+- What: for the generated `UUID` type in Go, Python, Java, C#, C++ and
+  TypeScript (Rust is done in `angzarr-proto`, `angzarr_proto::ids`):
+  format as canonical text (36 lowercase hex characters, hyphenated
+  8-4-4-4-12), parse the hyphenated form in either case (refusing simple,
+  braced and URN forms), and convert to and from the language's native UUID
+  type and 16-byte arrays. A malformed wire value (not 16 bytes) is reported,
+  never silently formatted as a UUID. Client APIs take and return UUID
+  objects; text appears only at display and input boundaries.
+- Why: decision 9.3; the `uuid` region of `types.proto`.
+- Settled when: a shared golden list of (text, bytes) pairs, including
+  upper-case input and rejected forms, passes in every language with the
+  same results as the Rust crate's `tests/ids.rs`.
+
+**UU-2** [core, clients] **v5 `compute_root` and fact correlation.**
+- What: `compute_root(domain, key)` = UUIDv5(`ANGZARR_ROOT_NAMESPACE`
+  `d4741b1a-52cd-43cf-add1-3dbb9615510b`, UTF-8 `"{domain}:{key}"`), refusing
+  a domain containing `:`, in core and every client; replace whatever root
+  derivation each has today. Core sets an absent fact correlation to
+  UUIDv5(`ANGZARR_FACT_CORRELATION_NAMESPACE`
+  `e9ef0ae2-6fc6-4c14-b713-ef03971dd867`, `external_id`) (PS-3). annals does
+  the same through `angzarr-proto` (tracked in the session plan).
+- Why: decision 9.2; the `derived_ids` region of `types.proto`.
+- Settled when: every runtime reproduces the documented values
+  (`compute_root("player", "alice@example.com")` =
+  `cfe936c0-2912-5ca9-96e6-f37c0b441759`; fact `"pi_1234"` =
+  `917f26ae-ea2e-58af-86de-77013a69617e`) from a shared golden list, and
+  existing derived roots have a migration (or a wipe, pre-production).
+
+**UU-3** [core] **Storage columns become uuid-typed.**
+- What: every stored request id and correlation id (event meta, the
+  idempotency claim store, the correlation index of CQ-1, `dlq_entries.
+  correlation_id`) becomes a 16-byte UUID column: Postgres `uuid`, MySQL and
+  SQLite `BINARY(16)`/`BLOB`, Bigtable row-key bytes. Where a backend can
+  only hold text (KurrentDB's `$correlationId` metadata), it writes the
+  canonical text and parses it back.
+- Why: decision 9.1: the storage saving is the point of the change.
+- Settled when: each backend's schema stores them as 16 bytes, and a
+  round-trip test reads back the same UUID.
+
+**UU-4** [core] **Validate UUID fields, and the REST routes.**
+- What: refuse `INVALID_ARGUMENT` for a set `UUID` that is not 16 bytes in
+  `RequestOrigin.request_id`, `Provenance.correlation_id`,
+  `Query.correlation_id`, `CorrelationQuery.correlation_id` and
+  `EventStreamFilter.correlation_id`, before minting or deduplication. The
+  DLQ filter parses a `correlation_id` literal as canonical text. Serve the
+  REST paths `/v1/stream/{correlation_id.value}` and
+  `/v1/query/correlations/{correlation_id.value}/events` (URL-safe base64).
+- Why: decision 9.1.
+- Settled when: tests refuse 0-, 15- and 17-byte ids on each field, and the
+  REST routes resolve a base64 correlation.
 
 ## CL: D9 cleanups (pass 6)
 
@@ -944,7 +1001,8 @@ no-op implementations only.
   `snapshot_retention`, `rejection_notification`, `page_header` and
   `sync_mode`, and (pass 6) `merge_strategy`. Use `provenance`, `handling`,
   `outcome`, `command_modes`, `idempotency_claim`, and (pass 6)
-  `conflict_resolution`, `correlation_query` and `edition_admin`. The
+  `conflict_resolution`, `correlation_query` and `edition_admin`, and
+  (pass 9) `uuid` and `derived_ids`. The
   conflict-resolution table needs the config precedence, the nonce and
   COMMUTATIVE, and the stale-sequence code is now `ABORTED`.
 - Why: passes 1–6.
@@ -1020,11 +1078,12 @@ no-op implementations only.
 | NC: the conflict nonce (pass 6) | 2 |
 | CR: COMMUTATIVE in the client libraries (passes 6 and 8) | 2 |
 | MI: minted ids and request ids (pass 8) | 3 |
+| UU: one UUID type, v5 derived ids (pass 9) | 4 |
 | CL: D9 cleanups (pass 6) | 5 |
 | AU: attempt-audit sink (pass 6, held) | 1 |
 | GAP: carried gaps | 3 |
 | DOC: site, specs, branches | 6 |
-| **Total** | **104** |
+| **Total** | **108** |
 
 ## By-repo index
 
@@ -1032,9 +1091,9 @@ An item tagged with several repos appears under each of them.
 
 | Repo | Items |
 |---|---|
-| core | KS-1–6, KS-8–10, OB-1–3, OB-5–6, PS-1–5, BO-1, RV-1, MD-1–5, ST-1, ED-1–4, SN-1–3, RT-1–2, DQ-1–6, RN-1–2, PR-1–2, FA-1–2, HD-1–5, WS-1–5, RM-1–3, RM-6, TG-1, OR-1–2, CQ-1–2, EA-1–3, NC-2, CR-2, MI-1, MI-3, CL-1–5, AU-1, GAP-1–2 |
+| core | KS-1–6, KS-8–10, OB-1–3, OB-5–6, PS-1–5, BO-1, RV-1, MD-1–5, ST-1, ED-1–4, SN-1–3, RT-1–2, DQ-1–6, RN-1–2, PR-1–2, FA-1–2, HD-1–5, WS-1–5, RM-1–3, RM-6, TG-1, OR-1–2, CQ-1–2, EA-1–3, NC-2, CR-2, MI-1, MI-3, UU-2–4, CL-1–5, AU-1, GAP-1–2 |
 | router | OB-4, OB-6, PS-2, RN-1, FA-3, HD-3, WS-2, TG-1–2, OR-2, NC-1, CR-1, CL-2, CL-4 |
-| clients (go, rust, python, java, csharp, cpp, typescript) | KS-7, BO-2, RV-2, MD-6, ST-2, ED-3, RN-1–2, FA-3, HD-5, WS-1–2, RM-4, RM-6, TG-1, OR-2, CQ-2, EA-4, NC-1, CR-1, MI-2–3, CL-1–2, CL-4–5 |
+| clients (go, rust, python, java, csharp, cpp, typescript) | KS-7, BO-2, RV-2, MD-6, ST-2, ED-3, RN-1–2, FA-3, HD-5, WS-1–2, RM-4, RM-6, TG-1, OR-2, CQ-2, EA-4, NC-1, CR-1, MI-2–3, UU-1–2, CL-1–2, CL-4–5 |
 | examples | BO-3, WS-2, RM-5 |
 | site | RN-2, EA-4, CL-5, DOC-1–4 |
 | project (features, CI, branches, parity) | EA-4, CR-1, GAP-3, DOC-5–6 |

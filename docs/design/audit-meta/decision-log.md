@@ -1,4 +1,4 @@
-# Audit-meta decision log (passes 1–8)
+# Audit-meta decision log (passes 1–9)
 
 Part of the [audit-meta design record](../audit-meta-followups.md).
 
@@ -677,7 +677,8 @@ paths:
 anything an SDK mints for its caller (request ids, new roots), and (through
 8.3) derived correlations. Canonical lowercase 36-character text in string
 fields, 16 bytes in `UUID`. Client-supplied ids stay opaque strings that are
-never parsed. The conflict nonce and the DLQ's int64 row ids are not
+never parsed. (Superseded by 9.1: every UUID is the 16-byte `UUID`
+message, and client request and correlation ids must be UUIDs.) The conflict nonce and the DLQ's int64 row ids are not
 identifiers and are not covered. Documented as the `minted_ids` region of
 `types.proto`.
 - Why: time-ordered ids index and sort well, and one rule in both runtimes
@@ -706,6 +707,9 @@ minted is refused). Supersedes "refuse keyless" for annals too.
   earlier "name-based UUID" wording); nothing mints a correlation itself,
   so pass 5's "keyless request gets a freshly minted correlation" is
   unreachable and removed.
+  (The fact half is superseded by 9.2: a fact's correlation is
+  UUIDv5 of its `external_id`; request ids are UUIDs, so the request half
+  is still verbatim.)
 - Why: audit wants a request id everywhere; dedup must only trust keys the
   client will reproduce on retry.
 - Cost: core, the clients and annals mint and record the id (backlog MI-1,
@@ -713,6 +717,130 @@ minted is refused). Supersedes "refuse keyless" for annals too.
 - Aligns with: request-id middleware convention (an `X-Request-Id` is
   generated when absent and logged), while Stripe-style dedup honours only
   the client's `Idempotency-Key`.
+
+## Pass 9: one UUID type, v5 derived ids, text at the boundary
+
+Decided by the user. As before, only the protos, the `rust/angzarr-proto`
+crate and these documents changed, and nothing is reserved (the 6.6 policy
+now covers passes up to and including 9; no field number was removed, four
+fields changed type in place).
+
+**9.1 Every UUID on the wire is the `UUID` message (16 bytes).** Supersedes
+8.2's "canonical lowercase 36-character text in string fields" and its
+"client-supplied ids stay opaque strings that are never parsed", and the
+string request and correlation ids of passes 1–8. Fields changed from
+`string` to `UUID`:
+- `RequestOrigin.request_id` (1)
+- `Provenance.correlation_id` (2)
+- `Query.correlation_id` (6)
+- `CorrelationQuery.correlation_id` (1)
+- `EventStreamFilter.correlation_id` (1)
+- `io.angzarr.status.v1.StoredDeadLetter.correlation_id` (3)
+- `io.angzarr.status.v1.ReplayDeadLetterOk.correlation_id` (1)
+
+The REST routes that put a correlation in the path now name its bytes:
+`/v1/stream/{correlation_id.value}` and
+`/v1/query/correlations/{correlation_id.value}/events`.
+`buf breaking` against pass 8 reports exactly these seven type changes
+(string to message) and nothing else. Both encodings are length-delimited,
+so old bytes would misdecode rather than fail: stored data is wiped, as
+for every pre-production pass.
+
+Client-supplied request and correlation ids must be UUIDs of any version: a
+set `UUID` whose value is not exactly 16 bytes (empty included) is refused
+`INVALID_ARGUMENT`; unset means "not supplied". Only the length is checked.
+Minted ids stay UUIDv7, and `RequestOrigin.minted` stays.
+
+Checked and left as they are:
+- `FactOrigin.external_id` stays a string: it is the external system's id,
+  in that system's format.
+- The CloudEvent `id` stays a string: the CloudEvents spec makes it one (its
+  default embeds the root as canonical text).
+- Actors (`Provenance.actor`, `Edition.created_by`,
+  `DeadLetterReplay.operator`) stay strings: they are pseudonymous ids from
+  an identity system, not ids the framework mints or derives.
+- Edition names and store names are names, not ids. The DLQ's int64 row
+  ids and the conflict nonce are not identifiers (as 8.2 said).
+- The example domain protos (`io.angzarr.examples`) are user payloads and
+  keep their own id types.
+- Why: every stored event carries a request id and a correlation id in its
+  meta (and the claim store, the correlation index and the DLQ repeat
+  them). 16 bytes against 36 characters of text, a fixed-width index key,
+  and one representation in every language.
+- Cost: clients can no longer use arbitrary strings (an order number, a
+  trace id) as request or correlation ids; they must map them to a UUID
+  (UUIDv5 of their own namespace is the obvious way). **Protobuf JSON
+  renders the bytes as base64** (e.g. `{"value": "1HQbGlLNQ8+t0T27lhVRCw=="}`),
+  and REST paths take URL-safe base64: accepted, storage cost over JSON
+  readability. The display helpers (9.3) are for humans. Storage columns
+  become uuid-typed (backlog UU-3).
+- Aligns with: UUID event ids in Marten (`Guid`) and KurrentDB, MassTransit's
+  `Guid` `CorrelationId`, and the 16-byte UUID columns of Postgres (`uuid`)
+  and MySQL (`BINARY(16)`). Diverges from Marten's, NServiceBus's and
+  KurrentDB's string correlation ids, which accept any text: deliberately,
+  for storage.
+
+**9.2 Derived ids are UUIDv5 under fixed angzarr namespaces.** Supersedes
+8.3's "for a fact, `external_id` verbatim" and its "no hashing and no
+name-based UUID" (which in turn had superseded PS-3's name-based wording).
+- **Correlation when absent**: a request's is its request id (now a UUID,
+  so verbatim, unchanged); a fact's is
+  **UUIDv5(`ANGZARR_FACT_CORRELATION_NAMESPACE`, `external_id`)**; a
+  causation's is stamped from its trigger, unchanged. Still nothing mints a
+  correlation.
+- **Derived roots**: `compute_root(domain, key)` =
+  **UUIDv5(`ANGZARR_ROOT_NAMESPACE`, `"{domain}:{key}"`)**, RFC 9562, the
+  name being UTF-8 with no normalisation. The domain never contains `:`, so
+  the name splits unambiguously.
+- **Roots**: caller-chosen roots are any 16 bytes; framework-derived roots
+  are UUIDv5 as specified; minted roots are v7.
+- **The namespaces**, each generated once as a random UUIDv4 (as RFC 9562
+  suggests for a new namespace) and fixed forever:
+  - `ANGZARR_ROOT_NAMESPACE` = `d4741b1a-52cd-43cf-add1-3dbb9615510b`
+  - `ANGZARR_FACT_CORRELATION_NAMESPACE` =
+    `e9ef0ae2-6fc6-4c14-b713-ef03971dd867`
+- **Two namespaces, not one (recommended and applied).** `"{domain}:{key}"`
+  is itself a valid `external_id`, so under one namespace a fact's
+  correlation could equal a stream's root. Separate namespaces make the two
+  id spaces unrelated by construction, at no cost. The alternative (one
+  namespace, with a prefix such as `"fact:"` on the name) works too but puts
+  a magic string in the derivation every runtime must reproduce.
+- Documented in the `derived_ids` region of `types.proto`, with worked
+  values (`compute_root("player", "alice@example.com")` =
+  `cfe936c0-2912-5ca9-96e6-f37c0b441759`; fact `"pi_1234"` =
+  `917f26ae-ea2e-58af-86de-77013a69617e`), which the crate's tests check.
+- Why: the correlation is a UUID now, and an external id is not one; a
+  name-based UUID is deterministic, so every redelivery of one fact still
+  lands in one correlation. v5 roots give every runtime the same root for
+  the same business key.
+- Cost: changing a namespace would change every derived id, so they are
+  frozen; core, every client and annals implement the derivation (backlog
+  UU-2). Two sources whose external ids coincide still share a correlation
+  (as before; a sender that must separate them supplies `correlation_id`).
+- Aligns with: RFC 9562 name-based UUIDs (its standard namespaces do the
+  same for DNS names and URLs), and the common practice of deriving
+  deterministic ids from business keys.
+
+**9.3 Text is a boundary concern.** Operations use UUID objects: compare,
+store, hash and pass the 16 bytes. Conversion to and from canonical text
+(36 lowercase hex characters, hyphenated 8-4-4-4-12, RFC 9562) happens only
+at display and input boundaries (logs, consoles, CLI arguments, a DLQ filter
+literal, CloudEvent attributes), through per-language helpers. Input
+accepts the hyphenated form in either case; output is always lowercase.
+- **Rust**: `angzarr-proto` implements them for the generated `v1::Uuid`
+  in `angzarr_proto::ids`: `Display` and `FromStr`, `from_bytes`/`to_bytes`
+  and `From<[u8; 16]>`/`TryFrom<&Uuid> for [u8; 16]`,
+  `From<uuid::Uuid>`/`TryFrom<&Uuid> for uuid::Uuid`, `is_well_formed`,
+  `compute_root`, `fact_correlation` and the two namespace constants. It
+  depends on the `uuid` crate (re-exported) without default features and
+  with only `v5` (which adds `sha1_smol`): no std requirement and no RNG,
+  so it stays wasm32-safe and light. It does not mint v7 (that needs a clock
+  and an RNG; backlog MI-2).
+- **Every other client**: backlog UU-1.
+- Why: one rendering everywhere, without paying for text in storage.
+- Cost: seven helper sets to write and keep in parity.
+- Aligns with: the usual split between a binary UUID value type and its
+  string form (Java `UUID`, .NET `Guid`, Go `google/uuid`, Python `uuid`).
 
 ## Corrections
 

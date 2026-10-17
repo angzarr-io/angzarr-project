@@ -30,29 +30,84 @@ option ruby_package = "Angzarr";
 // Matching compares full names exactly: "orders.OrderCreated" never matches
 // "OrderCreated" or "orders.v2.OrderCreated".
 
+// region uuid
 // A UUID as its 16 bytes, most significant first (RFC 9562 byte order).
-// A root the framework or an SDK mints is a UUIDv7 (see the minted_ids
-// region); a root the caller chooses is any 16 bytes, never inspected.
+// The ONE type for every UUID on the wire: roots, request ids and
+// correlation ids. 16 bytes, not 36 characters of text, because every
+// stored event carries several of them (pass 9, decision 9.1).
+//
+// Where a UUID comes from:
+//   - caller-chosen roots are any 16 bytes, never inspected;
+//   - framework-derived ids are UUIDv5 (RFC 9562, SHA-1 name-based) under a
+//     fixed angzarr namespace (see the derived_ids region): roots from
+//     compute_root, and a fact's default correlation;
+//   - minted ids are UUIDv7 (see the minted_ids region).
+// Client-supplied request and correlation ids must be UUIDs too, of any
+// version: a set UUID whose value is not exactly 16 bytes (an empty value
+// included) is malformed and refused INVALID_ARGUMENT wherever it is
+// accepted. An unset UUID field means "not supplied". The framework checks
+// only the length, never the version or variant bits.
+//
+// Operations use UUID objects. Code compares, stores, hashes and passes the
+// 16 bytes; it never round-trips through text. Conversion to and from the
+// canonical text form (36 characters, lowercase hex, hyphenated 8-4-4-4-12,
+// RFC 9562) happens only at display and input boundaries (logs, consoles,
+// CLI arguments, URLs a human types), through per-language helpers (Rust:
+// the angzarr-proto crate's Display and FromStr; the other client libraries:
+// backlog UU-1). Input helpers accept the hyphenated form in either case and
+// output helpers always write lowercase.
+//
+// Protobuf JSON (and so REST transcoding) renders the bytes as base64, e.g.
+// {"value": "1HQbGlLNQ8+t0T27lhVRCw=="}. That is accepted: storage cost wins
+// over JSON readability, and the display helpers are for humans.
 message UUID {
   bytes value = 1;
 }
+// endregion
+
+// region derived_ids
+// Framework-derived identifiers: UUIDv5 (RFC 9562 section 5.5, SHA-1
+// name-based) under fixed angzarr namespace UUIDs. Every runtime (core, each
+// client library, annals) derives the same 16 bytes from the same name. The
+// name is the UTF-8 encoding of the text shown, with no normalisation.
+//
+// Derived roots: compute_root(domain, key) =
+//   UUIDv5(ANGZARR_ROOT_NAMESPACE, "{domain}:{key}")
+//   ANGZARR_ROOT_NAMESPACE = d4741b1a-52cd-43cf-add1-3dbb9615510b
+// The domain never contains ':' (see Cover.domain), so the first ':' splits
+// the name unambiguously whatever the key holds. Example:
+//   compute_root("player", "alice@example.com")
+//     = cfe936c0-2912-5ca9-96e6-f37c0b441759
+//
+// Fact correlation: a fact whose correlation_id is unset gets
+//   UUIDv5(ANGZARR_FACT_CORRELATION_NAMESPACE, external_id)
+//   ANGZARR_FACT_CORRELATION_NAMESPACE = e9ef0ae2-6fc6-4c14-b713-ef03971dd867
+// Example: external_id "pi_1234" = 917f26ae-ea2e-58af-86de-77013a69617e.
+//
+// Two namespaces, not one: "{domain}:{key}" is also a valid external_id, so
+// under one namespace a fact's correlation could equal a stream's root.
+// Separate namespaces keep the two id spaces unrelated by construction.
+// Both values were generated once as random UUIDv4s, as RFC 9562 suggests
+// for a new namespace, and never change: changing one changes every derived
+// id.
+// endregion
 
 // region minted_ids
 // Minted identifiers. Every identifier the framework mints is a UUIDv7
 // (RFC 9562): time-ordered, so minted ids sort by creation time and index
 // well, with 74 random bits. This holds in angzarr (coordinator and client
-// libraries) and in annals alike. In a string field a minted id is the
-// canonical text form, 36 lowercase characters (8-4-4-4-12 hex with
-// hyphens); in a UUID message it is the 16 bytes. Today the framework mints:
+// libraries) and in annals alike. On the wire a minted id is a UUID message
+// (16 bytes). Today the framework mints:
 //   - RequestOrigin.request_id, when the caller supplied none
 //     (RequestOrigin.minted);
-//   - correlation, only indirectly: an absent correlation is the request id
-//     verbatim (see Provenance), which may be a minted one;
+//   - correlation, only indirectly: an absent correlation on a request is
+//     the request id verbatim (see Provenance), which may be a minted one;
 //   - ids an SDK mints on its caller's behalf (a command helper's
 //     request_id, a new aggregate root); these count as client-supplied.
-// Client-supplied identifiers (request_id, correlation_id, external_id,
-// actor, roots) stay OPAQUE: the framework never parses, validates or
-// reformats them, and never requires them to be UUIDs.
+// Client-supplied identifiers are never inspected beyond their shape: a
+// request_id, correlation_id or root is any 16 bytes (see UUID); an
+// external_id or actor is an opaque string the framework never parses or
+// reformats.
 // Not identifiers, so not covered: the conflict nonce
 // (ContextualCommand.conflict_nonce, opaque per-delivery bytes) and
 // store-assigned row numbers (e.g. the DLQ's int64 entry ids).
@@ -68,6 +123,8 @@ message UUID {
 // carried in domain event payloads, not in the Cover.
 message Cover {
   string domain = 2; // Domain name; never contains ':' (the root-derivation separator)
+  // The stream's root: caller-chosen (any 16 bytes), derived by
+  // compute_root (UUIDv5; see the derived_ids region) or minted (UUIDv7).
   UUID root = 1;
   // Edition: the NAME of the timeline the stream belongs to.
   //
@@ -271,42 +328,48 @@ message EventRef {
 // region provenance
 // Who issued a command and which workflow it belongs to. Carried by every
 // command (CommandPage.provenance) and copied unchanged onto every event the
-// command produces (EventMeta.provenance). On a command, empty fields mean
-// "not supplied", never a meaningful empty value.
+// command produces (EventMeta.provenance). On a command, empty or unset
+// fields mean "not supplied", never a meaningful empty value.
 //
 // Reaction commands. The coordinator stamps a reaction command's provenance
 // from the triggering event's EventMeta.provenance: the same actor and the
-// same correlation_id. A reactor leaves both empty; a reaction command that
-// sets either to a different value is a reactor bug, refused (dead-lettered
+// same correlation_id. A reactor leaves both unsupplied; a reaction command
+// that sets either to a different value is a reactor bug, refused (dead-lettered
 // and alerted, never delivered). A reactor cannot start a new workflow or act
 // as someone else.
 //
-// Correlation is never empty on a persisted event. The coordinator uses the
-// caller's correlation_id when supplied (verbatim, opaque). When it is
-// absent (empty), the coordinator sets it, before business code, from the
-// command's origin, VERBATIM (no hashing, prefixing or reformatting):
-//   request   — origin.request.request_id, which is always present by then
-//               (client-supplied, or minted; see RequestOrigin). Every retry
-//               of a client-keyed request lands in one correlation; a
-//               request without a client key gets its minted request id.
-//   fact      — origin.fact.external_id (required, so never empty).
+// Correlation is never unset on a persisted event. The coordinator uses the
+// caller's correlation_id when supplied (verbatim: the caller's 16 bytes).
+// When it is absent (unset), the coordinator sets it, before business code,
+// from the command's origin:
+//   request   — origin.request.request_id verbatim (the same 16 bytes),
+//               which is always present by then (client-supplied, or
+//               minted; see RequestOrigin). Every retry of a client-keyed
+//               request lands in one correlation; a request without a
+//               client key gets its minted request id.
+//   fact      — UUIDv5(ANGZARR_FACT_CORRELATION_NAMESPACE,
+//               origin.fact.external_id) (see the derived_ids region);
+//               external_id is required, so this always exists. Every
+//               redelivery of one external_id lands in one correlation.
 //   causation — never derived: stamped from the trigger, as above, and a
-//               trigger's correlation is never empty.
-// The framework therefore never mints a correlation of its own. Correlation
-// stays opaque: derived from a client-supplied key it is whatever that key
-// is, not necessarily a UUID. Correlation groups a workflow and is not an
-// identity: two sources' external ids can coincide, and a sender that must
-// keep them apart supplies correlation_id itself.
+//               trigger's correlation is never unset.
+// The framework therefore never mints a correlation of its own. A supplied
+// correlation_id must be a well-formed UUID (16 bytes; any version), else
+// the command is refused INVALID_ARGUMENT. Correlation groups a workflow and
+// is not an identity: two sources' external ids can coincide (and so derive
+// one correlation), and a sender that must keep them apart supplies
+// correlation_id itself.
 message Provenance {
   // Who caused the command. Opaque and pseudonymous: an identifier whose
   // mapping to a real person lives outside the event store, so erasing the
   // mapping anonymises the history without rewriting any event. Never an
   // email, name or other direct identifier.
   string actor = 1;
-  // Workflow correlation; opaque. This (on commands and on EventMeta) is the
-  // only record of correlation: covers carry none. All pages of one write
-  // share one correlation. Query.correlation_id selects by it.
-  string correlation_id = 2;
+  // Workflow correlation, a UUID (see the UUID region). This (on commands
+  // and on EventMeta) is the only record of correlation: covers carry none.
+  // All pages of one write share one correlation. Query.correlation_id
+  // selects by it.
+  UUID correlation_id = 2;
 }
 // endregion
 
@@ -392,17 +455,20 @@ message Provenance {
 // at the addressed aggregate, kept 24 hours (see the claim model above).
 //
 // Client-supplied versus minted. The caller may supply request_id (its
-// idempotency key) or leave it empty. Empty is not recorded as empty: the
+// idempotency key) or leave it unset. Unset is not recorded as unset: the
 // coordinator mints a UUIDv7 (see the minted_ids region), writes it to
 // request_id and sets minted, after validation and before deduplication. So
-// on every accepted command and every persisted event request_id is
-// non-empty, and minted says whose it is.
+// on every accepted command and every persisted event request_id is set,
+// and minted says whose it is.
 message RequestOrigin {
-  // Identifier of the inbound request. Client-supplied: chosen by the caller,
-  // opaque, and reused verbatim on every retry of that request; it is the
-  // idempotency key. Empty on arrival: minted by the coordinator (see
-  // minted). Never empty after the coordinator accepts the command.
-  string request_id = 1;
+  // Identifier of the inbound request, a UUID (see the UUID region).
+  // Client-supplied: chosen by the caller, a UUID of any version (an SDK
+  // mints a v7; MI-2), and reused verbatim on every retry of that request;
+  // it is the idempotency key. A set request_id that is not exactly 16 bytes
+  // is malformed and refused INVALID_ARGUMENT. Unset on arrival: minted by
+  // the coordinator (see minted). Never unset after the coordinator accepts
+  // the command.
+  UUID request_id = 1;
   uint32 index = 2; // Position of the command within that request
   // True iff the coordinator minted request_id because the caller supplied
   // none. Set only by the coordinator: a client command that arrives with
@@ -437,7 +503,11 @@ message FactOrigin {
   // Idempotency key from the external system (e.g. "pi_1234" from Stripe).
   // The framework deduplicates on it, per addressed aggregate, before
   // business code runs, and keeps the claim 7 days. Required: a Fact whose
-  // external_id is empty is refused INVALID_ARGUMENT.
+  // external_id is empty is refused INVALID_ARGUMENT. A string, not a UUID:
+  // it is the external system's id, in that system's format. When the
+  // fact's command supplies no correlation_id, its correlation is derived
+  // from this: UUIDv5(ANGZARR_FACT_CORRELATION_NAMESPACE, external_id) (see
+  // the derived_ids region).
   string external_id = 1;
   string description = 2; // Human-readable origin (e.g. "Stripe webhook")
 }
@@ -467,7 +537,7 @@ message IdempotencyClaim {
   Cover stream = 1;
   // The key: the producing command's origin, exactly as it arrived. For a
   // request, (request_id, index) with a client-supplied request_id (never
-  // empty and never minted here: minted ids are not claimed); for a
+  // unset and never minted here: minted ids are not claimed); for a
   // causation, (event, component, index); for a fact, external_id only
   // (description is not part of the key).
   Origin key = 10;
@@ -494,7 +564,7 @@ message IdempotencyClaim {
 // is refused (see CommandHandlerService.Handle).
 //
 // origin, base_sequence and recorded_at are always recorded, and
-// provenance.correlation_id is never empty on a persisted event (see
+// provenance.correlation_id is never unset on a persisted event (see
 // Provenance). Every other field is optional on the wire: an empty value
 // means "not recorded", never a meaningful empty value.
 //
@@ -904,12 +974,13 @@ message Query {
     SequenceSet sequences = 4;
     TemporalQuery temporal = 5;
   }
-  // Correlation selector: when non-empty, only pages whose
-  // EventMeta.provenance.correlation_id equals it are returned. Correlation
+  // Correlation selector: when set, only pages whose
+  // EventMeta.provenance.correlation_id equals it (the same 16 bytes) are
+  // returned; a set value that is not 16 bytes is INVALID_ARGUMENT. Correlation
   // is recorded per page only (covers carry none); all pages of one write
   // share one correlation. Never crosses cover.domain (CorrelationQuery
   // does).
-  string correlation_id = 6;
+  UUID correlation_id = 6;
 }
 
 // region correlation_query
@@ -929,7 +1000,8 @@ message Query {
 // fact origin are its roots. Rejected commands leave no events, so they do
 // not appear (see the attempt-audit sink in the design record).
 message CorrelationQuery {
-  string correlation_id = 1; // Required; INVALID_ARGUMENT when empty
+  // Required: INVALID_ARGUMENT when unset or not 16 bytes.
+  UUID correlation_id = 1;
   // The timeline, as Cover.edition: unset = main; a set name must be
   // non-empty (a set "" is refused INVALID_ARGUMENT) and must have been
   // created, and is read as the edition reads it (its own events, and
@@ -943,7 +1015,7 @@ message CorrelationQuery {
 // EventMeta.provenance.correlation_id equals correlation_id (correlation is
 // recorded per page only; all pages of one write share one correlation).
 message EventStreamFilter {
-  string correlation_id = 1;
+  UUID correlation_id = 1; // Required: INVALID_ARGUMENT when unset or not 16 bytes
 }
 // endregion
 

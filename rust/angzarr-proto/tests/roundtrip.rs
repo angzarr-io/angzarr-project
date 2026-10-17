@@ -23,7 +23,7 @@ fn any(type_url: &str, value: &[u8]) -> prost_types::Any {
 fn provenance() -> Provenance {
     Provenance {
         actor: "actor:9f2c".into(),
-        correlation_id: "corr-1".into(),
+        correlation_id: Some(uuid(0xc0)),
     }
 }
 
@@ -49,7 +49,7 @@ fn causation() -> Causation {
 
 fn request() -> RequestOrigin {
     RequestOrigin {
-        request_id: "req-1".into(),
+        request_id: Some(uuid(0x5e)),
         index: 3,
         minted: false,
     }
@@ -218,17 +218,17 @@ fn request_origin_records_whether_its_request_id_was_minted() {
     assert_eq!(
         client.encode_to_vec(),
         RequestOrigin {
-            request_id: "req-1".into(),
+            request_id: Some(uuid(0x5e)),
             index: 3,
             ..Default::default()
         }
         .encode_to_vec()
     );
 
-    // Minted by the coordinator: a UUIDv7 in canonical text form, flagged,
-    // and recorded on the event meta exactly as on the page.
+    // Minted by the coordinator: a UUIDv7 (its 16 bytes), flagged, and
+    // recorded on the event meta exactly as on the page.
     let minted = RequestOrigin {
-        request_id: "01920c8e-7b3a-7cc2-9f4e-5a1b2c3d4e5f".into(),
+        request_id: Some("01920c8e-7b3a-7cc2-9f4e-5a1b2c3d4e5f".parse().unwrap()),
         index: 0,
         minted: true,
     };
@@ -238,8 +238,8 @@ fn request_origin_records_whether_its_request_id_was_minted() {
         Some(origin::Kind::Request(r)) => {
             assert!(r.minted);
             assert_eq!(r, minted);
-            // Version nibble 7 (RFC 9562).
-            assert_eq!(r.request_id.as_bytes()[14], b'7');
+            // Version nibble 7 (RFC 9562): the high nibble of byte 6.
+            assert_eq!(r.request_id.unwrap().value[6] >> 4, 7);
         }
         other => panic!("expected request origin, got {other:?}"),
     }
@@ -461,19 +461,19 @@ fn edition_unset_is_main_and_a_set_empty_string_is_distinguishable() {
     // CorrelationQuery.edition follows the same convention.
     for edition in [None, Some(String::new()), Some("what-if".to_string())] {
         let q = CorrelationQuery {
-            correlation_id: "corr-1".into(),
+            correlation_id: Some(uuid(0xc0)),
             edition: edition.clone(),
         };
         assert_eq!(round_trip(&q).edition, edition);
     }
     assert_ne!(
         CorrelationQuery {
-            correlation_id: "corr-1".into(),
+            correlation_id: Some(uuid(0xc0)),
             edition: None,
         }
         .encode_to_vec(),
         CorrelationQuery {
-            correlation_id: "corr-1".into(),
+            correlation_id: Some(uuid(0xc0)),
             edition: Some(String::new()),
         }
         .encode_to_vec()
