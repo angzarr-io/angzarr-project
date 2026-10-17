@@ -143,14 +143,22 @@ range.**
   DUPLICATE and the alert and metric fire; with it off or absent, KS-10's
   refusal holds; the precedence is tested.
 
-**KS-12** [core] **Fingerprint mismatch on causation keys.**
-- What: implement the user's decision: DUPLICATE plus an alert, or refusal
-  plus a dead letter. With the transient outbox (OB-1, OB-2) a mismatch can
-  only be a framework bug.
-- Why: still open in [idempotency.md](idempotency.md); the fact half was
-  decided in pass 10 (KS-10, KS-11).
-- Settled when: the user decides, and the decision is recorded in
-  `types.proto`.
+**KS-12** [core] **Refuse and dead-letter a causation key re-sent with a
+different payload.**
+- What: a reaction command whose (event, component, index) key is already
+  claimed on the stream, with a different fingerprint, is never applied and
+  never answered DUPLICATE. It is dead-lettered (`AngzarrDeadLetter`,
+  `rejected_command`), and an alert is raised naming the stream, the key
+  and both fingerprints. No setting changes this (unlike KS-11 for facts).
+- Why: decision 10.4 (the user), recorded in `types.proto` (the claim
+  model's fingerprint, `Causation`, `IdempotencyClaim.fingerprint`). With
+  the transient outbox (OB-1, OB-2) a reaction's commands are re-sent
+  verbatim, so a mismatch can only be a framework bug or a corrupted
+  outbox; DUPLICATE would hide it and lose the command.
+- Settled when: a test delivers a causation key twice with different
+  payload bytes and the second is dead-lettered with the alert fired,
+  nothing is appended and no DUPLICATE is answered, while identical bytes
+  are still answered DUPLICATE.
 
 ## OB: transient reactor outbox (pass 5, W3)
 

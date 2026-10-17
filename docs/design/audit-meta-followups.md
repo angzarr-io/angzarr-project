@@ -120,7 +120,7 @@ event onwards, every removal reserves its number and name (see
     `angzarr_proto::ids` (`Display`, `FromStr`, byte and `uuid::Uuid`
     conversions, `compute_root`, `fact_correlation`). Others: backlog UU-1.
 
-- **Pass 10** (this change): decisions 10.1–10.3, by the user.
+- **Pass 10** (this change): decisions 10.1–10.4, by the user.
   - **`RequestOrigin.index` deleted**: a request id is per command, and
     the request claim key is the request id alone (per addressed
     aggregate). Batch callers mint one id per command and group them by
@@ -128,7 +128,10 @@ event onwards, every removal reserves its number and name (see
   - **Fact mismatch**: the same `external_id` with a different payload is
     refused `FAILED_PRECONDITION` by default, configurable per command type
     or component to DUPLICATE plus an alert and a metric (configuration,
-    not wire; backlog KS-10, KS-11). Causation mismatch stays open (KS-12).
+    not wire; backlog KS-10, KS-11).
+  - **Causation mismatch** (10.4): always refused, dead-lettered with an
+    alert, never DUPLICATE and not configurable; a mismatch can only be a
+    framework bug or a corrupted outbox (backlog KS-12). Documentation only.
   - **v5 fingerprint**: UUIDv5(`ANGZARR_FINGERPRINT_NAMESPACE`
     `a749bd8c-7bf0-47e6-a5c9-dc54ebde74aa`, 4-byte big-endian type URL
     length ++ type URL ++ value bytes); `IdempotencyClaim.fingerprint` is a
@@ -210,6 +213,9 @@ carries both and the crate's tests read the markers back from descriptors.
   batches grouped by correlation.
 - **Fingerprint mismatch on fact keys** (pass 10): refused by default,
   configurable to DUPLICATE plus an alert (backlog KS-10, KS-11).
+- **Fingerprint mismatch on causation keys** (pass 10, decision 10.4):
+  refused and dead-lettered with an alert; never applied, never DUPLICATE,
+  not configurable (backlog KS-12).
 - **The fingerprint's form** (pass 10): UUIDv5 under a third namespace of
   the length-prefixed type URL and the value bytes; misuse detection only.
 
@@ -236,9 +242,6 @@ carries both and the crate's tests read the markers back from descriptors.
   whether a PM should also learn of them, through a framework-recorded event
   on its own stream (backlog PR-2). With the attempt-audit sink (D3) an
   operator can at least see them, once it exists.
-- **Fingerprint mismatch on causation keys.** Answer DUPLICATE and alert,
-  or refuse and dead-letter (backlog KS-12). The fact half is resolved
-  (pass 10).
 - **Reactions on backends without atomic claims.** Refuse to host them, or
   run them with a loud warning (backlog KS-8).
 - **Repeated parks of one fact.** One DLQ entry per key, or one per attempt

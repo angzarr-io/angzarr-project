@@ -59,7 +59,7 @@ before business code.
 | Duplicate answer | business code does not run. The coordinator **re-reads the claimed range** and answers with those events and `DELIVERY_OUTCOME_DUPLICATE`. |
 | Concurrency | **optimistic**: the stream's expected sequence and the claim's uniqueness. One concurrent delivery commits, and the loser re-reads and answers DUPLICATE. There is no IN_PROGRESS state. |
 | Fingerprint | **UUIDv5**(`ANGZARR_FINGERPRINT_NAMESPACE` `a749bd8c-7bf0-47e6-a5c9-dc54ebde74aa`, name), name = the UTF-8 type URL's length as 4 bytes big-endian, then the type URL bytes, then the `Any` value bytes, all **as received** (never re-serialised); stored as a 16-byte `UUID` (pass 10; the encoding and a worked example are in the `derived_ids` region of `types.proto`). SDKs serialise deterministically. **Misuse detection, not tamper protection**, and unrelated to the deferred event hash chain. |
-| Mismatch | A **request** key that arrives with a different fingerprint is refused `FAILED_PRECONDITION`. A **fact** key likewise by default; configurable per command type or component to answer DUPLICATE plus an alert and a metric (coordinator configuration, not wire; pass 10). A **causation** mismatch: open. |
+| Mismatch | A **request** key that arrives with a different fingerprint is refused `FAILED_PRECONDITION`. A **fact** key likewise by default; configurable per command type or component to answer DUPLICATE plus an alert and a metric (coordinator configuration, not wire; pass 10). A **causation** mismatch is always refused and dead-lettered with an alert: never applied, never DUPLICATE, not configurable (pass 10, decision 10.4). |
 | Retention | **24 hours** for client (request) keys; **7 days** for causation and fact keys |
 | DLQ replay | keeps the original keys. It refuses an entry older than its key's retention unless the operator overrides it. |
 | Required keys | A client-supplied `request_id` is required for `HandleAsync` and DLQ replay. `Handle`/`HandleSync` accept requests without one, which are simply not deduplicated. Request ids are still **always assigned** (pass 8): the coordinator mints a UUIDv7 and sets `RequestOrigin.minted`, for audit only; minted ids are never claimed or fingerprinted. |
@@ -103,13 +103,16 @@ before business code.
   `FAILED_PRECONDITION` is the closest terminal code ("the system is not in a
   state required for the operation": the key is bound to another payload).
   The REST gateway may map it to 422.
+- **A causation mismatch is refused and dead-lettered, with an alert, and
+  is not configurable** (decision 10.4). The transient outbox re-sends a
+  reaction's commands verbatim, so the only causes are a framework bug or a
+  corrupted outbox. Answering DUPLICATE would hide the bug and drop a
+  command; applying it would run a command the claim says already ran.
+  There is no legitimate source of variation to opt into, unlike facts
+  (backlog KS-12).
 
 ### Still open
 
-- **Fingerprint mismatch on causation keys.** With the transient outbox, a
-  causation mismatch means a framework bug. Options: answer DUPLICATE and
-  alert, or refuse and dead-letter (backlog KS-12). The fact half is decided
-  (pass 10): refuse by default, configurable to DUPLICATE plus an alert.
 - **Repeated parks.** A parked fact is not claimed, so a webhook that keeps
   redelivering a fact whose ingest fails produces a dead-letter entry per
   attempt, unless the DLQ deduplicates entries per key (backlog KS-9).

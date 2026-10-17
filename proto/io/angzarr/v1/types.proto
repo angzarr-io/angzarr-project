@@ -109,7 +109,9 @@ message UUID {
 // empty type_url and value (name 00000000) is
 // d0be6173-febd-50a7-a4fe-d083d14497ca.
 // The fingerprint is MISUSE DETECTION, not tamper protection: it catches an
-// honest client that reuses an idempotency key for a different payload. It
+// honest client that reuses an idempotency key for a different payload (and,
+// for a causation key, a framework bug: a mismatch there is always refused
+// and dead-lettered with an alert; see the claim model). It
 // makes no claim against an adversary, so SHA-1's chosen-collision weakness
 // does not matter here, and it is unrelated to the deferred event hash
 // chain, which will use its own strong hash with anchoring.
@@ -483,8 +485,14 @@ message Provenance {
 //               carries it, and the precedence is that of Handling's
 //               defaults (command type, then component, then the built-in
 //               default, refuse).
-//   causation — recorded too; how a mismatch is answered is open (see
-//               docs/design/audit-meta/idempotency.md).
+//   causation — always refused, never applied and never answered
+//               DUPLICATE: the command is dead-lettered (AngzarrDeadLetter,
+//               rejected_command) and an alert raised naming the stream,
+//               the (event, component, index) key and both fingerprints.
+//               With the transient reactor outbox a reaction's commands
+//               are re-sent verbatim, so a mismatch can only be a
+//               framework bug or a corrupted outbox, never a legitimate
+//               variation. NOT configurable, unlike facts.
 //
 // Retention. A claim expires 24 hours after it was written for a request key
 // and 7 days after for a causation or fact key; after expiry the key may run
@@ -529,7 +537,12 @@ message RequestOrigin {
 
 // A command emitted by a saga, process manager or policy reacting to an
 // event. The tuple (event, component, index) is the command's idempotency
-// key at the destination, kept 7 days.
+// key at the destination, kept 7 days. The transient outbox re-sends a
+// reaction's commands verbatim, so a redelivery always matches its claim's
+// fingerprint; one that does not is a framework bug or a corrupted outbox,
+// and is refused and dead-lettered with an alert, never applied and never
+// answered DUPLICATE (see the claim model's fingerprint above; not
+// configurable).
 message Causation {
   // The event being reacted to: always the triggering event, never the
   // reactor's own earlier event. A process manager's command names the
@@ -594,8 +607,10 @@ message IdempotencyClaim {
   // Fingerprint of the body payload as received: UUIDv5 under
   // ANGZARR_FINGERPRINT_NAMESPACE of the length-prefixed type URL followed
   // by the value bytes (exact encoding in the derived_ids region). A later
-  // delivery of the key is compared against it. Misuse detection only, not
-  // tamper protection.
+  // delivery of the key is compared against it; on a mismatch a request is
+  // refused, a fact refused by default (configurable to DUPLICATE), and a
+  // causation always refused and dead-lettered with an alert (see the claim
+  // model). Misuse detection only, not tamper protection.
   UUID fingerprint = 5;
   // The applied outcome: events first_sequence .. first_sequence+event_count-1
   // of `stream`. event_count 0 is a valid applied outcome with no events, and

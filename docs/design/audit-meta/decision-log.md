@@ -247,7 +247,8 @@ is optimistic. A duplicate re-reads its events by range.
 **5.3 Payload fingerprint.** It is computed over the bytes as received. SDKs
 serialise deterministically. A request key that comes back with a different
 fingerprint is refused `FAILED_PRECONDITION`. (Extended by 10.2 to fact
-keys, by default; the fingerprint's exact form is 10.3.)
+keys, by default, and by 10.4 to causation keys, always dead-lettered;
+the fingerprint's exact form is 10.3.)
 - Why: a reused key with a different body is a client bug, never a duplicate.
 - Aligns with: Stripe, which errors on changed parameters, and the IETF draft
   (422).
@@ -887,8 +888,7 @@ the fact half of backlog KS-10.
   Handling's defaults: command type, then component, then the built-in
   default (refuse). This is **coordinator configuration, not wire**: no
   message carries it (backlog KS-11).
-- **Causation mismatch stays open**: with the transient outbox it can only
-  be a framework bug, and how to answer it was not decided (backlog KS-12).
+- **Causation mismatch**: left open by this decision; decided in 10.4.
 - Why: a payload that changed under the same external id is either a bug in
   the source or a correction the domain never saw; silently answering
   DUPLICATE would lose it. Refusing makes it visible. Some sources (webhooks
@@ -935,6 +935,27 @@ bytes, then the `Any` value bytes, all as received.
   stored claim mismatch its retries, so both are frozen.
 - Aligns with: RFC 9562 name-based UUIDs, as in 9.2; the IETF draft
   recommends a fingerprint without fixing its algorithm.
+
+**10.4 A causation key re-sent with a different fingerprint is refused and
+dead-lettered, with an alert.** Resolves the causation half left open by
+10.2 (backlog KS-12). Documentation only: no field, message or number
+changes.
+- **Refused**: never applied and never answered DUPLICATE.
+- **Dead-lettered with an alert**: the command goes to the DLQ as a
+  `rejected_command`, and the alert names the stream, the (event,
+  component, index) key and both fingerprints.
+- **Not configurable**, unlike facts (10.2).
+- Why: with the transient outbox (5.6, backlog OB-1, OB-2) a reaction's
+  commands are stored once and re-sent verbatim, so a redelivery always
+  matches its claim. A mismatch can only be a framework bug or a corrupted
+  outbox. Answering DUPLICATE would hide the bug and silently drop a
+  command; applying it would run a command the claim says already ran.
+  Facts get an opt-in because external sources legitimately re-render
+  bytes; nothing legitimate varies a reaction's output.
+- Cost: none on the wire; the coordinator gains a dead-letter path and an
+  alert on the causation branch.
+- Aligns with: 3.4 (violations are refused loudly; a reaction command is
+  dead-lettered and alerted), and the request-key refusal of 5.3.
 
 ## Corrections
 
