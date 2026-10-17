@@ -2,7 +2,7 @@
 
 ## Status
 
-Open. The nine `feat/audit-meta` passes changed **only** the protos under
+Open. The ten `feat/audit-meta` passes changed **only** the protos under
 `proto/io/angzarr/` and the `rust/angzarr-proto` crate. No angzarr code has
 changed. The user is not taking on heavy angzarr refactoring now, so every
 code consequence is recorded in the backlog, which is the part that must not
@@ -10,7 +10,7 @@ be lost.
 
 Wire breaks are accepted pre-freeze. Reservation policy (D6, pass 6):
 removed fields and messages are deleted outright, with no `reserved`
-statements, up to and including pass 9. From the first stored production
+statements, up to and including pass 10. From the first stored production
 event onwards, every removal reserves its number and name (see
 `proto/buf.yaml` and backlog GAP-3).
 
@@ -18,12 +18,12 @@ event onwards, every removal reserves its number and name (see
 
 | Document | Contents |
 |---|---|
-| [audit-meta/decision-log.md](audit-meta/decision-log.md) | Every decision of passes 1–9: why, the accepted cost, and the standard it aligns with. Also the corrections (Event Modeling, KurrentDB, Axon). |
+| [audit-meta/decision-log.md](audit-meta/decision-log.md) | Every decision of passes 1–10: why, the accepted cost, and the standard it aligns with. Also the corrections (Event Modeling, KurrentDB, Axon). |
 | [audit-meta/critical-review-source.md](audit-meta/critical-review-source.md) | The post-pass-4 critical review's own record (authoritative for the findings' content). |
 | [audit-meta/critical-review.md](audit-meta/critical-review.md) | The status of each review finding: W1–W14, D1–D11, FINE and annals fitness, with where each was resolved. |
 | [audit-meta/idempotency.md](audit-meta/idempotency.md) | The idempotency research (a comparison table) and the chosen key-store design, with its alignments and divergences. |
-| [audit-meta/backlog.md](audit-meta/backlog.md) | **The code follow-up backlog**, by workstream with a by-repo index. 108 items, each with what, why, and what settles it. |
-| [audit-meta/annals-divergence.md](audit-meta/annals-divergence.md) | Why annals keeps its atomic in-process chain, and what it does and does not need as a result. Also where annals now matches angzarr: conflict units, fingerprints, minted ids, UUID-typed request and correlation ids, v5 derived ids. |
+| [audit-meta/backlog.md](audit-meta/backlog.md) | **The code follow-up backlog**, by workstream with a by-repo index. 110 items, each with what, why, and what settles it. |
+| [audit-meta/annals-divergence.md](audit-meta/annals-divergence.md) | Why annals keeps its atomic in-process chain, and what it does and does not need as a result. Also where annals now matches angzarr: conflict units, fingerprints (v5, pass 10), minted ids, UUID-typed request and correlation ids, v5 derived ids, no request index, fact mismatch refused by default. |
 
 ## Passes
 
@@ -101,7 +101,7 @@ event onwards, every removal reserves its number and name (see
   - **annals** generates `changed()` from the same markers (same golden
     suite), and now fingerprints request keys like angzarr: neither is a
     divergence.
-- **Pass 9** (this change): decisions 9.1–9.3, by the user.
+- **Pass 9** (e733dd2): decisions 9.1–9.3, by the user.
   - **One UUID type**: `RequestOrigin.request_id`, `Provenance`,
     `Query`, `CorrelationQuery`, `EventStreamFilter`, `StoredDeadLetter`
     and `ReplayDeadLetterOk` `correlation_id` change from `string` to the
@@ -119,6 +119,21 @@ event onwards, every removal reserves its number and name (see
     at display and input, through per-language helpers. Rust:
     `angzarr_proto::ids` (`Display`, `FromStr`, byte and `uuid::Uuid`
     conversions, `compute_root`, `fact_correlation`). Others: backlog UU-1.
+
+- **Pass 10** (this change): decisions 10.1–10.3, by the user.
+  - **`RequestOrigin.index` deleted**: a request id is per command, and
+    the request claim key is the request id alone (per addressed
+    aggregate). Batch callers mint one id per command and group them by
+    correlation. `Causation.index` stays.
+  - **Fact mismatch**: the same `external_id` with a different payload is
+    refused `FAILED_PRECONDITION` by default, configurable per command type
+    or component to DUPLICATE plus an alert and a metric (configuration,
+    not wire; backlog KS-10, KS-11). Causation mismatch stays open (KS-12).
+  - **v5 fingerprint**: UUIDv5(`ANGZARR_FINGERPRINT_NAMESPACE`
+    `a749bd8c-7bf0-47e6-a5c9-dc54ebde74aa`, 4-byte big-endian type URL
+    length ++ type URL ++ value bytes); `IdempotencyClaim.fingerprint` is a
+    `UUID`. Misuse detection, not tamper protection, and not the deferred
+    hash chain. Rust: `angzarr_proto::ids::fingerprint`.
 
 ### Worked example: hatpick's `ListState`
 
@@ -189,7 +204,14 @@ carries both and the crate's tests read the markers back from descriptors.
   request and correlation ids included; text only at display and input
   boundaries; base64 in protobuf JSON accepted.
 - **One namespace or two for derived ids** (pass 9): two, so a fact's
-  correlation can never equal a derived root.
+  correlation can never equal a derived root; pass 10 adds a third, for the
+  fingerprint.
+- **The request index** (pass 10): deleted; one request id per command,
+  batches grouped by correlation.
+- **Fingerprint mismatch on fact keys** (pass 10): refused by default,
+  configurable to DUPLICATE plus an alert (backlog KS-10, KS-11).
+- **The fingerprint's form** (pass 10): UUIDv5 under a third namespace of
+  the length-prefixed type URL and the value bytes; misuse detection only.
 
 ## Open questions
 
@@ -214,8 +236,9 @@ carries both and the crate's tests read the markers back from descriptors.
   whether a PM should also learn of them, through a framework-recorded event
   on its own stream (backlog PR-2). With the attempt-audit sink (D3) an
   operator can at least see them, once it exists.
-- **Fingerprint mismatch on causation and fact keys.** Answer DUPLICATE and
-  alert, or refuse and dead-letter (backlog KS-10).
+- **Fingerprint mismatch on causation keys.** Answer DUPLICATE and alert,
+  or refuse and dead-letter (backlog KS-12). The fact half is resolved
+  (pass 10).
 - **Reactions on backends without atomic claims.** Refuse to host them, or
   run them with a loud warning (backlog KS-8).
 - **Repeated parks of one fact.** One DLQ entry per key, or one per attempt

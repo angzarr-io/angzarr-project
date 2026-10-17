@@ -1,4 +1,4 @@
-# Audit-meta decision log (passes 1–9)
+# Audit-meta decision log (passes 1–10)
 
 Part of the [audit-meta design record](../audit-meta-followups.md).
 
@@ -221,7 +221,8 @@ The review's findings are in [critical-review.md](critical-review.md). The
 idempotency research and design are in [idempotency.md](idempotency.md).
 
 **5.1 Idempotency key store (claims).** Keys are `request_id`+index, the
-causation tuple, and the fact's `external_id`. They are scoped per addressed
+causation tuple, and the fact's `external_id`. (Superseded by 10.1: a
+request key is `request_id` alone.) They are scoped per addressed
 aggregate, and a claim is written in the same transaction as the append. The
 outcome is an applied sequence range, and zero events is allowed. Concurrency
 is optimistic. A duplicate re-reads its events by range.
@@ -245,7 +246,8 @@ is optimistic. A duplicate re-reads its events by range.
 
 **5.3 Payload fingerprint.** It is computed over the bytes as received. SDKs
 serialise deterministically. A request key that comes back with a different
-fingerprint is refused `FAILED_PRECONDITION`.
+fingerprint is refused `FAILED_PRECONDITION`. (Extended by 10.2 to fact
+keys, by default; the fingerprint's exact form is 10.3.)
 - Why: a reused key with a different body is a client bug, never a duplicate.
 - Aligns with: Stripe, which errors on changed parameters, and the IETF draft
   (422).
@@ -841,6 +843,98 @@ accepts the hyphenated form in either case; output is always lowercase.
 - Cost: seven helper sets to write and keep in parity.
 - Aligns with: the usual split between a binary UUID value type and its
   string form (Java `UUID`, .NET `Guid`, Go `google/uuid`, Python `uuid`).
+
+## Pass 10: no request index, fact mismatch refused, v5 fingerprint
+
+Decided by the user. As before, only the protos, the `rust/angzarr-proto`
+crate and these documents changed, and nothing is reserved (the 6.6 policy
+now covers passes up to and including 10: `RequestOrigin.index` (2) is
+deleted outright, and `IdempotencyClaim.fingerprint` (5) changes type in
+place). `buf breaking` against pass 9 reports exactly those: the deleted
+`index`, unreserved (name and number), and `fingerprint` from `bytes` to
+a message. Both are length-delimited, so old claim bytes would misdecode:
+stored data is wiped, as for every pre-production pass.
+
+**10.1 `RequestOrigin.index` is deleted; a request id is per command.**
+Supersedes 5.1's `request_id`+index key. Each command carries its own
+idempotency key: a caller that sends several commands together (a batch,
+one API call fanning out) mints one request id per command and groups them
+by a shared `correlation_id`. The request claim key is `request_id` alone,
+still scoped to the addressed aggregate ((`CommandBook.cover`, key) is
+unique). `Causation.index` stays: one trigger and one reactor can emit
+several commands, and the framework, not a caller, must tell them apart.
+- Why: since pass 1 there is one command per book, and every command's
+  request id is a UUID (9.1) that the caller is free to mint. An index only
+  mattered when one id named a multi-command request; it made every
+  client keep a counter in step across retries, and gave the key a second
+  field with no meaning of its own. Grouping is what correlation is for.
+- Cost: a batch caller mints N ids instead of one (and must keep each one
+  stable across retries of that command); the wire loses a field (a
+  pre-production break, data wiped as before).
+- Aligns with: Stripe and the IETF draft, where an `Idempotency-Key` names
+  one operation, and the messaging inboxes (NServiceBus, MassTransit,
+  Wolverine), which key on one message id per message.
+
+**10.2 A fact re-sent with the same `external_id` and a different payload
+is refused by default; configurable to DUPLICATE plus an alert.** Resolves
+the fact half of backlog KS-10.
+- **Default**: refused `FAILED_PRECONDITION`, like a reused request key.
+  Never answered DUPLICATE and never claimed; through `HandleAsync` it is a
+  terminal failure and is dead-lettered.
+- **Configurable** per command type (the payload's type URL) or per
+  component: DUPLICATE instead (answered from the claimed range, as an
+  exact duplicate is), plus an alert and a metric. Precedence as for
+  Handling's defaults: command type, then component, then the built-in
+  default (refuse). This is **coordinator configuration, not wire**: no
+  message carries it (backlog KS-11).
+- **Causation mismatch stays open**: with the transient outbox it can only
+  be a framework bug, and how to answer it was not decided (backlog KS-12).
+- Why: a payload that changed under the same external id is either a bug in
+  the source or a correction the domain never saw; silently answering
+  DUPLICATE would lose it. Refusing makes it visible. Some sources (webhooks
+  that re-render a timestamp or reorder JSON on redelivery) legitimately
+  vary the bytes, and for those an operator opts into DUPLICATE without
+  losing visibility, since the alert still fires.
+- Cost: a source with unstable bytes is refused until configured; the
+  coordinator gains a setting and an alert.
+- Aligns with: Stripe and the IETF draft (an error on a reused key with a
+  different payload) for the default; the inbox pattern's
+  "same message id, drop it" for the opt-in.
+
+**10.3 The fingerprint is a UUIDv5.** `fingerprint = UUIDv5(
+ANGZARR_FINGERPRINT_NAMESPACE, name)`, where name is the UTF-8 type URL's
+byte length as a **4-byte unsigned big-endian integer**, then the type URL
+bytes, then the `Any` value bytes, all as received.
+`IdempotencyClaim.fingerprint` becomes `UUID` (16 bytes; was `bytes`).
+- **The third namespace**, generated once as a random UUIDv4 and fixed:
+  `ANGZARR_FINGERPRINT_NAMESPACE` = `a749bd8c-7bf0-47e6-a5c9-dc54ebde74aa`,
+  documented in the `derived_ids` region with the root and fact-correlation
+  namespaces.
+- **Why a 4-byte big-endian length** rather than a varint: fixed width, so
+  every language writes it with its standard integer encoder (no varint
+  helper outside protobuf), and it cannot be mis-sized. A protobuf message
+  is under 2 GiB, so the length always fits. The prefix is what makes the
+  type URL / value boundary unambiguous.
+- **Worked example** (in `types.proto` and the crate's tests): type URL
+  `type.googleapis.com/examples.Deposit` (36 bytes) and value `08 2a` give
+  the name `00000024` ++ the 36 type URL bytes ++ `082a` (42 bytes) and the
+  fingerprint `6d42fa9e-0dca-5047-94b1-0ae371532630`. Computed independently
+  with Python's `uuid.uuid5` over the same bytes.
+- **Misuse detection, not security.** The fingerprint catches an honest
+  client that reuses a key for a different payload. It makes no claim
+  against an adversary, so SHA-1's chosen-collision weakness is irrelevant
+  to it. It is **unrelated to the deferred event hash chain**, which will use
+  its own strong hash with anchoring.
+- Rust: `angzarr_proto::ids::fingerprint(type_url, payload)` and
+  `FINGERPRINT_NAMESPACE`.
+- Why: one fixed 16-byte value and one derivation that every runtime
+  already has (the v5 code of 9.2), instead of an unspecified "hash" that
+  each backend and language would choose for itself.
+- Cost: core, the clients and annals compute it identically (backlog KS-4,
+  UU-2's golden list); changing the namespace or encoding would make every
+  stored claim mismatch its retries, so both are frozen.
+- Aligns with: RFC 9562 name-based UUIDs, as in 9.2; the IETF draft
+  recommends a fingerprint without fixing its algorithm.
 
 ## Corrections
 

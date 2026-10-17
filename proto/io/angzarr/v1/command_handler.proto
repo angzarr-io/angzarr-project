@@ -99,8 +99,9 @@ service CommandHandlerService {
 // commands, projector retries):
 //   Retryable:  UNAVAILABLE, DEADLINE_EXCEEDED, RESOURCE_EXHAUSTED, ABORTED.
 //   Terminal:   every other code, notably INVALID_ARGUMENT (malformed),
-//               FAILED_PRECONDITION (a business rejection, or a request key
-//               reused with a different payload), NOT_FOUND,
+//               FAILED_PRECONDITION (a business rejection, or a request id
+//               or, by default, a fact's external_id reused with a
+//               different payload), NOT_FOUND,
 //               PERMISSION_DENIED, UNIMPLEMENTED and INTERNAL (a handler
 //               bug).
 // ABORTED is a stale expected_sequence under STRICT (a failed

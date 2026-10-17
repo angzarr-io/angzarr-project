@@ -40,7 +40,8 @@ option ruby_package = "Angzarr";
 //   - caller-chosen roots are any 16 bytes, never inspected;
 //   - framework-derived ids are UUIDv5 (RFC 9562, SHA-1 name-based) under a
 //     fixed angzarr namespace (see the derived_ids region): roots from
-//     compute_root, and a fact's default correlation;
+//     compute_root, a fact's default correlation, and the idempotency
+//     fingerprint;
 //   - minted ids are UUIDv7 (see the minted_ids region).
 // Client-supplied request and correlation ids must be UUIDs too, of any
 // version: a set UUID whose value is not exactly 16 bytes (an empty value
@@ -68,8 +69,9 @@ message UUID {
 // region derived_ids
 // Framework-derived identifiers: UUIDv5 (RFC 9562 section 5.5, SHA-1
 // name-based) under fixed angzarr namespace UUIDs. Every runtime (core, each
-// client library, annals) derives the same 16 bytes from the same name. The
-// name is the UTF-8 encoding of the text shown, with no normalisation.
+// client library, annals) derives the same 16 bytes from the same name. For
+// roots and correlations the name is the UTF-8 encoding of the text shown,
+// with no normalisation; the fingerprint's name is binary (specified below).
 //
 // Derived roots: compute_root(domain, key) =
 //   UUIDv5(ANGZARR_ROOT_NAMESPACE, "{domain}:{key}")
@@ -84,12 +86,41 @@ message UUID {
 //   ANGZARR_FACT_CORRELATION_NAMESPACE = e9ef0ae2-6fc6-4c14-b713-ef03971dd867
 // Example: external_id "pi_1234" = 917f26ae-ea2e-58af-86de-77013a69617e.
 //
-// Two namespaces, not one: "{domain}:{key}" is also a valid external_id, so
-// under one namespace a fact's correlation could equal a stream's root.
-// Separate namespaces keep the two id spaces unrelated by construction.
-// Both values were generated once as random UUIDv4s, as RFC 9562 suggests
-// for a new namespace, and never change: changing one changes every derived
-// id.
+// Idempotency fingerprint (see the claim model in the origin region): the
+// fingerprint of a command's body payload, a google.protobuf.Any exactly as
+// received, is
+//   UUIDv5(ANGZARR_FINGERPRINT_NAMESPACE, name)
+//   ANGZARR_FINGERPRINT_NAMESPACE = a749bd8c-7bf0-47e6-a5c9-dc54ebde74aa
+// where the name is the concatenation of
+//   1. the byte length of the UTF-8 type_url, as a 4-byte unsigned
+//      big-endian integer (a protobuf message is under 2 GiB, so the
+//      length always fits);
+//   2. the type_url's UTF-8 bytes, as received (no normalisation, prefix
+//      included);
+//   3. the Any's value bytes, as received (never re-serialised).
+// The length prefix makes the split between type_url and value
+// unambiguous: ("a.B", "Cx") and ("a.BC", "x") give different names.
+// Worked example: type_url "type.googleapis.com/examples.Deposit" (36
+// bytes) and value 08 2a (field 1 = 42) give the 42-byte name
+//   00000024 747970652e676f6f676c65617069732e636f6d2f6578616d706c65732e
+//   4465706f736974 082a
+// and the fingerprint 6d42fa9e-0dca-5047-94b1-0ae371532630. The same
+// type_url with an empty value is 838a6be3-ad9d-5945-be34-61ec4c3d6432; an
+// empty type_url and value (name 00000000) is
+// d0be6173-febd-50a7-a4fe-d083d14497ca.
+// The fingerprint is MISUSE DETECTION, not tamper protection: it catches an
+// honest client that reuses an idempotency key for a different payload. It
+// makes no claim against an adversary, so SHA-1's chosen-collision weakness
+// does not matter here, and it is unrelated to the deferred event hash
+// chain, which will use its own strong hash with anchoring.
+//
+// Three namespaces, not one: "{domain}:{key}" is also a valid external_id,
+// so under one namespace a fact's correlation could equal a stream's root;
+// and a fingerprint is a different kind of value again. Separate namespaces
+// keep the id spaces unrelated by construction. All three values were
+// generated once as random UUIDv4s, as RFC 9562 suggests for a new
+// namespace, and never change: changing one changes every derived id (or,
+// for the fingerprint, makes every stored claim mismatch its retry).
 // endregion
 
 // region minted_ids
@@ -385,8 +416,7 @@ message Provenance {
 //   Command arm   requires origin.request or origin.causation, never
 //                 origin.fact. A Command sent with no origin is a request
 //                 without a client key: the coordinator records a
-//                 RequestOrigin with a minted request_id (minted set,
-//                 index 0).
+//                 RequestOrigin with a minted request_id (minted set).
 // Violations are refused loudly, never repaired: a client's command is
 // answered INVALID_ARGUMENT; a reaction command is dead-lettered and
 // alerted as a reactor bug. (Pass 6 replaced the per-arm origin fields,
@@ -396,8 +426,11 @@ message Provenance {
 // Idempotency: the claim model. The coordinator deduplicates every keyed
 // command before business code runs, against an idempotency key store (see
 // IdempotencyClaim). Each origin supplies the key:
-//   request   — (request_id, index), only when the caller supplied
-//               request_id (RequestOrigin.minted false)
+//   request   — request_id alone, only when the caller supplied it
+//               (RequestOrigin.minted false). A request id names ONE
+//               command: a caller that sends several commands (a batch)
+//               mints one request id per command and groups them by a
+//               shared correlation_id.
 //   causation — (event, component, index)
 //   fact      — external_id
 // Request ids are ALWAYS ASSIGNED: a request that arrives without one is
@@ -429,16 +462,29 @@ message Provenance {
 // and answers with those events and Outcome.delivery DUPLICATE.
 //
 // Fingerprint. Each claim records a fingerprint of the command as received:
-// a hash over the serialized body payload (its google.protobuf.Any, type URL
-// and value bytes, exactly as they arrived; the coordinator never
-// re-serialises before hashing). SDKs serialise deterministically so an
-// honest retry reproduces the same bytes. A request key that arrives again
-// with a different fingerprint is refused FAILED_PRECONDITION (the key was
-// reused for a different command) and is never answered DUPLICATE. Only
-// client-supplied request ids are claimed, so only they are fingerprinted;
-// a minted request id has no claim and no fingerprint. Causation
-// and fact keys record the fingerprint too; how a mismatch on them is
-// answered is open (see docs/design/audit-meta/idempotency.md).
+// a UUIDv5 over the body payload's google.protobuf.Any (its type URL and
+// value bytes, exactly as they arrived; the coordinator never re-serialises
+// before fingerprinting). The exact name encoding, the namespace and worked
+// values are in the derived_ids region. SDKs serialise deterministically so
+// an honest retry reproduces the same bytes. The fingerprint detects misuse
+// (a key reused for a different payload); it is not tamper protection.
+// Only client-supplied request ids are claimed, so only they are
+// fingerprinted; a minted request id has no claim and no fingerprint.
+// A key that arrives again with a different fingerprint:
+//   request   — refused FAILED_PRECONDITION (the key was reused for a
+//               different command), never answered DUPLICATE.
+//   fact      — by default the same: refused FAILED_PRECONDITION (the
+//               external system reused an id for a different payload),
+//               never answered DUPLICATE and never claimed. Configurable
+//               per command type (the payload's type URL) or per component
+//               to answer DUPLICATE instead (the claimed range, as for an
+//               exact duplicate) and raise an alert and a metric. The
+//               setting is coordinator configuration, not wire: no message
+//               carries it, and the precedence is that of Handling's
+//               defaults (command type, then component, then the built-in
+//               default, refuse).
+//   causation — recorded too; how a mismatch is answered is open (see
+//               docs/design/audit-meta/idempotency.md).
 //
 // Retention. A claim expires 24 hours after it was written for a request key
 // and 7 days after for a causation or fact key; after expiry the key may run
@@ -450,9 +496,11 @@ message Provenance {
 // and no DLQ replay (both answer UNIMPLEMENTED), because both deliver at
 // least once and rely on the claim to make redelivery safe.
 
-// A command issued directly by a caller, as part of one inbound request
-// (e.g. one API call). (request_id, index) is the command's idempotency key
-// at the addressed aggregate, kept 24 hours (see the claim model above).
+// A command issued directly by a caller. request_id is the command's
+// idempotency key at the addressed aggregate, kept 24 hours (see the claim
+// model above). A request id is per command: a caller that issues several
+// commands together (a batch, one API call fanning out) mints one request id
+// per command, and groups them by a shared Provenance.correlation_id.
 //
 // Client-supplied versus minted. The caller may supply request_id (its
 // idempotency key) or leave it unset. Unset is not recorded as unset: the
@@ -461,15 +509,14 @@ message Provenance {
 // on every accepted command and every persisted event request_id is set,
 // and minted says whose it is.
 message RequestOrigin {
-  // Identifier of the inbound request, a UUID (see the UUID region).
-  // Client-supplied: chosen by the caller, a UUID of any version (an SDK
-  // mints a v7; MI-2), and reused verbatim on every retry of that request;
-  // it is the idempotency key. A set request_id that is not exactly 16 bytes
+  // Identifier of this command's request, a UUID (see the UUID region).
+  // Client-supplied: chosen by the caller, one per command, a UUID of any
+  // version (an SDK mints a v7; MI-2), and reused verbatim on every retry of
+  // that command; it is the idempotency key. A set request_id that is not exactly 16 bytes
   // is malformed and refused INVALID_ARGUMENT. Unset on arrival: minted by
   // the coordinator (see minted). Never unset after the coordinator accepts
   // the command.
   UUID request_id = 1;
-  uint32 index = 2; // Position of the command within that request
   // True iff the coordinator minted request_id because the caller supplied
   // none. Set only by the coordinator: a client command that arrives with
   // minted set is malformed (INVALID_ARGUMENT). A minted request_id is
@@ -502,8 +549,11 @@ message Causation {
 message FactOrigin {
   // Idempotency key from the external system (e.g. "pi_1234" from Stripe).
   // The framework deduplicates on it, per addressed aggregate, before
-  // business code runs, and keeps the claim 7 days. Required: a Fact whose
-  // external_id is empty is refused INVALID_ARGUMENT. A string, not a UUID:
+  // business code runs, and keeps the claim 7 days. The same external_id
+  // with a different payload is refused FAILED_PRECONDITION by default
+  // (configurable to DUPLICATE plus an alert; see the claim model's
+  // fingerprint). Required: a Fact whose external_id is empty is refused
+  // INVALID_ARGUMENT. A string, not a UUID:
   // it is the external system's id, in that system's format. When the
   // fact's command supplies no correlation_id, its correlation is derived
   // from this: UUIDv5(ANGZARR_FACT_CORRELATION_NAMESPACE, external_id) (see
@@ -516,7 +566,7 @@ message FactOrigin {
 // the validation rules at the top of this region.
 message Origin {
   oneof kind {
-    RequestOrigin request = 1; // Issued by a caller as part of one inbound request
+    RequestOrigin request = 1; // Issued directly by a caller
     Causation causation = 2; // Emitted by a saga, process manager or policy reacting to an event
     FactOrigin fact = 3; // Something that already happened outside the system
   }
@@ -536,14 +586,17 @@ message IdempotencyClaim {
   // The addressed aggregate: the claim's scope. (stream, key) is unique.
   Cover stream = 1;
   // The key: the producing command's origin, exactly as it arrived. For a
-  // request, (request_id, index) with a client-supplied request_id (never
+  // request, request_id alone, client-supplied (never
   // unset and never minted here: minted ids are not claimed); for a
   // causation, (event, component, index); for a fact, external_id only
   // (description is not part of the key).
   Origin key = 10;
-  // Hash of the body payload as received (type URL and value bytes); a
-  // later delivery of the key is compared against it.
-  bytes fingerprint = 5;
+  // Fingerprint of the body payload as received: UUIDv5 under
+  // ANGZARR_FINGERPRINT_NAMESPACE of the length-prefixed type URL followed
+  // by the value bytes (exact encoding in the derived_ids region). A later
+  // delivery of the key is compared against it. Misuse detection only, not
+  // tamper protection.
+  UUID fingerprint = 5;
   // The applied outcome: events first_sequence .. first_sequence+event_count-1
   // of `stream`. event_count 0 is a valid applied outcome with no events, and
   // first_sequence is then the stream's next_sequence at the time.

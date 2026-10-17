@@ -24,7 +24,10 @@ runtimes. This is accepted.
   at-least-once bus, so redelivery cannot happen inside it. The residual
   risks:
   - **Webhook facts.** An external source may redeliver. A unique index on
-    (stream, `external_id`) rejects the duplicate at the append.
+    (stream, `external_id`) rejects the duplicate at the append. As in
+    angzarr (pass 10), the fact's payload fingerprint is recorded with it,
+    and a redelivery with a different payload is refused by default,
+    configurably answered as a duplicate plus an alert.
   - **HTTP retries.** A client retrying a request is the one at-least-once
     edge. An **optional `record_command` port** records request keys for
     servers that want retry safety. It records each key's payload
@@ -81,6 +84,22 @@ runtimes. This is accepted.
   supersedes annals' earlier "refuse a request with no id").
 - **Payload fingerprints** on request keys, with a reused key refused on a
   different payload (see above).
+- **Pass 10: no request index, v5 fingerprint, fact mismatch refused.**
+  annals follows suit:
+  - **No index.** A request id names one command; the request key is the
+    request id alone, and a batch mints one id per command, grouped by
+    correlation. annals' `RequestOrigin` loses `index`, and its
+    `record_command` key is the request id (per stream).
+  - **The v5 fingerprint.** annals computes it with
+    `angzarr_proto::ids::fingerprint(type_url, payload)` (UUIDv5 under
+    `ANGZARR_FINGERPRINT_NAMESPACE` of the 4-byte big-endian type URL
+    length, the type URL and the value bytes) and stores it as a UUID, so
+    both runtimes fingerprint the same command identically. Misuse
+    detection only, not the (deferred) hash chain.
+  - **Fact mismatch.** The same `external_id` with a different payload is
+    refused by default, and configurable per command type or domain to
+    answer it as a duplicate plus an alert, as angzarr is per command type
+    or component.
 - **COMMUTATIVE uses the same conflict units.** annals' `Domain::changed()`
   is generated from the same `(commutative_state)` and `(conflict)` markers
   (`options.proto`, `conflict_units` region) and must pass the same golden

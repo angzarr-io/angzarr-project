@@ -7,9 +7,11 @@
 //! and [`FromStr`] (the hyphenated form, either case). Conversions to and
 //! from `[u8; 16]` and [`uuid::Uuid`] are lossless.
 //!
-//! Framework-derived ids are UUIDv5 under two fixed namespaces:
-//! [`compute_root`] (`"{domain}:{key}"` under [`ROOT_NAMESPACE`]) and
-//! [`fact_correlation`] (`external_id` under [`FACT_CORRELATION_NAMESPACE`]).
+//! Framework-derived values are UUIDv5 under three fixed namespaces:
+//! [`compute_root`] (`"{domain}:{key}"` under [`ROOT_NAMESPACE`]),
+//! [`fact_correlation`] (`external_id` under [`FACT_CORRELATION_NAMESPACE`])
+//! and the idempotency [`fingerprint`] (the length-prefixed type URL and the
+//! payload bytes under [`FINGERPRINT_NAMESPACE`]).
 
 use std::fmt;
 use std::str::FromStr;
@@ -27,6 +29,12 @@ pub const ROOT_NAMESPACE: uuid::Uuid = uuid::uuid!("d4741b1a-52cd-43cf-add1-3dbb
 /// external id).
 pub const FACT_CORRELATION_NAMESPACE: uuid::Uuid =
     uuid::uuid!("e9ef0ae2-6fc6-4c14-b713-ef03971dd867");
+
+/// Namespace for idempotency fingerprints:
+/// `a749bd8c-7bf0-47e6-a5c9-dc54ebde74aa`. Generated once as a random
+/// UUIDv4; never changes (changing it would make every stored claim
+/// mismatch its retries).
+pub const FINGERPRINT_NAMESPACE: uuid::Uuid = uuid::uuid!("a749bd8c-7bf0-47e6-a5c9-dc54ebde74aa");
 
 /// Why a value is not a well-formed UUID.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -145,4 +153,27 @@ pub fn compute_root(domain: &str, key: &str) -> Result<v1::Uuid, UuidError> {
 /// UUIDv5([`FACT_CORRELATION_NAMESPACE`], `external_id`).
 pub fn fact_correlation(external_id: &str) -> v1::Uuid {
     uuid::Uuid::new_v5(&FACT_CORRELATION_NAMESPACE, external_id.as_bytes()).into()
+}
+
+/// The idempotency fingerprint of a command's body payload, a
+/// `google.protobuf.Any` exactly as received (`IdempotencyClaim.fingerprint`;
+/// types.proto, `derived_ids` region):
+/// UUIDv5([`FINGERPRINT_NAMESPACE`], name), where name is the UTF-8
+/// `type_url`'s byte length as a 4-byte big-endian unsigned integer, then
+/// the `type_url` bytes, then `payload` (the `Any`'s value bytes). Nothing
+/// is normalised or re-serialised.
+///
+/// Misuse detection only (an honest client reusing a key for a different
+/// payload), not tamper protection: it is not the event hash chain.
+///
+/// # Panics
+///
+/// If `type_url` is 4 GiB or longer, which no protobuf message can carry.
+pub fn fingerprint(type_url: &str, payload: &[u8]) -> v1::Uuid {
+    let len = u32::try_from(type_url.len()).expect("a type URL is under 4 GiB");
+    let mut name = Vec::with_capacity(4 + type_url.len() + payload.len());
+    name.extend_from_slice(&len.to_be_bytes());
+    name.extend_from_slice(type_url.as_bytes());
+    name.extend_from_slice(payload);
+    uuid::Uuid::new_v5(&FINGERPRINT_NAMESPACE, &name).into()
 }

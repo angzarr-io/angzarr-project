@@ -51,14 +51,15 @@ before business code.
 
 | Aspect | Decision |
 |---|---|
-| Keys | `(request_id, index)` for a request origin, **client-supplied only** (pass 8: a minted request id is never a key); `(event, component, index)` for causation; `external_id` for a fact |
+| Keys | `request_id` alone for a request origin, **client-supplied only** (pass 8: a minted request id is never a key). A request id names **one command** (pass 10 deleted `RequestOrigin.index`): a batch caller mints one id per command and groups them by `correlation_id`. `(event, component, index)` for causation; `external_id` for a fact |
 | Scope | per addressed aggregate: the unique key is (`CommandBook.cover`, key) |
 | Claim | written **in the same transaction as the event append**, so a claim exists if and only if its events do |
 | What is claimed | only an **applied** outcome: a sequence range on the stream, where zero events is a valid, claimed range |
 | Rejections | **released, not claimed**. A rejected command writes nothing and can be retried with the same key (Wolverine-style). Parked facts are not claimed either. |
 | Duplicate answer | business code does not run. The coordinator **re-reads the claimed range** and answers with those events and `DELIVERY_OUTCOME_DUPLICATE`. |
 | Concurrency | **optimistic**: the stream's expected sequence and the claim's uniqueness. One concurrent delivery commits, and the loser re-reads and answers DUPLICATE. There is no IN_PROGRESS state. |
-| Fingerprint | a hash over the body payload **as received** (the `Any` type URL and value bytes, never re-serialised). SDKs serialise deterministically. A request key that arrives with a different fingerprint is refused `FAILED_PRECONDITION`. |
+| Fingerprint | **UUIDv5**(`ANGZARR_FINGERPRINT_NAMESPACE` `a749bd8c-7bf0-47e6-a5c9-dc54ebde74aa`, name), name = the UTF-8 type URL's length as 4 bytes big-endian, then the type URL bytes, then the `Any` value bytes, all **as received** (never re-serialised); stored as a 16-byte `UUID` (pass 10; the encoding and a worked example are in the `derived_ids` region of `types.proto`). SDKs serialise deterministically. **Misuse detection, not tamper protection**, and unrelated to the deferred event hash chain. |
+| Mismatch | A **request** key that arrives with a different fingerprint is refused `FAILED_PRECONDITION`. A **fact** key likewise by default; configurable per command type or component to answer DUPLICATE plus an alert and a metric (coordinator configuration, not wire; pass 10). A **causation** mismatch: open. |
 | Retention | **24 hours** for client (request) keys; **7 days** for causation and fact keys |
 | DLQ replay | keeps the original keys. It refuses an entry older than its key's retention unless the operator overrides it. |
 | Required keys | A client-supplied `request_id` is required for `HandleAsync` and DLQ replay. `Handle`/`HandleSync` accept requests without one, which are simply not deduplicated. Request ids are still **always assigned** (pass 8): the coordinator mints a UUIDv7 and sets `RequestOrigin.minted`, for audit only; minted ids are never claimed or fingerprinted. |
@@ -84,13 +85,20 @@ before business code.
   on must be able to succeed, and storing the rejection would block that.
 - **The scope is the addressed aggregate, not the account.** The claim must
   share the append's transaction, which is per stream. The same request may
-  legitimately address two streams, with different indexes.
+  legitimately address two streams with one request id (one command
+  each, so one claim per stream).
 - **Duplicates re-read events instead of storing a response.** The events are
   already durable, which keeps claims small.
 - **No IN_PROGRESS state, and no 409 on concurrent use** (the IETF draft and
   Powertools have both). Because the claim commits with the append, a
   concurrent duplicate loses the optimistic race and is answered DUPLICATE,
   with no lock to expire.
+- **A fact mismatch is refused by default** (pass 10). Inboxes keyed on a
+  message id simply drop a repeated id; angzarr refuses it when the payload
+  differs, as Stripe does for API keys, because a changed fact under one id
+  is a source bug or a correction the domain never saw. Sources whose
+  redeliveries vary in bytes opt into DUPLICATE plus an alert, per command
+  type or component.
 - **Fingerprint mismatch is `FAILED_PRECONDITION`, not 422.** gRPC has no 422;
   `FAILED_PRECONDITION` is the closest terminal code ("the system is not in a
   state required for the operation": the key is bound to another payload).
@@ -98,11 +106,10 @@ before business code.
 
 ### Still open
 
-- **Fingerprint mismatch on causation and fact keys.** The contract defines
-  the refusal for request keys only. With the transient outbox, a causation
-  mismatch means a framework bug. A fact mismatch means the external system
-  re-used an id for a different payload. Options: answer DUPLICATE and alert,
-  or refuse and dead-letter.
+- **Fingerprint mismatch on causation keys.** With the transient outbox, a
+  causation mismatch means a framework bug. Options: answer DUPLICATE and
+  alert, or refuse and dead-letter (backlog KS-12). The fact half is decided
+  (pass 10): refuse by default, configurable to DUPLICATE plus an alert.
 - **Repeated parks.** A parked fact is not claimed, so a webhook that keeps
   redelivering a fact whose ingest fails produces a dead-letter entry per
   attempt, unless the DLQ deduplicates entries per key (backlog KS-9).
@@ -121,6 +128,9 @@ use a unique index on (stream, `external_id`), and an optional
 
 annals **fingerprints** like angzarr (user, after pass 7): it records the
 payload fingerprint with each request key it records and refuses a request
-key reused with a different payload. It also follows pass 8: request ids are
+key reused with a different payload. It follows pass 10 too: no request
+index (the key is the request id alone), the same v5 fingerprint
+(`angzarr_proto::ids::fingerprint`), and a fact re-sent with a different
+payload refused by default, configurably DUPLICATE plus an alert. It also follows pass 8: request ids are
 always assigned (a UUIDv7 minted when absent, flagged `minted`), and only
 client-supplied ones deduplicate.

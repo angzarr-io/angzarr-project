@@ -4,7 +4,8 @@
 //! examples documented in the proto.
 
 use angzarr_proto::ids::{
-    compute_root, fact_correlation, UuidError, FACT_CORRELATION_NAMESPACE, ROOT_NAMESPACE,
+    compute_root, fact_correlation, fingerprint, UuidError, FACT_CORRELATION_NAMESPACE,
+    FINGERPRINT_NAMESPACE, ROOT_NAMESPACE,
 };
 use angzarr_proto::uuid::Uuid as RustUuid;
 use angzarr_proto::v1::Uuid;
@@ -24,7 +25,13 @@ fn the_namespaces_are_the_documented_values() {
         FACT_CORRELATION_NAMESPACE.to_string(),
         "e9ef0ae2-6fc6-4c14-b713-ef03971dd867"
     );
+    assert_eq!(
+        FINGERPRINT_NAMESPACE.to_string(),
+        "a749bd8c-7bf0-47e6-a5c9-dc54ebde74aa"
+    );
     assert_ne!(ROOT_NAMESPACE, FACT_CORRELATION_NAMESPACE);
+    assert_ne!(ROOT_NAMESPACE, FINGERPRINT_NAMESPACE);
+    assert_ne!(FACT_CORRELATION_NAMESPACE, FINGERPRINT_NAMESPACE);
 }
 
 #[test]
@@ -120,4 +127,51 @@ fn fact_correlation_is_uuidv5_of_external_id_in_its_own_namespace() {
         Some(name_also_a_root),
         compute_root("player", "alice@example.com").ok()
     );
+}
+
+const DEPOSIT: &str = "type.googleapis.com/examples.Deposit";
+
+#[test]
+fn fingerprint_matches_the_documented_worked_example() {
+    // Name: 00000024 (36, big-endian) ++ the type URL ++ 08 2a.
+    let fp = fingerprint(DEPOSIT, &[0x08, 0x2a]);
+    assert_eq!(fp.to_string(), "6d42fa9e-0dca-5047-94b1-0ae371532630");
+    assert_eq!(fp.value[6] >> 4, 5);
+    assert_eq!(fp.value[8] >> 6, 0b10);
+
+    // It is UUIDv5 of exactly that name under the fingerprint namespace.
+    let mut name = vec![0, 0, 0, 0x24];
+    name.extend_from_slice(DEPOSIT.as_bytes());
+    name.extend_from_slice(&[0x08, 0x2a]);
+    assert_eq!(
+        fp,
+        Uuid::from(RustUuid::new_v5(&FINGERPRINT_NAMESPACE, &name))
+    );
+
+    // The other documented values: an empty value, and an empty Any.
+    assert_eq!(
+        fingerprint(DEPOSIT, &[]).to_string(),
+        "838a6be3-ad9d-5945-be34-61ec4c3d6432"
+    );
+    assert_eq!(
+        fingerprint("", &[]).to_string(),
+        "d0be6173-febd-50a7-a4fe-d083d14497ca"
+    );
+}
+
+#[test]
+fn fingerprint_separates_payloads_and_the_type_url_boundary() {
+    // A changed payload changes the fingerprint.
+    assert_eq!(
+        fingerprint(DEPOSIT, &[0x08, 0x2b]).to_string(),
+        "680f6433-0548-5517-8ff5-7388f094bdbd"
+    );
+    // Moving a byte across the type URL / value boundary changes the name
+    // (the length prefix), so it changes the fingerprint.
+    let shifted = fingerprint("type.googleapis.com/examples.Deposi", b"t\x08\x2a");
+    assert_eq!(shifted.to_string(), "c1f6b1e1-204d-5278-b6b8-b10f092ccd3f");
+    assert_ne!(shifted, fingerprint(DEPOSIT, &[0x08, 0x2a]));
+    // A fingerprint lives in its own namespace: never a root or correlation
+    // of the same text.
+    assert_ne!(fingerprint(DEPOSIT, &[]), fact_correlation(DEPOSIT));
 }

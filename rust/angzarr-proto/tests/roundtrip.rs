@@ -50,7 +50,6 @@ fn causation() -> Causation {
 fn request() -> RequestOrigin {
     RequestOrigin {
         request_id: Some(uuid(0x5e)),
-        index: 3,
         minted: false,
     }
 }
@@ -219,7 +218,6 @@ fn request_origin_records_whether_its_request_id_was_minted() {
         client.encode_to_vec(),
         RequestOrigin {
             request_id: Some(uuid(0x5e)),
-            index: 3,
             ..Default::default()
         }
         .encode_to_vec()
@@ -229,7 +227,6 @@ fn request_origin_records_whether_its_request_id_was_minted() {
     // recorded on the event meta exactly as on the page.
     let minted = RequestOrigin {
         request_id: Some("01920c8e-7b3a-7cc2-9f4e-5a1b2c3d4e5f".parse().unwrap()),
-        index: 0,
         minted: true,
     };
     let kind = origin::Kind::Request(minted.clone());
@@ -554,7 +551,10 @@ fn idempotency_claim_round_trips_each_key_kind_with_an_empty_range() {
                 edition: None,
             }),
             key: Some(key.clone()),
-            fingerprint: vec![0x5a; 32],
+            fingerprint: Some(angzarr_proto::ids::fingerprint(
+                "type.googleapis.com/examples.Deposit",
+                &[0x08, 0x2a],
+            )),
             first_sequence: u64::from(u32::MAX) + 3,
             event_count: 0,
             claimed_at: Some(prost_types::Timestamp {

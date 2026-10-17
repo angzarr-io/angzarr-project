@@ -1,8 +1,8 @@
-# Code follow-up backlog (passes 1–9)
+# Code follow-up backlog (passes 1–10)
 
 Part of the [audit-meta design record](../audit-meta-followups.md).
 
-The nine `feat/audit-meta` passes changed only the protos and the
+The ten `feat/audit-meta` passes changed only the protos and the
 `rust/angzarr-proto` crate. **Nothing in this backlog is done.** It is the
 durable record of the code work the new contract implies: the user is not
 taking on heavy angzarr refactoring now, and this list must not be lost.
@@ -60,12 +60,18 @@ range.**
   state changes, applies.
 
 **KS-4** [core] **The fingerprint.**
-- What: hash the body payload's `Any` (type URL and value) exactly as
-  received, never re-serialised. A request key that arrives with a different
-  fingerprint is refused `FAILED_PRECONDITION`.
-- Why: the claim model's fingerprint rule.
-- Settled when: the same key with a changed payload is refused, and the same
-  key with identical bytes is answered DUPLICATE.
+- What: fingerprint the body payload's `Any` exactly as received, never
+  re-serialised: UUIDv5(`ANGZARR_FINGERPRINT_NAMESPACE`
+  `a749bd8c-7bf0-47e6-a5c9-dc54ebde74aa`, the UTF-8 type URL's length as 4
+  bytes big-endian ++ the type URL ++ the value bytes), stored as a 16-byte
+  UUID. A request key that arrives with a different fingerprint is refused
+  `FAILED_PRECONDITION`; a fact key too, by default (KS-10). The request key
+  is `request_id` alone (pass 10 deleted `RequestOrigin.index`).
+- Why: the claim model's fingerprint rule; decisions 10.1 and 10.3.
+- Settled when: the same key with a changed payload is refused, the same
+  key with identical bytes is answered DUPLICATE, and core reproduces the
+  documented worked example (`6d42fa9e-0dca-5047-94b1-0ae371532630`) from a
+  golden list shared with the clients (UU-2).
 
 **KS-5** [core] **Retention and expiry.**
 - What: set `expires_at` to 24 hours for request keys and 7 days for
@@ -87,7 +93,9 @@ range.**
 - What: every SDK serialises payloads deterministically. Examples: Go
   `proto.MarshalOptions{Deterministic: true}`, sorted map entries in the
   others, and prost's field order in Rust. Every SDK's command helpers set
-  `RequestOrigin.request_id` (and `index`), and reuse it verbatim on retry.
+  `RequestOrigin.request_id`, one per command (pass 10: no `index`; a batch
+  helper mints one id per command and shares the correlation), and reuse it
+  verbatim on retry.
   An SDK that generates the id for its caller mints a UUIDv7 (MI-2) and
   never sets `minted` (it is a client key).
 - Why: the fingerprint is taken over the bytes as received, so an honest
@@ -110,10 +118,37 @@ range.**
 - Settled when: N redeliveries of a failing fact leave one DLQ entry, with an
   attempt count.
 
-**KS-10** [core] **Fingerprint mismatch on causation and fact keys.**
+**KS-10** [core] **Refuse a fact re-sent with a different payload.**
+- What: a fact whose `external_id` is already claimed on the stream, with a
+  different fingerprint, is refused `FAILED_PRECONDITION` (never answered
+  DUPLICATE, never claimed); through `HandleAsync` it is a terminal failure
+  and is dead-lettered. Unless KS-11's setting says DUPLICATE.
+- Why: decision 10.2 (the user), recorded in `types.proto` (the claim
+  model's fingerprint) and on `FactOrigin.external_id`.
+- Settled when: a test re-sends a fact with a changed payload and it is
+  refused, while identical bytes are answered DUPLICATE.
+
+**KS-11** [core] **The fact-mismatch setting.**
+- What: a coordinator configuration knob, per command type (the payload's
+  type URL) and per component, choosing REFUSE (the default) or DUPLICATE
+  for a fact whose fingerprint mismatches its claim. DUPLICATE answers
+  from the claimed range, as an exact duplicate does, and raises an alert
+  and increments a metric naming the stream, the `external_id` and both
+  fingerprints. Precedence as for Handling's defaults: command type, then
+  component, then the built-in REFUSE. Configuration only: nothing on the
+  wire carries it. annals offers the same setting (per command type or
+  domain; tracked in the session plan).
+- Why: decision 10.2.
+- Settled when: with the setting on, the mismatched fact is answered
+  DUPLICATE and the alert and metric fire; with it off or absent, KS-10's
+  refusal holds; the precedence is tested.
+
+**KS-12** [core] **Fingerprint mismatch on causation keys.**
 - What: implement the user's decision: DUPLICATE plus an alert, or refusal
-  plus a dead letter.
-- Why: still open in [idempotency.md](idempotency.md).
+  plus a dead letter. With the transient outbox (OB-1, OB-2) a mismatch can
+  only be a framework bug.
+- Why: still open in [idempotency.md](idempotency.md); the fact half was
+  decided in pass 10 (KS-10, KS-11).
 - Settled when: the user decides, and the decision is recorded in
   `types.proto`.
 
@@ -824,8 +859,8 @@ plugin generates `changed()` for every language, held to a golden suite.**
 **MI-3** [core, clients] **Always-assigned request ids.**
 - What: after validation and before deduplication, a request-origin command
   whose `request_id` is unset (or a Command with no origin) gets a minted
-  UUIDv7 in `request_id`, with `minted = true` and (for a missing origin)
-  `index = 0`, recorded in `EventMeta.origin`. A client command that
+  UUIDv7 in `request_id`, with `minted = true`, recorded in
+  `EventMeta.origin`. A client command that
   arrives with `minted` set is refused `INVALID_ARGUMENT`. A minted id is
   never claimed, fingerprinted or used to deduplicate; `HandleAsync` (KS-6)
   and DLQ replay (DQ-3) still require a client-supplied one. The derived
@@ -867,7 +902,9 @@ plugin generates `changed()` for every language, held to a golden suite.**
   (`compute_root("player", "alice@example.com")` =
   `cfe936c0-2912-5ca9-96e6-f37c0b441759`; fact `"pi_1234"` =
   `917f26ae-ea2e-58af-86de-77013a69617e`) from a shared golden list, and
-  existing derived roots have a migration (or a wipe, pre-production).
+  existing derived roots have a migration (or a wipe, pre-production). The
+  same golden list carries the pass-10 fingerprint vectors (KS-4), for core
+  and annals; clients need them only if they compute fingerprints.
 
 **UU-3** [core] **Storage columns become uuid-typed.**
 - What: every stored request id and correlation id (event meta, the
@@ -1054,7 +1091,7 @@ no-op implementations only.
 
 | Workstream | Items |
 |---|---|
-| KS: idempotency key store | 10 |
+| KS: idempotency key store | 12 |
 | OB: transient reactor outbox | 6 |
 | PS: provenance stamping and correlation | 5 |
 | BO: business output is payloads only | 3 |
@@ -1083,7 +1120,7 @@ no-op implementations only.
 | AU: attempt-audit sink (pass 6, held) | 1 |
 | GAP: carried gaps | 3 |
 | DOC: site, specs, branches | 6 |
-| **Total** | **108** |
+| **Total** | **110** |
 
 ## By-repo index
 
@@ -1091,7 +1128,7 @@ An item tagged with several repos appears under each of them.
 
 | Repo | Items |
 |---|---|
-| core | KS-1–6, KS-8–10, OB-1–3, OB-5–6, PS-1–5, BO-1, RV-1, MD-1–5, ST-1, ED-1–4, SN-1–3, RT-1–2, DQ-1–6, RN-1–2, PR-1–2, FA-1–2, HD-1–5, WS-1–5, RM-1–3, RM-6, TG-1, OR-1–2, CQ-1–2, EA-1–3, NC-2, CR-2, MI-1, MI-3, UU-2–4, CL-1–5, AU-1, GAP-1–2 |
+| core | KS-1–6, KS-8–12, OB-1–3, OB-5–6, PS-1–5, BO-1, RV-1, MD-1–5, ST-1, ED-1–4, SN-1–3, RT-1–2, DQ-1–6, RN-1–2, PR-1–2, FA-1–2, HD-1–5, WS-1–5, RM-1–3, RM-6, TG-1, OR-1–2, CQ-1–2, EA-1–3, NC-2, CR-2, MI-1, MI-3, UU-2–4, CL-1–5, AU-1, GAP-1–2 |
 | router | OB-4, OB-6, PS-2, RN-1, FA-3, HD-3, WS-2, TG-1–2, OR-2, NC-1, CR-1, CL-2, CL-4 |
 | clients (go, rust, python, java, csharp, cpp, typescript) | KS-7, BO-2, RV-2, MD-6, ST-2, ED-3, RN-1–2, FA-3, HD-5, WS-1–2, RM-4, RM-6, TG-1, OR-2, CQ-2, EA-4, NC-1, CR-1, MI-2–3, UU-1–2, CL-1–2, CL-4–5 |
 | examples | BO-3, WS-2, RM-5 |
