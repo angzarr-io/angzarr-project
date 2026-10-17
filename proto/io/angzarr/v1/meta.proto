@@ -19,7 +19,9 @@ option ruby_package = "Angzarr";
 // write no event to any stream (main or edition), and they are never
 // replayed, projected or reacted to. They change the framework's own
 // records (here, the edition registry) and are authorised as operator
-// actions, taking the operator from the call's credentials.
+// actions from the call's credentials. Who performed one is written to the
+// deployment's security log, never into these records (types.proto,
+// security_logs region).
 
 // region edition_admin
 // EditionAdminService: creates and deletes editions (see Cover.edition in
@@ -46,7 +48,7 @@ service EditionAdminService {
     };
   }
   // Delete an edition: its record, and everything stored under it in every
-  // domain (events, snapshots, projector output and idempotency claims),
+  // domain (events, snapshots and projector output),
   // whatever its store's own lifetime. Main is never touched.
   //   INVALID_ARGUMENT  name is empty (a name is required; main is unnamed
   //                     and can never be deleted);
@@ -86,8 +88,5 @@ message Edition {
   // changes to the default do not move an existing edition).
   string store = 3;
   google.protobuf.Timestamp created_at = 4;
-  // The operator who created it: an opaque pseudonymous actor id (like
-  // Provenance.actor), from the call's credentials.
-  string created_by = 5;
 }
 // endregion

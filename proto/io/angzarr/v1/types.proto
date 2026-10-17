@@ -1,7 +1,7 @@
 // DOC: This file is referenced in docs/docs/reference/patterns.mdx
 //      Update documentation when making changes to ConflictResolution,
-//      Handling, Cover (editions), Snapshot, Origin, or the CommandPage
-//      body. The command handling modes (DECISION, ASYNC, SIMPLE) are RPCs, documented in
+//      Handling, Cover (editions), Snapshot, the command identity
+//      fields, or the CommandPage body. The command handling modes (DECISION, ASYNC, SIMPLE) are RPCs, documented in
 //      command_handler.proto.
 
 syntax = "proto3";
@@ -32,7 +32,7 @@ option ruby_package = "Angzarr";
 
 // region uuid
 // A UUID as its 16 bytes, most significant first (RFC 9562 byte order).
-// The ONE type for every UUID on the wire: roots, request ids and
+// The ONE type for every UUID on the wire: roots, command ids and
 // correlation ids. 16 bytes, not 36 characters of text, because every
 // stored event carries several of them (pass 9, decision 9.1).
 //
@@ -40,10 +40,10 @@ option ruby_package = "Angzarr";
 //   - caller-chosen roots are any 16 bytes, never inspected;
 //   - framework-derived ids are UUIDv5 (RFC 9562, SHA-1 name-based) under a
 //     fixed angzarr namespace (see the derived_ids region): roots from
-//     compute_root, a fact's default correlation, and the idempotency
-//     fingerprint;
+//     compute_root, and the command id of every reaction command and every
+//     fact;
 //   - minted ids are UUIDv7 (see the minted_ids region).
-// Client-supplied request and correlation ids must be UUIDs too, of any
+// Client-supplied command and correlation ids must be UUIDs too, of any
 // version: a set UUID whose value is not exactly 16 bytes (an empty value
 // included) is malformed and refused INVALID_ARGUMENT wherever it is
 // accepted. An unset UUID field means "not supplied". The framework checks
@@ -69,9 +69,9 @@ message UUID {
 // region derived_ids
 // Framework-derived identifiers: UUIDv5 (RFC 9562 section 5.5, SHA-1
 // name-based) under fixed angzarr namespace UUIDs. Every runtime (core, each
-// client library, annals) derives the same 16 bytes from the same name. For
-// roots and correlations the name is the UTF-8 encoding of the text shown,
-// with no normalisation; the fingerprint's name is binary (specified below).
+// client library, annals) derives the same 16 bytes from the same name. The
+// name is always the UTF-8 encoding of the text shown, with no
+// normalisation.
 //
 // Derived roots: compute_root(domain, key) =
 //   UUIDv5(ANGZARR_ROOT_NAMESPACE, "{domain}:{key}")
@@ -81,48 +81,45 @@ message UUID {
 //   compute_root("player", "alice@example.com")
 //     = cfe936c0-2912-5ca9-96e6-f37c0b441759
 //
-// Fact correlation: a fact whose correlation_id is unset gets
+// Reaction command ids (see the command_identity region). The command a
+// saga or process manager emits as the index-th command (0-based, in
+// emission order) of its reaction to the trigger event T has
+//   command_id = UUIDv5(ANGZARR_COMMAND_NAMESPACE, name)
+//   ANGZARR_COMMAND_NAMESPACE = e2c9f744-9fe1-4b4b-bfee-ae514dde293b
+// where name is six netstrings, concatenated:
+//   ns(T.stream.domain) ns(T.stream.edition, "" when unset)
+//   ns(T.stream.root as canonical lowercase text)
+//   ns(T.sequence in decimal) ns(component) ns(index in decimal)
+// and ns(s) is a netstring: the byte length of the UTF-8 s in decimal, ':',
+// s itself, ','. component is the reacting component's registered name.
+// Netstrings make the split unambiguous whatever the strings hold (a
+// component or edition may contain ':' or ','), and a set edition is never
+// empty, so "0:," always means main. Worked example: the trigger
+// {domain "list", main, root 01920c8e-7b3a-7cc2-9f4e-5a1b2c3d4e5f, sequence
+// 7}, component "reminders", index 0 has the 70-byte name
+//   4:list,0:,36:01920c8e-7b3a-7cc2-9f4e-5a1b2c3d4e5f,1:7,9:reminders,1:0,
+// and the command id 45764676-e6e4-56fe-8c80-d782423577ee. Index 1 gives
+// e45bdfdf-d722-56c8-a4bd-35340c9c3c06; the same trigger in edition
+// "what-if" (name 4:list,7:what-if,36:...) gives
+// e2321e9e-d55a-5f48-bbe1-b09081c2e445; component "a,b:c" (name
+// ...,1:7,5:a,b:c,1:0,) gives 27ccb6bf-e37e-54bd-b0f0-9eac56ff5f93.
+//
+// Fact command ids and correlations. A fact's command id is
 //   UUIDv5(ANGZARR_FACT_CORRELATION_NAMESPACE, external_id)
 //   ANGZARR_FACT_CORRELATION_NAMESPACE = e9ef0ae2-6fc6-4c14-b713-ef03971dd867
-// Example: external_id "pi_1234" = 917f26ae-ea2e-58af-86de-77013a69617e.
-//
-// Idempotency fingerprint (see the claim model in the origin region): the
-// fingerprint of a command's body payload, a google.protobuf.Any exactly as
-// received, is
-//   UUIDv5(ANGZARR_FINGERPRINT_NAMESPACE, name)
-//   ANGZARR_FINGERPRINT_NAMESPACE = a749bd8c-7bf0-47e6-a5c9-dc54ebde74aa
-// where the name is the concatenation of
-//   1. the byte length of the UTF-8 type_url, as a 4-byte unsigned
-//      big-endian integer (a protobuf message is under 2 GiB, so the
-//      length always fits);
-//   2. the type_url's UTF-8 bytes, as received (no normalisation, prefix
-//      included);
-//   3. the Any's value bytes, as received (never re-serialised).
-// The length prefix makes the split between type_url and value
-// unambiguous: ("a.B", "Cx") and ("a.BC", "x") give different names.
-// Worked example: type_url "type.googleapis.com/examples.Deposit" (36
-// bytes) and value 08 2a (field 1 = 42) give the 42-byte name
-//   00000024 747970652e676f6f676c65617069732e636f6d2f6578616d706c65732e
-//   4465706f736974 082a
-// and the fingerprint 6d42fa9e-0dca-5047-94b1-0ae371532630. The same
-// type_url with an empty value is 838a6be3-ad9d-5945-be34-61ec4c3d6432; an
-// empty type_url and value (name 00000000) is
-// d0be6173-febd-50a7-a4fe-d083d14497ca.
-// The fingerprint is MISUSE DETECTION, not tamper protection: it catches an
-// honest client that reuses an idempotency key for a different payload (and,
-// for a causation key, a framework bug: a mismatch there is always refused
-// and dead-lettered with an alert; see the claim model). It
-// makes no claim against an adversary, so SHA-1's chosen-collision weakness
-// does not matter here, and it is unrelated to the deferred event hash
-// chain, which will use its own strong hash with anchoring.
+// and a fact whose correlation_id is unset gets the same value as its
+// correlation (as a client command's absent correlation is its command id;
+// see the command_identity region). The namespace keeps its pass-9 name and
+// value, so pass-9 fact correlations are unchanged. Example: external_id
+// "pi_1234" = 917f26ae-ea2e-58af-86de-77013a69617e.
 //
 // Three namespaces, not one: "{domain}:{key}" is also a valid external_id,
-// so under one namespace a fact's correlation could equal a stream's root;
-// and a fingerprint is a different kind of value again. Separate namespaces
+// so under one namespace a fact's command id could equal a stream's root;
+// and a reaction's name could equal some external_id. Separate namespaces
 // keep the id spaces unrelated by construction. All three values were
 // generated once as random UUIDv4s, as RFC 9562 suggests for a new
-// namespace, and never change: changing one changes every derived id (or,
-// for the fingerprint, makes every stored claim mismatch its retry).
+// namespace, and never change: changing one changes every derived id, and
+// with it every stored command id that deduplication looks up.
 // endregion
 
 // region minted_ids
@@ -131,16 +128,15 @@ message UUID {
 // well, with 74 random bits. This holds in angzarr (coordinator and client
 // libraries) and in annals alike. On the wire a minted id is a UUID message
 // (16 bytes). Today the framework mints:
-//   - RequestOrigin.request_id, when the caller supplied none
-//     (RequestOrigin.minted);
-//   - correlation, only indirectly: an absent correlation on a request is
-//     the request id verbatim (see Provenance), which may be a minted one;
+//   - CommandPage.command_id of a client Command that arrives without one;
+//   - correlation, only indirectly: an absent correlation on a client
+//     Command is its command id verbatim (see the command_identity region),
+//     which may be a minted one;
 //   - ids an SDK mints on its caller's behalf (a command helper's
-//     request_id, a new aggregate root); these count as client-supplied.
+//     command_id, a new aggregate root); these count as client-supplied.
 // Client-supplied identifiers are never inspected beyond their shape: a
-// request_id, correlation_id or root is any 16 bytes (see UUID); an
-// external_id or actor is an opaque string the framework never parses or
-// reformats.
+// command_id, correlation_id or root is any 16 bytes (see UUID); an
+// external_id is an opaque string the framework never parses or reformats.
 // Not identifiers, so not covered: the conflict nonce
 // (ContextualCommand.conflict_nonce, opaque per-delivery bytes) and
 // store-assigned row numbers (e.g. the DLQ's int64 entry ids).
@@ -148,8 +144,9 @@ message UUID {
 
 // region cover
 // Stream identity, and nothing else: one stream is (domain, edition, root).
-// Everything that varies per write or per page (correlation, actor, origin)
-// lives on the page and its meta (CommandPage, EventMeta), and how a command
+// Everything that varies per write or per page (command id, correlation,
+// causation, fact source) lives on the page and its meta (CommandPage,
+// EventMeta), and how a command
 // is handled (expected sequence, conflict resolution) lives on
 // CommandBook.handling;
 // never on the Cover. Parent/child relationships between aggregates are
@@ -206,24 +203,40 @@ message Cover {
 // Conflict resolution: how the aggregate coordinator treats a command whose
 // expected sequence (Handling.expected_sequence) differs from the stream's
 // head (a stale command). Carried by Handling.conflict_resolution. Three
-// resolutions: STRICT (the default), AGGREGATE_HANDLES and COMMUTATIVE.
-// (Renamed from MergeStrategy: Axon calls the same choice conflict
-// resolution.)
+// resolutions: STRICT, AGGREGATE_HANDLES and COMMUTATIVE. (Renamed from
+// MergeStrategy: Axon calls the same choice conflict resolution.)
+//
+// Which resolutions a component supports is a property of its state
+// message, declared with the (io.angzarr.v1.state) option (StateOptions,
+// below; options.proto) and carried at registration in
+// ComponentDescriptor.state. Every state supports STRICT and
+// AGGREGATE_HANDLES (the implicit base); COMMUTATIVE is supported only
+// where the state lists it and marks its conflict units.
+//
+// The DEFAULT is COMMUTATIVE where the state supports it, and STRICT
+// otherwise. The coordinator learns which from the registered
+// StateDescriptor (a list of enum values, never the state's schema, so it
+// stays domain-blind). Configuration and Handling may choose another
+// supported resolution (see Handling for the precedence).
 //
 // CONFLICT_RESOLUTION_UNSPECIFIED (the zero value) means "not specified":
-// the configured default applies (see Handling), and STRICT when
-// configuration sets none. After the coordinator resolves Handling,
-// conflict_resolution is never UNSPECIFIED.
+// the configured default applies (see Handling). After the coordinator
+// resolves Handling, conflict_resolution is never UNSPECIFIED. A command,
+// or configuration, that names a resolution the component's state does not
+// support is malformed: the command is refused INVALID_ARGUMENT before
+// deduplication, and the configuration is refused when it is loaded or the
+// component registers.
 //
 // The strategy matters only for commands whose sender provided
 // expected_sequence. A command without one is stamped by the framework with
 // the head it decides against, so it can never be stale.
 //
 // The concurrency window is the run of events the command did not see:
-// sequences expected .. head-1.
+// sequences handling.expected_sequence .. head-1 (see ContextualCommand).
 //
 // STRICT: any mismatch rejects with ABORTED (a failed test-and-set: the
-// caller re-reads and re-issues), before business code runs.
+// caller re-reads and re-issues), before business code runs. STRICT runs in
+// the coordinator.
 // AGGREGATE_HANDLES: no coordinator check; decide receives the events since
 // the expected sequence (the window) with the command and applies its own
 // conflict rule. The window is always delivered as pages: the snapshot
@@ -240,19 +253,19 @@ message Cover {
 // (Axon's ConflictResolver likewise fails a command whose handler never
 // examined the conflicting events.)
 //
-// COMMUTATIVE (opt-in): the client library resolves the window
-// automatically, so business code writes no conflict logic. The window and
-// the nonce are delivered exactly as under AGGREGATE_HANDLES, and the same
-// snapshot rule applies (the delivered snapshot is at or below
-// expected_sequence-1, so the window arrives as pages). The library, not
-// the handler, then compares CONFLICT UNITS (the conflict_units region of
-// options.proto, which defines them field kind by field kind):
+// COMMUTATIVE: the client library resolves the window automatically, so
+// business code writes no conflict logic. The window and the nonce are
+// delivered exactly as under AGGREGATE_HANDLES, and the same snapshot rule
+// applies (the delivered snapshot is at or below expected_sequence-1, so
+// the window arrives as pages). The library, not the handler, then compares
+// CONFLICT UNITS (the conflict_units region of options.proto, which defines
+// them field kind by field kind):
 //   window = changed(state at expected_sequence, state at the head)
 //   decide runs on the head state, so its invariants are checked against
 //     the window's effects
 //   mine   = changed(head, head with the command's events folded in)
-// changed() is generated from the state message's (commutative_state) and
-// (conflict) markers, the current ones of the code running decide.
+// changed() is generated from the state message's (state) and (conflict)
+// markers, the current ones of the code running decide.
 // Disjoint (no overlap, as options.proto defines it): the library
 // acknowledges the nonce itself (resolve_conflicts) and the command's
 // events are kept. Overlapping: the command fails as stale (ABORTED), as
@@ -260,34 +273,44 @@ message Cover {
 // change can only make COMMUTATIVE stricter. Everything happens locally in
 // the client library: there is no Replay RPC and no coordinator-side diff;
 // to the coordinator COMMUTATIVE is delivered exactly like
-// AGGREGATE_HANDLES. (Conflict units replace pass 6's unspecified
-// "reflection diff".)
-//
-// COMMUTATIVE is allowed only for a component whose state message has
-// (commutative_state). A command resolved to COMMUTATIVE for any other
-// state is malformed (see Handling): the client library refuses it
-// INVALID_ARGUMENT before decide, and a configuration naming COMMUTATIVE
-// for such a component is refused when the component registers.
+// AGGREGATE_HANDLES.
 //
 // COMMUTATIVE is a justified divergence from established frameworks (none
 // of Axon, Marten, Eventuous, KurrentDB or NServiceBus ships automatic
 // field-overlap merging): it serves goal 2, hiding CQRS/ES complexity so
-// implementors do not write conflict logic. It is opt-in only, never a
-// default. Because decide runs on the head, the invariants decide checks
-// still hold; what no structural comparison can see is a caller's intent
-// that depended on state the window changed in a disjoint unit (the caller
-// read A, decided to change B). It is enabled per command type or per
-// component in configuration, or in Handling where configuration allows the
-// override; STRICT stays the default.
+// implementors do not write conflict logic, and it is the default only for
+// a state whose author declared conflict units. Because decide runs on the
+// head, the invariants decide checks still hold; what no structural
+// comparison can see is a caller's intent that depended on state the window
+// changed in a disjoint unit (the caller read A, decided to change B), or a
+// stored value derived from another unit. The developer guide
+// (docs/guide/state-and-conflicts.md) treats that as a modelling failure
+// and shows the fixes.
 //
 // Conflict-resolution helpers live in the per-client libraries, computed
 // locally over the events delivered with the command; there is no
 // framework RPC for conflict resolution.
 enum ConflictResolution {
-  CONFLICT_RESOLUTION_UNSPECIFIED = 0; // Not specified: the configured default applies (STRICT if none)
-  CONFLICT_RESOLUTION_COMMUTATIVE = 1; // Opt-in: the client library accepts iff the window and the command change disjoint conflict units (options.proto)
-  CONFLICT_RESOLUTION_STRICT = 2; // Reject on sequence mismatch (optimistic concurrency); default without config
+  CONFLICT_RESOLUTION_UNSPECIFIED = 0; // Not specified: the configured default applies (COMMUTATIVE if the state supports it, else STRICT)
+  CONFLICT_RESOLUTION_COMMUTATIVE = 1; // The client library accepts iff the window and the command change disjoint conflict units (options.proto)
+  CONFLICT_RESOLUTION_STRICT = 2; // Reject on sequence mismatch (optimistic concurrency)
   CONFLICT_RESOLUTION_AGGREGATE_HANDLES = 3; // decide receives the window and applies its own conflict rule
+}
+
+// What a state message supports: the value of the (io.angzarr.v1.state)
+// message option (options.proto), and, resolved, of
+// StateDescriptor.options. Defined here, beside ConflictResolution and the
+// runtime messages that carry it; options.proto imports it.
+//
+// As written on a state message, the list ADDS to the implicit base of
+// STRICT and AGGREGATE_HANDLES: no option at all means exactly those two,
+// and in practice the only value worth listing is COMMUTATIVE. Listing a
+// base value is redundant and harmless; UNSPECIFIED is a generation error.
+// As generated into StateDescriptor.options, the list is the full resolved
+// set, base included, deduplicated, in enum-number order (e.g.
+// [COMMUTATIVE, STRICT, AGGREGATE_HANDLES]).
+message StateOptions {
+  repeated ConflictResolution conflict_resolutions = 1;
 }
 // endregion
 
@@ -340,7 +363,7 @@ message EventPage {
   // The domain event. Its type URL names the event type and version
   // (versioned packages: pkg.v1.Foo -> pkg.v2.Foo).
   google.protobuf.Any payload = 3;
-  EventMeta meta = 8; // Provenance: who, when recorded, why, decided against what (see EventMeta)
+  EventMeta meta = 8; // Provenance: which command, why, when recorded, under which rules (see EventMeta)
   // The event's position in its stream (domain, edition, root). Always
   // definite: assigned by the framework when the event is persisted, never
   // deferred. Together with the stream it is the event's identity (EventRef).
@@ -351,279 +374,142 @@ message EventPage {
 // region event_ref
 // Identifies one event: the page at `sequence` in the stream `stream`. This
 // is an event's identity — no separate event id is minted — and is how one
-// event names another (Causation.event).
+// event names another (CommandPage.causation_id, EventMeta.causation_id).
 message EventRef {
   Cover stream = 1; // The stream holding the event (domain, edition, root)
   uint64 sequence = 2; // The event's EventPage.sequence within that stream
 }
 // endregion
 
-// region provenance
-// Who issued a command and which workflow it belongs to. Carried by every
-// command (CommandPage.provenance) and copied unchanged onto every event the
-// command produces (EventMeta.provenance). On a command, empty or unset
-// fields mean "not supplied", never a meaningful empty value.
+// region command_identity
+// Why a command exists, and how it is deduplicated. Every command carries
+// one command_id; reaction commands also carry the triggering event
+// (causation_id); facts carry their source (fact_origin). All of it rides
+// the CommandPage and is copied onto every event the command produces
+// (EventMeta), where it is plain metadata. This follows the established
+// message-metadata convention (KurrentDB's $correlationId / $causationId,
+// NServiceBus and Marten): one message id, a correlation id and a causation
+// id.
 //
-// Reaction commands. The coordinator stamps a reaction command's provenance
-// from the triggering event's EventMeta.provenance: the same actor and the
-// same correlation_id. A reactor leaves both unsupplied; a reaction command
-// that sets either to a different value is a reactor bug, refused (dead-lettered
-// and alerted, never delivered). A reactor cannot start a new workflow or act
-// as someone else.
+// command_id: one per command, a UUID, assigned before deduplication:
+//   client Command  the caller's CommandPage.command_id (any UUID version,
+//                   reused verbatim on every retry of that command; an SDK
+//                   mints a v7), or, when the caller supplied none, a
+//                   UUIDv7 the coordinator mints (see the minted_ids
+//                   region). A caller that sends several commands (a batch,
+//                   one API call fanning out) uses one command id per
+//                   command and groups them by a shared correlation_id.
+//   reaction        derived: UUIDv5 of (trigger EventRef, reacting
+//                   component, index in the reaction's output); the exact
+//                   name encoding and worked values are in the derived_ids
+//                   region. Stamped by the reactor's coordinator, never by
+//                   the reactor.
+//   Fact            derived: UUIDv5(ANGZARR_FACT_CORRELATION_NAMESPACE,
+//                   fact_origin.external_id) (derived_ids region). A sender
+//                   may set it only to that value (an SDK may compute it);
+//                   any other value is malformed.
 //
-// Correlation is never unset on a persisted event. The coordinator uses the
-// caller's correlation_id when supplied (verbatim: the caller's 16 bytes).
-// When it is absent (unset), the coordinator sets it, before business code,
-// from the command's origin:
-//   request   — origin.request.request_id verbatim (the same 16 bytes),
-//               which is always present by then (client-supplied, or
-//               minted; see RequestOrigin). Every retry of a client-keyed
-//               request lands in one correlation; a request without a
-//               client key gets its minted request id.
-//   fact      — UUIDv5(ANGZARR_FACT_CORRELATION_NAMESPACE,
-//               origin.fact.external_id) (see the derived_ids region);
-//               external_id is required, so this always exists. Every
-//               redelivery of one external_id lands in one correlation.
-//   causation — never derived: stamped from the trigger, as above, and a
-//               trigger's correlation is never unset.
-// The framework therefore never mints a correlation of its own. A supplied
-// correlation_id must be a well-formed UUID (16 bytes; any version), else
-// the command is refused INVALID_ARGUMENT. Correlation groups a workflow and
-// is not an identity: two sources' external ids can coincide (and so derive
-// one correlation), and a sender that must keep them apart supplies
-// correlation_id itself.
-message Provenance {
-  // Who caused the command. Opaque and pseudonymous: an identifier whose
-  // mapping to a real person lives outside the event store, so erasing the
-  // mapping anonymises the history without rewriting any event. Never an
-  // email, name or other direct identifier.
-  string actor = 1;
-  // Workflow correlation, a UUID (see the UUID region). This (on commands
-  // and on EventMeta) is the only record of correlation: covers carry none.
-  // All pages of one write share one correlation. Query.correlation_id
-  // selects by it.
-  UUID correlation_id = 2;
-}
+// correlation_id: the workflow. The caller's when supplied (verbatim; a
+// UUID of any version). When absent, the coordinator sets it, before
+// business code: a client Command's correlation is its command_id (client
+// or minted), so every retry of a client-keyed command lands in one
+// correlation; a Fact's is its derived command_id. A reaction command's is
+// its trigger's correlation, stamped by the coordinator; a reactor that sets
+// a different one is a reactor bug. Correlation is never unset on a
+// persisted event, and the framework never mints one of its own. It groups
+// a workflow and is not an identity: two sources' external ids can
+// coincide, and a sender that must keep them apart supplies correlation_id
+// itself. Correlation is recorded per page only (covers carry none);
+// Query.correlation_id, CorrelationQuery and EventStreamFilter select by it.
+//
+// causation_id: the EventRef of the event a saga or process manager reacted
+// to, always the triggering event (never the reactor's own earlier event; a
+// process manager's command names the trigger it is answering, like a
+// saga's). Set on reaction commands only, by the reactor's coordinator.
+// Plain metadata: it is not a deduplication key (the command_id is), and
+// the events the command produces carry it unchanged, so the forward
+// causation graph is derivable (see CorrelationQuery). Accepted only from a
+// caller authenticated as a framework component (command_handler.proto,
+// the entry_points region); a client caller that sets it is refused
+// PERMISSION_DENIED.
+//
+// fact_origin: where a Fact came from (FactOrigin, below), kept for audit.
+//
+// Validation (refused before deduplication; see Handling for the full list):
+//   Fact      requires fact_origin with a non-empty external_id; never
+//             causation_id; never any Handling field; a set command_id
+//             must equal the derivation.
+//   Command   never fact_origin.
+// A client's malformed command is answered INVALID_ARGUMENT; a reaction
+// command has no caller to answer, so it is dead-lettered and alerted as a
+// reactor bug.
+//
+// Deduplication: by command_id, ON THE EVENTS. There is no separate key
+// store. "Already applied?" means: the addressed stream (CommandBook.cover)
+// already holds events whose EventMeta.command_id is this command's. Every
+// backend keeps an index on (stream, command_id) for that lookup; it is not
+// unique, since one command may produce several events. On a hit the
+// coordinator does not run business code: it answers with those events, in
+// sequence order, and Outcome.delivery DUPLICATE. Deduplication is per
+// addressed stream, the same command_id sent to two streams is two
+// commands, and because the id is written with the events it is atomic
+// with the append on every backend. (KurrentDB deduplicates appends by
+// event id the same way, and Equinox keeps processed ids in the stream.)
+//
+// Concurrent deliveries of one command race on the append's optimistic
+// sequence check: exactly one commits. The losing append writes nothing,
+// and the coordinator runs the losing delivery again from the deduplication
+// lookup, which now finds the winner's events and answers DUPLICATE (or,
+// if the winner produced no events, decides again; see the costs below).
+//
+// Accepted costs (decision 12.2):
+//   - A decision that produced NO events leaves nothing to find, so a
+//     redelivery of that command is decided again, against the stream as
+//     it is then (Equinox-style). It is answered APPLIED (with the events
+//     that decision produces, possibly none).
+//   - A command_id reused for a DIFFERENT command goes undetected: it is
+//     answered DUPLICATE with the first command's events. Payloads are not
+//     fingerprinted. A client must mint a new id for every new command.
+//   - Deduplication is FOREVER: the events are permanent, so a command_id
+//     that applied on a stream can never apply on it again. There is no
+//     expiry, purge or retention window.
+// Rejections leave nothing: a rejected command (a gRPC error status) writes
+// no event, so a retry with the same command_id runs business code again.
+// The same holds for a parked Fact (Outcome.delivery PARKED): its source's
+// redelivery runs ingest again.
 // endregion
 
-// region origin
-// Why a command exists, and therefore why the events it produced exist. One
-// message, Origin (request | causation | fact), is used everywhere an origin
-// appears: on the command (CommandPage.origin), on every event the command
-// produces (EventMeta.origin), and as the idempotency key
-// (IdempotencyClaim.key). Nothing maps one origin shape onto another.
-//
-// Validation (the body arm and the origin must agree; see CommandPage):
-//   Fact arm      requires origin.fact (it carries the external_id key).
-//   Command arm   requires origin.request or origin.causation, never
-//                 origin.fact. A Command sent with no origin is a request
-//                 without a client key: the coordinator records a
-//                 RequestOrigin with a minted request_id (minted set).
-// Violations are refused loudly, never repaired: a client's command is
-// answered INVALID_ARGUMENT; a reaction command is dead-lettered and
-// alerted as a reactor bug. (Pass 6 replaced the per-arm origin fields,
-// which made a mismatch unrepresentable, with this one message plus
-// validation.)
-//
-// Idempotency: the claim model. The coordinator deduplicates every keyed
-// command before business code runs, against an idempotency key store (see
-// IdempotencyClaim). Each origin supplies the key:
-//   request   — request_id alone, only when the caller supplied it
-//               (RequestOrigin.minted false). A request id names ONE
-//               command: a caller that sends several commands (a batch)
-//               mints one request id per command and groups them by a
-//               shared correlation_id.
-//   causation — (event, component, index)
-//   fact      — external_id
-// Request ids are ALWAYS ASSIGNED: a request that arrives without one is
-// given a minted UUIDv7 (RequestOrigin.minted), so every command and event
-// has a request id for audit. ONLY A CLIENT-SUPPLIED request_id is a key: a
-// minted one is never claimed and never deduplicates anything (a retry of
-// the same request gets a different minted id). HandleAsync and DLQ replay
-// require a client-supplied one (see command_handler.proto and
-// dlq_admin.proto).
-//
-// Scope. A key is claimed per addressed aggregate: the key store is keyed on
-// (CommandBook.cover, key), so the same key sent to two streams is two
-// claims.
-//
-// Claims. Only an APPLIED outcome is claimed, and the claim is written in the
-// same transaction as the event append, so a claim exists iff its events do.
-// Concurrent deliveries of one key race on that write with optimistic
-// concurrency (the stream's expected sequence and the claim's uniqueness):
-// exactly one commits, and the loser re-reads and answers DUPLICATE. An
-// applied outcome is a sequence range on the addressed stream; zero events
-// is a valid applied outcome (an empty range), and it is claimed too.
-//
-// Rejections are released, not claimed. A rejected command (a gRPC error
-// status) writes nothing, so a retry with the same key runs business code
-// again. The same holds for a failed fact ingest (answered PARKED).
-//
-// Duplicates. A delivery whose key is already claimed does not reach
-// business code: the coordinator re-reads the claimed range from the stream
-// and answers with those events and Outcome.delivery DUPLICATE.
-//
-// Fingerprint. Each claim records a fingerprint of the command as received:
-// a UUIDv5 over the body payload's google.protobuf.Any (its type URL and
-// value bytes, exactly as they arrived; the coordinator never re-serialises
-// before fingerprinting). The exact name encoding, the namespace and worked
-// values are in the derived_ids region. SDKs serialise deterministically so
-// an honest retry reproduces the same bytes. The fingerprint detects misuse
-// (a key reused for a different payload); it is not tamper protection.
-// Only client-supplied request ids are claimed, so only they are
-// fingerprinted; a minted request id has no claim and no fingerprint.
-// A key that arrives again with a different fingerprint:
-//   request   — refused FAILED_PRECONDITION (the key was reused for a
-//               different command), never answered DUPLICATE.
-//   fact      — by default the same: refused FAILED_PRECONDITION (the
-//               external system reused an id for a different payload),
-//               never answered DUPLICATE and never claimed. Configurable
-//               per command type (the payload's type URL) or per component
-//               to answer DUPLICATE instead (the claimed range, as for an
-//               exact duplicate) and raise an alert and a metric. The
-//               setting is coordinator configuration, not wire: no message
-//               carries it, and the precedence is that of Handling's
-//               defaults (command type, then component, then the built-in
-//               default, refuse).
-//   causation — always refused, never applied and never answered
-//               DUPLICATE: the command is dead-lettered (AngzarrDeadLetter,
-//               rejected_command) and an alert raised naming the stream,
-//               the (event, component, index) key and both fingerprints.
-//               With the transient reactor outbox a reaction's commands
-//               are re-sent verbatim, so a mismatch can only be a
-//               framework bug or a corrupted outbox, never a legitimate
-//               variation. NOT configurable, unlike facts.
-//
-// Retention. A claim expires 24 hours after it was written for a request key
-// and 7 days after for a causation or fact key; after expiry the key may run
-// again. DLQ replay refuses an entry older than its key's retention unless
-// the operator overrides it (see dlq_admin.proto).
-//
-// Backend capability. The claim must be atomic with the append. A storage
-// backend that cannot write both in one transaction offers no HandleAsync
-// and no DLQ replay (both answer UNIMPLEMENTED), because both deliver at
-// least once and rely on the claim to make redelivery safe.
-
-// A command issued directly by a caller. request_id is the command's
-// idempotency key at the addressed aggregate, kept 24 hours (see the claim
-// model above). A request id is per command: a caller that issues several
-// commands together (a batch, one API call fanning out) mints one request id
-// per command, and groups them by a shared Provenance.correlation_id.
-//
-// Client-supplied versus minted. The caller may supply request_id (its
-// idempotency key) or leave it unset. Unset is not recorded as unset: the
-// coordinator mints a UUIDv7 (see the minted_ids region), writes it to
-// request_id and sets minted, after validation and before deduplication. So
-// on every accepted command and every persisted event request_id is set,
-// and minted says whose it is.
-message RequestOrigin {
-  // Identifier of this command's request, a UUID (see the UUID region).
-  // Client-supplied: chosen by the caller, one per command, a UUID of any
-  // version (an SDK mints a v7; MI-2), and reused verbatim on every retry of
-  // that command; it is the idempotency key. A set request_id that is not exactly 16 bytes
-  // is malformed and refused INVALID_ARGUMENT. Unset on arrival: minted by
-  // the coordinator (see minted). Never unset after the coordinator accepts
-  // the command.
-  UUID request_id = 1;
-  // True iff the coordinator minted request_id because the caller supplied
-  // none. Set only by the coordinator: a client command that arrives with
-  // minted set is malformed (INVALID_ARGUMENT). A minted request_id is
-  // recorded for audit only: it is never claimed and never deduplicates,
-  // and HandleAsync and DLQ replay do not accept it as a key. Recorded with
-  // the origin on every event (EventMeta.origin), so audit can always tell
-  // a caller's key from a minted id.
-  bool minted = 3;
-}
-
-// A command emitted by a saga, process manager or policy reacting to an
-// event. The tuple (event, component, index) is the command's idempotency
-// key at the destination, kept 7 days. The transient outbox re-sends a
-// reaction's commands verbatim, so a redelivery always matches its claim's
-// fingerprint; one that does not is a framework bug or a corrupted outbox,
-// and is refused and dead-lettered with an alert, never applied and never
-// answered DUPLICATE (see the claim model's fingerprint above; not
-// configurable).
-message Causation {
-  // The event being reacted to: always the triggering event, never the
-  // reactor's own earlier event. A process manager's command names the
-  // trigger it is answering, like a saga's.
-  EventRef event = 1;
-  // Registered name of the reacting component. Stamped by the coordinator;
-  // emitters leave it empty.
-  string component = 2;
-  // Position of this command within the reaction's emitted commands;
-  // disambiguates several commands produced by one (event, component).
-  // Stamped by the coordinator from the emission order.
-  uint32 index = 3;
-}
+// region security_logs
+// Who did it is not data. No message in these protos records an actor,
+// operator or principal: not events, not commands, not the edition or
+// dead-letter records. Every coordinator authenticates its caller (a
+// client principal, or a framework component by its mTLS identity) and
+// writes who called what, and when, with the command_id, to a separate
+// security log owned by the deployment. Events record why and under which
+// rules (EventMeta); the security log records who. Keeping identity out of
+// the event store keeps personal data out of immutable history, so erasing
+// or rotating it never rewrites an event (decision 12.3).
+// endregion
 
 // Where a fact came from: something that already happened outside the
-// system (a webhook, an integration). See Fact.
+// system (a webhook, an integration). Carried on the CommandPage of a Fact
+// (fact_origin) and copied onto every event the fact produces
+// (EventMeta.fact). See Fact.
 message FactOrigin {
-  // Idempotency key from the external system (e.g. "pi_1234" from Stripe).
-  // The framework deduplicates on it, per addressed aggregate, before
-  // business code runs, and keeps the claim 7 days. The same external_id
-  // with a different payload is refused FAILED_PRECONDITION by default
-  // (configurable to DUPLICATE plus an alert; see the claim model's
-  // fingerprint). Required: a Fact whose external_id is empty is refused
-  // INVALID_ARGUMENT. A string, not a UUID:
-  // it is the external system's id, in that system's format. When the
-  // fact's command supplies no correlation_id, its correlation is derived
-  // from this: UUIDv5(ANGZARR_FACT_CORRELATION_NAMESPACE, external_id) (see
-  // the derived_ids region).
+  // The external system's id for this fact (e.g. "pi_1234" from Stripe).
+  // Required: a Fact whose external_id is empty is refused INVALID_ARGUMENT.
+  // A string, not a UUID: it is the external system's id, in that system's
+  // format. The fact's command_id is derived from it (see the
+  // command_identity region), so redeliveries of one external_id to one
+  // stream are deduplicated; a redelivery with a different payload is NOT
+  // detected (it is answered DUPLICATE with the first delivery's events).
+  // When the fact's command supplies no correlation_id, its correlation is
+  // the same derived value. external_id must be unique across all sources
+  // that address one stream; prefix it with the source when two might
+  // collide.
   string external_id = 1;
-  string description = 2; // Human-readable origin (e.g. "Stripe webhook")
+  string description = 2; // Human-readable origin (e.g. "Stripe webhook"); audit only, not part of the derivation
 }
-
-// Why a command (and so its events) exists: exactly one of the three. See
-// the validation rules at the top of this region.
-message Origin {
-  oneof kind {
-    RequestOrigin request = 1; // Issued directly by a caller
-    Causation causation = 2; // Emitted by a saga, process manager or policy reacting to an event
-    FactOrigin fact = 3; // Something that already happened outside the system
-  }
-}
-// endregion
-
-// region idempotency_claim
-// STORAGE-ONLY: one row of the idempotency key store, documented here as a
-// schema so every storage backend records the same thing. No RPC carries it
-// and no client sends or receives it; backends may store it as columns
-// rather than as this encoded message. See the claim model in the origin
-// region.
-//
-// Written in the same transaction as the events it records, and only for an
-// APPLIED outcome: rejections and parked facts are never claimed.
-message IdempotencyClaim {
-  // The addressed aggregate: the claim's scope. (stream, key) is unique.
-  Cover stream = 1;
-  // The key: the producing command's origin, exactly as it arrived. For a
-  // request, request_id alone, client-supplied (never
-  // unset and never minted here: minted ids are not claimed); for a
-  // causation, (event, component, index); for a fact, external_id only
-  // (description is not part of the key).
-  Origin key = 10;
-  // Fingerprint of the body payload as received: UUIDv5 under
-  // ANGZARR_FINGERPRINT_NAMESPACE of the length-prefixed type URL followed
-  // by the value bytes (exact encoding in the derived_ids region). A later
-  // delivery of the key is compared against it; on a mismatch a request is
-  // refused, a fact refused by default (configurable to DUPLICATE), and a
-  // causation always refused and dead-lettered with an alert (see the claim
-  // model). Misuse detection only, not tamper protection.
-  UUID fingerprint = 5;
-  // The applied outcome: events first_sequence .. first_sequence+event_count-1
-  // of `stream`. event_count 0 is a valid applied outcome with no events, and
-  // first_sequence is then the stream's next_sequence at the time.
-  uint64 first_sequence = 6;
-  uint64 event_count = 7;
-  // When the claim was written (the append's EventMeta.recorded_at) and when
-  // it lapses: 24 hours later for a request key, 7 days for causation and
-  // fact keys.
-  google.protobuf.Timestamp claimed_at = 8;
-  google.protobuf.Timestamp expires_at = 9;
-}
-// endregion
 
 // region event_meta
 // Provenance of one persisted event, stamped by the framework from the
@@ -631,25 +517,34 @@ message IdempotencyClaim {
 // sets meta: an EventBook returned by business code whose pages carry meta
 // is refused (see CommandHandlerService.Handle).
 //
-// origin, base_sequence and recorded_at are always recorded, and
-// provenance.correlation_id is never unset on a persisted event (see
-// Provenance). Every other field is optional on the wire: an empty value
-// means "not recorded", never a meaningful empty value.
+// command_id, correlation_id and recorded_at are always recorded.
+// causation_id is set iff the command was a reaction command, and fact iff
+// it was a Fact. rules_version is always recorded from the business logic's
+// report (empty only if the business logic reports none).
 //
 // The event's own identity is the EventRef of its page (its stream plus
-// EventPage.sequence); EventMeta does not repeat it. The event that caused
-// this one is not a separate field: it is origin.causation.event.
+// EventPage.sequence); EventMeta does not repeat it.
 //
 // One write is the events one command produced. All pages of one write
-// share one provenance, one origin, one base_sequence and one rules_version.
+// share one EventMeta, so the events of one command are exactly the pages
+// with its command_id; the deduplication index (command_identity region)
+// is on that field. The head the decision saw is not recorded: it is the
+// sequence of the write's first event (decision 12.4).
+//
+// A process manager's own process_events have no producing command; how
+// their meta is stamped is open (backlog PR-3).
 message EventMeta {
-  Provenance provenance = 1; // Copied from the producing command (actor, correlation)
-  // Why the producing command exists: the command's CommandPage.origin,
-  // copied unchanged (see the origin region). Always recorded: a request
-  // without a client key is recorded with its minted request_id
-  // (RequestOrigin.minted). The event that caused
-  // this one, if any, is origin.causation.event.
-  Origin origin = 12;
+  // The producing command's command_id (see the command_identity region).
+  UUID command_id = 13;
+  // The event the producing reaction command reacted to: the command's
+  // causation_id, copied. Unset for client commands and facts.
+  EventRef causation_id = 15;
+  // The producing Fact's source: the command's fact_origin, copied. Unset
+  // for Commands.
+  FactOrigin fact = 16;
+  // The producing command's correlation (see the command_identity region).
+  // Never unset on a persisted event.
+  UUID correlation_id = 14;
   // When the event was durably recorded, stamped by the server that persisted
   // it. The only timestamp an event carries; TemporalQuery.as_of_time selects
   // by it.
@@ -660,20 +555,14 @@ message EventMeta {
   // recorded_at. Because of this, the events recorded at or before any time
   // T are always a prefix of the stream (see TemporalQuery).
   google.protobuf.Timestamp recorded_at = 5;
-  // The base the decision was made against: the length of the stream (its
-  // next_sequence, the number of events in it) that decide saw when it
-  // produced this event. Always recorded, for every origin and strategy; 0
-  // means the decision saw an empty stream. It equals the producing
-  // command's Handling.expected_sequence when that was stamped, or provided
-  // and checked under STRICT; under AGGREGATE_HANDLES and COMMUTATIVE it is
-  // the head decide saw, which may be past the provided sequence. (Renamed from decided_at:
-  // it is a sequence, not a time.)
-  uint64 base_sequence = 6;
-  // Version of the business rules (handler code / configuration) that decided
-  // the event. Declared by the deciding component when it registers
-  // (ComponentDescriptor.rules_version) and stamped by the coordinator;
-  // business code never sets it. Opaque to the framework; used to explain a
-  // historical decision. Empty when the component declared none.
+  // The version of the business rules that decided (or ingested) the event:
+  // a short label the domain's author chooses (e.g. "v3") and bumps
+  // whenever decide, ingest or apply semantics change. Reported by the
+  // business logic with every response (CommandHandlerResponse.rules_version,
+  // ProcessManagerHandleResponse.rules_version) and stamped by the
+  // coordinator; business code never sets it on an event. Opaque to the
+  // framework; used to explain a historical decision, and (with the state
+  // type) to validate snapshots in the client library (see Snapshot).
   // (annals, which shares these protos, treats rules_version as
   // load-bearing rather than opaque: a documented divergence, see
   // docs/design/audit-meta/annals-divergence.md.)
@@ -692,15 +581,18 @@ message EventMeta {
 // events, never retained snapshots.
 //
 // Validity. A snapshot records what produced it: the state's type (the type
-// URL of `state`) and the rules version of the component that folded it
-// (rules_version). On every load that would start from a snapshot, the
-// framework compares both with the component's current registration (its
-// registered state type and ComponentDescriptor.rules_version). On any
-// mismatch the snapshot is discarded, never decoded into the new state
-// type, and the state is replayed from events (sequence 0, or an older kept
-// snapshot that does match). A state-schema change or a rules change
-// therefore never needs a snapshot migration: the next load replays, and
-// the next snapshot is written under the current registration.
+// URL of `state`) and the rules version the business logic reported when it
+// returned the state (rules_version). Validity is checked where the state
+// is decoded: in the client library, never by the domain-blind coordinator.
+// Before decoding a delivered snapshot, the library compares both with its
+// own state type and its own current rules version. On any mismatch it does
+// not decode the snapshot and does not run business code: it answers the
+// delivery with snapshot_refused set (CommandHandlerResponse,
+// ProcessManagerHandleResponse), and the coordinator delivers the same
+// command again with no snapshot and every page from sequence 0, and stops
+// offering that snapshot. A state-schema change or a rules change therefore
+// never needs a snapshot migration: the next load replays, and the next
+// snapshot is written under the current rules version.
 message Snapshot {
   // Sequence of the last event folded into `state`. A TemporalQuery
   // as_of_time T may start from this snapshot iff that event's
@@ -714,10 +606,10 @@ message Snapshot {
   // The folded state. Its type URL is the state type recorded with the
   // snapshot and compared on load (see Validity above).
   google.protobuf.Any state = 3;
-  // Rules version of the component that folded `state`: its
-  // ComponentDescriptor.rules_version at the time, stamped by the framework,
-  // never by business code. Compared on load (see Validity above); an empty
-  // value matches only a component that declares none.
+  // The rules version reported with the response that returned `state`
+  // (CommandHandlerResponse.rules_version), stamped by the coordinator,
+  // never by business code. Compared on load by the client library (see
+  // Validity above).
   string rules_version = 5;
 }
 // endregion
@@ -756,48 +648,72 @@ message Projection {
 // command_handler.proto).
 //
 // As sent, then resolved. Before the coordinator, Handling holds what the
-// sender asked for, and any field may be unset. Before business code runs,
-// the coordinator resolves it in place: it stamps expected_sequence when
-// absent, and fills conflict_resolution from configuration when unspecified. From then on
-// (ContextualCommand, business code) every field is concrete. A dead letter
-// stores the book as received, with Handling as sent (see
+// sender asked for, and any field may be unset. An empty Handling (no field
+// set) is the same as an unset one. Before business code runs, the
+// coordinator resolves it in place: it stamps expected_sequence when
+// absent, and fills conflict_resolution from configuration when
+// unspecified. From then on (ContextualCommand, business code) every field
+// is concrete. A dead letter stores Handling as sent (see
 // AngzarrDeadLetter).
 //
 // Defaults come from configuration. The conflict resolution is configured
-// per command type and per component (the aggregate, saga or process manager).
+// per command type and per component (the aggregate or process manager).
 // Precedence, highest first:
 //   1. Handling, when the field is set and configuration allows the override
 //   2. configuration for the command type (its payload's type URL)
 //   3. configuration for the component
-//   4. the built-in default: STRICT
+//   4. the built-in default: COMMUTATIVE when the component's registered
+//      state supports it (ComponentDescriptor.state), otherwise STRICT
+// Whatever is chosen must be supported by the component's state (see
+// ConflictResolution).
+//
+// The pipeline. The coordinator's order, NORMATIVE in every runtime and every mode:
+//   1. validate      the malformed list below; refuse before anything is
+//                    minted, looked up or stored;
+//   2. assign ids    mint or derive command_id, and set an absent
+//                    correlation_id (see the command_identity region);
+//   3. deduplicate   look up (stream, command_id); a hit is answered
+//                    DUPLICATE with the stored events, and nothing below
+//                    runs;
+//   4. resolve       stamp or check expected_sequence and resolve
+//                    conflict_resolution (STRICT's ABORTED happens here);
+//   5. business code CommandHandlerService.Handle (the client library
+//                    upcasts the payload, checks the snapshot, dispatches
+//                    to decide or ingest, and resolves AGGREGATE_HANDLES /
+//                    COMMUTATIVE), then the append.
+// Deduplication comes before the sequence check, so a retry of an applied
+// command whose expected_sequence is now stale is answered DUPLICATE, never
+// ABORTED. An append that loses an optimistic race re-runs from step 3.
 //
 // Violations are refused loudly, never silently ignored. Each of these is
-// malformed, refused before deduplication or business code:
+// malformed, refused at step 1, before deduplication or business code:
 //   - a field that configuration forbids overriding for the command type or
 //     component;
-//   - expected_sequence on a Fact (see below);
-//   - any Handling on a reaction command (see below);
-//   - a body arm and origin that disagree (see the origin region);
-//   - RequestOrigin.minted set by the sender (only the coordinator mints);
-//   - conflict_resolution COMMUTATIVE for a component whose state message
-//     lacks (commutative_state) (refused by the client library, the only
-//     side that knows the state type; see ConflictResolution).
+//   - a conflict_resolution the component's state does not support;
+//   - any Handling field on a Fact (see below);
+//   - any Handling field on a reaction command (see below);
+//   - a Fact without fact_origin, or with an empty external_id, or with a
+//     command_id other than its derivation; a Command with fact_origin
+//     (see the command_identity region);
+//   - a set UUID that is not 16 bytes, or a set empty Cover.edition.
 // A client's malformed command is answered INVALID_ARGUMENT, by every
 // coordinator RPC (HandleAsync included: it validates before enqueueing).
-// A reaction command has no caller to answer, so it is dead-lettered as a
-// reactor bug (and alerted), never delivered.
+// causation_id from a caller not authenticated as a framework component is
+// refused PERMISSION_DENIED, and a never-created edition NOT_FOUND (see the
+// entry_points region in command_handler.proto). A reaction command has no
+// caller to answer, so it is dead-lettered as a reactor bug (and alerted),
+// never delivered.
 //
 // Reaction commands (emitted by sagas and process managers) carry NO
 // Handling at all: expected_sequence and conflict_resolution are both
 // forbidden. A reactor never knows the destination's state, so the
 // destination always stamps expected_sequence, and with a stamped sequence
-// conflict resolution can never apply. How
-// a reaction command is delivered comes from the emitting component's
-// configuration. An empty Handling (no field set) is the same as none.
+// conflict resolution can never apply. How a reaction command is delivered
+// comes from the emitting component's configuration.
 //
 // Facts (CommandPage.body = Fact) cannot be refused, so no sequence check
-// applies: a Fact that sets expected_sequence is malformed and refused as
-// above. The coordinator always stamps a Fact.
+// or conflict resolution applies: a Fact that sets any Handling field is
+// malformed and refused as above. The coordinator always stamps a Fact.
 message Handling {
   // The stream state the command was issued against: the expected
   // next_sequence of the target stream.
@@ -812,9 +728,8 @@ message Handling {
   // framework stamps the head it decides against, before business code.
   //
   // Either way, the check or the stamp happens in the framework before the
-  // command reaches business code, so decide always sees a concrete
-  // sequence, and the version decided against is recorded on every
-  // resulting event (EventMeta.base_sequence).
+  // command reaches business code (pipeline step 4), so decide always sees
+  // a concrete sequence.
   optional uint64 expected_sequence = 1;
   // What to do with a stale expected_sequence (see ConflictResolution).
   // Unspecified: the configured default.
@@ -823,46 +738,57 @@ message Handling {
 // endregion
 
 // region command_page
-// One command: provenance, origin, and a body that is either a
-// decision-requesting Command or an already-happened Fact. How the command
-// is handled is not part of the page (see CommandBook.handling).
+// One command: its identity and provenance (command_id, correlation_id,
+// causation_id, fact_origin; see the command_identity region) and a body
+// that is either a decision-requesting Command or an already-happened Fact.
+// How the command is handled is not part of the page (see
+// CommandBook.handling).
 //
 // Reflective dispatch. The framework picks the pipeline from which body arm
 // is set (the arm's message type): a Command goes through decide (fallible:
 // it may be rejected), a Fact through ingest (infallible). Within the
-// pipeline the payload's type URL picks the handler. On the wire the arm is
-// the fact marker; in code, the handler registration (a fact handler,
-// e.g. #[handles_fact] / ingest, versus a command handler) is the
-// declaration, and the router refuses an arm that does not match the
+// pipeline the payload's type URL picks the handler, after the client
+// library's upcaster chain has brought an old payload type up to the
+// current one (see upcaster.proto). A type URL with no handler and no
+// upcaster path to one is refused INVALID_ARGUMENT, naming the type URL. On
+// the wire the arm is the fact marker; in code, the handler registration (a
+// fact handler, e.g. #[handles_fact] / ingest, versus a command handler) is
+// the declaration, and the router refuses an arm that does not match the
 // registered handler's kind. There is no proto flag for facts.
 //
-// The arm says what kind of payload this is; the origin says why it exists.
-// They must agree (see the origin region): a Fact requires a fact origin, and
-// a Command requires a request or causation origin. A reaction can never
-// inject a fact: reactions emit Commands with a causation origin, and a
-// reactor that emits a Fact, or a Command with any other origin, is refused
+// The arm says what kind of payload this is; fact_origin says where a fact
+// came from. They must agree: a Fact requires fact_origin, and a Command
+// never has one. A reaction can never inject a fact: reactions emit
+// Commands with a causation_id, and a reactor that emits a Fact is refused
 // (dead-lettered and alerted).
 message CommandPage {
-  Provenance provenance = 2; // Stamped onto the events this command produces
   oneof body {
     Command command = 3; // Asks the aggregate to decide; may be rejected
     Fact fact = 4; // Records something that already happened; never rejected
   }
-  // Why this command exists, and its idempotency key (see the origin
-  // region). Copied unchanged onto every event it produces
-  // (EventMeta.origin).
-  Origin origin = 7;
+  // The command's id: client-supplied or minted (client Command), derived
+  // (reaction command, Fact). Unset on arrival from a client means "mint
+  // one". Copied onto every event it produces (EventMeta.command_id) and
+  // the deduplication key there.
+  UUID command_id = 8;
+  // The workflow correlation; set by the coordinator when absent. Copied
+  // onto every event (EventMeta.correlation_id).
+  UUID correlation_id = 9;
+  // Reaction commands only: the triggering event. Framework-authenticated
+  // callers only. Copied onto every event (EventMeta.causation_id).
+  EventRef causation_id = 10;
+  // Facts only, and required there: where the fact came from. Copied onto
+  // every event (EventMeta.fact).
+  FactOrigin fact_origin = 11;
 }
 
 // A command proper: a request for the aggregate to decide. decide may emit
-// events or reject it.
+// events or reject it. Never carries a fact_origin. A rejected command
+// writes nothing, so the same command_id may be retried.
 //
-// Its origin is CommandPage.origin: a request or a causation, never a fact.
-//
-// Idempotency (see the claim model in the origin region): the origin is the
-// key, claimed per addressed aggregate only when the command is applied. A
-// rejected command is not claimed, so the same key may be retried; a request
-// key reused with a different payload is refused FAILED_PRECONDITION.
+// Commands may be upcast: the client library applies the same upcaster
+// chain as for events to the payload, by type URL, before dispatch (see
+// upcaster.proto, which also explains why that is discouraged).
 message Command {
   google.protobuf.Any payload = 1; // The domain command; its type URL picks the handler
 }
@@ -876,16 +802,16 @@ message Command {
 // and never reject it. A failing fact handler is a bug, not a business
 // rejection: the fact is dead-lettered and alerted, and the sender is
 // answered "accepted, parked" (OK, Outcome.delivery PARKED, no events),
-// never a rejection. The framework deduplicates on the page's
-// origin.fact.external_id (a Fact requires a fact origin), per
-// addressed aggregate, before the handler runs; only an applied fact is
-// claimed (see the claim model in the origin region), so a parked fact
-// redelivered by its source runs ingest again.
+// never a rejection. The framework deduplicates on the command_id derived
+// from CommandPage.fact_origin.external_id, per addressed stream, before
+// the handler runs; a parked fact wrote nothing, so its redelivery runs
+// ingest again.
 //
-// A Fact is never checked against a sequence: the coordinator always stamps
-// the head. A book whose Fact sets handling.expected_sequence is malformed
-// and refused loudly (INVALID_ARGUMENT), before deduplication or ingest;
-// it is never silently stamped over (see Handling).
+// A Fact is never checked against a sequence and never conflict-resolved:
+// the coordinator always stamps the head. A book whose Fact sets any
+// Handling field is malformed and refused loudly (INVALID_ARGUMENT), before
+// deduplication or ingest; it is never silently stamped over (see
+// Handling).
 message Fact {
   google.protobuf.Any payload = 1; // The fact; its type URL picks the ingest handler
 }
@@ -936,25 +862,26 @@ message ProjectorFailure {
   string message = 3;
 }
 
-// What the coordinator did with this delivery of a command. The claim model
-// behind APPLIED and DUPLICATE is in the origin region.
+// What the coordinator did with this delivery of a command. Deduplication
+// is in the command_identity region.
 //
 //   APPLIED    business code ran and the result committed: the events are
-//              new (possibly none), and the command's key, if any, is now
-//              claimed for that sequence range.
-//   DUPLICATE  the key was already claimed: business code did not run, and
-//              the events are the claimed range, re-read from the stream.
+//              new (possibly none; a zero-event decision leaves nothing to
+//              deduplicate against, so a redelivery is APPLIED again).
+//   DUPLICATE  the addressed stream already held events with this
+//              command_id: business code did not run, and the events are
+//              those, re-read from the stream.
 //   PARKED     a Fact whose ingest handler failed: the fact was accepted and
 //              dead-lettered for an operator, with no events. Ingest failure
 //              is a bug, never a rejection, so the sender is answered OK and
-//              must not treat it as a refusal; the key is not claimed.
+//              must not treat it as a refusal.
 //
-// A rejection is never an outcome: it is a gRPC error status, and the key
-// is released (not claimed), so the same key may be retried.
+// A rejection is never an outcome: it is a gRPC error status, and it writes
+// nothing, so the same command_id may be retried.
 enum DeliveryOutcome {
   DELIVERY_OUTCOME_UNSPECIFIED = 0; // Not reported
   DELIVERY_OUTCOME_APPLIED = 1; // Business code ran for this delivery; the events are new
-  DELIVERY_OUTCOME_DUPLICATE = 2; // Already claimed; the events are re-read from the claimed range
+  DELIVERY_OUTCOME_DUPLICATE = 2; // The stream already held this command_id's events; they are re-read
   DELIVERY_OUTCOME_PARKED = 3; // Fact accepted but its ingest failed; dead-lettered, no events
 }
 // endregion
@@ -965,13 +892,18 @@ message ContextualCommand {
   // snapshot plus pages up to the head) and the command, whose handling is
   // always resolved by the time it arrives here (see Handling):
   // expected_sequence provided by the caller or stamped by the coordinator
-  // (always stamped for a Fact), and conflict_resolution concrete. Under
-  // AGGREGATE_HANDLES and COMMUTATIVE (delivered identically) the pages
-  // from handling.expected_sequence to the head are the conflict window,
-  // and they are always delivered as pages: events.snapshot, when present,
-  // has sequence <=
-  // expected_sequence-1 (and there is no snapshot when expected_sequence is
-  // 0), so no part of the window is hidden inside snapshot state.
+  // (always stamped for a Fact), and conflict_resolution concrete.
+  //
+  // The window boundary is command.handling.expected_sequence (call it E).
+  // Under AGGREGATE_HANDLES and COMMUTATIVE (delivered identically) the
+  // pages with sequences E .. events.next_sequence-1 are the conflict
+  // window, and they are always delivered as pages: events.snapshot, when
+  // present, has sequence <= E-1 (and there is no snapshot when E is 0), so
+  // no part of the window is hidden inside snapshot state. Under STRICT, E
+  // is the head and the window is empty.
+  //
+  // The snapshot, when present, is unchecked: the client library validates
+  // it before decoding (see Snapshot) and refuses it with snapshot_refused.
   EventBook events = 1;
   CommandBook command = 2;
   // The conflict nonce. Set when, and only when, the resolved
@@ -1043,7 +975,7 @@ message Query {
     TemporalQuery temporal = 5;
   }
   // Correlation selector: when set, only pages whose
-  // EventMeta.provenance.correlation_id equals it (the same 16 bytes) are
+  // EventMeta.correlation_id equals it (the same 16 bytes) are
   // returned; a set value that is not 16 bytes is INVALID_ARGUMENT. Correlation
   // is recorded per page only (covers carry none); all pages of one write
   // share one correlation. Never crosses cover.domain (CorrelationQuery
@@ -1060,12 +992,12 @@ message Query {
 //
 // Forward causation is derivable from the result, with no further query.
 // Every reaction command (and so every event it produces) carries its
-// trigger's correlation (see Provenance), so the result is closed under
-// "what did this event cause": the events caused by event E are exactly the
-// result pages whose EventMeta.origin.causation.event equals E's EventRef
-// (E's book cover plus its EventPage.sequence). Indexing the result on
-// origin.causation.event gives the forward graph; pages with a request or
-// fact origin are its roots. Rejected commands leave no events, so they do
+// trigger's correlation (see the command_identity region), so the result
+// is closed under "what did this event cause": the events caused by event E
+// are exactly the result pages whose EventMeta.causation_id equals E's
+// EventRef (E's book cover plus its EventPage.sequence). Indexing the result
+// on causation_id gives the forward graph; pages without a causation_id
+// (client commands and facts) are its roots. Rejected commands leave no events, so they do
 // not appear (see the attempt-audit sink in the design record).
 message CorrelationQuery {
   // Required: INVALID_ARGUMENT when unset or not 16 bytes.
@@ -1080,7 +1012,7 @@ message CorrelationQuery {
 
 // region event_stream_filter
 // Subscription filter for event streaming: matches events whose
-// EventMeta.provenance.correlation_id equals correlation_id (correlation is
+// EventMeta.correlation_id equals correlation_id (correlation is
 // recorded per page only; all pages of one write share one correlation).
 message EventStreamFilter {
   UUID correlation_id = 1; // Required: INVALID_ARGUMENT when unset or not 16 bytes
@@ -1135,11 +1067,13 @@ message PayloadRetrievalFailedDetails {
 //
 // Replay (see dlq_admin.proto). An entry is immutable once written; replays
 // of it are recorded beside it in the admin store (StoredDeadLetter.replays).
-// A replay keeps the original provenance, origin and idempotency key: it is
-// a redelivery of the same message, never a new command, so the key store
-// answers it DUPLICATE if the original did apply after all.
+// A replay keeps the original command_id, correlation_id and causation_id:
+// it is a redelivery of the same message, never a new command, so
+// deduplication answers it DUPLICATE if the original did apply after all.
+// Replays are delivered by a framework component (the DLQ replayer, mTLS
+// identity), so a reaction command keeps its causation_id.
 //   rejected_command  re-sent to the coordinator as an asynchronous command
-//                     (HandleAsync), carrying its original key.
+//                     (HandleAsync), carrying its original ids.
 //   rejected_events   re-delivered to the one component that failed
 //                     (source_component), never re-published to every
 //                     subscriber.
@@ -1148,10 +1082,13 @@ message PayloadRetrievalFailedDetails {
 // rejected_events.cover); the entry does not repeat it.
 message AngzarrDeadLetter {
   oneof payload {
-    // Command that failed, stored as received: its Handling is as sent,
-    // before the coordinator resolved it (see Handling). Replay AS_IS keeps
-    // it; FRESH_SEQUENCE clears handling.expected_sequence so the
-    // coordinator stamps the current head.
+    // Command that failed, stored with its ids assigned (command_id and
+    // correlation_id as minted, derived or supplied; pipeline step 2) and
+    // its Handling as sent, before the coordinator resolved it (see
+    // Handling). A command refused at validation never reaches the DLQ with
+    // a minted id: it has none. Replay AS_IS keeps the Handling;
+    // FRESH_SEQUENCE clears handling.expected_sequence so the coordinator
+    // stamps the current head.
     CommandBook rejected_command = 2;
     EventBook rejected_events = 9; // Events that failed (saga/projector failures)
   }
@@ -1197,11 +1134,23 @@ message ComponentDescriptor {
   string name = 1;
   ComponentKind kind = 5;
   repeated Target inputs = 3; // Domains I subscribe to (event types I consume)
-  // Version of the business rules this running component decides with
-  // (handler code and configuration; e.g. a build id or release tag).
-  // Opaque. Declared here, once per registration, and stamped by the
-  // coordinator onto every event the component's decisions produce
-  // (EventMeta.rules_version); business code never sets it per event. A
-  // deployment that changes rules re-registers with a new value.
-  string rules_version = 4;
+  // The component's event-sourced state: set for AGGREGATE and
+  // PROCESS_MANAGER, unset for SAGA and PROJECTOR. Generated from the state
+  // message's descriptor by the codegen (registration fills it; business
+  // code never writes it by hand).
+  StateDescriptor state = 6;
+}
+
+// A component's state message, as the domain-blind coordinator needs it:
+// its type and the conflict resolutions it supports. Nothing of its schema.
+message StateDescriptor {
+  // The state message's type URL ("/" + its fully-qualified name; see the
+  // type URL rules at the top of this file).
+  string type_url = 1;
+  // The FULL resolved list of supported resolutions: the implicit base
+  // (STRICT, AGGREGATE_HANDLES) plus whatever the state's (state) option
+  // lists, deduplicated, in enum-number order. Never empty. The coordinator
+  // takes the built-in default from it (COMMUTATIVE if listed, else STRICT)
+  // and refuses a command or configuration naming a resolution it lacks.
+  StateOptions options = 2;
 }

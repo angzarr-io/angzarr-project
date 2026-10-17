@@ -2,15 +2,16 @@
 
 ## Status
 
-Open. The ten `feat/audit-meta` passes changed **only** the protos under
-`proto/io/angzarr/` and the `rust/angzarr-proto` crate. No angzarr code has
-changed. The user is not taking on heavy angzarr refactoring now, so every
+Open. The `feat/audit-meta` passes (1–12) changed **only** the protos under
+`proto/io/angzarr/`, the `rust/angzarr-proto` crate and the documentation
+(the design record here, and from pass 12 a developer guide under
+`docs/guide/`). No angzarr code has changed. The user is not taking on heavy angzarr refactoring now, so every
 code consequence is recorded in the backlog, which is the part that must not
 be lost.
 
 Wire breaks are accepted pre-freeze. Reservation policy (D6, pass 6):
 removed fields and messages are deleted outright, with no `reserved`
-statements, up to and including pass 10. From the first stored production
+statements, up to and including pass 12. From the first stored production
 event onwards, every removal reserves its number and name (see
 `proto/buf.yaml` and backlog GAP-3).
 
@@ -18,12 +19,13 @@ event onwards, every removal reserves its number and name (see
 
 | Document | Contents |
 |---|---|
-| [audit-meta/decision-log.md](audit-meta/decision-log.md) | Every decision of passes 1–10: why, the accepted cost, and the standard it aligns with. Also the corrections (Event Modeling, KurrentDB, Axon). |
+| [audit-meta/decision-log.md](audit-meta/decision-log.md) | Every decision of passes 1–12: why, the accepted cost, and the standard it aligns with, with superseded entries marked. Also the corrections (Event Modeling, KurrentDB, Axon). |
 | [audit-meta/critical-review-source.md](audit-meta/critical-review-source.md) | The post-pass-4 critical review's own record (authoritative for the findings' content). |
-| [audit-meta/critical-review.md](audit-meta/critical-review.md) | The status of each review finding: W1–W14, D1–D11, FINE and annals fitness, with where each was resolved. |
-| [audit-meta/idempotency.md](audit-meta/idempotency.md) | The idempotency research (a comparison table) and the chosen key-store design, with its alignments and divergences. |
-| [audit-meta/backlog.md](audit-meta/backlog.md) | **The code follow-up backlog**, by workstream with a by-repo index. 110 items, each with what, why, and what settles it. |
-| [audit-meta/annals-divergence.md](audit-meta/annals-divergence.md) | Why annals keeps its atomic in-process chain, and what it does and does not need as a result. Also where annals now matches angzarr: conflict units, fingerprints (v5, pass 10), minted ids, UUID-typed request and correlation ids, v5 derived ids, no request index, fact mismatch refused by default. |
+| [audit-meta/critical-review.md](audit-meta/critical-review.md) | The status of each review finding: W1–W14, D1–D11, FINE and annals fitness, with where each was resolved; and the illuminated review's findings decided in pass 12 (T3–T7, T13, CH1, SG3). |
+| [audit-meta/idempotency.md](audit-meta/idempotency.md) | The idempotency research (a comparison table) and the chosen design since pass 12: one `command_id` per command, deduplicated on the events, with its accepted costs; the superseded key-store design in brief. |
+| [audit-meta/backlog.md](audit-meta/backlog.md) | **The code follow-up backlog**, by workstream with a by-repo index. 108 open items, each with what, why, and what settles it; items closed by pass 12 are kept in place with their disposition. |
+| [audit-meta/annals-divergence.md](audit-meta/annals-divergence.md) | Why annals keeps its atomic in-process chain, and what it does and does not need as a result (no claims, no outbox, a logging "DLQ"). Also where annals matches angzarr: the proto types themselves, `EventMeta`, command ids and dedup on events, the pipeline order, conflict units with COMMUTATIVE the default in both. |
+| [../guide/state-and-conflicts.md](../guide/state-and-conflicts.md) | **Developer guide** (pass 12): custom options, the `(state)` option, marking conflict units, how COMMUTATIVE resolves and its risks, the generator's warnings and errors, the build setup, registration, and versioning commands. |
 
 ## Passes
 
@@ -120,7 +122,8 @@ event onwards, every removal reserves its number and name (see
     `angzarr_proto::ids` (`Display`, `FromStr`, byte and `uuid::Uuid`
     conversions, `compute_root`, `fact_correlation`). Others: backlog UU-1.
 
-- **Pass 10** (this change): decisions 10.1–10.4, by the user.
+- **Pass 10** (7956dc8; 10.4 in pass 11, fd61f93): decisions 10.1–10.4,
+  by the user.
   - **`RequestOrigin.index` deleted**: a request id is per command, and
     the request claim key is the request id alone (per addressed
     aggregate). Batch callers mint one id per command and group them by
@@ -137,12 +140,55 @@ event onwards, every removal reserves its number and name (see
     length ++ type URL ++ value bytes); `IdempotencyClaim.fingerprint` is a
     `UUID`. Misuse detection, not tamper protection, and not the deferred
     hash chain. Rust: `angzarr_proto::ids::fingerprint`.
+  - *Superseded by pass 12:* the claims, the fingerprint and both mismatch
+    rules are deleted (decision 12.2).
+- **Pass 12** (this change): decisions 12.1–12.12, by the user, from the
+  illuminated review of fd61f93.
+  - **One `command_id` per command** (`CommandPage` 8): client-supplied or
+    a minted v7; derived v5 for reaction commands (netstrings of the trigger
+    `EventRef`, component and index, under the new
+    `ANGZARR_COMMAND_NAMESPACE` `e2c9f744-9fe1-4b4b-bfee-ae514dde293b`) and
+    for facts (`external_id`, the fact-correlation namespace).
+    `causation_id` (an `EventRef`) is plain metadata; `fact_origin` keeps
+    the fact source. `Origin`, `RequestOrigin` (with `minted`) and
+    `Causation` are deleted.
+  - **Dedup on the events**, by an index on (stream, `command_id`); a
+    duplicate is answered from those events. `IdempotencyClaim`, the
+    fingerprint, retention, the DLQ age refusal and the fact-mismatch rule
+    are deleted. Accepted costs: zero-event decisions re-decided, reused
+    ids undetected, dedup forever.
+  - **Normative pipeline order**: validate, assign ids, dedup, resolve
+    Handling, business code.
+  - **`EventMeta` = `{command_id 13, causation_id 15, fact 16,
+    correlation_id 14, recorded_at 5, rules_version 7}`**; `Provenance`,
+    the actor and `base_sequence` are deleted. **No actor anywhere**
+    (`Edition.created_by` and `DeadLetterReplay.operator` too): who-did-it
+    goes to security logs.
+  - **`rules_version` per response**: `CommandHandlerService.Handle`
+    returns `CommandHandlerResponse { events, rules_version,
+    snapshot_refused }`; snapshot validity is checked in the client library.
+    `ComponentDescriptor.rules_version` is deleted.
+  - **State options**: `(state)` = `StateOptions { repeated
+    ConflictResolution conflict_resolutions }` (50106, replacing the bool);
+    `ComponentDescriptor.state` = `StateDescriptor { type_url, options }`;
+    `ConflictUnit.whole_state`. **COMMUTATIVE is the default** where the
+    state declares conflict units, otherwise STRICT. The generator's
+    diagnostics are specified.
+  - **Entry points**: `causation_id` and trigger books only from
+    framework-authenticated callers (mTLS); clients get `PERMISSION_DENIED`.
+  - **Commands can be upcast**, discouraged (a migration aid with a planned
+    removal).
+  - The crate: `bytes::Bytes`, `Eq`/`Hash` on key types,
+    `ids::reaction_command_id` and `ids::fact_command_id` in place of
+    `ids::fingerprint`.
 
 ### Worked example: hatpick's `ListState`
 
 ```proto
 message ListState {
-  option (io.angzarr.v1.commutative_state) = true;
+  option (io.angzarr.v1.state) = {
+    conflict_resolutions: [CONFLICT_RESOLUTION_COMMUTATIVE]
+  };
   map<string, Item> items = 1 [(io.angzarr.v1.conflict) = {}];  // items[<id>]
   repeated Column columns = 2 [(io.angzarr.v1.conflict) = {}];  // columns
   Settings settings = 3 [(io.angzarr.v1.conflict) = {}];        // settings
@@ -157,6 +203,9 @@ only with another settings change. Finer variants are one marker away:
 `{element_key: "id", ordered: true}` on `columns` gives per-column units plus
 `columns[#order]`. The fixture `rust/angzarr-proto/tests/fixtures/list_state.proto`
 carries both and the crate's tests read the markers back from descriptors.
+Since pass 12 COMMUTATIVE is this state's default; the
+[developer guide](../guide/state-and-conflicts.md) works through where such
+markers can go wrong.
 
 ## Resolved questions
 
@@ -178,13 +227,16 @@ carries both and the crate's tests read the markers back from descriptors.
   registration (`#[handles_fact]` / ingest) is the declaration, and the router
   guards the arm against the handler kind. Pass 6 (D11) states this in the
   proto too (`CommandPage`).
-- **Request-origin idempotency** (pass 5): a key store. See
+- **Request-origin idempotency** (pass 5): a key store; replaced in pass 12
+  by one `command_id` per command, deduplicated on the events. See
   [idempotency.md](audit-meta/idempotency.md).
 - **Reactor nondeterminism** (pass 5): a transient outbox for all reactors,
   with no purity contract.
 - **The parked-fact answer** (pass 5): a `DeliveryOutcome` value, not an
   `Outcome` field.
-- **Where `rules_version` is declared** (pass 5): `ComponentDescriptor`.
+- **Where `rules_version` comes from** (pass 5, revised in pass 12): the
+  business logic reports it with every response
+  (`CommandHandlerResponse.rules_version`).
 - **Where the DLQ replay audit lives** (pass 5): `StoredDeadLetter.replays`.
   The published `AngzarrDeadLetter` stays immutable.
 - **The review's D1–D11** (pass 6): all decided. See
@@ -198,26 +250,38 @@ carries both and the crate's tests read the markers back from descriptors.
 - **COMMUTATIVE field granularity** (pass 8): declared conflict units,
   defined once in `options.proto` and generated for every language by one
   protoc plugin with a shared golden suite (backlog CR-1).
-- **Client-supplied versus minted request ids** (pass 8): a bool,
-  `RequestOrigin.minted`, rather than a second id field (decision 8.3).
-- **Correlation when absent** (pass 8, revised in pass 9): the request id
-  verbatim; for a fact, UUIDv5(`ANGZARR_FACT_CORRELATION_NAMESPACE`,
-  `external_id`); never minted.
+- **Client-supplied versus minted ids** (pass 8; superseded in pass 12):
+  `RequestOrigin.minted` is deleted with `RequestOrigin`; minted command ids
+  deduplicate like any other.
+- **Correlation when absent** (pass 8, revised in passes 9 and 12): the
+  command id verbatim (client or minted); for a fact, its derived command
+  id, UUIDv5(`ANGZARR_FACT_CORRELATION_NAMESPACE`, `external_id`); never
+  minted.
 - **How UUIDs travel** (pass 9): one 16-byte `UUID` message for every UUID,
   request and correlation ids included; text only at display and input
   boundaries; base64 in protobuf JSON accepted.
 - **One namespace or two for derived ids** (pass 9): two, so a fact's
-  correlation can never equal a derived root; pass 10 adds a third, for the
-  fingerprint.
+  correlation can never equal a derived root; pass 10 added a third, for the
+  fingerprint, which pass 12 replaced with the reaction command-id
+  namespace.
 - **The request index** (pass 10): deleted; one request id per command,
   batches grouped by correlation.
-- **Fingerprint mismatch on fact keys** (pass 10): refused by default,
-  configurable to DUPLICATE plus an alert (backlog KS-10, KS-11).
-- **Fingerprint mismatch on causation keys** (pass 10, decision 10.4):
-  refused and dead-lettered with an alert; never applied, never DUPLICATE,
-  not configurable (backlog KS-12).
-- **The fingerprint's form** (pass 10): UUIDv5 under a third namespace of
-  the length-prefixed type URL and the value bytes; misuse detection only.
+- **Fingerprints** (pass 10; superseded in pass 12): deleted with the
+  claims. A reused id with a different payload goes undetected (an accepted
+  cost, decision 12.2).
+- **Who did it** (pass 12): not data. No actor in events, editions or dead
+  letters; every coordinator writes the authenticated caller to a security
+  log (decision 12.3).
+- **Command ids and dedup** (pass 12): one `command_id` per command,
+  deduplicated on the events by (stream, `command_id`), forever (decisions
+  12.1, 12.2).
+- **The default conflict resolution** (pass 12): COMMUTATIVE where the
+  state declares conflict units, otherwise STRICT, learnt from
+  `ComponentDescriptor.state` (decision 12.7).
+- **Who may send causation** (pass 12): only callers authenticated as
+  framework components; clients get `PERMISSION_DENIED` (decision 12.10).
+- **Command upcasting** (pass 12): supported and discouraged (decision
+  12.11).
 
 ## Open questions
 
@@ -242,7 +306,9 @@ carries both and the crate's tests read the markers back from descriptors.
   whether a PM should also learn of them, through a framework-recorded event
   on its own stream (backlog PR-2). With the attempt-audit sink (D3) an
   operator can at least see them, once it exists.
-- **Reactions on backends without atomic claims.** Refuse to host them, or
-  run them with a loud warning (backlog KS-8).
-- **Repeated parks of one fact.** One DLQ entry per key, or one per attempt
-  (backlog KS-9).
+- **Repeated parks of one fact.** One DLQ entry per command id, or one per
+  attempt (backlog CI-8).
+- **Meta for a PM's own process events** (review PM2, backlog PR-3): they
+  have no producing command, so their `command_id` has no source yet.
+- **Reactor re-runs** (review T8): a re-run re-derives the same command ids,
+  so different output from a re-run is answered DUPLICATE, undetected.

@@ -11,27 +11,38 @@ option java_multiple_files = true;
 option java_package = "io.angzarr";
 option ruby_package = "Angzarr";
 
-// CommandHandlerService: client logic that processes commands and emits events
-// Business logic layer that implements command handling for a domain aggregate
-// client logic doesn't care about sync - coordinator decides
+// CommandHandlerService: the business logic for one domain's aggregates,
+// implemented in a client library and called by the coordinator. Business code behaves the same in every
+// command mode.
 service CommandHandlerService {
-  // Process one command and return the events it produces. This is the only
-  // input path into an aggregate: facts arrive here too, in the Fact arm of
-  // CommandPage.body.
+  // Process one command and return the events it produces, with the rules
+  // version that decided them. This is the only input path into an
+  // aggregate: facts arrive here too, in the Fact arm of CommandPage.body.
   //
-  // By the time Handle is called the coordinator has already deduplicated
-  // keyed commands and facts (see the claim model in types.proto) and
-  // resolved the command's Handling: checked
-  // or stamped the expected sequence and applied the configured conflict
-  // resolution default (see Handling), so decide always sees a concrete sequence.
-  // Which coordinator RPC the caller used (the command mode) is not passed
-  // on: business code behaves the same in every mode.
+  // By the time Handle is called the coordinator has already run pipeline
+  // steps 1-4 (types.proto, Handling): validated the command, assigned its
+  // command_id and correlation_id, deduplicated it, and resolved its
+  // Handling (checked or stamped the expected sequence and resolved the
+  // conflict resolution), so decide always sees a concrete sequence. Which
+  // coordinator RPC the caller used (the command mode) is not passed on.
   //
-  // Reflective dispatch: the body arm's message type picks the pipeline
-  // (Command -> decide, which may reject; Fact -> ingest, which never
-  // rejects), and the payload's type URL picks the handler. A failing fact
-  // handler is a bug, not a business rejection: the fact is dead-lettered
-  // (and alerted) and the sender answered PARKED, never a rejection.
+  // In the client library, in order:
+  //   1. the snapshot, if delivered, is validated before it is decoded (its
+  //      state type URL and rules_version against the library's own; see
+  //      Snapshot in types.proto). A mismatch answers snapshot_refused, with
+  //      no events and no business code run; the coordinator re-delivers
+  //      with no snapshot.
+  //   2. the payload is upcast through the library's upcaster chain, by
+  //      type URL (see upcaster.proto). A type URL that reaches no
+  //      registered handler is refused INVALID_ARGUMENT, naming the type
+  //      URL ("no handler for type URL /orders.v1.PlaceOrder").
+  //   3. reflective dispatch: the body arm picks the pipeline (Command ->
+  //      decide, which may reject; Fact -> ingest, which never rejects), and
+  //      the type URL picks the handler. A failing fact handler is a bug,
+  //      not a business rejection: the fact is dead-lettered (and alerted)
+  //      and the sender answered PARKED, never a rejection.
+  //   4. AGGREGATE_HANDLES and COMMUTATIVE are resolved (the nonce; see
+  //      ConflictResolution).
   //
   // A rejection is answered as a gRPC error status, never as a response
   // message. There is no compensation input: an aggregate that must refuse
@@ -42,19 +53,43 @@ service CommandHandlerService {
   // Business output is payloads, plus an optional snapshot state, and
   // nothing else. The returned EventBook carries pages with only a payload
   // set (and, optionally, snapshot.state). The coordinator supplies the
-  // cover (the command's), every sequence and every EventMeta. Output that
-  // sets page meta or a page sequence, or a cover other than the command's
-  // (empty counts as the command's), is a handler bug: the coordinator
-  // refuses it and persists nothing. A caller of Handle or HandleSync is
-  // answered INTERNAL; an asynchronous or reaction delivery is
-  // dead-lettered and alerted. It is never treated as a business rejection.
-  rpc Handle(ContextualCommand) returns (EventBook);
+  // cover (the command's), every sequence and every EventMeta, stamping
+  // EventMeta.rules_version (and Snapshot.rules_version) from the
+  // response's rules_version. Output that sets page meta or a page sequence,
+  // or a cover other than the command's (empty counts as the command's), is
+  // a handler bug: the coordinator refuses it and persists nothing. A caller
+  // of Handle or HandleSync is answered INTERNAL; an asynchronous or
+  // reaction delivery is dead-lettered and alerted. It is never treated as
+  // a business rejection.
+  rpc Handle(ContextualCommand) returns (CommandHandlerResponse);
+}
+
+// What the business logic answers for one command.
+message CommandHandlerResponse {
+  // The events (payloads only) and optional snapshot state; see Handle.
+  // Empty when snapshot_refused is set.
+  EventBook events = 1;
+  // The version of the business rules that produced this answer: a short
+  // label the domain's author chooses (e.g. "v3") and bumps whenever
+  // decide, ingest or apply semantics change. The client library fills it
+  // from the domain's declaration on every response; the coordinator stamps
+  // it onto every event (EventMeta.rules_version) and onto any snapshot
+  // written from this response. Reported per response, never registered
+  // once, so a rolling deployment stamps each event with the rules that
+  // actually decided it.
+  string rules_version = 2;
+  // The client library refused the delivered snapshot (state type or rules
+  // version mismatch; see Snapshot in types.proto) without running business
+  // code. The coordinator delivers the command again with no snapshot and
+  // every page from sequence 0, and stops offering that snapshot.
+  bool snapshot_refused = 3;
 }
 
 // region command_modes
-// CommandHandlerCoordinatorService: the client-facing entry point for
-// commands and facts into a domain's aggregates. (CommandHandlerService,
-// above, is the business-logic service the coordinator calls.)
+// CommandHandlerCoordinatorService: the entry point for commands and facts
+// into a domain's aggregates, for clients and framework components alike.
+// (CommandHandlerService, above, is the business-logic service the
+// coordinator calls.)
 //
 // Command modes. How much of a command's processing the caller waits for is
 // a call-level choice, never part of the command: one RPC per mode.
@@ -62,8 +97,8 @@ service CommandHandlerService {
 //   Handle       DECISION  Accept or reject synchronously; returns the
 //                          persisted events. Projectors and reactions run
 //                          asynchronously.
-//   HandleAsync  ASYNC     Validate, enqueue and return. Nothing about the
-//                          decision comes back.
+//   HandleAsync  ASYNC     Validate, assign ids, enqueue and return. Nothing
+//                          about the decision comes back.
 //   HandleSync   SIMPLE    As DECISION, and also waits for the synchronous
 //                          projectors; their results come back in
 //                          CommandResponse.outcome.projections.
@@ -77,33 +112,28 @@ service CommandHandlerService {
 // silently, so replay, migration and recovery tooling either lets reactions
 // run or rebuilds projections afterwards.
 //
-// Every mode refuses a malformed command loudly with INVALID_ARGUMENT,
-// never ignoring the offending field: a Handling field that configuration
-// forbids overriding, expected_sequence on a Fact (see Handling), a body arm
-// and origin that disagree (a Fact without a fact origin, a Command with
-// one; see the origin region in types.proto), or a non-main edition that
-// was never created (NOT_FOUND; see Cover.edition).
+// Every mode follows the one pipeline (types.proto, Handling: validate,
+// assign ids, deduplicate, resolve Handling, business code) and refuses a
+// malformed command loudly, with the codes listed there, never ignoring the
+// offending field.
 //
-// Idempotency is the same in every mode (see the claim model in the origin
-// region of types.proto): a keyed command is deduplicated per addressed
-// aggregate before business code runs, only an applied outcome is claimed,
-// and a duplicate is answered from the claimed range. Every mode assigns a
-// request id: a request without a client-supplied request_id gets a minted
-// UUIDv7 (RequestOrigin.minted), recorded for audit and never used as a key.
-// HandleAsync requires a client-supplied key (see below); Handle and
-// HandleSync accept a request without one, which is simply not
-// deduplicated.
+// Deduplication is the same in every mode (types.proto, command_identity
+// region): by command_id, on the addressed stream's events, before
+// business code runs; a duplicate is answered from the stored events. A
+// client Command without a command_id gets a minted UUIDv7, before
+// enqueueing in the case of HandleAsync, so redelivery from the queue (and
+// a DLQ replay) is deduplicated; a CALLER's own retry is deduplicated only
+// when the caller supplied the command_id and reuses it.
 //
 // Status codes. One set, used by every coordinator and by every framework
 // retry loop (reaction delivery, the PM and saga outbox, asynchronous
 // commands, projector retries):
 //   Retryable:  UNAVAILABLE, DEADLINE_EXCEEDED, RESOURCE_EXHAUSTED, ABORTED.
 //   Terminal:   every other code, notably INVALID_ARGUMENT (malformed),
-//               FAILED_PRECONDITION (a business rejection, or a request id
-//               or, by default, a fact's external_id reused with a
-//               different payload), NOT_FOUND,
-//               PERMISSION_DENIED, UNIMPLEMENTED and INTERNAL (a handler
-//               bug).
+//               FAILED_PRECONDITION (a business rejection), NOT_FOUND,
+//               PERMISSION_DENIED (a field or route reserved for framework
+//               components; see entry_points), UNIMPLEMENTED and INTERNAL (a
+//               handler bug).
 // ABORTED is a stale expected_sequence under STRICT (a failed
 // test-and-set). Retrying it means re-reading and re-issuing: a caller does
 // that itself, and the framework retries ABORTED only for commands whose
@@ -111,13 +141,10 @@ service CommandHandlerService {
 // expected_sequence that is ABORTED is dead-lettered with
 // SequenceMismatchDetails, since resending it verbatim cannot succeed.
 //
-// Backend capability. HandleAsync (and DLQ replay, which delivers through
-// it) answers UNIMPLEMENTED on a storage backend that cannot write an
-// idempotency claim atomically with the append (see IdempotencyClaim).
-//
 // Reaction commands (saga and process-manager output) and process-manager
-// outbox deliveries are not client calls: the delivering component's
-// configuration chooses their mode, never the message.
+// outbox deliveries are delivered by framework components through these
+// same RPCs; the delivering component's configuration chooses the mode,
+// never the message.
 //
 // Client libraries may expose a single handle(book, mode) call as API sugar
 // over these three RPCs; the mode still selects the RPC, and is never sent
@@ -133,39 +160,35 @@ service CommandHandlerCoordinatorService {
   // here too, in the Fact arm of CommandPage.body.
   //
   // Accepted: the response carries the persisted events, with
-  // outcome.delivery APPLIED. A command or fact whose idempotency key is
-  // already claimed (see the origin region in types.proto) is not handed to
-  // business code again; the response carries the claimed events, re-read
-  // from the stream, with outcome.delivery DUPLICATE. A fact whose ingest
-  // handler fails is answered OK with outcome.delivery PARKED and no events
-  // ("accepted, parked"; it is dead-lettered). outcome.projections and
-  // outcome.projector_failures are always empty. Rejected: a gRPC error
-  // status, and the key is not claimed (a stale sequence under STRICT is
-  // ABORTED; see the status codes above).
+  // outcome.delivery APPLIED. A command whose command_id the addressed
+  // stream already holds is not handed to business code again; the response
+  // carries those events, re-read from the stream, with outcome.delivery
+  // DUPLICATE. A fact whose ingest handler fails is answered OK with
+  // outcome.delivery PARKED and no events ("accepted, parked"; it is
+  // dead-lettered). outcome.projections and outcome.projector_failures are
+  // always empty. Rejected: a gRPC error status, and nothing is written (a
+  // stale sequence under STRICT is ABORTED; see the status codes above).
   rpc Handle(CommandBook) returns (CommandResponse) {
     option (google.api.http) = {
       post: "/v1/ch/{cover.domain}/commands"
       body: "*"
     };
   }
-  // ASYNC. Validate the command, enqueue it durably and return. The OK
-  // response says only that the command was accepted for processing: no
-  // decision has been made, and deduplication happens when it is processed,
-  // so there are no events and no delivery outcome to report.
+  // ASYNC. Validate the command, assign its ids (pipeline steps 1-2),
+  // enqueue it durably and return. The OK response says only that the
+  // command was accepted for processing: no decision has been made, and
+  // deduplication happens when it is processed, so there are no events and
+  // no delivery outcome to report.
   //
-  // The command must carry a client-supplied idempotency key: a request
-  // origin with a set request_id (and minted unset), or a fact's
-  // external_id (CommandPage.origin). Asynchronous delivery is at least
-  // once, and only a client key makes redelivery safe (a minted request id
-  // never deduplicates), so a command without one is refused
-  // INVALID_ARGUMENT, before anything is minted or enqueued. On a backend
-  // without atomic claims HandleAsync answers UNIMPLEMENTED.
+  // Asynchronous delivery is at least once; the command_id assigned before
+  // enqueueing makes redelivery from the queue safe. A caller that may
+  // itself retry the call should supply the command_id, as for Handle.
   //
   // Validation happens before enqueueing: a malformed command (see Handling)
-  // is refused INVALID_ARGUMENT here, never enqueued. A business rejection
-  // happens later, with no caller to answer: like a reaction command's, it
-  // is retried when retryable and otherwise dead-lettered. A caller that
-  // needs the outcome uses Handle, or follows the command's correlation_id
+  // is refused here, never enqueued. A business rejection happens later,
+  // with no caller to answer: like a reaction command's, it is retried when
+  // retryable and otherwise dead-lettered. A caller that needs the outcome
+  // uses Handle, or follows the command's correlation_id
   // (EventStreamFilter).
   rpc HandleAsync(CommandBook) returns (google.protobuf.Empty) {
     option (google.api.http) = {
@@ -188,6 +211,31 @@ service CommandHandlerCoordinatorService {
     };
   }
 }
+// endregion
+
+// region entry_points
+// Framework components and clients use the SAME RPCs. What differs is what
+// a caller may send, decided by who the caller is, never by the message.
+//
+// A framework component (a saga or process-manager coordinator delivering
+// reaction commands, the outbox dispatcher, the DLQ replayer, a coordinator
+// delivering triggers) authenticates with its mTLS identity, issued to
+// framework components only. Only such a caller may send:
+//   - CommandPage.causation_id (with the derived command_id of a reaction
+//     command; the receiving coordinator trusts both from this caller);
+//   - a caller-supplied trigger EventBook to SagaCoordinatorService.Execute
+//     or ProcessManagerCoordinatorService.Handle (whose stamping copies the
+//     trigger's correlation and EventRef onto reaction commands).
+// Any other caller is a client. A client that sends a causation_id is
+// refused PERMISSION_DENIED, as is a client call to a trigger entry point:
+// the request is well formed, but the caller is not allowed to make it
+// (INVALID_ARGUMENT would wrongly tell the caller to fix the message).
+// Deployments may still expose the trigger routes over HTTP; the gateway
+// forwards the caller's identity, so a client reaching them is refused the
+// same way.
+//
+// Who called, framework or client, goes to the security log, never into
+// the data (types.proto, security_logs region).
 // endregion
 
 // Response to one command: its business result (the events) and what the

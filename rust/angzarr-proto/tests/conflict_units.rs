@@ -1,23 +1,23 @@
-//! The COMMUTATIVE conflict-unit markers (options.proto, conflict_units
-//! region) are readable from descriptors.
+//! The `(state)` option and the COMMUTATIVE conflict-unit markers
+//! (options.proto, conflict_units region) are readable from descriptors.
 //!
 //! prost does not generate `extend` declarations, so option VALUES cannot be
 //! read through prost's typed options (`prost_types::MessageOptions` drops
 //! unknown fields). These tests compile a fixture with protoc, check the
 //! extension declarations through `prost_types`, and read the option values
-//! off the raw descriptor bytes, decoding the `(conflict)` payload with the
-//! generated `ConflictUnit`. A code generator (backlog CR-1) reads them the
-//! same way.
+//! off the raw descriptor bytes, decoding the `(state)` payload with the
+//! generated `StateOptions` and the `(conflict)` payload with the generated
+//! `ConflictUnit`. A code generator (backlog CR-1) reads them the same way.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use angzarr_proto::v1::ConflictUnit;
+use angzarr_proto::v1::{ConflictResolution, ConflictUnit, StateOptions};
 use prost::{Message, Name};
 use prost_types::field_descriptor_proto::Type;
 use prost_types::FileDescriptorSet;
 
-const COMMUTATIVE_STATE: u32 = 50106;
+const STATE: u32 = 50106;
 const CONFLICT: u32 = 50107;
 
 fn proto_root() -> PathBuf {
@@ -45,7 +45,8 @@ fn descriptor_set() -> Vec<u8> {
 /// One wire-format field: varints and length-delimited values only (fixed
 /// widths are skipped; descriptors use neither for what we read).
 enum Val<'a> {
-    Varint(u64),
+    /// A varint, consumed but not needed by these tests.
+    Varint,
     Bytes(&'a [u8]),
 }
 
@@ -68,7 +69,10 @@ fn fields(mut buf: &[u8]) -> Vec<(u32, Val<'_>)> {
         let key = varint(&mut buf);
         let (num, wire) = ((key >> 3) as u32, key & 7);
         match wire {
-            0 => out.push((num, Val::Varint(varint(&mut buf)))),
+            0 => {
+                varint(&mut buf);
+                out.push((num, Val::Varint));
+            }
             2 => {
                 let len = varint(&mut buf) as usize;
                 out.push((num, Val::Bytes(&buf[..len])));
@@ -108,13 +112,19 @@ fn message<'a>(set: &'a [u8], message: &str) -> &'a [u8] {
         .unwrap_or_else(|| panic!("message {message}"))
 }
 
-/// (commutative_state) on a message: DescriptorProto.options (7), field 50106.
-fn commutative_state(set: &[u8], msg: &str) -> Option<bool> {
+/// (state) on a message: DescriptorProto.options (7), field 50106.
+fn state(set: &[u8], msg: &str) -> Option<StateOptions> {
     let opts = bytes_of(message(set, msg), 7).into_iter().next()?;
-    fields(opts).into_iter().find_map(|(n, v)| match v {
-        Val::Varint(b) if n == COMMUTATIVE_STATE => Some(b != 0),
-        _ => None,
-    })
+    bytes_of(opts, STATE)
+        .into_iter()
+        .next()
+        .map(|b| StateOptions::decode(b).expect("decode StateOptions"))
+}
+
+fn commutative() -> StateOptions {
+    StateOptions {
+        conflict_resolutions: vec![ConflictResolution::Commutative as i32],
+    }
 }
 
 /// (conflict) on a field: FieldDescriptorProto.options (8), field 50107.
@@ -146,10 +156,11 @@ fn extensions_are_declared_with_their_numbers_and_types() {
             .unwrap_or_else(|| panic!("extension {name}"))
     };
 
-    let state = ext("commutative_state");
-    assert_eq!(state.number(), COMMUTATIVE_STATE as i32);
+    let state = ext("state");
+    assert_eq!(state.number(), STATE as i32);
     assert_eq!(state.extendee(), ".google.protobuf.MessageOptions");
-    assert_eq!(state.r#type(), Type::Bool);
+    assert_eq!(state.r#type(), Type::Message);
+    assert_eq!(state.type_name(), ".io.angzarr.v1.StateOptions");
 
     let unit = ext("conflict");
     assert_eq!(unit.number(), CONFLICT as i32);
@@ -172,7 +183,7 @@ fn extensions_are_declared_with_their_numbers_and_types() {
 #[test]
 fn worked_example_list_state_marks_every_field_at_its_natural_unit() {
     let set = descriptor_set();
-    assert_eq!(commutative_state(&set, "ListState"), Some(true));
+    assert_eq!(state(&set, "ListState"), Some(commutative()));
     // `= {}` is a present, empty ConflictUnit: marked, not unmarked.
     for field in ["items", "columns", "settings"] {
         assert_eq!(
@@ -186,7 +197,7 @@ fn worked_example_list_state_marks_every_field_at_its_natural_unit() {
 #[test]
 fn finer_markers_carry_descend_element_key_and_ordered() {
     let set = descriptor_set();
-    assert_eq!(commutative_state(&set, "FinerListState"), Some(true));
+    assert_eq!(state(&set, "FinerListState"), Some(commutative()));
     assert_eq!(
         conflict(&set, "FinerListState", "items"),
         Some(ConflictUnit {
@@ -202,14 +213,28 @@ fn finer_markers_carry_descend_element_key_and_ordered() {
             ..Default::default()
         })
     );
-    // Unmarked: conflicts with everything.
+    // Unmarked: conflicts with everything (and the generator warns).
     assert_eq!(conflict(&set, "FinerListState", "settings"), None);
+    // whole_state: conflicts with everything, deliberately (no warning).
+    assert_eq!(
+        conflict(&set, "FinerListState", "notes"),
+        Some(ConflictUnit {
+            whole_state: true,
+            ..Default::default()
+        })
+    );
+}
+
+#[test]
+fn a_state_without_the_option_has_only_the_implicit_base() {
+    // No (state) option at all: STRICT + AGGREGATE_HANDLES, never COMMUTATIVE.
+    assert_eq!(state(&descriptor_set(), "PlainState"), None);
 }
 
 #[test]
 fn unmarked_messages_carry_no_options() {
     let set = descriptor_set();
-    assert_eq!(commutative_state(&set, "Item"), None);
+    assert_eq!(state(&set, "Item"), None);
     assert_eq!(conflict(&set, "Item", "weight"), None);
 }
 
@@ -219,9 +244,19 @@ fn conflict_unit_round_trips() {
         descend: true,
         element_key: "id".into(),
         ordered: true,
+        whole_state: true,
     };
     let back = ConflictUnit::decode(unit.encode_to_vec().as_slice()).unwrap();
     assert_eq!(back, unit);
     assert!(ConflictUnit::default().encode_to_vec().is_empty());
+    // whole_state is field 4 (varint): tag 0x20.
+    assert_eq!(
+        ConflictUnit {
+            whole_state: true,
+            ..Default::default()
+        }
+        .encode_to_vec(),
+        [0x20, 1]
+    );
     assert_eq!(ConflictUnit::full_name(), "io.angzarr.v1.ConflictUnit");
 }

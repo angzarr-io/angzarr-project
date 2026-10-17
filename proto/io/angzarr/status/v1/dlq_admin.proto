@@ -60,8 +60,9 @@ message StoredDeadLetter {
   // JSON string. Empty when decoding failed entirely (the row is still
   // surfaced — clients can fall back to `payload` bytes).
   string payload_view = 12;
-  // Every replay of this entry, oldest first: the audit record of who
-  // replayed it, when, how and with what result. `payload` itself never
+  // Every replay of this entry, oldest first: the record of when it was
+  // replayed, how and with what result (who replayed it is in the security
+  // log, not here). `payload` itself never
   // changes; replays are recorded here, beside it.
   repeated DeadLetterReplay replays = 13;
 }
@@ -69,13 +70,8 @@ message StoredDeadLetter {
 // One replay of a dead-letter entry, recorded in the entry when the replay
 // is requested and updated when its result is known.
 message DeadLetterReplay {
-  // Who replayed it: the authenticated caller of ReplayDeadLetter, as an
-  // opaque pseudonymous actor id (like Provenance.actor). Taken from the
-  // call's credentials, never from the request body.
-  string operator = 1;
   google.protobuf.Timestamp replayed_at = 2; // When the replay was requested
   ReplayMode mode = 3; // The mode applied
-  bool retention_overridden = 4; // The operator overrode the key-retention refusal
   ReplayOutcome outcome = 5; // PENDING until the replayed delivery is decided
   google.protobuf.Timestamp outcome_at = 6; // When outcome left PENDING
   string detail = 7; // Human-readable detail (e.g. the new rejection's reason)
@@ -86,7 +82,7 @@ enum ReplayOutcome {
   REPLAY_OUTCOME_UNSPECIFIED = 0;
   REPLAY_OUTCOME_PENDING = 1; // Enqueued; not yet decided
   REPLAY_OUTCOME_APPLIED = 2; // Business code ran and committed (or the component processed the events)
-  REPLAY_OUTCOME_DUPLICATE = 3; // The key was already claimed: the original did apply
+  REPLAY_OUTCOME_DUPLICATE = 3; // The stream already held the command's command_id: the original did apply
   REPLAY_OUTCOME_FAILED = 4; // Failed again: rejected or re-dead-lettered (see detail)
 }
 
@@ -169,12 +165,17 @@ message GetDeadLetterResponse {
 
 // Replay semantics.
 //
-// Same message, same keys. A replay is a redelivery, never a new command: it
-// keeps the original provenance (actor and correlation_id), origin and
-// idempotency key. If the original did apply after all, the key store
-// answers the replay DUPLICATE, so a replay can never apply a command twice.
-// The replay itself (operator, time, mode, outcome) is recorded in the
-// entry (StoredDeadLetter.replays), not on the replayed message.
+// Same message, same ids. A replay is a redelivery, never a new command: it
+// keeps the original command_id, correlation_id and causation_id (the
+// dead letter stores the command with its ids assigned). If the original
+// did apply after all, deduplication answers the replay DUPLICATE, so a
+// replay can never apply a command twice (except one whose original
+// decision produced no events, which is decided again; see the
+// command_identity region of types.proto). The replayer delivers as a
+// framework component (mTLS identity), so a reaction command's causation_id
+// is accepted. The replay itself (time, mode, outcome) is recorded in the
+// entry (StoredDeadLetter.replays), not on the replayed message; who asked
+// for it goes to the security log.
 //
 // Command entries. Published to the command bus and processed as an ASYNC
 // command (the coordinator's HandleAsync): the call returns once the command
@@ -184,16 +185,8 @@ message GetDeadLetterResponse {
 // asynchronous command. A replayed reaction command carries no Handling
 // (FRESH_SEQUENCE has nothing to clear).
 //
-// Refusals (the call fails; nothing is published or recorded):
-//   - the entry's command has no client-supplied idempotency key (a request
-//     origin whose request_id is unset or was minted by the coordinator,
-//     RequestOrigin.minted; a minted id never deduplicates):
-//     FAILED_PRECONDITION;
-//   - the entry is older than its key's retention (24 hours for a request
-//     key, 7 days for causation and fact keys; see IdempotencyClaim), so
-//     the key store can no longer recognise a duplicate:
-//     FAILED_PRECONDITION, unless override_retention is set;
-//   - the backend has no atomic idempotency claims: UNIMPLEMENTED.
+// There is no age limit: deduplication by command_id is permanent, so an
+// entry of any age replays safely.
 //
 // Event entries (rejected_events). Re-delivered to the one component that
 // failed (AngzarrDeadLetter.source_component), never re-published to every
@@ -218,10 +211,6 @@ enum ReplayMode {
 message ReplayDeadLetterRequest {
   int64 id = 1;
   ReplayMode replay_mode = 2;
-  // Replay even though the entry is older than its key's retention. The
-  // key store may no longer recognise a duplicate, so the operator accepts
-  // the risk of applying the command twice. Recorded in the replay.
-  bool override_retention = 3;
 }
 
 // Successful replay request. The dead-letter row stays in `dlq_entries`

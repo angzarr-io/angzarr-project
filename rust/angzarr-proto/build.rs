@@ -41,8 +41,18 @@ fn main() {
         println!("cargo:rerun-if-changed={}", f.display());
     }
 
-    prost_build::Config::new()
+    let mut config = prost_build::Config::new();
+    config
         .enable_type_names()
+        // Every proto `bytes` field is a `bytes::Bytes`: cheap to clone, and
+        // `Hash`/`Eq`, so `Uuid` can key a map. Pure Rust, wasm32-safe.
+        .bytes(["."]);
+    // `Eq` and `Hash` need no configuration: prost-build 0.14 derives them
+    // on every message without float fields (directly or nested), which
+    // covers the key types (`Uuid`, `Cover`, `EventRef`, `FactOrigin`,
+    // `StateDescriptor`, ...). `tests/roundtrip.rs` pins that at compile
+    // time, so a float added to one of them fails the build.
+    config
         .compile_protos(&files, &[root])
         .expect("prost: compile angzarr domain-neutral protos");
 }

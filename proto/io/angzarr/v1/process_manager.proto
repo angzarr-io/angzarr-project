@@ -31,31 +31,34 @@ option ruby_package = "Angzarr";
 // answer, including a refusal recorded as a domain event, reaches the PM as
 // a trigger, and the PM decides the next step in its own workflow state.
 // Replies route to the PM instance by correlation: a PM's commands carry the
-// trigger's correlation_id (stamped by the coordinator; see Provenance), so
-// the target's events carry it too, and the PM subscribed to that domain
-// receives them under the same correlation. Causation always names the
-// triggering event: a PM command's Causation.event is the trigger it reacted
-// to, never one of the PM's own process events, and a reply event's causation
-// names the PM's command's trigger in turn. There is no compensation or
+// trigger's correlation_id (stamped by the coordinator; see the
+// command_identity region of types.proto), so the target's events carry it
+// too, and the PM subscribed to that domain receives them under the same
+// correlation. Causation always names the triggering event: a PM command's
+// causation_id is the trigger it reacted to, never one of the PM's own
+// process events, and a reply event's causation_id names the PM's command's
+// trigger in turn. There is no compensation or
 // notification channel. A hard rejection of a PM's command is retried when
 // retryable and otherwise dead-lettered.
 //
 // Transient outbox. Everything a PM returns (process_events and commands)
 // goes through the transient outbox described on SagaResponse: stored
 // atomically with the PM's source checkpoint (here, with the append of its
-// process_events), dispatched, then cleared, leaving only the commands'
-// idempotency keys. Redelivery re-sends the stored commands verbatim, so the
-// PM is never re-run for a trigger whose output is stored and need not be
-// pure or deterministic. The destination deduplicates on the Causation
-// tuple.
+// process_events), dispatched, then cleared. Redelivery re-sends the stored
+// commands verbatim, so the PM is never re-run for a trigger whose output is
+// stored and need not be pure or deterministic. The destination
+// deduplicates on each command's derived command_id (UUIDv5 of the
+// trigger, the PM's registered name and the command's index).
 service ProcessManagerService {
   // Handle with trigger + process state. Returns commands for other
   // aggregates and events for the PM's own domain.
   //
   // PMs do not rebuild destination aggregate state — they translate
   // events into commands. Emitted commands are Commands (never Facts) whose
-  // origin is a Causation naming the trigger, exactly as saga commands are
-  // (see Causation in types.proto).
+  // causation_id names the trigger, stamped exactly as saga commands are
+  // (see the command_identity region of types.proto). The PM's own state
+  // arrives as process_state; its snapshot is validated by the client
+  // library as an aggregate's is (Snapshot in types.proto).
   rpc Handle(ProcessManagerHandleRequest) returns (ProcessManagerHandleResponse);
 }
 
@@ -64,7 +67,10 @@ service ProcessManagerCoordinatorService {
   // Full orchestration: persist process events, then deliver commands
   // through the outbox.
   // The request is the triggering EventBook; the PM's configuration, not
-  // the request, sets how its commands are delivered.
+  // the request, sets how its commands are delivered. A trigger entry
+  // point: callers authenticated as framework components only; a client is
+  // refused PERMISSION_DENIED (see the entry_points region of
+  // command_handler.proto).
   rpc Handle(EventBook) returns (ProcessManagerHandleResponse) {
     option (google.api.http) = {
       post: "/v1/pm/handle"
@@ -100,8 +106,15 @@ message ProcessManagerHandleResponse {
   // Each carries NO Handling: handling is left unset (or empty). A command
   // that sets any Handling field (expected_sequence or conflict_resolution)
   // is a PM bug, refused loudly: dead-lettered and alerted, never
-  // delivered, never silently stripped (see Handling). Provenance is left empty for the
-  // coordinator to stamp from the trigger (actor and correlation_id); a
-  // differing value is refused the same way.
+  // delivered, never silently stripped (see Handling). command_id,
+  // causation_id and correlation_id are left unset for the coordinator to
+  // stamp from the trigger; a differing value is refused the same way.
   repeated CommandBook commands = 2;
+  // The PM's rules version for this answer, as CommandHandlerResponse.
+  // rules_version: stamped onto the process events (and any snapshot).
+  string rules_version = 3;
+  // The client library refused the delivered process_state snapshot, as
+  // CommandHandlerResponse.snapshot_refused: nothing else is set, and the
+  // coordinator re-delivers with no snapshot.
+  bool snapshot_refused = 4;
 }

@@ -1,9 +1,9 @@
-# Code follow-up backlog (passes 1–10)
+# Code follow-up backlog (passes 1–12)
 
 Part of the [audit-meta design record](../audit-meta-followups.md).
 
-The ten `feat/audit-meta` passes changed only the protos and the
-`rust/angzarr-proto` crate. **Nothing in this backlog is done.** It is the
+The `feat/audit-meta` passes (1–12) changed only the protos, the
+`rust/angzarr-proto` crate and the docs. **Nothing in this backlog is done.** It is the
 durable record of the code work the new contract implies: the user is not
 taking on heavy angzarr refactoring now, and this list must not be lost.
 
@@ -29,148 +29,131 @@ relative to the core repository root.
 
 ---
 
-## KS: idempotency key store (pass 5, W1)
+## CI: command identity and deduplication on events (pass 12)
 
-**KS-1** [core] **The claim store in every backend.**
-- What: implement the `IdempotencyClaim` schema in each storage backend,
-  with uniqueness on (stream, key). Write the claim in the same transaction
-  as the event append. Add a capability flag on the storage trait for
-  "atomic claims".
-- Why: a claim must exist if and only if its events do (`types.proto`, origin
-  region).
-- Settled when: on every backend that sets the flag, two concurrent
-  deliveries of one key yield exactly one APPLIED and one DUPLICATE, with
-  identical events.
+Replaces the KS key-store workstream (closed below).
 
-**KS-2** [core] **Check before business code, and answer duplicates from the
-range.**
-- What: look the key up before decide or ingest. On a hit, re-read
-  `first_sequence .. +event_count` and answer `DELIVERY_OUTCOME_DUPLICATE`.
-  Claim zero-event outcomes too. This replaces today's causation and fact
-  dedup and adds request keys.
-- Why: the claim model. W1: request-origin commands were not deduplicated.
-- Settled when: dedup tests pass for each key kind (request, causation,
-  fact), including a zero-event command that is answered DUPLICATE with no
-  events.
+**CI-1** [core] **The (stream, `command_id`) index, and dedup on events.**
+- What: in every storage backend, index `EventMeta.command_id` per stream
+  (not unique: one command may write several events). Before business code
+  (pipeline step 3), look up (`CommandBook.cover`, `command_id`). On a hit,
+  read those events in sequence order and answer `DELIVERY_OUTCOME_DUPLICATE`
+  without running business code. An append that loses the optimistic
+  sequence race re-runs from the lookup. Delete today's causation and fact
+  dedup paths, which this replaces.
+- Why: decision 12.2; the `command_identity` region of `types.proto`.
+- Settled when: on every backend, two concurrent deliveries of one command
+  give exactly one APPLIED and one DUPLICATE with identical events; a
+  redelivery of a zero-event decision is decided again (APPLIED); and the
+  lookup cost is independent of stream length.
 
-**KS-3** [core] **Release rejections, and never claim parked facts.**
-- What: claims are written only on commit of an applied outcome.
-- Why: rejections are released (Wolverine-style).
-- Settled when: a command rejected, then retried with the same key after the
-  state changes, applies.
+**CI-2** [core, clients] **The `command_id` derivations.**
+- What: reaction command ids are UUIDv5(`ANGZARR_COMMAND_NAMESPACE`
+  `e2c9f744-9fe1-4b4b-bfee-ae514dde293b`, the six netstrings of the trigger's
+  domain, edition (`""` for main), root text, sequence, component and
+  index). Fact command ids are UUIDv5(`ANGZARR_FACT_CORRELATION_NAMESPACE`,
+  `external_id`). Implement both in core (the reactor coordinators stamp
+  reaction ids) and in any client that computes them; annals uses
+  `angzarr_proto::ids` (tracked in the session plan).
+- Why: decision 12.1; the `derived_ids` region of `types.proto`.
+- Settled when: every runtime reproduces the documented vectors
+  (`45764676-e6e4-56fe-8c80-d782423577ee` and the others in `types.proto` and
+  the crate's `tests/ids.rs`) from a golden list shared with UU-2.
 
-**KS-4** [core] **The fingerprint.**
-- What: fingerprint the body payload's `Any` exactly as received, never
-  re-serialised: UUIDv5(`ANGZARR_FINGERPRINT_NAMESPACE`
-  `a749bd8c-7bf0-47e6-a5c9-dc54ebde74aa`, the UTF-8 type URL's length as 4
-  bytes big-endian ++ the type URL ++ the value bytes), stored as a 16-byte
-  UUID. A request key that arrives with a different fingerprint is refused
-  `FAILED_PRECONDITION`; a fact key too, by default (KS-10). The request key
-  is `request_id` alone (pass 10 deleted `RequestOrigin.index`).
-- Why: the claim model's fingerprint rule; decisions 10.1 and 10.3.
-- Settled when: the same key with a changed payload is refused, the same
-  key with identical bytes is answered DUPLICATE, and core reproduces the
-  documented worked example (`6d42fa9e-0dca-5047-94b1-0ae371532630`) from a
-  golden list shared with the clients (UU-2).
+**CI-3** [core] **Assign ids before deduplication.**
+- What: at pipeline step 2, mint a UUIDv7 `command_id` for a client
+  Command without one (`HandleAsync`: before enqueueing). Derive a Fact's,
+  and refuse one sent with any other value (`INVALID_ARGUMENT`). Set an
+  absent `correlation_id` (PS-3). Dead letters store the command with its
+  ids assigned and its Handling as sent. Delete the `HandleAsync` and replay
+  requirement for a client-supplied key, and the `UNIMPLEMENTED` answer for
+  backends without atomic claims.
+- Why: decisions 12.1 and 12.2 (the `HandleAsync` judgement call).
+- Settled when: a keyless `HandleAsync` command redelivered from the queue
+  is answered DUPLICATE; a replayed dead letter of a keyless command is
+  DUPLICATE when the original applied; a Fact with a foreign `command_id` is
+  refused.
 
-**KS-5** [core] **Retention and expiry.**
-- What: set `expires_at` to 24 hours for request keys and 7 days for
-  causation and fact keys. Garbage-collect expired claims, and treat an
-  expired claim as absent.
-- Why: retention. These windows also gate DLQ replay (DQ-3).
-- Settled when: an expiry test shows a key running again after its window,
-  and a GC job is wired into each backend.
+**CI-4** [core] **The normative pipeline order.**
+- What: validate, assign ids, deduplicate, resolve or check Handling, then
+  business code, in every RPC and in the reaction and replay paths. Today
+  the STRICT check and dedup are not ordered by contract.
+- Why: decision 12.5 (review T6).
+- Settled when: a retry of an applied STRICT command whose
+  `expected_sequence` is now stale is answered DUPLICATE, never ABORTED.
 
-**KS-6** [core] **`HandleAsync` key requirement and backend capability.**
-- What: refuse a command without a client-supplied key (no `request_id`,
-  or `RequestOrigin.minted` set) with `INVALID_ARGUMENT`, before minting or
-  enqueueing, and answer
-  `UNIMPLEMENTED` on backends without atomic claims (as replay does, DQ-3).
-- Why: `command_handler.proto`, the HandleAsync and backend-capability text.
-- Settled when: both refusals are tested.
+**CI-5** [core] **Framework-authenticated entry points.**
+- What: issue framework components (saga and PM coordinators, the outbox
+  dispatcher, the DLQ replayer) mTLS identities, and recognise them at every
+  coordinator. Refuse `CommandPage.causation_id` from any other caller, and
+  every call to `SagaCoordinatorService.Execute` and
+  `ProcessManagerCoordinatorService.Handle`, with `PERMISSION_DENIED`. The
+  REST gateway forwards the caller's identity rather than its own.
+- Why: decision 12.10 (review T5, SG3 and CH1); the `entry_points` region
+  of `command_handler.proto`.
+- Settled when: a client `Handle` with a `causation_id` and a client call to
+  `POST /v1/saga/execute` are both refused `PERMISSION_DENIED`, and the same
+  requests from a framework identity succeed.
 
-**KS-7** [clients] **Deterministic serialisation and request keys.**
-- What: every SDK serialises payloads deterministically. Examples: Go
-  `proto.MarshalOptions{Deterministic: true}`, sorted map entries in the
-  others, and prost's field order in Rust. Every SDK's command helpers set
-  `RequestOrigin.request_id`, one per command (pass 10: no `index`; a batch
-  helper mints one id per command and shares the correlation), and reuse it
-  verbatim on retry.
-  An SDK that generates the id for its caller mints a UUIDv7 (MI-2) and
-  never sets `minted` (it is a client key).
-- Why: the fingerprint is taken over the bytes as received, so an honest
-  retry must reproduce them.
-- Settled when: a cross-language golden test produces identical bytes for a
-  payload with map fields, and retry helpers keep the key.
+**CI-6** [core] **Security logs, and no actor in the data.**
+- What: every coordinator and admin service writes the authenticated caller,
+  the RPC, the time and the `command_id` (or the edition name or dead-letter
+  id) to a deployment-configured security log. Delete every actor column and
+  field: `Provenance.actor` stamping, `editions.created_by`, and the DLQ
+  replay operator column (`dlq_replay_audit`).
+- Why: decision 12.3; the `security_logs` region of `types.proto`.
+- Settled when: no stored event, edition or dead-letter row carries an
+  identity, and each RPC's caller appears in the security log with the
+  command id.
 
-**KS-8** [core] **Reactions on backends without atomic claims.**
-- What: decide, then implement, what sagas and PMs do on such a backend:
-  refuse to run, or run with a loud warning.
-- Why: an open question in [idempotency.md](idempotency.md). Reaction
-  delivery is at least once.
-- Settled when: the user decides, and the decision is recorded in the protos.
+**CI-7** [clients] **SDK command ids.**
+- What: every SDK's command helpers set `CommandPage.command_id` (a v7
+  minted for the caller, one per command) and reuse it verbatim on retry. A
+  batch helper mints one id per command and shares the correlation. SDKs no
+  longer need deterministic serialisation for idempotency.
+- Why: decision 12.1. Replaces KS-7.
+- Settled when: a retried SDK call is answered DUPLICATE.
 
-**KS-9** [core] **Dead-letter entries for parked facts.**
-- What: deduplicate DLQ entries per (stream, `external_id`), so a source that
+**CI-8** [core] **Dead-letter entries for parked facts.**
+- What: deduplicate DLQ entries per (stream, `command_id`), so a source that
   keeps redelivering a fact whose ingest fails updates one entry rather than
   adding entries.
-- Why: parked facts are not claimed.
+- Why: a parked fact writes no event, so dedup never sees it. Carried over
+  from KS-9.
 - Settled when: N redeliveries of a failing fact leave one DLQ entry, with an
   attempt count.
 
-**KS-10** [core] **Refuse a fact re-sent with a different payload.**
-- What: a fact whose `external_id` is already claimed on the stream, with a
-  different fingerprint, is refused `FAILED_PRECONDITION` (never answered
-  DUPLICATE, never claimed); through `HandleAsync` it is a terminal failure
-  and is dead-lettered. Unless KS-11's setting says DUPLICATE.
-- Why: decision 10.2 (the user), recorded in `types.proto` (the claim
-  model's fingerprint) and on `FactOrigin.external_id`.
-- Settled when: a test re-sends a fact with a changed payload and it is
-  refused, while identical bytes are answered DUPLICATE.
+### KS: idempotency key store (pass 5, W1): closed
 
-**KS-11** [core] **The fact-mismatch setting.**
-- What: a coordinator configuration knob, per command type (the payload's
-  type URL) and per component, choosing REFUSE (the default) or DUPLICATE
-  for a fact whose fingerprint mismatches its claim. DUPLICATE answers
-  from the claimed range, as an exact duplicate does, and raises an alert
-  and increments a metric naming the stream, the `external_id` and both
-  fingerprints. Precedence as for Handling's defaults: command type, then
-  component, then the built-in REFUSE. Configuration only: nothing on the
-  wire carries it. annals offers the same setting (per command type or
-  domain; tracked in the session plan).
-- Why: decision 10.2.
-- Settled when: with the setting on, the mismatched fact is answered
-  DUPLICATE and the alert and metric fire; with it off or absent, KS-10's
-  refusal holds; the precedence is tested.
-
-**KS-12** [core] **Refuse and dead-letter a causation key re-sent with a
-different payload.**
-- What: a reaction command whose (event, component, index) key is already
-  claimed on the stream, with a different fingerprint, is never applied and
-  never answered DUPLICATE. It is dead-lettered (`AngzarrDeadLetter`,
-  `rejected_command`), and an alert is raised naming the stream, the key
-  and both fingerprints. No setting changes this (unlike KS-11 for facts).
-- Why: decision 10.4 (the user), recorded in `types.proto` (the claim
-  model's fingerprint, `Causation`, `IdempotencyClaim.fingerprint`). With
-  the transient outbox (OB-1, OB-2) a reaction's commands are re-sent
-  verbatim, so a mismatch can only be a framework bug or a corrupted
-  outbox; DUPLICATE would hide it and lose the command.
-- Settled when: a test delivers a causation key twice with different
-  payload bytes and the second is dead-lettered with the alert fired,
-  nothing is appended and no DUPLICATE is answered, while identical bytes
-  are still answered DUPLICATE.
+Superseded by pass 12 (decision 12.2: no key store). Each item's
+disposition:
+- **KS-1** (claim store), **KS-2** (check and answer from the range): closed
+  and replaced by CI-1.
+- **KS-3** (release rejections): closed. Nothing to release, because a
+  rejection writes no event.
+- **KS-4** (fingerprint), **KS-10** (fact mismatch refusal), **KS-11** (the
+  fact-mismatch setting), **KS-12** (causation mismatch): closed. There is
+  no fingerprint, and a reused id with a different payload goes undetected
+  (an accepted cost).
+- **KS-5** (retention and expiry): closed. Dedup is forever.
+- **KS-6** (`HandleAsync` key requirement and backend capability): closed
+  and replaced by CI-3.
+- **KS-7** (deterministic serialisation and request keys): closed and
+  replaced by CI-7.
+- **KS-8** (reactions on backends without atomic claims): closed. The
+  capability no longer exists.
+- **KS-9** (parked-fact DLQ entries): moved to CI-8.
 
 ## OB: transient reactor outbox (pass 5, W3)
 
 **OB-1** [core] **The saga transient outbox.**
 - What: store a `SagaResponse`'s commands atomically with the saga's source
-  checkpoint (position store), dispatch them, then clear the outbox, keeping
-  only the keys. Today saga commands are sent directly, with
+  checkpoint (position store), dispatch them, then clear the outbox. Today saga commands are sent directly, with
   `SyncMode::Async` hardcoded in `handlers/core/saga.rs`.
 - Why: `saga.proto`, the transient outbox text.
 - Settled when: in a crash-injection test (crash after store, before
-  dispatch), the restart re-sends byte-identical commands with the same keys,
-  and the saga is not re-run for that trigger.
+  dispatch), the restart re-sends byte-identical commands with the same
+  command ids, and the saga is not re-run for that trigger.
 
 **OB-2** [core] **The PM transient outbox.**
 - What: store a PM's `process_events` append, its commands and its checkpoint
@@ -184,7 +167,7 @@ different payload.**
   backend matrix gains a "transient outbox" capability.
 - Why: "stored atomically with the source checkpoint".
 - Settled when: every backend either supports it or refuses to host
-  reactors (see KS-8).
+  reactors.
 
 **OB-4** [router] **Reactor output returns to the coordinator.**
 - What: router dispatch functions (for example
@@ -202,53 +185,52 @@ different payload.**
 **OB-6** [core, router] **Per-event causation for saga output (W3a).**
 - What: a saga receives a whole `EventBook`, and core stamps causation with
   the book's maximum sequence (`source_max_sequence` in
-  `orchestration/saga/mod.rs`). That is imprecise for audit, and the key
-  changes if catch-up delivers the events in different chunks. Either
-  deliver one triggering event per saga call, or have the router report which
-  event produced each command, so the coordinator stamps the exact
-  `Causation.event`.
-- Why: W3(a), the one part of W3 that pass 5 left open. `Causation.event` is
-  "always the triggering event" in the contract.
-- Settled when: re-chunked catch-up re-sends commands with identical keys,
-  and each command's `Causation.event` names the event it answers.
+  orchestration/saga/mod.rs`). That is imprecise for audit, and the derived
+  command id (CI-2, which hashes the trigger) changes if catch-up delivers
+  the events in different chunks. Either deliver one triggering event per
+  saga call, or have the router report which event produced each command,
+  so the coordinator stamps the exact `causation_id`.
+- Why: W3(a), the one part of W3 that pass 5 left open (review SG2).
+  `causation_id` is "always the triggering event" in the contract.
+- Settled when: re-chunked catch-up re-sends commands with identical
+  command ids, and each command's `causation_id` names the event it answers.
 
-## PS: provenance stamping and correlation (passes 1 and 5, W4/W5)
+## PS: provenance stamping and correlation (passes 1, 5 and 12, W4/W5)
 
-**PS-1** [core] **Persist provenance.**
-- What: stamp `EventMeta` on every page the coordinator writes: provenance,
-  origin, `base_sequence`, `recorded_at` and `rules_version`.
-- Why: pass 1. Until this lands, angzarr-run streams lose causation. (The plan
-  once listed this as "not adopted" for that pass's scope. It is still
-  required code.)
-- Settled when: a round-trip test reads back full meta for each origin kind.
+**PS-1** [core] **Persist `EventMeta`.**
+- What: stamp `EventMeta` on every page the coordinator writes, in its
+  pass-12 shape: `command_id`, `causation_id` (reactions), `fact` (facts),
+  `correlation_id`, `recorded_at`, and `rules_version` (from the response,
+  RV-1). No actor, origin or base sequence.
+- Why: passes 1 and 12 (decision 12.4).
+- Settled when: a round-trip test reads back full meta for a client
+  command, a reaction command and a fact.
 
-**PS-2** [core, router] **Stamp reaction provenance from the trigger.**
-- What: copy actor and `correlation_id` from the triggering event's
-  `EventMeta.provenance`, and stamp `Causation.component` and `index`. A
-  reaction command whose provenance differs from the trigger's is
+**PS-2** [core, router] **Stamp reaction identity from the trigger.**
+- What: the saga and PM coordinators stamp each emitted command's
+  `causation_id` (the trigger's `EventRef`), its derived `command_id`
+  (CI-2) and the trigger's `correlation_id`. A reaction command that sets
+  any of them to a different value, emits a Fact, or sets `fact_origin`, is
   dead-lettered and alerted.
-- Why: W4 and W5 (the `Provenance` region).
-- Settled when: tests show a reactor setting a foreign actor is refused, and
-  an empty one is stamped.
+- Why: W5 and decision 12.1. (W4's actor stamping is gone with the actor,
+  decision 12.3.)
+- Settled when: tests show an empty reaction command is stamped, and a
+  foreign correlation or causation is refused.
 
 **PS-3** [core] **Correlation is never empty.**
-- What: use the caller's value (a UUID). Otherwise set it, before business
-  code, from the origin: the `request_id` verbatim for a request (always
-  present after MI-3, client-supplied or minted), and
-  UUIDv5(`ANGZARR_FACT_CORRELATION_NAMESPACE`, `external_id`) for a fact
-  (UU-2). No correlation minting of its own. Causation commands keep the
-  trigger's (PS-2). (Pass 9, decision 9.2, supersedes pass 8's
-  "`external_id` verbatim, no name-based UUID".)
-- Why: W5; decisions 8.3 and 9.2.
-- Settled when: retries of one client-keyed request without a correlation
-  land in one correlation equal to its `request_id`; a request without a
-  client key gets its minted request id as correlation; redeliveries of one
-  fact land in the documented v5 correlation; and no persisted event has an
-  unset correlation.
+- What: use the caller's value (a UUID). Otherwise set it, at pipeline step
+  2: a client Command's `command_id` verbatim (client-supplied or minted),
+  and a Fact's derived `command_id` (UUIDv5 of `external_id`). Never mint a
+  correlation. Reaction commands keep the trigger's (PS-2).
+- Why: W5; decisions 8.3, 9.2 and 12.1.
+- Settled when: retries of one client-keyed command land in one correlation
+  equal to its command id; redeliveries of one fact land in its documented
+  v5 value; and no persisted event has an unset correlation.
 
 **PS-4** [core] **Correlation is per page only.**
 - What: stop reading correlation from `Cover`, and implement
-  `Query.correlation_id` (one correlation per write).
+  `Query.correlation_id` against `EventMeta.correlation_id` (one
+  correlation per write).
 - Why: pass 1.
 - Settled when: query-by-correlation works across a domain's streams.
 
@@ -283,21 +265,37 @@ different payload.**
 - Why: BO-1 would refuse them.
 - Settled when: the example suites pass against BO-1.
 
-## RV: rules_version declaration (pass 5, W8)
+## RV: rules_version reporting (passes 5 and 12, W8)
 
-**RV-1** [core] **Stamp the declared rules version.**
-- What: accept `ComponentDescriptor.rules_version` at registration, and stamp
-  it into `EventMeta.rules_version` on every event an aggregate's or PM's
-  decision produces. Business code never sets it.
-- Why: W8.
-- Settled when: a re-registration with a new value changes the stamp on
-  subsequent events only.
+**RV-1** [core] **Stamp the reported rules version.**
+- What: read `rules_version` from every `CommandHandlerResponse` and
+  `ProcessManagerHandleResponse`, and stamp it on that response's events
+  (`EventMeta.rules_version`) and any snapshot written from it
+  (`Snapshot.rules_version`). Delete `ComponentDescriptor.rules_version`
+  handling.
+- Why: decision 12.6 (superseding 5.9's registration-time declaration).
+- Settled when: during a rolling deployment, each event carries the version
+  of the instance that decided it.
 
-**RV-2** [clients] **Declare a rules version.**
-- What: SDK component registration takes a rules version, defaulting to a
-  build id or release tag from the environment.
-- Why: W8.
-- Settled when: every SDK sends it in its `ComponentDescriptor`.
+**RV-2** [clients] **Report a rules version per response.**
+- What: the domain declares a short label (e.g. `"v3"`, bumped when decide,
+  ingest or apply semantics change), and the client library puts it on every
+  response. Generated components expose the declaration in one place.
+- Why: decision 12.6.
+- Settled when: every SDK fills `rules_version` on every response.
+
+**RV-3** [core, clients] **Snapshot validity in the client library.**
+- What: before decoding a delivered snapshot, the client library compares
+  its state type URL and `rules_version` with its own. On a mismatch it
+  answers `snapshot_refused` without running business code. The
+  coordinator then re-delivers with no snapshot and every page from 0, and
+  stops offering that snapshot (skipping it, or deleting it). Count refusals
+  in a metric. Replaces SN-3's coordinator-side check.
+- Why: decision 12.6 (review T13: the coordinator never had a registered
+  state type to compare).
+- Settled when: changing the state type or the rules version makes the next
+  delivery refuse the snapshot, replay from events and succeed, and the
+  replayed state equals a full replay.
 
 ## MD: the three RPC modes and the Outcome (passes 4 and 5, W11)
 
@@ -422,18 +420,9 @@ different payload.**
 - Why: pass 2.
 - Settled when: the config is documented, and the default is tested.
 
-**SN-3** [core] **Snapshot version-discard (pass 6, D8).**
-- What: stamp `Snapshot.rules_version` from the component's
-  `ComponentDescriptor.rules_version` when a snapshot is written. On every
-  load that would start from a snapshot, compare its state type URL with the
-  registered state type and its `rules_version` with the current one; on a
-  mismatch, skip it (falling back to an older matching snapshot, or sequence
-  0) and replay. Count discards in a metric. Business code never sets the
-  field.
-- Why: `types.proto`, Snapshot "Validity".
-- Settled when: changing the state type or the rules version makes the next
-  load replay from events, never decode the old state, and the replayed
-  state equals a full replay.
+**SN-3** [core] **Snapshot version-discard (pass 6, D8).** Closed by pass
+12 and replaced by RV-3: validity is checked in the client library, where
+the state is decoded.
 
 ## RT: recorded_at and temporal queries (passes 2 and 5, W13)
 
@@ -456,34 +445,31 @@ different payload.**
 ## DQ: DLQ replay (passes 3, 4 and 5, W9)
 
 **DQ-1** [core] **Replay keeps the original identity.**
-- What: keep the original provenance, origin and keys. Delete
-  `new_correlation_id` minting (`src/status/handlers/dlq.rs`,
-  `src/dlq/audit.rs`), and set `ReplayDeadLetterOk.correlation_id` to the
-  original.
+- What: keep the original `command_id`, `correlation_id` and
+  `causation_id` (the dead letter stores them assigned, CI-3), and deliver as
+  a framework component (CI-5). Delete `new_correlation_id` minting
+  (`src/status/handlers/dlq.rs`, `src/dlq/audit.rs`), and set
+  `ReplayDeadLetterOk.correlation_id` to the original.
 - Why: W9.
 - Settled when: replaying an entry whose original did apply is answered
   DUPLICATE.
 
 **DQ-2** [core] **The replay audit record.**
 - What: extend `dlq_replay_audit` (`migrations/status/{postgres,sqlite}`).
-  Add the operator (from the call's credentials, pseudonymous),
-  `retention_overridden`, an outcome of PENDING/APPLIED/DUPLICATE/FAILED,
-  `outcome_at` and `detail`. Drop `new_correlation_id` and
+  Add an outcome of PENDING/APPLIED/DUPLICATE/FAILED, `outcome_at` and
+  `detail`. No operator column: who replayed goes to the security log
+  (CI-6). Drop `new_correlation_id` and
   `original_correlation_id`. Surface the records as
   `StoredDeadLetter.replays`, and move the outcome on from PENDING when the
-  replayed delivery is decided, correlating by key. (The H-31
+  replayed delivery is decided, correlating by `command_id`. (The H-31
   `idempotency_key` column guards the replay *request* and stays.)
 - Why: W9 (`dlq_admin.proto`).
 - Settled when: `GetDeadLetter` shows a replay going PENDING, then APPLIED.
 
-**DQ-3** [core] **Replay refusals.**
-- What: a command entry without a client-supplied key (empty or minted
-  `request_id`) is refused `FAILED_PRECONDITION`. An entry
-  past its key's retention is refused `FAILED_PRECONDITION` unless
-  `override_retention` is set. A backend without atomic claims answers
-  `UNIMPLEMENTED`.
-- Why: W9 and the claim model.
-- Settled when: each refusal is tested.
+**DQ-3** [core] **Replay refusals.** Closed by pass 12: dedup by
+`command_id` is permanent, so there is no age refusal, no override and no
+client-key requirement (decision 12.2). Delete the refusals if any were
+built.
 
 **DQ-4** [core] **Event-book replay targets the failed component.**
 - What: replay `rejected_events` to `source_component` only.
@@ -507,11 +493,12 @@ different payload.**
 
 ## RN: renames (pass 5, W14)
 
-**RN-1** [core, router, clients] **`decided_at` becomes `base_sequence`.**
-- What: rename `EventMeta.decided_at` to `base_sequence` everywhere, and
-  record it on every event.
-- Why: W14. The field is a sequence, not a time.
-- Settled when: no `decided_at` remains outside history.
+**RN-1** [core, router, clients] **Delete `decided_at` (no `base_sequence`).**
+- What: remove `EventMeta.decided_at` everywhere. Pass 5 renamed it
+  `base_sequence`, and pass 12 deleted it: the head a decision saw is the
+  sequence of its write's first event.
+- Why: W14; decision 12.4.
+- Settled when: neither name remains outside history.
 
 **RN-2** [core, clients, site] **The projector coordinator's `HandleAsync`.**
 - What: rename the projector coordinator's `Handle` to `HandleAsync`, at HTTP
@@ -525,7 +512,7 @@ different payload.**
 
 **PR-1** [core] **Route replies by correlation.**
 - What: route replies to the PM instance by `correlation_id`. A PM command's
-  `Causation.event` is its trigger, never a PM process event.
+  `causation_id` is its trigger, never a PM process event.
 - Why: W6. This **corrects** the pass-2 backlog item, which said a reply's
   causation "names the PM's event".
 - Settled when: a PM receives a target's refusal event under its correlation
@@ -538,6 +525,29 @@ different payload.**
 - Why: pass 2.
 - Settled when: the question is decided and implemented.
 
+**PR-3** [core] **Meta for a PM's own process events (review PM2).**
+- What: decide, then implement, what `EventMeta` a PM's `process_events`
+  carry. They have no producing command, so `command_id` (always set on a
+  persisted event) has no source. One option is a `command_id` derived from
+  the trigger and the PM's name, at an index that cannot collide with its
+  commands'.
+- Why: decision 12.4 leaves it open; `types.proto` `EventMeta` says so.
+- Settled when: the user decides, and the rule is in the protos.
+
+## VC: command versioning (pass 12)
+
+**VC-1** [clients, router] **Upcast commands before dispatch, and refuse
+unknown types.**
+- What: inside `CommandHandlerService.Handle`, run the payload through the
+  library's upcaster chain (the event chain, by type URL) before dispatch,
+  and refuse a type URL with no handler and no upcaster path with
+  `INVALID_ARGUMENT`, naming the type URL. Document in each SDK that command
+  upcasters are a temporary migration aid (additive fields, or the domain
+  handling both versions, come first).
+- Why: decision 12.11; `upcaster.proto`.
+- Settled when: an old command type with an upcaster is decided as the new
+  type, and an unknown type is refused with its type URL in the message.
+
 ## FA: the fact pipeline (pass 2)
 
 **FA-1** [core] **Reflective dispatch.**
@@ -547,7 +557,8 @@ different payload.**
 - Settled when: a fact never reaches decide.
 
 **FA-2** [core] **Refuse and park.**
-- What: refuse a `Fact` that sets `expected_sequence` (`INVALID_ARGUMENT`).
+- What: refuse a `Fact` that sets any Handling field (`INVALID_ARGUMENT`;
+  decision 12.9).
   A failing ingest is dead-lettered, alerted and answered PARKED (MD-3).
 - Why: passes 2, 4 and 5.
 - Settled when: both are tested.
@@ -572,9 +583,11 @@ different payload.**
 **HD-2** [core] **Conflict-resolution configuration.**
 - What: configure the conflict resolution per command type and per
   component (including the opt-in COMMUTATIVE, CR-1).
-  Precedence: Handling, then command type, then component, then STRICT. Add
-  forbid-override, which is refused `INVALID_ARGUMENT`. The config shape
-  needs designing.
+  Precedence: Handling, then command type, then component, then the
+  built-in default (COMMUTATIVE where the registered state supports it,
+  otherwise STRICT; HD-4). Add forbid-override, and refuse a resolution the
+  registered state does not support, both `INVALID_ARGUMENT`. The config
+  shape needs designing.
 - Why: pass 3.
 - Settled when: the config is documented, and the precedence is tested.
 
@@ -588,12 +601,15 @@ different payload.**
 - Why: passes 3 and 4.
 - Settled when: core and the router behave identically.
 
-**HD-4** [core] **The default conflict resolution is STRICT.**
+**HD-4** [core] **The default conflict resolution comes from the registered
+state.**
 - What: `CommandPageExt::effective_merge_strategy` calls
-  `MergeStrategy::or_default_commutative`. Make it default to STRICT, and
-  rename to `ConflictResolution` (pass 6, D10).
-- Why: COMMUTATIVE is opt-in only (pass 6); it is never the default.
-- Settled when: an unconfigured stale command is `ABORTED`.
+  `MergeStrategy::or_default_commutative`. Replace it with a lookup in the
+  component's registered `StateDescriptor` (CR-3): COMMUTATIVE when listed,
+  otherwise STRICT. Rename to `ConflictResolution` (pass 6, D10).
+- Why: decision 12.7 (superseding pass 6's "never the default").
+- Settled when: an unconfigured stale command is resolved COMMUTATIVE for a
+  state that lists it, and `ABORTED` for one that does not.
 
 **HD-5** [core, clients] **Three resolutions, checked before business
 code.**
@@ -699,32 +715,28 @@ code.**
 - Why: pass 2.
 - Settled when: the router builds on `angzarr-proto`.
 
-## OR: one Origin (pass 6, D1)
+## OR: arm and fact source (passes 6 and 12)
 
-**OR-1** [core] **Validate arm against origin.**
-- What: read the origin from `CommandPage.origin` (no longer from the
-  `Command`/`Fact` arms), and refuse a mismatch before deduplication: a Fact
-  without a fact origin or with an empty `external_id`, a Command with a fact
-  origin. `INVALID_ARGUMENT` for a client; dead-letter and alert for a
-  reactor (including a reactor that emits a Fact). A Command with no origin
-  is a request without a client key, recorded as a `RequestOrigin` with a
-  minted `request_id` (MI-3).
-- Why: `types.proto`, origin region. The rule was structural before pass 6
-  and is now a check.
+**OR-1** [core] **Validate the arm against `fact_origin`.**
+- What: refuse a Fact without `fact_origin`, or with an empty
+  `external_id`, and a Command with a `fact_origin`, before deduplication:
+  `INVALID_ARGUMENT` for a client; dead-letter and alert for a reactor
+  (including a reactor that emits a Fact).
+- Why: the `command_identity` region of `types.proto` (decision 12.1).
 - Settled when: each mismatch is refused in every mode, and none reaches
   business code.
 
-**OR-2** [core, router, clients] **Use the shared `Origin` everywhere.**
-- What: `EventMeta.origin` is the page's `Origin`, copied unchanged;
-  `IdempotencyClaim.key` is an `Origin`; the claim store's key columns follow.
-  Delete the per-arm origin mapping code in every language.
-- Why: D1: one shape, no mapping.
-- Settled when: no code maps one origin shape onto another.
+**OR-2** [core, router, clients] **Delete `Origin`.** Closed in its pass-6
+form (`Origin` is deleted). What remains: delete every use of `Origin`,
+`RequestOrigin` and `Causation` and their mapping code, in favour of the
+page's `command_id`, `correlation_id`, `causation_id` and `fact_origin`,
+copied onto `EventMeta`.
+- Settled when: no code names the deleted messages.
 
 ## CQ: cross-domain correlation query (pass 6, D4)
 
 **CQ-1** [core] **A correlation index in every backend.**
-- What: an index on `EventMeta.provenance.correlation_id` across all
+- What: an index on `EventMeta.correlation_id` across all
   domains (and per edition) in each storage backend, so
   `GetCorrelatedEvents` does not scan. Postgres and SQLite: an index on a
   correlation column. Bigtable and other key-value stores: a secondary
@@ -737,7 +749,7 @@ code.**
 **CQ-2** [core, clients] **Serve `GetCorrelatedEvents`, and a forward-causation helper.**
 - What: implement the RPC (validation, editions, one book per stream, the
   HTTP route). Client libraries offer a helper that indexes the result on
-  `origin.causation.event` to answer "what did this event cause".
+  `EventMeta.causation_id` to answer "what did this event cause".
 - Why: `query.proto`, `CorrelationQuery` in `types.proto`.
 - Settled when: a saga chain across three domains comes back in one call,
   and the helper rebuilds its causation tree.
@@ -745,10 +757,10 @@ code.**
 ## EA: edition administration (pass 6, D5)
 
 **EA-1** [core] **The edition registry and its admin RPCs.**
-- What: store `Edition` records (name, `diverged_at`, store, created_at,
-  created_by) and serve `EditionAdminService.CreateEdition` and
+- What: store `Edition` records (name, `diverged_at`, store, created_at;
+  no creator: that goes to the security log, CI-6) and serve `EditionAdminService.CreateEdition` and
   `DeleteEdition` with the documented codes. `DeleteEdition` removes the
-  record and the edition's events, snapshots, projector output and claims in
+  record and the edition's events, snapshots and projector output in
   every domain. Administrative only: nothing is written to any stream.
   Retire core's `DeleteEditionEvents` storage method.
 - Why: `meta.proto`.
@@ -806,49 +818,74 @@ code.**
 - Why: as NC-1.
 - Settled when: two deliveries of one command carry different nonces.
 
-## CR: COMMUTATIVE in the client libraries (passes 6 and 8)
+## CR: COMMUTATIVE in the client libraries (passes 6, 8 and 12)
 
-**CR-1** [clients, router, project] **`protoc-gen-angzarr-conflict`: one
-plugin generates `changed()` for every language, held to a golden suite.**
-- What: a protoc plugin, `protoc-gen-angzarr-conflict`, that reads
-  `(commutative_state)` and `(conflict)` from the descriptors and emits, for
-  each marked state message and in every client language (go, rust, python,
-  java, csharp, cpp, typescript), a pure `changed(before, after)` returning
-  unit paths exactly as the `conflict_units` region of `options.proto`
-  specifies (units per field kind, the wildcard for unmarked fields and
-  unknown fields, bitwise floats, path syntax and escaping, `[#order]`, the
-  non-unique-key fallback, the descend depth bound of 32, and the overlap
-  rule with path prefixes). It fails generation on the listed marker
-  errors. Plus a shared golden fixture parity suite in angzarr-project
-  `parity/`: fixture protos (hatpick's `ListState` worked example among them)
-  and before/after state pairs with their expected unit sets, run against
-  every language's generated code (and annals'). Each client library's
-  COMMUTATIVE resolver then folds to `expected_sequence` and to the head,
-  computes `window = changed(expected, head)`, runs decide on the head,
-  computes `mine = changed(head, head + events)`, acknowledges the nonce
-  (NC-1) when they do not overlap and otherwise fails `ABORTED`; it refuses
-  COMMUTATIVE for a state without `commutative_state` (`INVALID_ARGUMENT`)
-  and at registration. Delete core's coordinator-side commutative diff.
-- Why: decisions 6.12 and 8.1; `ConflictResolution` in `types.proto`; the
-  `conflict_units` region of `options.proto`.
+**CR-1** [clients, router, project] **`protoc-gen-angzarr` and
+`angzarr_build::compile`: one generator for every language, held to a
+golden suite.**
+- What: one generator, shipped as a protoc plugin (`protoc-gen-angzarr`, for
+  go, python, java, csharp, cpp and typescript) and as a Rust build helper
+  (`angzarr_build::compile`, prost-build with angzarr's settings plus the
+  generator). It reads `(state)` and `(conflict)` from the descriptors and
+  emits, for each COMMUTATIVE state message, a pure `changed(before, after)`
+  returning unit paths exactly as the `conflict_units` region of
+  `options.proto` specifies. That covers units per field kind, the wildcard
+  for unmarked, `whole_state` and unknown fields, bitwise floats, path
+  syntax and escaping, `[#order]`, the non-unique-key fallback, the descend
+  depth bound of 32, and the overlap rule with path prefixes. For every
+  state message, COMMUTATIVE or not, it also emits the `StateDescriptor`
+  (type URL and the full resolved resolution list) for registration (CR-3),
+  and for Rust a `State` implementation carrying both.
+- **Diagnostics**: the `unmarked-field` warning and the nine errors, with
+  the exact texts in `docs/guide/state-and-conflicts.md` section 7.
+  Warnings print (`cargo:warning=` in Rust, stderr otherwise), and errors
+  fail generation.
+- **Golden suite**: a shared fixture parity suite in angzarr-project
+  `parity/`. It holds fixture protos (hatpick's `ListState` worked example,
+  and one per diagnostic) and before/after state pairs with their expected
+  unit sets, run against every language's generated code (and annals').
+- **Resolver**: each client library's COMMUTATIVE resolver folds to
+  `expected_sequence` and to the head, computes `window = changed(expected,
+  head)`, runs decide on the head, computes `mine = changed(head, head +
+  events)`, and acknowledges the nonce (NC-1) when they do not overlap,
+  otherwise failing `ABORTED`. Delete core's coordinator-side commutative
+  diff.
+- Why: decisions 6.12, 8.1, 12.7 and 12.8; `ConflictResolution` and
+  `StateOptions` in `types.proto`; the `conflict_units` region of
+  `options.proto`.
 - Settled when: the golden suite passes in every language and in annals
-  (identical unit sets for every fixture pair); disjoint edits succeed,
-  overlapping edits and unmarked-field edits fail stale, and the handler
-  writes no conflict code.
+  (identical unit sets and diagnostics for every fixture); disjoint edits
+  succeed; overlapping, unmarked-field and `whole_state` edits fail stale;
+  and the handler writes no conflict code.
 
-**CR-2** [core] **Configuration names COMMUTATIVE as opt-in.**
-- What: the conflict-resolution config (HD-2) accepts COMMUTATIVE per
-  command type or component, and as a `Handling` override where allowed. It
-  is never a default.
-- Why: decision 6.12.
-- Settled when: COMMUTATIVE applies only where configured or overridden.
+**CR-2** [core] **COMMUTATIVE is the default where the state supports it.**
+- What: the conflict-resolution config (HD-2) accepts any resolution the
+  registered state supports, per command type or component, and as a
+  `Handling` override where allowed. The built-in default is HD-4's.
+  Configuration naming an unsupported resolution is refused at load or
+  registration.
+- Why: decision 12.7 (superseding 6.12's opt-in-only).
+- Settled when: an unconfigured COMMUTATIVE-capable component resolves
+  COMMUTATIVE, and configuring COMMUTATIVE for any other component is
+  refused.
+
+**CR-3** [core, clients] **Registration fills `StateDescriptor`.**
+- What: each client library fills `ComponentDescriptor.state` from the
+  generated descriptor when it registers an aggregate or PM (Rust:
+  `registry.register::<D>()`). The coordinator stores it per component and
+  uses only its resolution list (HD-2, HD-4, CR-2), never the schema.
+- Why: decision 12.7 (review T3: the registration-time refusal had no data
+  to act on).
+- Settled when: a coordinator refuses a COMMUTATIVE command for a component
+  whose registered state lacks it, and defaults correctly for one that has
+  it.
 
 ## MI: minted ids and always-assigned request ids (pass 8)
 
 **MI-1** [core] **Mint UUIDv7 in core.**
 - What: every identifier core mints is a UUIDv7 (RFC 9562), as 16 bytes in
-  `UUID` (pass 9: every UUID field is one): today the minted request id
-  (MI-3). Replace any v4 or ad-hoc id generation core keeps for
+  `UUID` (pass 9: every UUID field is one): today the minted command id
+  (CI-3). Replace any v4 or ad-hoc id generation core keeps for
   identifiers (DQ-1 deletes the DLQ's `new_correlation_id` minting
   outright). Client-supplied UUIDs are checked for length only (UU-4),
   never for version.
@@ -858,28 +895,15 @@ plugin generates `changed()` for every language, held to a golden suite.**
 
 **MI-2** [clients] **Mint UUIDv7 in the client libraries.**
 - What: wherever an SDK generates an id for its caller (a command helper's
-  `request_id`, a new aggregate root), it mints a UUIDv7. These are
-  client-supplied ids: the SDK never sets `RequestOrigin.minted`.
+  `command_id`, a new aggregate root), it mints a UUIDv7. These are
+  client-supplied ids.
 - Why: decision 8.2.
 - Settled when: in every language, SDK-generated request ids and roots are
-  version-7 UUIDs, and helpers reuse the same request id on retry (KS-7).
+  version-7 UUIDs, and helpers reuse the same command id on retry (CI-7).
 
-**MI-3** [core, clients] **Always-assigned request ids.**
-- What: after validation and before deduplication, a request-origin command
-  whose `request_id` is unset (or a Command with no origin) gets a minted
-  UUIDv7 in `request_id`, with `minted = true`, recorded in
-  `EventMeta.origin`. A client command that
-  arrives with `minted` set is refused `INVALID_ARGUMENT`. A minted id is
-  never claimed, fingerprinted or used to deduplicate; `HandleAsync` (KS-6)
-  and DLQ replay (DQ-3) still require a client-supplied one. The derived
-  correlation then follows PS-3. Clients expose `minted` when reading
-  origins and never set it.
-- Why: decision 8.3 (supersedes "refuse keyless" in annals too).
-- Settled when: every persisted event has a set
-  `origin.request.request_id` (for request origins); two identical
-  keyless requests both apply, with different minted ids; a client-set
-  `minted` is refused; and a client-keyed retry is still answered
-  DUPLICATE.
+**MI-3** [core, clients] **Always-assigned request ids.** Closed by pass
+12 and replaced by CI-3: command ids are always assigned, and
+`RequestOrigin.minted` is deleted (decision 12.1).
 
 ## UU: one UUID type, v5 derived ids, text at the boundary (pass 9)
 
@@ -903,7 +927,8 @@ plugin generates `changed()` for every language, held to a golden suite.**
   a domain containing `:`, in core and every client; replace whatever root
   derivation each has today. Core sets an absent fact correlation to
   UUIDv5(`ANGZARR_FACT_CORRELATION_NAMESPACE`
-  `e9ef0ae2-6fc6-4c14-b713-ef03971dd867`, `external_id`) (PS-3). annals does
+  `e9ef0ae2-6fc6-4c14-b713-ef03971dd867`, `external_id`) (PS-3), which is
+  also the fact's command id (CI-2). annals does
   the same through `angzarr-proto` (tracked in the session plan).
 - Why: decision 9.2; the `derived_ids` region of `types.proto`.
 - Settled when: every runtime reproduces the documented values
@@ -911,12 +936,11 @@ plugin generates `changed()` for every language, held to a golden suite.**
   `cfe936c0-2912-5ca9-96e6-f37c0b441759`; fact `"pi_1234"` =
   `917f26ae-ea2e-58af-86de-77013a69617e`) from a shared golden list, and
   existing derived roots have a migration (or a wipe, pre-production). The
-  same golden list carries the pass-10 fingerprint vectors (KS-4), for core
-  and annals; clients need them only if they compute fingerprints.
+  same golden list carries the pass-12 command id vectors (CI-2).
 
 **UU-3** [core] **Storage columns become uuid-typed.**
-- What: every stored request id and correlation id (event meta, the
-  idempotency claim store, the correlation index of CQ-1, `dlq_entries.
+- What: every stored command id and correlation id (event meta, the
+  command id index of CI-1, the correlation index of CQ-1, `dlq_entries.
   correlation_id`) becomes a 16-byte UUID column: Postgres `uuid`, MySQL and
   SQLite `BINARY(16)`/`BLOB`, Bigtable row-key bytes. Where a backend can
   only hold text (KurrentDB's `$correlationId` metadata), it writes the
@@ -927,7 +951,7 @@ plugin generates `changed()` for every language, held to a golden suite.**
 
 **UU-4** [core] **Validate UUID fields, and the REST routes.**
 - What: refuse `INVALID_ARGUMENT` for a set `UUID` that is not 16 bytes in
-  `RequestOrigin.request_id`, `Provenance.correlation_id`,
+  `CommandPage.command_id`, `CommandPage.correlation_id`,
   `Query.correlation_id`, `CorrelationQuery.correlation_id` and
   `EventStreamFilter.correlation_id`, before minting or deduplication. The
   DLQ filter parses a `correlation_id` literal as canonical text. Serve the
@@ -989,19 +1013,21 @@ no-op implementations only.
   - **What is reported.** One `Attempt` per delivery that reaches the
     coordinator, reported once its outcome is known: the target stream
     (`Cover`), the command type URL, the arm (command or fact), the
-    `Origin`, the `Provenance`, `Handling` as received and as resolved, the
-    RPC (mode), the receive time, the duration, the rules version, the
-    payload fingerprint, and optionally the payload bytes (configurable,
+    `command_id`, `correlation_id`, `causation_id` or fact source,
+    `Handling` as received and as resolved, the RPC (mode), the receive
+    time, the duration, the rules version, and optionally the payload bytes (configurable,
     since a payload may hold personal data). The outcome is one of: APPLIED
     (with the sequence range), DUPLICATE, PARKED, a rejection (the gRPC code
-    and message: a business rejection, a stale sequence, a fingerprint
-    mismatch), a malformed refusal (`INVALID_ARGUMENT`, including
+    and message: a business rejection, a stale sequence, a
+    `PERMISSION_DENIED` causation), a malformed refusal (`INVALID_ARGUMENT`, including
     arm/origin mismatches and unknown editions), or a handler bug
     (`INTERNAL`). `HandleAsync` reports the enqueue (ACCEPTED) and, later,
-    the processed outcome as a second attempt record with the same key.
+    the processed outcome as a second attempt record with the same
+    `command_id`.
   - **Never in the event store.** Attempts are observability, not domain
     history: no stream, no projection, no replay, and no effect on
-    idempotency claims.
+    deduplication. The caller's identity is the security log's (CI-6), not
+    the sink's.
   - **Implementations.** No-op (the default) and in-memory (a bounded
     buffer, readable in tests and development). Durable sinks (a log, an
     audit queue) are left to deployments.
@@ -1044,10 +1070,11 @@ no-op implementations only.
 **DOC-1** [site] **Fix the embedded proto regions.**
 - What: the site embeds regions that no longer exist: `edition`,
   `snapshot_retention`, `rejection_notification`, `page_header` and
-  `sync_mode`, and (pass 6) `merge_strategy`. Use `provenance`, `handling`,
-  `outcome`, `command_modes`, `idempotency_claim`, and (pass 6)
-  `conflict_resolution`, `correlation_query` and `edition_admin`, and
-  (pass 9) `uuid` and `derived_ids`. The
+  `sync_mode`, and (pass 6) `merge_strategy`, and (pass 12) `provenance`,
+  `origin` and `idempotency_claim`. Use `handling`, `outcome`,
+  `command_modes`, and (pass 6) `conflict_resolution`, `correlation_query`
+  and `edition_admin`, and (pass 9) `uuid` and `derived_ids`, and (pass 12)
+  `command_identity`, `security_logs`, `event_meta` and `entry_points`. The
   conflict-resolution table needs the config precedence, the nonce and
   COMMUTATIVE, and the stale-sequence code is now `ABORTED`.
 - Why: passes 1–6.
@@ -1069,20 +1096,29 @@ no-op implementations only.
 - Settled when: the page matches the protos.
 
 **DOC-4** [site] **Add pages for the pass-5 contract.**
-- What: idempotency (keys, scope, retention, required `request_id`), the
-  transient reactor outbox, status codes, PARKED, edition sink suppression,
-  and the DLQ replay audit.
+- What: deduplication (command ids, the per-stream lookup, the accepted
+  costs), the transient reactor outbox, status codes, PARKED, edition sink
+  suppression, the DLQ replay audit, and the security-log principle.
 - Why: pass 5.
 - Settled when: each topic has a page.
 
 **DOC-5** [project] **Rewrite the feature specs.**
 - What: retire the specs for removed features (CASCADE 6, ISOLATED 3,
   notifications and compensation 4, speculative 3, `undoes` 2). Add
-  coordinator-contract specs for pass 5: key dedup per kind, rejection
-  release, fingerprint mismatch, PARKED, `projector_failures`, ABORTED
+  coordinator-contract specs for passes 5 and 12: command-id dedup per
+  kind (including the zero-event re-decide), the pipeline order, the
+  framework-only `causation_id`, PARKED, `projector_failures`, ABORTED
   retries, edition sink suppression, and the replay audit.
-- Why: passes 2 and 5.
+- Why: passes 2, 5 and 12.
 - Settled when: `just contracts` passes with the new specs.
+
+**DOC-7** [site] **Publish the state-and-conflicts guide.**
+- What: move `docs/guide/state-and-conflicts.md` (or a mirror) into the
+  site's guide area, and link it from annals' docs, once CR-1's generators
+  exist.
+- Why: decision 12.8 (the guide describes generators that do not exist
+  yet; the site documents shipped behaviour).
+- Settled when: the site serves the guide, and its build examples run.
 
 **DOC-6** [project] **The `feat/blackjack-spec` branch.**
 - What: the branch exercises removed features
@@ -1097,38 +1133,48 @@ no-op implementations only.
 
 ## Counts
 
+Open items only. The closed KS items, SN-3, DQ-3 and MI-3 are listed in
+place with their disposition but not counted.
+
 | Workstream | Items |
 |---|---|
-| KS: idempotency key store | 12 |
+| CI: command identity and dedup on events (pass 12) | 8 |
 | OB: transient reactor outbox | 6 |
 | PS: provenance stamping and correlation | 5 |
 | BO: business output is payloads only | 3 |
-| RV: rules_version declaration | 2 |
+| RV: rules_version reporting | 3 |
 | MD: the three RPC modes and the Outcome | 6 |
 | ST: status codes | 2 |
 | ED: editions, external sinks, CloudEvent id | 4 |
-| SN: snapshots | 3 |
+| SN: snapshots | 2 |
 | RT: recorded_at and temporal queries | 2 |
-| DQ: DLQ replay | 6 |
+| DQ: DLQ replay | 5 |
 | RN: renames | 2 |
-| PR: process-manager replies | 2 |
+| PR: process-manager replies and process events | 3 |
+| VC: command versioning (pass 12) | 1 |
 | FA: fact pipeline | 3 |
 | HD: Handling resolution | 5 |
 | WS: wire-shape migration | 5 |
 | RM: removed features | 6 |
 | TG: type generation and router | 2 |
-| OR: one Origin (pass 6) | 2 |
+| OR: arm and fact source | 2 |
 | CQ: cross-domain correlation query (pass 6) | 2 |
 | EA: edition administration (pass 6) | 4 |
 | NC: the conflict nonce (pass 6) | 2 |
-| CR: COMMUTATIVE in the client libraries (passes 6 and 8) | 2 |
-| MI: minted ids and request ids (pass 8) | 3 |
+| CR: COMMUTATIVE and the generator (passes 6, 8 and 12) | 3 |
+| MI: minted ids (pass 8) | 2 |
 | UU: one UUID type, v5 derived ids (pass 9) | 4 |
 | CL: D9 cleanups (pass 6) | 5 |
 | AU: attempt-audit sink (pass 6, held) | 1 |
 | GAP: carried gaps | 3 |
-| DOC: site, specs, branches | 6 |
-| **Total** | **110** |
+| DOC: site, specs, branches | 7 |
+| **Total** | **108** |
+
+Pass 12 closed 15 items (KS-1–12, with KS-9's content moved to CI-8;
+SN-3, DQ-3 and MI-3), opened 13 (CI-1–8, RV-3, PR-3, VC-1, CR-3 and
+DOC-7), and rewrote others in place (PS-1–3, RV-1–2, DQ-1–2, RN-1, HD-2,
+HD-4, OR-1–2, CR-1–2, MI-1–2, UU-2–4, EA-1, AU-1, OB-6): 110 open items
+became 108.
 
 ## By-repo index
 
@@ -1136,9 +1182,9 @@ An item tagged with several repos appears under each of them.
 
 | Repo | Items |
 |---|---|
-| core | KS-1–6, KS-8–12, OB-1–3, OB-5–6, PS-1–5, BO-1, RV-1, MD-1–5, ST-1, ED-1–4, SN-1–3, RT-1–2, DQ-1–6, RN-1–2, PR-1–2, FA-1–2, HD-1–5, WS-1–5, RM-1–3, RM-6, TG-1, OR-1–2, CQ-1–2, EA-1–3, NC-2, CR-2, MI-1, MI-3, UU-2–4, CL-1–5, AU-1, GAP-1–2 |
-| router | OB-4, OB-6, PS-2, RN-1, FA-3, HD-3, WS-2, TG-1–2, OR-2, NC-1, CR-1, CL-2, CL-4 |
-| clients (go, rust, python, java, csharp, cpp, typescript) | KS-7, BO-2, RV-2, MD-6, ST-2, ED-3, RN-1–2, FA-3, HD-5, WS-1–2, RM-4, RM-6, TG-1, OR-2, CQ-2, EA-4, NC-1, CR-1, MI-2–3, UU-1–2, CL-1–2, CL-4–5 |
+| core | CI-1–6, CI-8, OB-1–3, OB-5–6, PS-1–5, BO-1, RV-1, RV-3, MD-1–5, ST-1, ED-1–4, SN-1–2, RT-1–2, DQ-1–2, DQ-4–6, RN-1–2, PR-1–3, FA-1–2, HD-1–5, WS-1–5, RM-1–3, RM-6, TG-1, OR-1–2, CQ-1–2, EA-1–3, NC-2, CR-2–3, MI-1, UU-2–4, CL-1–5, AU-1, GAP-1–2 |
+| router | OB-4, OB-6, PS-2, RN-1, VC-1, FA-3, HD-3, WS-2, TG-1–2, OR-2, NC-1, CR-1, CL-2, CL-4 |
+| clients (go, rust, python, java, csharp, cpp, typescript) | CI-2, CI-7, BO-2, RV-2–3, MD-6, ST-2, ED-3, RN-1–2, VC-1, FA-3, HD-5, WS-1–2, RM-4, RM-6, TG-1, OR-2, CQ-2, EA-4, NC-1, CR-1, CR-3, MI-2, UU-1–2, CL-1–2, CL-4–5 |
 | examples | BO-3, WS-2, RM-5 |
-| site | RN-2, EA-4, CL-5, DOC-1–4 |
+| site | RN-2, EA-4, CL-5, DOC-1–4, DOC-7 |
 | project (features, CI, branches, parity) | EA-4, CR-1, GAP-3, DOC-5–6 |

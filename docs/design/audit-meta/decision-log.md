@@ -1,4 +1,4 @@
-# Audit-meta decision log (passes 1–10)
+# Audit-meta decision log (passes 1–12)
 
 Part of the [audit-meta design record](../audit-meta-followups.md).
 
@@ -17,6 +17,8 @@ Only the protos and the `rust/angzarr-proto` crate changed in these passes.
 Every code consequence is in the [backlog](backlog.md).
 
 ## Pass 1 (9cfed59, 17bc1cd): provenance, sequences, one command per book
+
+> **Amended by 12.4 (pass 12):** `EventMeta` is now `command_id`, `causation_id`, `fact`, `correlation_id`, `recorded_at` and `rules_version`; no actor, no origin, no base sequence.
 
 **1.1 Every persisted event carries `EventMeta`.** The fields are
 `Provenance` (actor, correlation), the origin (request, causation or fact),
@@ -220,6 +222,8 @@ bus, and its response carries no decision.
 The review's findings are in [critical-review.md](critical-review.md). The
 idempotency research and design are in [idempotency.md](idempotency.md).
 
+> **Superseded by 12.2 (pass 12):** no key store; deduplication is by `command_id` on the events.
+
 **5.1 Idempotency key store (claims).** Keys are `request_id`+index, the
 causation tuple, and the fact's `external_id`. (Superseded by 10.1: a
 request key is `request_id` alone.) They are scoped per addressed
@@ -244,6 +248,8 @@ is optimistic. A duplicate re-reads its events by range.
   handler throws) and the NServiceBus outbox (rollback). Diverges from Stripe,
   which stores error results.
 
+> **Superseded by 12.2 (pass 12):** no fingerprint; a reused id with a different payload goes undetected (an accepted cost).
+
 **5.3 Payload fingerprint.** It is computed over the bytes as received. SDKs
 serialise deterministically. A request key that comes back with a different
 fingerprint is refused `FAILED_PRECONDITION`. (Extended by 10.2 to fact
@@ -253,11 +259,15 @@ the fingerprint's exact form is 10.3.)
 - Aligns with: Stripe, which errors on changed parameters, and the IETF draft
   (422).
 
+> **Superseded by 12.2 (pass 12):** deduplication is forever; no retention, and no DLQ age refusal.
+
 **5.4 Retention is 24 hours for client keys and 7 days for causation and
 fact keys.** DLQ replay refuses entries older than their key's retention
 unless overridden.
 - Aligns with: Stripe (24 hours) and the NServiceBus outbox's default
   deduplication window (7 days).
+
+> **Superseded by 12.2 (pass 12):** every command has a `command_id` before it is enqueued, so neither path requires a client-supplied one.
 
 **5.5 `request_id` is required for `HandleAsync` and DLQ replay.**
 
@@ -272,6 +282,8 @@ nondeterminism dead-letter.
 - Aligns with: the NServiceBus outbox, MassTransit's transactional outbox and
   Wolverine's durable outbox. Diverges from Temporal-style deterministic
   replay, deliberately.
+
+> **Superseded in part by 12.1 and 12.3 (pass 12):** no actor exists to stamp. Correlation is still copied from the trigger, and the coordinator now also stamps `causation_id` and the derived `command_id`.
 
 **5.7 The coordinator stamps reaction provenance (W4, W5).** Actor and
 correlation are copied from the trigger, and a reactor that sets differing
@@ -289,6 +301,8 @@ hatch is removed from `CommandOptions.emits`.
 - Pass-5 choice: a caller of `Handle`/`HandleSync` is answered `INTERNAL`,
   and asynchronous and reaction paths dead-letter. It is never a business
   rejection.
+
+> **Superseded by 12.6 (pass 12):** the business logic reports `rules_version` with every response; `ComponentDescriptor.rules_version` is deleted.
 
 **5.9 `rules_version` is declared at registration and stamped by the
 coordinator (W8).**
@@ -336,6 +350,8 @@ the default CloudEvent id and source (W10).**
 prefix (W13).** The coordinator stamps max(previous, now).
 - Aligns with: KurrentDB's and Marten's per-stream ordering.
 
+> **Superseded in part by 12.4 (pass 12):** `base_sequence` is deleted (the projector rename stands).
+
 **5.16 Renames (W14).** `EventMeta.decided_at` becomes `base_sequence`, and
 the projector coordinator's fire-and-forget `Handle` becomes `HandleAsync`
 (HTTP `/v1/projector/async`).
@@ -345,6 +361,8 @@ the projector coordinator's fire-and-forget `Handle` becomes `HandleAsync`
 **5.17 PM replies route by correlation, and causation always names the
 triggering event (W6).** The process_manager.proto text that said a reply's
 causation "names the PM's own event" was wrong.
+
+> **Amended by 12.2 and 12.3 (pass 12):** a replay keeps the original `command_id`, `correlation_id` and `causation_id`; the operator and `retention_overridden` are deleted (who replayed goes to the security log), and so is `override_retention`.
 
 **5.18 A DLQ replay keeps the original provenance, origin and keys (W9).**
 The replay's operator, time, mode, retention override and outcome are
@@ -357,6 +375,8 @@ component only.
   `ReplayDeadLetterOk.new_correlation_id` becomes `correlation_id` (the
   original), and `ReplayDeadLetterRequest.override_retention` is added. The
   operator comes from the call's credentials, never from the request body.
+
+> **Superseded by 12.2 (pass 12):** `IdempotencyClaim` is deleted.
 
 **5.19 `IdempotencyClaim` is a storage-only documented schema.**
 - Pass-5 choice: add it. It pins the key union, scope, fingerprint, range and
@@ -379,6 +399,8 @@ The user decided the review's D1–D11 (see
 restoration of `COMMUTATIVE` during it. As before, only the protos, the
 `rust/angzarr-proto` crate and these documents changed. Wire breaks are
 accepted, and this round's deletions stay unreserved (6.6).
+
+> **Superseded by 12.1 (pass 12):** `Origin`, `RequestOrigin` and `Causation` are deleted; the page carries `command_id`, `correlation_id`, `causation_id` and `fact_origin`. The `Command`/`Fact` arms stay.
 
 **6.1 One `Origin` message (D1).** `Origin { oneof kind { RequestOrigin
 request; Causation causation; FactOrigin fact; } }` is the only origin
@@ -487,6 +509,8 @@ the command as stale (`ABORTED`).
 - Aligns with: Axon, which fails a command when conflicting events exist and
   the handler never examined them.
 
+> **Amended by 12.6 (pass 12):** validity is checked in the client library, where the state is decoded, against the reported rules version; a refused snapshot is answered `snapshot_refused` and the coordinator re-delivers without it.
+
 **6.8 Snapshots record what produced them (D8).** `Snapshot.rules_version`
 (field 5; 4 was pass 2's retention field) is stamped by the framework, and
 the state type is the `Any` type URL. On load, a mismatch with the current
@@ -531,6 +555,8 @@ are kept.
 (`#[handles_fact]` / ingest) is the declaration, and the router guards arm
 against handler kind. There is no proto flag. `CommandPage`'s comment now
 says so, matching the index and backlog FA-3.
+
+> **Superseded in part by 12.7 (pass 12):** COMMUTATIVE is the DEFAULT where the state declares conflict units (otherwise STRICT); it is no longer opt-in only.
 
 **6.12 `COMMUTATIVE` is restored, opt-in, in the client libraries (user,
 during pass 6).** `CONFLICT_RESOLUTION_COMMUTATIVE = 1` (its old number).
@@ -610,6 +636,8 @@ Decided by the user. As before, only the protos, the `rust/angzarr-proto`
 crate and these documents changed, and nothing is reserved (the 6.6 policy
 now covers passes up to and including 8; nothing was removed).
 
+> **Amended by 12.7 and 12.8 (pass 12):** `bool commutative_state` is replaced by `StateOptions state = 50106`; `ConflictUnit` gains `whole_state = 4`. The unit rules are unchanged.
+
 **8.1 COMMUTATIVE compares declared conflict units (replaces 6.12's
 "reflection diff").** `options.proto` gains
 `extend google.protobuf.MessageOptions { bool commutative_state = 50106; }`,
@@ -688,6 +716,8 @@ identifiers and are not covered. Documented as the `minted_ids` region of
   keeps annals and angzarr records alike.
 - Aligns with: RFC 9562's recommendation of v7 for new time-ordered keys,
   and the same idea as Marten's sequential (comb) Guid ids.
+
+> **Superseded by 12.1 (pass 12):** request ids become command ids, still always assigned (client-supplied or a minted v7), but `minted` is deleted and minted ids deduplicate like any other.
 
 **8.3 Request ids are always assigned; only client-supplied ones
 deduplicate.** A request without a `request_id` gets a minted v7 recorded in
@@ -783,6 +813,8 @@ Checked and left as they are:
   KurrentDB's string correlation ids, which accept any text: deliberately,
   for storage.
 
+> **Amended by 12.1 (pass 12):** a fact's command id is the same v5 value as its default correlation, and a third namespace (`ANGZARR_COMMAND_NAMESPACE`) derives reaction command ids. The fingerprint namespace of 10.3 is gone.
+
 **9.2 Derived ids are UUIDv5 under fixed angzarr namespaces.** Supersedes
 8.3's "for a fact, `external_id` verbatim" and its "no hashing and no
 name-based UUID" (which in turn had superseded PS-3's name-based wording).
@@ -856,6 +888,8 @@ place). `buf breaking` against pass 9 reports exactly those: the deleted
 a message. Both are length-delimited, so old claim bytes would misdecode:
 stored data is wiped, as for every pre-production pass.
 
+> **Carried into 12.1 (pass 12):** the per-command id is now `CommandPage.command_id`.
+
 **10.1 `RequestOrigin.index` is deleted; a request id is per command.**
 Supersedes 5.1's `request_id`+index key. Each command carries its own
 idempotency key: a caller that sends several commands together (a batch,
@@ -875,6 +909,8 @@ several commands, and the framework, not a caller, must tell them apart.
 - Aligns with: Stripe and the IETF draft, where an `Idempotency-Key` names
   one operation, and the messaging inboxes (NServiceBus, MassTransit,
   Wolverine), which key on one message id per message.
+
+> **Superseded by 12.2 (pass 12):** with no fingerprint there is nothing to compare; a fact re-sent with a different payload is answered DUPLICATE, undetected.
 
 **10.2 A fact re-sent with the same `external_id` and a different payload
 is refused by default; configurable to DUPLICATE plus an alert.** Resolves
@@ -900,6 +936,8 @@ the fact half of backlog KS-10.
 - Aligns with: Stripe and the IETF draft (an error on a reused key with a
   different payload) for the default; the inbox pattern's
   "same message id, drop it" for the opt-in.
+
+> **Superseded by 12.2 (pass 12):** the fingerprint and `ANGZARR_FINGERPRINT_NAMESPACE` are deleted.
 
 **10.3 The fingerprint is a UUIDv5.** `fingerprint = UUIDv5(
 ANGZARR_FINGERPRINT_NAMESPACE, name)`, where name is the UTF-8 type URL's
@@ -936,6 +974,8 @@ bytes, then the `Any` value bytes, all as received.
 - Aligns with: RFC 9562 name-based UUIDs, as in 9.2; the IETF draft
   recommends a fingerprint without fixing its algorithm.
 
+> **Superseded by 12.2 (pass 12):** no fingerprint, so no causation mismatch to detect.
+
 **10.4 A causation key re-sent with a different fingerprint is refused and
 dead-lettered, with an alert.** Resolves the causation half left open by
 10.2 (backlog KS-12). Documentation only: no field, message or number
@@ -956,6 +996,276 @@ changes.
   alert on the causation branch.
 - Aligns with: 3.4 (violations are refused loudly; a reaction command is
   dead-lettered and alerted), and the request-key refusal of 5.3.
+
+## Pass 12: command ids, dedup on events, no actor, state options
+
+Decided by the user in the illuminated review of fd61f93 (flow 1, the
+client command; its findings are referenced below as T4, T5 and so on, and
+tracked in [critical-review.md](critical-review.md)). The protos, the
+`rust/angzarr-proto` crate and these documents changed. A developer guide
+was added: [docs/guide/state-and-conflicts.md](../../guide/state-and-conflicts.md).
+(Pass 11, at fd61f93, was the documentation-only decision 10.4, recorded
+under pass 10.)
+
+Nothing is reserved: the 6.6 policy now covers every pass up to and
+including 12, so removed fields, messages and enum values are deleted
+outright and stored data is wiped. `buf breaking` against fd61f93 reports
+exactly the deliberate breaks:
+- the deleted, unreserved fields `EventMeta.provenance` (1), `origin` (12)
+  and `base_sequence` (6); `CommandPage.provenance` (2) and `origin` (7);
+  `ComponentDescriptor.rules_version` (4); `Edition.created_by` (5);
+  `DeadLetterReplay.operator` (1) and `retention_overridden` (4); and
+  `ReplayDeadLetterRequest.override_retention` (3);
+- `CommandHandlerService.Handle` returning `CommandHandlerResponse` instead
+  of `EventBook`;
+- extension 50106 renamed from `commutative_state` to `state` and retyped
+  from `bool` to a message.
+The deleted messages (`Provenance`, `Origin`, `RequestOrigin`, `Causation`,
+`IdempotencyClaim`) are not wire breaks under `WIRE_JSON`, so they are not
+listed. New fields take fresh numbers (`EventMeta` 13–16, `CommandPage`
+8–11), so old bytes never misdecode into them.
+
+**12.1 One `command_id` per command; `causation_id` is plain metadata.**
+Every command carries `CommandPage.command_id` (`UUID`, field 8), assigned
+before deduplication:
+- **Client Command**: client-supplied (any UUID version, reused on every
+  retry), or a UUIDv7 the coordinator mints when the caller supplies none.
+- **Reaction command** (saga or PM): derived as UUIDv5 under the new
+  `ANGZARR_COMMAND_NAMESPACE` `e2c9f744-9fe1-4b4b-bfee-ae514dde293b`, over
+  six **netstrings**: the trigger's domain, its edition (`""` for main), its
+  root (canonical text), its sequence, the reacting component's name, and
+  the command's index. Worked example (in `types.proto` and the crate's
+  tests, computed independently with Python's `uuid.uuid5`): trigger
+  `list` / main / `01920c8e-7b3a-7cc2-9f4e-5a1b2c3d4e5f` / 7, component
+  `reminders`, index 0 has the name
+  `4:list,0:,36:01920c8e-7b3a-7cc2-9f4e-5a1b2c3d4e5f,1:7,9:reminders,1:0,`
+  and the id `45764676-e6e4-56fe-8c80-d782423577ee`.
+- **Fact**: derived as UUIDv5(`ANGZARR_FACT_CORRELATION_NAMESPACE`,
+  `external_id`). This is the same value as the fact's default correlation,
+  just as a client command's absent correlation is its command id. The
+  namespace keeps its name and value, so `pi_1234` is still
+  `917f26ae-ea2e-58af-86de-77013a69617e`.
+
+`causation_id` (an `EventRef`, `CommandPage` field 10) names the trigger
+on reaction commands and is copied onto their events. It is metadata, not a
+key. `FactOrigin` (`external_id`, `description`) stays for audit, as
+`CommandPage.fact_origin` (11). `Origin`, `RequestOrigin` (with `minted`)
+and `Causation` are deleted. `correlation_id` moves inline (`CommandPage`
+9). Validation: a Fact needs `fact_origin` (with a non-empty
+`external_id`), and a Command never has one.
+- **Netstrings, not `:`-joined text**: a component or edition name may
+  contain `:` or `,`. Netstrings (length, `:`, bytes, `,`) split
+  unambiguously whatever the strings hold, need no escaping, and every
+  language can write them with its standard integer formatting.
+- **`minted` deleted** (a judgement call; the brief allowed keeping it "if
+  still needed"). It existed because minted ids were never keys. Now every
+  id deduplicates, and `EventMeta` has no slot for the flag, so nothing would
+  read it.
+- **The reacting component is no longer recorded on events** (it was
+  `Causation.component`). It is encoded one way in the command id: an
+  auditor can test a candidate component by recomputing the id. The
+  coordinator's security log names the delivering component.
+- Why: this is the established message-metadata convention. KurrentDB
+  (`$correlationId`, `$causationId` and event ids), NServiceBus, MassTransit
+  and Marten all give a message one id, a correlation id and a causation
+  id. Three origin shapes with their own keys had no parallel anywhere.
+- Cost: the reaction derivation must match exactly in core, every client
+  that derives it, and annals (backlog CI-2). Its namespace and encoding are
+  frozen.
+- Supersedes: 6.1 (one `Origin`), 8.3 (`minted`), 5.7's actor stamping,
+  and the keys of 5.1. Amends 9.2 (the third namespace replaces the
+  fingerprint's).
+
+**12.2 Deduplication is by `command_id`, on the events.** "Already
+applied?" means "the addressed stream already holds events whose
+`EventMeta.command_id` is this command's". Every backend keeps a
+(non-unique) index on (stream, `command_id`). A hit is answered DUPLICATE
+with those events, and business code does not run. A concurrent duplicate
+loses the append's optimistic race, re-runs from the lookup, and is answered
+DUPLICATE.
+- **Deleted**: `IdempotencyClaim`; the fingerprint (its namespace,
+  `ids::fingerprint` and the 9/10 design: 10.2, 10.3, 10.4); expiry, purge
+  and retention (5.4); the DLQ retention refusal and
+  `override_retention`/`retention_overridden`; the race-loser text (T7);
+  the fact-mismatch refuse-or-configure rule (10.2, KS-10, KS-11); the
+  "atomic claims" backend capability; and the client-key requirement on
+  `HandleAsync` and DLQ replay (5.5).
+- **Accepted costs** (the user's):
+  - a decision that emitted **zero events** leaves nothing to find, so a
+    redelivery decides again, against the then-current state
+    (Equinox-style). That is correct against the current state, but not
+    deduplicated;
+  - a **reused id with a different payload goes undetected**: it is
+    answered DUPLICATE with the first command's events;
+  - **dedup is forever**: a command id that applied to a stream can never
+    apply to it again.
+- **Judgement call: `HandleAsync` no longer requires a client-supplied
+  id.** The coordinator mints before enqueueing, so redelivery from the
+  queue and DLQ replay are deduplicated. Only the caller's own retry needs
+  a caller-supplied id, exactly as for `Handle`. This also resolves CH1:
+  reaction commands through `HandleAsync` carry their derived id.
+- Why: the key store existed to cover zero-event decisions and to detect
+  payload reuse. The user judged both not worth a second store, its
+  transaction coupling, its retention rules and its backend capability.
+  The events are already the durable record, and the id written with them
+  is atomic with the append on every backend.
+- Aligns with: KurrentDB (idempotent appends keyed on event ids) and
+  Equinox (processed ids kept in the stream, so zero-event decisions
+  re-decide). It diverges from Stripe and the IETF draft, which store a
+  response and detect payload reuse.
+- Supersedes: 5.1, 5.3, 5.4, 5.5, 5.19, 10.2, 10.3, 10.4, the KS backlog
+  workstream, and [idempotency.md](idempotency.md)'s key-store design (now
+  rewritten).
+
+**12.3 No actor anywhere; who did it goes to security logs.**
+`Provenance.actor`, `Edition.created_by` and `DeadLetterReplay.operator`
+are deleted. Every coordinator authenticates its caller and writes who
+called what (with the `command_id`) to a separate security log owned by the
+deployment. The principle is stated once, in the `security_logs` region of
+`types.proto`, and referenced from `meta.proto` and `dlq_admin.proto`.
+- Why: identity is personal data and a security concern, not domain
+  history. Putting it in immutable events pollutes the data model and makes
+  erasure a rewrite.
+- Cost: an auditor joins the event store with the security log by
+  `command_id` to answer "who".
+- Supersedes: the pseudonymous actor (pass 1 and 5.7), W4 (the reaction
+  actor stamping), T4 (actor authentication: there is no actor to
+  authenticate), and the actor-in-proto question for the edition and DLQ
+  records.
+
+**12.4 `EventMeta` is `{command_id, causation_id, fact, correlation_id,
+recorded_at, rules_version}`.** The fields are 13, 15, 16, 14, 5 and 7.
+`Provenance` is deleted (correlation is inline), and so are `origin` and
+`base_sequence`.
+- `base_sequence` is deleted because it is derivable: the head a decision
+  saw is the sequence of its write's first event. A write is exactly the
+  events sharing one `command_id`, and nobody else persisted the value.
+- Supersedes: 1.1's field list and 5.16's `base_sequence` rename.
+
+**12.5 The pipeline order is normative.** In every runtime and mode the
+order is: validate → assign ids (mint or derive) → dedup lookup → resolve
+and check Handling → business code. A retry of an applied STRICT command
+with a now-stale sequence is therefore DUPLICATE, never ABORTED (T6). The
+order is written once, in the `handling` region of `types.proto`.
+
+**12.6 `rules_version` is reported per response.**
+`CommandHandlerService.Handle` returns `CommandHandlerResponse { EventBook
+events = 1; string rules_version = 2; bool snapshot_refused = 3; }`.
+`ProcessManagerHandleResponse` gains `rules_version` (3) and
+`snapshot_refused` (4). The coordinator stamps the reported version onto
+events and snapshots. `ComponentDescriptor.rules_version` is deleted.
+`rules_version` is a short label that the domain's author chooses (for
+example `"v3"`), bumped when decide, ingest or apply semantics change.
+- **Snapshot validity is checked where the state is decoded**, in the
+  client library, by comparing the state type URL and the rules version.
+  **Judgement call, the mechanism**: on a mismatch the library answers
+  `snapshot_refused` without running business code, and the coordinator
+  re-delivers with no snapshot and every page from 0, and stops offering
+  that snapshot. Without a signal the library could not obtain the earlier
+  pages.
+- Why: a rolling deployment runs two rules versions at once. A per-response
+  report stamps each event with the rules that actually decided it, with no
+  separate registration handshake. It also resolves T13: the coordinator
+  needed a "registered state type" it never had.
+- Cost: a string per response. Snapshot refusal costs one extra round trip
+  after each rules bump.
+- Supersedes: 5.9 (declared at registration). Amends 6.8 (where validity is
+  checked).
+
+**12.7 COMMUTATIVE is the default where the state declares conflict units;
+`StateOptions` replaces the bool.**
+- The `(state)` message option (50106) is `StateOptions { repeated
+  ConflictResolution conflict_resolutions = 1; }`. No option means STRICT +
+  AGGREGATE_HANDLES (the implicit base), and the list adds to it (in
+  practice, COMMUTATIVE).
+- `ComponentDescriptor.state` (6) is `StateDescriptor { string type_url = 1;
+  StateOptions options = 2; }`, carrying the full resolved list. The
+  coordinator takes its built-in default from it (COMMUTATIVE if listed,
+  otherwise STRICT) and refuses a command or configuration naming an
+  unsupported resolution (`INVALID_ARGUMENT`). That makes T3's
+  registration-time promise enforceable.
+- `StateOptions` is defined in `types.proto`, beside `ConflictResolution`,
+  because `options.proto` imports `types.proto`. A `StateDescriptor`
+  pointing into `options.proto` would have been an import cycle.
+- Coordinators stay domain-blind: a list of enum values is not the
+  domain's schema.
+- Why: a state whose author marked conflict units has said which edits are
+  independent. Making STRICT the default would make that work opt-in a
+  second time. The risk is documented, not hidden (12.8).
+- Cost: a modelling mistake in the markers (a dependent value split across
+  units) now merges by default. The guide treats this as a modelling
+  failure and shows the fixes.
+- Supersedes: 6.12's "opt-in only, never a default" and 8.1's
+  `bool commutative_state`.
+
+**12.8 `ConflictUnit.whole_state`, generator diagnostics, and the guide.**
+`ConflictUnit` gains `bool whole_state = 4`: an explicit "this field
+conflicts with everything", which silences the unmarked-field warning. The
+generator emits one warning (`unmarked-field`) and nine errors
+(`no-marked-fields`, `unspecified-resolution`, `marker-outside-state`,
+`descend-non-message`, `bad-element-key`, `ordered-without-key`,
+`whole-state-combined`, `oneof-member-refined` and
+`oneof-partially-marked`). They are listed in `options.proto`, and their
+exact texts and fixes are in the guide. Codegen is `angzarr_build::compile`
+for Rust (prost-build plus the generator) and `protoc-gen-angzarr` for
+everything else (CR-1, renamed from `protoc-gen-angzarr-conflict`).
+- **The guide** (`docs/guide/state-and-conflicts.md`) covers: custom
+  options, the `state` option, marking fields, the resolver, the
+  COMMUTATIVE risk section with two worked failures on hatpick's ListState,
+  the diagnostics, the build setup, registration, and versioning commands.
+- **Judgement call: the guide lives in `docs/guide/`, not the site.** The
+  generators it describes do not exist yet, and the site documents shipped
+  behaviour. It moves to the site when CR-1 lands (backlog DOC-7).
+
+**12.9 Smaller rules.**
+- A Fact with **any** Handling field is malformed (it was only
+  `expected_sequence`).
+- An empty Handling is the same as an unset one, for every command (it was
+  only stated for reaction commands).
+- The `ContextualCommand` window boundary is named explicitly: pages
+  `command.handling.expected_sequence .. events.next_sequence-1`.
+
+**12.10 Framework-only fields and routes are authenticated by mTLS
+identity, on the same RPCs.** `causation_id`, and the caller-supplied
+trigger books of `SagaCoordinatorService.Execute` and
+`ProcessManagerCoordinatorService.Handle`, are accepted only from callers
+authenticated as framework components. A client that sends them is refused
+**PERMISSION_DENIED** (a judgement call: the message is well formed, but the
+caller is not allowed to send it, and INVALID_ARGUMENT would tell the caller
+to fix the message). The rule is in the `entry_points` region of
+`command_handler.proto`.
+- Resolves T5 (forged causation), SG3 (forged triggers) and CH1: reaction
+  delivery and DLQ replay are framework-authenticated, and carry derived or
+  original ids.
+- Cost: deployments issue framework components their own mTLS identities.
+
+**12.11 Commands can be upcast, but it is discouraged.** The client library
+applies the same upcaster chain to an incoming command payload, by type
+URL, before dispatch. A command type URL with no handler and no upcaster
+path is refused INVALID_ARGUMENT, naming the type URL. The docs
+(`upcaster.proto` and the guide's "Versioning commands") steer authors
+first to additive fields, then to domain handlers for both versions, and
+only last to an upcaster, as a migration aid with a planned removal.
+Command upcasting hides stale clients and adds machinery for data that is
+never stored.
+- Supersedes: "commands are never upcast", the review's first answer to
+  the same question (plan, review question 4), revised by the user before
+  this pass landed.
+- Wire: none. The chain runs inside `CommandHandlerService.Handle`, so
+  `UpcastRequest` is unchanged.
+
+**12.12 The crate.** `rust/angzarr-proto`:
+- maps every proto `bytes` field to `bytes::Bytes` (`prost_build`
+  `.bytes(["."])`; wasm32-safe);
+- relies on prost 0.14 deriving `Eq` and `Hash` on every float-free
+  message (`Uuid`, `Cover`, `EventRef`, `FactOrigin`, `StateOptions`,
+  `StateDescriptor`, `ConflictUnit`, ...). An explicit `type_attribute`
+  would conflict with that derive, so a compile-time test pins it instead;
+- replaces `ids::fingerprint` and `FINGERPRINT_NAMESPACE` with
+  `COMMAND_NAMESPACE`, `reaction_command_id(trigger, component, index)` and
+  `fact_command_id(external_id)`, keeping `fact_correlation` (now the same
+  value) and the display helpers. Its tests check values computed
+  independently with Python's `uuid.uuid5`.
 
 ## Corrections
 

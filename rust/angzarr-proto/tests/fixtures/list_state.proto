@@ -23,17 +23,28 @@ message Settings {
 
 // The worked example: per item, the column list whole, the settings whole.
 message ListState {
-  option (io.angzarr.v1.commutative_state) = true;
+  option (io.angzarr.v1.state) = {
+    conflict_resolutions: [CONFLICT_RESOLUTION_COMMUTATIVE]
+  };
   map<string, Item> items = 1 [(io.angzarr.v1.conflict) = {}];
   repeated Column columns = 2 [(io.angzarr.v1.conflict) = {}];
   Settings settings = 3 [(io.angzarr.v1.conflict) = {}];
 }
 
 // Finer: per item field, per column plus order; settings left unmarked
-// (conflicts with everything).
+// (conflicts with everything, with the generator's unmarked-field warning);
+// notes conflicting with everything on purpose (whole_state, no warning).
 message FinerListState {
-  option (io.angzarr.v1.commutative_state) = true;
+  option (io.angzarr.v1.state) = {
+    conflict_resolutions: [CONFLICT_RESOLUTION_COMMUTATIVE]
+  };
   map<string, Item> items = 1 [(io.angzarr.v1.conflict) = {descend: true}];
   repeated Column columns = 2 [(io.angzarr.v1.conflict) = {element_key: "id", ordered: true}];
   Settings settings = 3;
+  string notes = 4 [(io.angzarr.v1.conflict) = {whole_state: true}];
+}
+
+// No (state) option: the implicit base, STRICT and AGGREGATE_HANDLES.
+message PlainState {
+  uint32 count = 1;
 }

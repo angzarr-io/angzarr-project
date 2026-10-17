@@ -4,112 +4,111 @@ Part of the [audit-meta design record](../audit-meta-followups.md).
 
 ## Statement
 
-**annals is not angzarr.** They share the `io.angzarr.v1` protos (through the
-`rust/angzarr-proto` crate), some code, and their intents. annals is still a
-separate runtime with its own guarantees, and it does not have to match
-angzarr's runtime behaviour.
+**annals is not angzarr.** They share the `io.angzarr.v1` protos, some code
+and their intents. annals is still a separate runtime with its own
+guarantees, and it does not have to match angzarr's runtime behaviour.
+
+**annals operates on the proto types directly** (user, pass 12). Its kernel
+depends on `rust/angzarr-proto` and handles `Cover`, `EventRef`,
+`EventPage`, `EventMeta`, `CommandBook` and the rest as they are generated.
+There is no parallel `StreamKey`, `EventId`, `Book` or `Meta` type, and the
+annals-angzarr adapter largely folds into the kernel. All checking happens in
+one parse step, which yields a checked wrapper with non-optional accessors,
+so nothing downstream unwraps an `Option`. That parse step is domain-blind,
+as angzarr's coordinators are. For this, `angzarr-proto` maps `bytes` to
+`bytes::Bytes` and derives `Eq` and `Hash` on its key types.
 
 annals keeps an **atomic in-process chain**: a command, its events, and the
 reactions they trigger are staged across streams and committed in one
 Postgres transaction. This divergence is **intentional**. It makes in-process
 Rust work easy: one process, one transaction, with no bus, no outbox and no
-retry loop. hatpick's server embeds annals, and that is the use it serves.
-angzarr appends one stream per write and runs reactions asynchronously
-(decision 2.1), so the same domain behaves differently under the two
-runtimes. This is accepted.
+retry loop. hatpick's server embeds annals and calls it directly, in
+process, with no HTTP layer into annals. angzarr appends one stream per
+write and runs reactions asynchronously (decision 2.1), so the same domain
+behaves differently under the two runtimes. This is accepted.
 
 ## What follows from the divergence
 
-- **No idempotency key store.** annals is in-process and atomic, with no
-  at-least-once bus, so redelivery cannot happen inside it. The residual
-  risks:
-  - **Webhook facts.** An external source may redeliver. A unique index on
-    (stream, `external_id`) rejects the duplicate at the append. As in
-    angzarr (pass 10), the fact's payload fingerprint is recorded with it,
-    and a redelivery with a different payload is refused by default,
-    configurably answered as a duplicate plus an alert.
-  - **HTTP retries.** A client retrying a request is the one at-least-once
-    edge. An **optional `record_command` port** records request keys for
-    servers that want retry safety. It records each key's payload
-    fingerprint too and refuses a key reused with a different payload,
-    exactly as angzarr's claim does, so fingerprinting is no longer a
-    divergence (pass 8). As in angzarr, only client-supplied request ids
-    are recorded keys; minted ones are not.
+- **No claims, no fingerprints, no `record_command`** (pass 12). annals
+  deduplicates exactly as angzarr does: by `command_id` on its events, with
+  an index on (stream, `command_id`), and the same accepted costs
+  (zero-event decisions re-decided, a reused id undetected, dedup forever).
+  In-process and atomic, it has no redelivery of its own. The two
+  at-least-once edges are covered by ids:
+  - **Webhook facts**: the fact's derived `command_id` (UUIDv5 of
+    `external_id`) is found on the stream when the source redelivers.
+  - **HTTP retries**: a client-supplied `command_id`, reused on retry.
 - **No transient outbox.** Reactions commit in the same transaction as their
-  trigger, so there is nothing to re-send.
-- **`rules_version` is load-bearing.** In angzarr it is opaque, used only to
-  explain a historical decision. annals treats it as load-bearing: its
-  runtime relies on the value, not only reports it. How it does so is
-  annals' own design, in annals' `docs/design/audit.md`. The proto comment on
-  `EventMeta.rules_version` points here.
+  trigger, so there is nothing to re-send. Their command ids are still the
+  derived ones, so the audit record is identical.
+- **Causation is never accepted from outside.** No caller outside the
+  process can deliver a reaction. annals' own in-process chain stamps
+  `causation_id` and the derived `command_id`. angzarr needs mTLS-identified
+  framework components for the same guarantee (decision 12.10).
+- **The "DLQ" is a logger.** annals has no dead-letter store or replay.
+  Whatever angzarr would dead-letter (a failing fact ingest, a reactor bug, a
+  malformed reaction command), annals writes to its log. Every such entry is
+  prefixed with a warning that anything arriving there almost certainly
+  indicates a problem.
+- **`rules_version` is load-bearing.** In angzarr it is opaque, used to
+  explain a historical decision and to validate snapshots. annals' runtime
+  relies on the value, not only reports it. How it does so is annals' own
+  design, in annals' `docs/design/audit.md`. The proto comment on
+  `EventMeta.rules_version` points here. Both runtimes take it from the
+  business logic: angzarr per response (`CommandHandlerResponse`), annals
+  from the domain's declaration. It is the author's short label (e.g.
+  `"v3"`), bumped when decide, ingest or apply semantics change.
 - **No root-request pointer in angzarr (D2, pass 6).** angzarr records only
-  correlation and causation on a reaction's events: correlation is enough to
-  find the workflow (`GetCorrelatedEvents`), and the request is reachable by
-  walking causation. annals' draft keeps the originating request on every
-  event. That is either a documented annals divergence or annals drops it;
-  annals decides, in its own design. On the wire, `EventMeta.origin` is a
-  single `Origin`, so a reaction's event can carry only its causation there.
-- **Provenance is stamped the same way.** annals stamps `EventMeta` (actor,
-  correlation, origin, `base_sequence`, `recorded_at`) as the contract
-  requires. Its chains are a different execution model, not a different wire
-  meaning.
+  correlation and causation on a reaction's events. Correlation is enough to
+  find the workflow (`GetCorrelatedEvents`), and the originating command is
+  reachable by walking `causation_id`. If annals wants the originating
+  command on every event, that is its own divergence, decided in its own
+  design. On the wire, `EventMeta` has no slot for it.
 
-## Where annals still follows angzarr
+## Where annals follows angzarr
 
+- **`EventMeta` is the same** (pass 12): `command_id`, `causation_id`,
+  `fact`, `correlation_id`, `recorded_at` and `rules_version`. There is no
+  actor (who-did-it goes to security logs in both), no origin and no base
+  sequence.
+- **The same pipeline order**: validate, assign ids, dedup lookup,
+  resolve and check Handling, business code. annals' in-process coordinator
+  struct loads the snapshot and newer events (or events up to the
+  command's expected sequence). Under STRICT, a command whose expected
+  sequence is not the head is rejected as stale.
+- **Conflict resolution: all three strategies, and COMMUTATIVE is the
+  default in both runtimes** where the state declares conflict units,
+  otherwise STRICT (decision 12.7). annals reads each state's resolutions
+  from its registry (the same `StateDescriptor`), looked up by
+  `cover.domain`. AGGREGATE_HANDLES and COMMUTATIVE get the window since the
+  expected sequence (with a snapshot at or below expected−1), as in angzarr.
+- **COMMUTATIVE uses the same conflict units.** annals' `changed()` is
+  generated from the same `(state)` and `(conflict)` markers (`options.proto`,
+  `conflict_units` region) and must pass the same golden fixture suite as
+  the client libraries (backlog CR-1), so a state message resolves
+  identically under both runtimes. The COMMUTATIVE risk (dependent values
+  split across units) applies equally; see
+  [the developer guide](../../guide/state-and-conflicts.md).
+- **The same command ids**: a client-supplied id or a minted UUIDv7; reaction
+  ids from `angzarr_proto::ids::reaction_command_id`; fact ids from
+  `angzarr_proto::ids::fact_command_id`. Correlation, when absent, is the
+  command id (a fact's derived one included).
 - Stream identity is (domain, edition, root), and main is the unset edition
-  (pass 7): annals' `Option<EditionName>` with `None` = main is exactly the
-  wire's `optional string edition`, and a set edition is never empty.
+  (pass 7). A set edition is never empty.
 - Sequences are u64, and `EventPage.sequence` is always definite.
-- Correlation is always set. Causation names the triggering event. When
-  absent, correlation is the request id verbatim (pass 8); for a fact it is
-  UUIDv5(`ANGZARR_FACT_CORRELATION_NAMESPACE`, `external_id`), as in
-  angzarr (pass 9; pass 8 had `external_id` verbatim).
-- **One UUID type (pass 9).** annals holds request ids and correlation ids
-  as UUIDs (the wire's 16-byte `UUID`, `uuid::Uuid` in Rust), never as
-  strings: its `RequestId`/correlation types, the `record_command` keys and
-  its storage columns (Postgres `uuid`) change accordingly, and a
-  client-supplied request id that is not a UUID is refused, as angzarr
-  refuses it `INVALID_ARGUMENT`. Text appears only at display and input,
-  through `angzarr_proto::ids` (`Display`/`FromStr`). `external_id` stays a
-  string.
-- **Derived ids are UUIDv5 (pass 9).** Derived roots are
-  `angzarr_proto::ids::compute_root(domain, key)` = UUIDv5 under
-  `ANGZARR_ROOT_NAMESPACE` of `"{domain}:{key}"`, and a fact's correlation
-  is `angzarr_proto::ids::fact_correlation(external_id)`. annals uses these
-  functions rather than its own derivation, so both runtimes give one
-  business key the same root.
-- **Minted ids are UUIDv7** and **request ids are always assigned**: a
-  request without a client-supplied id gets a minted v7 flagged
-  `RequestOrigin.minted`, recorded for audit, never deduplicating (pass 8;
-  supersedes annals' earlier "refuse a request with no id").
-- **Payload fingerprints** on request keys, with a reused key refused on a
-  different payload (see above).
-- **Pass 10: no request index, v5 fingerprint, fact mismatch refused.**
-  annals follows suit:
-  - **No index.** A request id names one command; the request key is the
-    request id alone, and a batch mints one id per command, grouped by
-    correlation. annals' `RequestOrigin` loses `index`, and its
-    `record_command` key is the request id (per stream).
-  - **The v5 fingerprint.** annals computes it with
-    `angzarr_proto::ids::fingerprint(type_url, payload)` (UUIDv5 under
-    `ANGZARR_FINGERPRINT_NAMESPACE` of the 4-byte big-endian type URL
-    length, the type URL and the value bytes) and stores it as a UUID, so
-    both runtimes fingerprint the same command identically. Misuse
-    detection only, not the (deferred) hash chain.
-  - **Fact mismatch.** The same `external_id` with a different payload is
-    refused by default, and configurable per command type or domain to
-    answer it as a duplicate plus an alert, as angzarr is per command type
-    or component.
-- **COMMUTATIVE uses the same conflict units.** annals' `Domain::changed()`
-  is generated from the same `(commutative_state)` and `(conflict)` markers
-  (`options.proto`, `conflict_units` region) and must pass the same golden
-  fixture suite as the client libraries (backlog CR-1), so a state message
-  resolves identically under both runtimes.
-- Facts use an infallible `ingest`. Strict replay: an unknown type URL fails,
-  naming it.
+- **One UUID type (pass 9).** Command, correlation and root ids are the
+  wire's 16-byte `UUID`, never strings. Text appears only at display and
+  input, through `angzarr_proto::ids`. `external_id` stays a string.
+- **Derived roots** are `angzarr_proto::ids::compute_root(domain, key)`.
+- Facts use an infallible `ingest`, which gets a read-only context (the
+  recorded time, the correlation, the fact source and the rules version). A
+  Fact with any Handling field is malformed. Strict replay: an unknown event
+  type URL fails, naming it.
+- **Commands may be upcast**, with the same discouragement (decision 12.11).
+  An unknown command type with no upcaster path is refused, naming the type
+  URL.
 - Business output is payloads, and the runtime stamps meta.
 
-The plan's annals items (record_command and the commands table, `created_at`
-= `recorded_at`) are tracked in the session plan, not here. (Refusing a
-request with no id is superseded by always-assigned request ids, pass 8.) "Materially similar" to angzarr means the same wire meaning,
-not the same execution model.
+The plan's annals items are tracked in the session plan, not here.
+"Materially similar" to angzarr means the same wire meaning, not the same
+execution model.

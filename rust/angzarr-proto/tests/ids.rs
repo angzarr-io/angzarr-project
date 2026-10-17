@@ -4,11 +4,11 @@
 //! examples documented in the proto.
 
 use angzarr_proto::ids::{
-    compute_root, fact_correlation, fingerprint, UuidError, FACT_CORRELATION_NAMESPACE,
-    FINGERPRINT_NAMESPACE, ROOT_NAMESPACE,
+    compute_root, fact_command_id, fact_correlation, reaction_command_id, UuidError,
+    COMMAND_NAMESPACE, FACT_CORRELATION_NAMESPACE, ROOT_NAMESPACE,
 };
 use angzarr_proto::uuid::Uuid as RustUuid;
-use angzarr_proto::v1::Uuid;
+use angzarr_proto::v1::{Cover, EventRef, Uuid};
 
 const TEXT: &str = "01920c8e-7b3a-7cc2-9f4e-5a1b2c3d4e5f";
 const BYTES: [u8; 16] = [
@@ -26,18 +26,18 @@ fn the_namespaces_are_the_documented_values() {
         "e9ef0ae2-6fc6-4c14-b713-ef03971dd867"
     );
     assert_eq!(
-        FINGERPRINT_NAMESPACE.to_string(),
-        "a749bd8c-7bf0-47e6-a5c9-dc54ebde74aa"
+        COMMAND_NAMESPACE.to_string(),
+        "e2c9f744-9fe1-4b4b-bfee-ae514dde293b"
     );
     assert_ne!(ROOT_NAMESPACE, FACT_CORRELATION_NAMESPACE);
-    assert_ne!(ROOT_NAMESPACE, FINGERPRINT_NAMESPACE);
-    assert_ne!(FACT_CORRELATION_NAMESPACE, FINGERPRINT_NAMESPACE);
+    assert_ne!(ROOT_NAMESPACE, COMMAND_NAMESPACE);
+    assert_ne!(FACT_CORRELATION_NAMESPACE, COMMAND_NAMESPACE);
 }
 
 #[test]
 fn text_round_trips_through_canonical_lowercase() {
     let id: Uuid = TEXT.parse().unwrap();
-    assert_eq!(id.value, BYTES);
+    assert_eq!(id.value[..], BYTES);
     assert_eq!(id.to_string(), TEXT);
 
     // Input accepts either case; output is always lowercase.
@@ -77,7 +77,7 @@ fn bytes_and_uuid_crate_conversions_are_lossless() {
 fn a_malformed_wire_value_is_reported_and_never_canonical() {
     for len in [0usize, 15, 17] {
         let id = Uuid {
-            value: vec![0xab; len],
+            value: vec![0xab; len].into(),
         };
         assert!(!id.is_well_formed());
         assert_eq!(id.to_bytes(), Err(UuidError::Length(len)));
@@ -129,49 +129,124 @@ fn fact_correlation_is_uuidv5_of_external_id_in_its_own_namespace() {
     );
 }
 
-const DEPOSIT: &str = "type.googleapis.com/examples.Deposit";
+#[test]
+fn a_fact_command_id_is_its_default_correlation() {
+    let id = fact_command_id("pi_1234");
+    assert_eq!(id.to_string(), "917f26ae-ea2e-58af-86de-77013a69617e");
+    assert_eq!(id, fact_correlation("pi_1234"));
+    assert_ne!(id, fact_command_id("pi_1235"));
+}
+
+/// The worked example's trigger: list stream on main, sequence 7.
+fn trigger(edition: Option<&str>) -> EventRef {
+    EventRef {
+        stream: Some(Cover {
+            domain: "list".into(),
+            root: Some(TEXT.parse().unwrap()),
+            edition: edition.map(Into::into),
+        }),
+        sequence: 7,
+    }
+}
 
 #[test]
-fn fingerprint_matches_the_documented_worked_example() {
-    // Name: 00000024 (36, big-endian) ++ the type URL ++ 08 2a.
-    let fp = fingerprint(DEPOSIT, &[0x08, 0x2a]);
-    assert_eq!(fp.to_string(), "6d42fa9e-0dca-5047-94b1-0ae371532630");
-    assert_eq!(fp.value[6] >> 4, 5);
-    assert_eq!(fp.value[8] >> 6, 0b10);
+fn reaction_command_id_matches_the_documented_worked_examples() {
+    // Expected values computed independently with Python's uuid.uuid5 over
+    // the netstring names (types.proto, derived_ids region).
+    let id = reaction_command_id(&trigger(None), "reminders", 0).unwrap();
+    assert_eq!(id.to_string(), "45764676-e6e4-56fe-8c80-d782423577ee");
+    assert_eq!(id.value[6] >> 4, 5);
+    assert_eq!(id.value[8] >> 6, 0b10);
 
-    // It is UUIDv5 of exactly that name under the fingerprint namespace.
-    let mut name = vec![0, 0, 0, 0x24];
-    name.extend_from_slice(DEPOSIT.as_bytes());
-    name.extend_from_slice(&[0x08, 0x2a]);
+    // It is UUIDv5 of exactly the documented 70-byte name.
+    let name = "4:list,0:,36:01920c8e-7b3a-7cc2-9f4e-5a1b2c3d4e5f,1:7,9:reminders,1:0,";
+    assert_eq!(name.len(), 70);
     assert_eq!(
-        fp,
-        Uuid::from(RustUuid::new_v5(&FINGERPRINT_NAMESPACE, &name))
+        id,
+        Uuid::from(RustUuid::new_v5(&COMMAND_NAMESPACE, name.as_bytes()))
     );
 
-    // The other documented values: an empty value, and an empty Any.
+    for (edition, component, index, expected) in [
+        (None, "reminders", 1, "e45bdfdf-d722-56c8-a4bd-35340c9c3c06"),
+        (
+            Some("what-if"),
+            "reminders",
+            0,
+            "e2321e9e-d55a-5f48-bbe1-b09081c2e445",
+        ),
+        // Netstrings: ':' and ',' in a component need no escaping.
+        (None, "a,b:c", 0, "27ccb6bf-e37e-54bd-b0f0-9eac56ff5f93"),
+    ] {
+        assert_eq!(
+            reaction_command_id(&trigger(edition), component, index)
+                .unwrap()
+                .to_string(),
+            expected,
+            "{edition:?} {component} {index}"
+        );
+    }
+
+    // Widest values: u64::MAX sequence, u32::MAX index.
+    let mut wide = trigger(None);
+    wide.sequence = u64::MAX;
     assert_eq!(
-        fingerprint(DEPOSIT, &[]).to_string(),
-        "838a6be3-ad9d-5945-be34-61ec4c3d6432"
-    );
-    assert_eq!(
-        fingerprint("", &[]).to_string(),
-        "d0be6173-febd-50a7-a4fe-d083d14497ca"
+        reaction_command_id(&wide, "reminders", u32::MAX)
+            .unwrap()
+            .to_string(),
+        "2803d9f5-d632-58a2-9c28-539bff683295"
     );
 }
 
 #[test]
-fn fingerprint_separates_payloads_and_the_type_url_boundary() {
-    // A changed payload changes the fingerprint.
+fn reaction_command_id_separates_every_input() {
+    let base = reaction_command_id(&trigger(None), "reminders", 0).unwrap();
+    let mut later = trigger(None);
+    later.sequence = 8;
+    let mut other_domain = trigger(None);
+    other_domain.stream.as_mut().unwrap().domain = "lists".into();
+    for other in [
+        reaction_command_id(&later, "reminders", 0),
+        reaction_command_id(&other_domain, "reminders", 0),
+        reaction_command_id(&trigger(Some("x")), "reminders", 0),
+        reaction_command_id(&trigger(None), "reminder", 0),
+        reaction_command_id(&trigger(None), "reminders", 1),
+    ] {
+        assert_ne!(other.unwrap(), base);
+    }
+    // Deterministic, and never the fact id or root of the same text.
     assert_eq!(
-        fingerprint(DEPOSIT, &[0x08, 0x2b]).to_string(),
-        "680f6433-0548-5517-8ff5-7388f094bdbd"
+        reaction_command_id(&trigger(None), "reminders", 0).unwrap(),
+        base
     );
-    // Moving a byte across the type URL / value boundary changes the name
-    // (the length prefix), so it changes the fingerprint.
-    let shifted = fingerprint("type.googleapis.com/examples.Deposi", b"t\x08\x2a");
-    assert_eq!(shifted.to_string(), "c1f6b1e1-204d-5278-b6b8-b10f092ccd3f");
-    assert_ne!(shifted, fingerprint(DEPOSIT, &[0x08, 0x2a]));
-    // A fingerprint lives in its own namespace: never a root or correlation
-    // of the same text.
-    assert_ne!(fingerprint(DEPOSIT, &[]), fact_correlation(DEPOSIT));
+    assert_ne!(base, fact_command_id("reminders"));
+}
+
+#[test]
+fn reaction_command_id_refuses_malformed_triggers() {
+    assert_eq!(
+        reaction_command_id(&EventRef::default(), "reminders", 0),
+        Err(UuidError::MissingTrigger)
+    );
+    let mut rootless = trigger(None);
+    rootless.stream.as_mut().unwrap().root = None;
+    assert_eq!(
+        reaction_command_id(&rootless, "reminders", 0),
+        Err(UuidError::MissingTrigger)
+    );
+    let mut short = trigger(None);
+    short.stream.as_mut().unwrap().root = Some(Uuid {
+        value: vec![1; 15].into(),
+    });
+    assert_eq!(
+        reaction_command_id(&short, "reminders", 0),
+        Err(UuidError::Length(15))
+    );
+    assert_eq!(
+        reaction_command_id(&trigger(Some("")), "reminders", 0),
+        Err(UuidError::EmptyEdition)
+    );
+    assert_eq!(
+        reaction_command_id(&trigger(None), "", 0),
+        Err(UuidError::EmptyComponent)
+    );
 }

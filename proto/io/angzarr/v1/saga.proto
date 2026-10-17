@@ -12,8 +12,10 @@ option ruby_package = "Angzarr";
 
 // SagaService: stateless translation from source events to commands.
 //
-// Every emitted command is a Command (never a Fact) whose CommandPage.origin
-// is a Causation (see types.proto): it records the event being reacted to.
+// Every emitted command is a Command (never a Fact). Its coordinator stamps
+// CommandPage.causation_id (the event being reacted to), the derived
+// command_id and the trigger's correlation_id (types.proto, the
+// command_identity region).
 // It carries no Handling (see Handling): the destination always stamps its
 // head before business code, conflict resolution never applies, and
 // delivery mode (which coordinator RPC delivers it) comes from the saga's
@@ -31,14 +33,19 @@ service SagaService {
 }
 
 // SagaCoordinatorService: orchestrates saga execution.
-// Stamps framework provenance onto the emitted commands (Causation.component
-// and index, and Provenance actor and correlation_id copied from the
-// triggering event; see Provenance), records them in the transient outbox
-// (see SagaResponse), delivers them and retries retryable failures.
+// Stamps each emitted command's identity: causation_id (the triggering
+// event's EventRef), command_id (UUIDv5 of the trigger, the saga's
+// registered name and the command's index in the output; derived_ids
+// region) and correlation_id (the trigger's). Records them in the transient
+// outbox (see SagaResponse), delivers them through the command
+// coordinators as a framework component, and retries retryable failures.
 service SagaCoordinatorService {
   // Execute saga: translate source events → commands, deliver to targets.
   // The request is the source EventBook; the saga's configuration, not the
-  // request, sets how its commands are delivered.
+  // request, sets how its commands are delivered. A trigger entry point:
+  // callers authenticated as framework components only; a client is
+  // refused PERMISSION_DENIED (see the entry_points region of
+  // command_handler.proto).
   rpc Execute(EventBook) returns (SagaResponse) {
     option (google.api.http) = {
       post: "/v1/saga/execute"
@@ -56,21 +63,21 @@ service SagaCoordinatorService {
 // process manager's events and commands) goes through a transient outbox.
 // The coordinator stores the output atomically with the reactor's source
 // checkpoint (its position past the triggering event), then dispatches it,
-// then clears it: once dispatched, only the commands' idempotency keys
-// remain. A crash before dispatch completes re-sends the stored output
-// verbatim; the reactor is never re-run for a trigger whose output is
-// stored, so the keys re-sent are the keys first recorded and the
+// then clears it. A crash before dispatch completes re-sends the stored
+// output verbatim; the reactor is never re-run for a trigger whose output
+// is stored, so the command ids re-sent are the ones first stamped and the
 // destinations deduplicate them. Reactors therefore carry NO purity or
 // determinism requirement: one run's output is recorded once and re-sent
 // as recorded.
 message SagaResponse {
-  // Commands for other aggregates; each carries a Causation origin and NO
-  // Handling: handling is left unset (or empty). A command that sets any
-  // Handling field (expected_sequence or conflict_resolution) is a saga
-  // bug, refused loudly: dead-lettered and alerted, never delivered, never
-  // silently stripped (see Handling). Provenance is likewise left empty for the
-  // coordinator to stamp from the trigger; an actor or correlation_id that
-  // differs from the trigger's is refused the same way. Delivery mode comes
-  // from the saga's configuration, never from the command.
+  // Commands for other aggregates, each carrying NO Handling: handling is
+  // left unset (or empty). A command that sets any Handling field
+  // (expected_sequence or conflict_resolution) is a saga bug, refused
+  // loudly: dead-lettered and alerted, never delivered, never silently
+  // stripped (see Handling). command_id, causation_id and correlation_id
+  // are likewise left unset for the coordinator to stamp; a value that
+  // differs from the stamp is refused the same way, as is a Fact or a
+  // fact_origin. Delivery mode comes from the saga's configuration, never
+  // from the command.
   repeated CommandBook commands = 1;
 }

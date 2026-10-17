@@ -1,30 +1,34 @@
 //! prost types for angzarr's domain-neutral wire contract.
 //!
 //! Generated from `proto/` in this repository: `io.angzarr.v1` books, pages
-//! (the `CommandPage` body: `Command` or `Fact`), covers, `Handling` (on
-//! `CommandBook`, with `ConflictResolution`), `ContextualCommand` (with the
-//! conflict nonce), provenance (`Provenance`, `EventMeta`, `EventRef`, and
-//! the one `Origin` message over `RequestOrigin`, `Causation` and
-//! `FactOrigin`, shared by the page, the event meta and the claim key),
-//! snapshots (with their `rules_version`), the response-only `Outcome`, the
-//! storage-only `IdempotencyClaim` schema, `ComponentDescriptor` and
-//! `ComponentKind`, the upcaster request/response messages, the
-//! `options.proto` option messages (`ConflictUnit` for COMMUTATIVE conflict
-//! units, `ComponentOptions`, `CommandOptions`, `EventConsumer`; prost skips
-//! the `extend` declarations, so option values are read from descriptors),
-//! plus
-//! `sererr.v1`, which `types.proto` imports. Every message implements [`prost::Name`] with no type-name domain,
-//! so `prost_types::Any::from_msg` yields type URLs of the form
+//! (the `CommandPage` body, `Command` or `Fact`, with the command's identity:
+//! `command_id`, `correlation_id`, `causation_id`, `fact_origin`), covers,
+//! `Handling` (on `CommandBook`, with `ConflictResolution`),
+//! `ContextualCommand` (with the conflict nonce), `EventMeta`, `EventRef`,
+//! `FactOrigin`, snapshots (with their `rules_version`), the response-only
+//! `Outcome`, `ComponentDescriptor` with its `StateDescriptor` and
+//! `StateOptions`, `ComponentKind`, the upcaster request/response messages,
+//! the `options.proto` option messages (`ConflictUnit` for COMMUTATIVE
+//! conflict units, `ComponentOptions`, `CommandOptions`, `EventConsumer`;
+//! prost skips the `extend` declarations, so option values are read from
+//! descriptors), plus `sererr.v1`, which `types.proto` imports. Every
+//! message implements [`prost::Name`] with no type-name domain, so
+//! `prost_types::Any::from_msg` yields type URLs of the form
 //! `/io.angzarr.v1.EventPage`, matching angzarr's TYPE_URL_PREFIX ("/").
+//!
+//! Every proto `bytes` field is a [`bytes::Bytes`]. Messages without float
+//! fields (the key types `Uuid`, `Cover`, `EventRef`, `FactOrigin`,
+//! `StateDescriptor`, ...) derive `Eq` and `Hash`, so they can key maps.
 //!
 //! [`ids`] adds the boundary helpers for the wire `UUID`: canonical text
 //! through `Display`/`FromStr`, conversions to and from `[u8; 16]` and
 //! [`uuid::Uuid`] (re-exported), and the UUIDv5 derivations
-//! [`ids::compute_root`] and [`ids::fact_correlation`].
+//! [`ids::compute_root`], [`ids::reaction_command_id`],
+//! [`ids::fact_command_id`] and [`ids::fact_correlation`].
 //!
 //! No gRPC services, tonic, or `google.api` annotations: this crate is a
-//! dependency leaf (beyond prost, only `uuid` without default features) and
-//! builds for `wasm32-unknown-unknown`.
+//! dependency leaf (beyond prost, only `bytes` and `uuid` without default
+//! features) and builds for `wasm32-unknown-unknown`.
 //!
 //! Module nesting mirrors proto package segments exactly so prost's
 //! cross-package `super::` references resolve.

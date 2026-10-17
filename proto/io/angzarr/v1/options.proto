@@ -124,12 +124,22 @@ extend google.protobuf.MessageOptions {
   CommandOptions command = 50104;
   // Repeated: one entry per consuming component.
   repeated EventConsumer event = 50105;
-  // Marks an aggregate's (or process manager's) event-sourced STATE message
-  // as eligible for CONFLICT_RESOLUTION_COMMUTATIVE, and turns on the
-  // conflict-unit markers ((conflict), below) on its fields. See the
-  // conflict_units region. 50101-50103 are skipped: earlier, since-deleted
-  // options used them, and stale descriptors may still carry them.
-  bool commutative_state = 50106;
+  // On an aggregate's (or process manager's) event-sourced STATE message:
+  // the conflict resolutions it supports BEYOND the implicit base of STRICT
+  // and AGGREGATE_HANDLES (StateOptions, in types.proto). No option means
+  // exactly the base. Listing CONFLICT_RESOLUTION_COMMUTATIVE turns on the
+  // conflict-unit markers ((conflict), below) on its fields and makes
+  // COMMUTATIVE the component's default. See the conflict_units region.
+  //   message ListState {
+  //     option (io.angzarr.v1.state) = {
+  //       conflict_resolutions: [CONFLICT_RESOLUTION_COMMUTATIVE]
+  //     };
+  //     ...
+  //   }
+  // 50101-50103 are skipped: earlier, since-deleted options used them, and
+  // stale descriptors may still carry them. (50106 was the pass-8 bool
+  // commutative_state, replaced in place before production.)
+  StateOptions state = 50106;
 }
 
 // region conflict_units
@@ -138,21 +148,26 @@ extend google.protobuf.MessageOptions {
 // COMMUTATIVE (see ConflictResolution in types.proto) accepts a stale
 // command when the state the command changes is disjoint from the state the
 // concurrency window changed. "The state it changes" is defined here, once,
-// for every language: a code generator (one protoc plugin for all client
-// languages, backlog CR-1) reads these markers from the descriptors and
-// emits, per commutative_state message,
+// for every language: a code generator (angzarr_build::compile for Rust,
+// protoc-gen-angzarr for the other client languages; backlog CR-1) reads
+// these markers from the descriptors and emits, per COMMUTATIVE state
+// message,
 //
 //   changed(before, after) -> set of unit paths
 //
-// a pure function over two values of the state message. The client library's
-// COMMUTATIVE resolver calls it; business code never does. annals generates
-// the same function from the same markers, and a shared golden fixture suite
-// holds every implementation to identical output.
+// a pure function over two values of the state message, plus the state's
+// StateDescriptor for registration. The client library's COMMUTATIVE
+// resolver calls changed(); business code never does. annals generates the
+// same function from the same markers, and a shared golden fixture suite
+// holds every implementation to identical output. The developer guide,
+// docs/guide/state-and-conflicts.md, explains all of this with examples.
 //
-// Marking. A state message opts in with `option (commutative_state) = true`.
-// Each of its fields is then MARKED by carrying (conflict), possibly empty:
+// Marking. A state message opts in by listing COMMUTATIVE in its (state)
+// option. Each of its fields is then MARKED by carrying (conflict),
+// possibly empty:
 //   string title = 1 [(conflict) = {}];
 //   map<string, Item> items = 2 [(conflict) = {descend: true}];
+//   string notes = 3 [(conflict) = {whole_state: true}];
 // The ConflictUnit fields only refine how a marked field is split into
 // units; an empty ConflictUnit means "this field, at its natural unit".
 //
@@ -174,6 +189,7 @@ extend google.protobuf.MessageOptions {
 //   repeated scalar / string / bytes    the whole list                                tags
 //   oneof                               the whole oneof (a case switch or a value     payment
 //                                       change)
+//   any field with whole_state          the wildcard: conflicts with everything       *notes
 //
 // Details of each rule:
 // - Scalars compare by value. A proto3 field without explicit presence has
@@ -191,7 +207,7 @@ extend google.protobuf.MessageOptions {
 //   differs from a set, empty one.
 // - descend: the inner message's own fields become units, each under the
 //   rules in this table, by its own (conflict) marker (the inner message
-//   type needs no commutative_state). Unmarked inner fields follow the
+//   type needs no (state) option). Unmarked inner fields follow the
 //   unmarked-field rule below. A descended message going between unset and
 //   set is a change of the field itself (path `settings`), not of its inner
 //   fields.
@@ -212,10 +228,15 @@ extend google.protobuf.MessageOptions {
 // - Oneofs: one unit named after the oneof (`payment`), which changes when
 //   the set case changes (including to or from none) or the set member's
 //   value changes (deep equality). The oneof is marked iff EVERY member
-//   carries (conflict), and members carry only an empty ConflictUnit
-//   (descend, element_key or ordered on a oneof member is a generation
-//   error). A proto3 `optional` field's synthetic oneof is not a oneof here:
-//   it is the optional-scalar row.
+//   carries (conflict); members carry only an empty ConflictUnit, or all
+//   carry whole_state (the oneof then reports the wildcard). A proto3
+//   `optional` field's synthetic oneof is not a oneof here: it is the
+//   optional-scalar row.
+// - whole_state: the field is marked, but as one piece that conflicts with
+//   every other change: if it differs, changed() reports the wildcard `*`
+//   followed by its path (`*notes`), exactly as for an unmarked field. It
+//   is the explicit, warning-free way to say "this field depends on the
+//   rest of the state" (see the guide's COMMUTATIVE risks).
 //
 // Unit path syntax. Proto field names (never JSON names), joined by `.`.
 // A map or keyed-repeated key is written in brackets after the field:
@@ -227,15 +248,15 @@ extend google.protobuf.MessageOptions {
 // Paths are compared as byte strings.
 //
 // UNMARKED FIELDS CONFLICT WITH EVERYTHING (fail-safe). A field of a
-// commutative_state message (or of a descended message) without (conflict)
+// COMMUTATIVE state message (or of a descended message) without (conflict)
 // is never silently ignored: if it differs, changed() reports the wildcard
 // unit `*` followed by the field's path (e.g. `*notes`), and a wildcard
 // overlaps every unit of the other set. A field added to the state without
 // a marker therefore makes COMMUTATIVE behave like STRICT whenever that
-// field moves, never like a blind merge. Unknown fields (state decoded from
-// a newer schema) are compared as raw bytes per message and, if they
-// differ, report the wildcard `*` + that message's path (`*` alone at the
-// top level).
+// field moves, never like a blind merge; the generator also WARNS about it
+// (below). Unknown fields (state decoded from a newer schema) are compared
+// as raw bytes per message and, if they differ, report the wildcard `*` +
+// that message's path (`*` alone at the top level).
 //
 // Overlap. Two unit sets OVERLAP iff
 //   - one set holds a wildcard and the other set is non-empty, or
@@ -247,9 +268,9 @@ extend google.protobuf.MessageOptions {
 //
 // Recursion bound. descend may recurse, including through a message type
 // that contains itself, to a depth of 32 descended messages counted from
-// the commutative_state message. At depth 32 the field is treated as not
-// descended (one whole-message unit, by deep equality): coarser, so still
-// sound. Every implementation uses the same bound, so paths agree.
+// the state message. At depth 32 the field is treated as not descended (one
+// whole-message unit, by deep equality): coarser, so still sound. Every
+// implementation uses the same bound, so paths agree.
 //
 // The resolver (client library; see ConflictResolution in types.proto):
 //   1. expected = state folded to Handling.expected_sequence;
@@ -266,28 +287,49 @@ extend google.protobuf.MessageOptions {
 // that runs decide; markers are never stored with events, so a marker change
 // affects resolutions from its deployment on, never history.
 //
-// COMMUTATIVE is allowed only on a component whose state message has
-// commutative_state. A command resolved to COMMUTATIVE for any other state
-// is malformed: refused INVALID_ARGUMENT before decide (the client library
-// checks it, as the coordinator is domain-blind), and a configuration that
-// names COMMUTATIVE for such a component is refused when the component
-// registers.
+// COMMUTATIVE is supported only by a state message whose (state) option
+// lists it; the registered StateDescriptor says so, so the coordinator
+// (domain-blind: it reads only that list) refuses a command or
+// configuration naming COMMUTATIVE for any other state, and where the state
+// supports it COMMUTATIVE is the default.
 //
-// Generation errors (the plugin fails, naming the field): (conflict) on a
-// field of a message that is neither commutative_state nor reachable by
-// descend from one; descend on a non-message field, a map whose values
-// are not messages, or a repeated message field without element_key;
-// element_key on anything but a repeated message field;
-// an element_key naming no singular scalar, string, bytes or enum field of
-// the element; ordered without element_key; a non-empty ConflictUnit on a
-// oneof member.
+// Generation diagnostics. Each names the file, the message and the field;
+// the exact texts and their fixes are in the developer guide.
+//   warning unmarked-field          a field of a COMMUTATIVE state (or of a
+//                                   descended message) has no (conflict); it
+//                                   conflicts with everything. Silence it by
+//                                   marking the field, or with whole_state.
+//   error   no-marked-fields        a state lists COMMUTATIVE but marks no
+//                                   field.
+//   error   unspecified-resolution  (state) lists CONFLICT_RESOLUTION_UNSPECIFIED.
+//   error   marker-outside-state    (conflict) on a field of a message that
+//                                   is neither a COMMUTATIVE state nor
+//                                   reachable from one by descend.
+//   error   descend-non-message     descend on a non-message field, a map
+//                                   whose values are not messages, or a
+//                                   repeated message field without
+//                                   element_key.
+//   error   bad-element-key         element_key on anything but a repeated
+//                                   message field, or naming no singular
+//                                   scalar, string, bytes or enum field of
+//                                   the element.
+//   error   ordered-without-key     ordered without element_key.
+//   error   whole-state-combined    whole_state with descend, element_key
+//                                   or ordered.
+//   error   oneof-member-refined    a oneof member carries descend,
+//                                   element_key or ordered, or only some
+//                                   members carry whole_state.
+//   error   oneof-partially-marked  some but not all members of a oneof
+//                                   carry (conflict).
 //
 // Worked example: hatpick's ListState. hatpick treats a stale edit as safe
 // when it touches different items, or the columns versus the settings; the
 // markers reproduce exactly that "touched" rule.
 //
 //   message ListState {
-//     option (io.angzarr.v1.commutative_state) = true;
+//     option (io.angzarr.v1.state) = {
+//       conflict_resolutions: [CONFLICT_RESOLUTION_COMMUTATIVE]
+//     };
 //     map<string, Item> items = 1 [(io.angzarr.v1.conflict) = {}];  // per item: items[<id>]
 //     repeated Column columns = 2 [(io.angzarr.v1.conflict) = {}];  // the whole column list
 //     Settings settings = 3 [(io.angzarr.v1.conflict) = {}];        // the whole settings message
@@ -310,10 +352,13 @@ message ConflictUnit {
   // With element_key only: the relative order of the elements is state too,
   // reported as the unit `field[#order]`.
   bool ordered = 3;
+  // The field conflicts with everything (the wildcard unit), deliberately:
+  // marked, so no unmarked-field warning. Exclusive with the fields above.
+  bool whole_state = 4;
 }
 
 extend google.protobuf.FieldOptions {
-  // Marks a field of a commutative_state message (or of a message reached
+  // Marks a field of a COMMUTATIVE state message (or of a message reached
   // from one by descend) as a conflict unit; see the conflict_units region.
   // Unmarked fields of such messages conflict with everything.
   ConflictUnit conflict = 50107;

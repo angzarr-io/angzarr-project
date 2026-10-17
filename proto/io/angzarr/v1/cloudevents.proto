@@ -41,9 +41,9 @@ message CloudEvent {
 
   // Custom extension attributes.
   // Keys should follow CloudEvents naming (lowercase, no dots).
-  // Framework adds correlationid automatically when the event's
-  // EventMeta.provenance.correlation_id is set (correlation is per page; covers carry
-  // none). CloudEvents attribute values are strings, so this is a display
+  // Framework adds correlationid automatically from the event's
+  // EventMeta.correlation_id, which is always set (correlation is per page;
+  // covers carry none). CloudEvents attribute values are strings, so this is a display
   // boundary: the value is the UUID's canonical text (36 lowercase
   // characters, hyphenated; see UUID in types.proto).
   map<string, string> extensions = 3;

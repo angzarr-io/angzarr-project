@@ -9,9 +9,10 @@
 //!
 //! Framework-derived values are UUIDv5 under three fixed namespaces:
 //! [`compute_root`] (`"{domain}:{key}"` under [`ROOT_NAMESPACE`]),
-//! [`fact_correlation`] (`external_id` under [`FACT_CORRELATION_NAMESPACE`])
-//! and the idempotency [`fingerprint`] (the length-prefixed type URL and the
-//! payload bytes under [`FINGERPRINT_NAMESPACE`]).
+//! [`reaction_command_id`] (the trigger, component and index as netstrings
+//! under [`COMMAND_NAMESPACE`]), and [`fact_command_id`] /
+//! [`fact_correlation`] (one value: `external_id` under
+//! [`FACT_CORRELATION_NAMESPACE`]).
 
 use std::fmt;
 use std::str::FromStr;
@@ -22,19 +23,19 @@ use crate::v1;
 /// Generated once as a random UUIDv4; never changes.
 pub const ROOT_NAMESPACE: uuid::Uuid = uuid::uuid!("d4741b1a-52cd-43cf-add1-3dbb9615510b");
 
-/// Namespace for a fact's default correlation:
-/// `e9ef0ae2-6fc6-4c14-b713-ef03971dd867`. Generated once as a random
-/// UUIDv4; never changes. Separate from [`ROOT_NAMESPACE`] so a correlation
-/// never equals a root by accident (`"{domain}:{key}"` is also a valid
+/// Namespace for a fact's command id, which is also its default
+/// correlation: `e9ef0ae2-6fc6-4c14-b713-ef03971dd867`. Generated once as a
+/// random UUIDv4; never changes. Separate from [`ROOT_NAMESPACE`] so a fact's
+/// id never equals a root by accident (`"{domain}:{key}"` is also a valid
 /// external id).
 pub const FACT_CORRELATION_NAMESPACE: uuid::Uuid =
     uuid::uuid!("e9ef0ae2-6fc6-4c14-b713-ef03971dd867");
 
-/// Namespace for idempotency fingerprints:
-/// `a749bd8c-7bf0-47e6-a5c9-dc54ebde74aa`. Generated once as a random
-/// UUIDv4; never changes (changing it would make every stored claim
-/// mismatch its retries).
-pub const FINGERPRINT_NAMESPACE: uuid::Uuid = uuid::uuid!("a749bd8c-7bf0-47e6-a5c9-dc54ebde74aa");
+/// Namespace for reaction command ids:
+/// `e2c9f744-9fe1-4b4b-bfee-ae514dde293b`. Generated once as a random
+/// UUIDv4; never changes (changing it would change every derived command id,
+/// and deduplication looks stored ids up).
+pub const COMMAND_NAMESPACE: uuid::Uuid = uuid::uuid!("e2c9f744-9fe1-4b4b-bfee-ae514dde293b");
 
 /// Why a value is not a well-formed UUID.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -46,6 +47,13 @@ pub enum UuidError {
     Text,
     /// A domain passed to [`compute_root`] contains `':'`, the separator.
     DomainContainsColon,
+    /// A trigger passed to [`reaction_command_id`] has no stream, or its
+    /// stream has no root.
+    MissingTrigger,
+    /// A trigger stream's edition is set but empty (main is unset).
+    EmptyEdition,
+    /// A component name passed to [`reaction_command_id`] is empty.
+    EmptyComponent,
 }
 
 impl fmt::Display for UuidError {
@@ -54,6 +62,9 @@ impl fmt::Display for UuidError {
             UuidError::Length(n) => write!(f, "a UUID is 16 bytes, got {n}"),
             UuidError::Text => f.write_str("not a hyphenated 8-4-4-4-12 hex UUID"),
             UuidError::DomainContainsColon => f.write_str("a domain never contains ':'"),
+            UuidError::MissingTrigger => f.write_str("the trigger needs a stream with a root"),
+            UuidError::EmptyEdition => f.write_str("a set edition is never empty"),
+            UuidError::EmptyComponent => f.write_str("a reacting component has a name"),
         }
     }
 }
@@ -64,14 +75,14 @@ impl v1::Uuid {
     /// The UUID holding these 16 bytes.
     pub fn from_bytes(bytes: [u8; 16]) -> Self {
         Self {
-            value: bytes.to_vec(),
+            value: bytes::Bytes::copy_from_slice(&bytes),
         }
     }
 
     /// The 16 bytes, or [`UuidError::Length`] when the wire value is
     /// malformed.
     pub fn to_bytes(&self) -> Result<[u8; 16], UuidError> {
-        <[u8; 16]>::try_from(self.value.as_slice()).map_err(|_| UuidError::Length(self.value.len()))
+        <[u8; 16]>::try_from(&self.value[..]).map_err(|_| UuidError::Length(self.value.len()))
     }
 
     /// True iff the value is exactly 16 bytes, the only check the framework
@@ -149,31 +160,59 @@ pub fn compute_root(domain: &str, key: &str) -> Result<v1::Uuid, UuidError> {
     Ok(uuid::Uuid::new_v5(&ROOT_NAMESPACE, name.as_bytes()).into())
 }
 
-/// A fact's correlation when its command supplies none:
-/// UUIDv5([`FACT_CORRELATION_NAMESPACE`], `external_id`).
-pub fn fact_correlation(external_id: &str) -> v1::Uuid {
+/// A fact's command id: UUIDv5([`FACT_CORRELATION_NAMESPACE`],
+/// `external_id`). Deduplication of the fact on its stream keys on it.
+pub fn fact_command_id(external_id: &str) -> v1::Uuid {
     uuid::Uuid::new_v5(&FACT_CORRELATION_NAMESPACE, external_id.as_bytes()).into()
 }
 
-/// The idempotency fingerprint of a command's body payload, a
-/// `google.protobuf.Any` exactly as received (`IdempotencyClaim.fingerprint`;
-/// types.proto, `derived_ids` region):
-/// UUIDv5([`FINGERPRINT_NAMESPACE`], name), where name is the UTF-8
-/// `type_url`'s byte length as a 4-byte big-endian unsigned integer, then
-/// the `type_url` bytes, then `payload` (the `Any`'s value bytes). Nothing
-/// is normalised or re-serialised.
+/// A fact's correlation when its command supplies none: the same value as
+/// [`fact_command_id`], as a client command's absent correlation is its
+/// command id.
+pub fn fact_correlation(external_id: &str) -> v1::Uuid {
+    fact_command_id(external_id)
+}
+
+/// Appends `s` as a netstring: its byte length in decimal, `':'`, the bytes,
+/// `','`.
+fn netstring(name: &mut Vec<u8>, s: &[u8]) {
+    name.extend_from_slice(s.len().to_string().as_bytes());
+    name.push(b':');
+    name.extend_from_slice(s);
+    name.push(b',');
+}
+
+/// The command id of the `index`-th command (0-based, in emission order) a
+/// saga or process manager named `component` emits in reaction to the event
+/// `trigger` (`types.proto`, `derived_ids` region):
+/// UUIDv5([`COMMAND_NAMESPACE`], name), where name is six netstrings:
+/// the trigger's domain, edition (`""` for main), root (canonical lowercase
+/// text), sequence (decimal), then `component` and `index` (decimal).
 ///
-/// Misuse detection only (an honest client reusing a key for a different
-/// payload), not tamper protection: it is not the event hash chain.
-///
-/// # Panics
-///
-/// If `type_url` is 4 GiB or longer, which no protobuf message can carry.
-pub fn fingerprint(type_url: &str, payload: &[u8]) -> v1::Uuid {
-    let len = u32::try_from(type_url.len()).expect("a type URL is under 4 GiB");
-    let mut name = Vec::with_capacity(4 + type_url.len() + payload.len());
-    name.extend_from_slice(&len.to_be_bytes());
-    name.extend_from_slice(type_url.as_bytes());
-    name.extend_from_slice(payload);
-    uuid::Uuid::new_v5(&FINGERPRINT_NAMESPACE, &name).into()
+/// Refuses a trigger without a stream or root, a malformed root
+/// ([`UuidError::Length`]), a set empty edition and an empty component.
+pub fn reaction_command_id(
+    trigger: &v1::EventRef,
+    component: &str,
+    index: u32,
+) -> Result<v1::Uuid, UuidError> {
+    let stream = trigger.stream.as_ref().ok_or(UuidError::MissingTrigger)?;
+    let root = stream.root.as_ref().ok_or(UuidError::MissingTrigger)?;
+    let root = uuid::Uuid::from_bytes(root.to_bytes()?);
+    let edition = match stream.edition.as_deref() {
+        Some("") => return Err(UuidError::EmptyEdition),
+        Some(e) => e,
+        None => "",
+    };
+    if component.is_empty() {
+        return Err(UuidError::EmptyComponent);
+    }
+    let mut name = Vec::with_capacity(96 + edition.len() + component.len());
+    netstring(&mut name, stream.domain.as_bytes());
+    netstring(&mut name, edition.as_bytes());
+    netstring(&mut name, root.hyphenated().to_string().as_bytes());
+    netstring(&mut name, trigger.sequence.to_string().as_bytes());
+    netstring(&mut name, component.as_bytes());
+    netstring(&mut name, index.to_string().as_bytes());
+    Ok(uuid::Uuid::new_v5(&COMMAND_NAMESPACE, &name).into())
 }

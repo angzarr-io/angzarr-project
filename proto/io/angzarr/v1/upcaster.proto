@@ -9,9 +9,32 @@ option java_multiple_files = true;
 option java_package = "io.angzarr";
 option ruby_package = "Angzarr";
 
-// UpcasterService: transforms old event versions to current versions
-// Implemented by the client alongside AggregateService on the same gRPC server.
-// Optionally can be deployed as a separate binary for testing or complex migrations.
+// UpcasterService: transforms old event versions to current versions.
+// Implemented by the client alongside CommandHandlerService on the same gRPC
+// server. Optionally can be deployed as a separate binary for testing or
+// complex migrations.
+//
+// Commands can be upcast too, but should rarely be. The client library
+// applies the SAME upcaster chain, by type URL, to an incoming command's
+// payload before dispatch (inside CommandHandlerService.Handle; no RPC
+// round trip, and the coordinator, being domain-blind, never upcasts). A
+// command type URL with no handler and no upcaster path to one is refused
+// INVALID_ARGUMENT, naming the type URL. Commands are never stored, so a
+// command upcaster only translates what an out-of-date client sends.
+//
+// Prefer, in order:
+//   1. evolving the command compatibly: add fields (proto3 makes an absent
+//      field its default), never renumber or retype;
+//   2. having the domain handle both versions for a transition: register a
+//      handler for the old type URL beside the new one, and remove it when
+//      the old clients are gone. The domain decides what an old command
+//      means, which is a business decision, not a schema one.
+// Command upcasting hides stale clients (they keep working, so nothing
+// tells anyone to upgrade them) and adds machinery for data that is never
+// stored. Use it sparingly, as a migration aid with a planned removal (a
+// date or release by which the old clients are gone and the upcaster is
+// deleted). Event upcasting has no such caveat: stored events never go
+// away, so their upcasters are permanent.
 service UpcasterService {
   // Transform events to current version
   // Returns events in same order, transformed where applicable

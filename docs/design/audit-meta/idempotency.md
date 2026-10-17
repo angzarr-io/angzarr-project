@@ -1,8 +1,17 @@
 # Idempotency: research and the chosen design
 
 Part of the [audit-meta design record](../audit-meta-followups.md). The
-contract text is in `proto/io/angzarr/v1/types.proto`, in the `origin`
-region and `IdempotencyClaim`.
+contract text is in `proto/io/angzarr/v1/types.proto`: the
+`command_identity` region (command ids and deduplication), the
+`derived_ids` region (the derivations), and the pipeline in the `handling`
+region.
+
+**Pass 12 replaced the design.** Passes 5–10 chose a key store
+(`IdempotencyClaim`) with payload fingerprints and retention. Pass 12
+(decisions 12.1 and 12.2) deleted the store and moved deduplication onto the
+events, keyed by one `command_id` per command. The research below is
+unchanged; the chosen design follows it, and the superseded key-store design
+is summarised at the end.
 
 ## Problem
 
@@ -44,96 +53,101 @@ Three families emerge:
   versions): idempotency rides on the append or on the domain state, with no
   separate store.
 
-## The chosen design
+## The chosen design (pass 12): dedup by `command_id`, on the events
 
-The user decided on a key store, as proposed. The coordinator checks it
-before business code.
+The user chose the event-store-native family: the KurrentDB and Equinox
+model, with the message-id convention of the messaging inboxes.
 
 | Aspect | Decision |
 |---|---|
-| Keys | `request_id` alone for a request origin, **client-supplied only** (pass 8: a minted request id is never a key). A request id names **one command** (pass 10 deleted `RequestOrigin.index`): a batch caller mints one id per command and groups them by `correlation_id`. `(event, component, index)` for causation; `external_id` for a fact |
-| Scope | per addressed aggregate: the unique key is (`CommandBook.cover`, key) |
-| Claim | written **in the same transaction as the event append**, so a claim exists if and only if its events do |
-| What is claimed | only an **applied** outcome: a sequence range on the stream, where zero events is a valid, claimed range |
-| Rejections | **released, not claimed**. A rejected command writes nothing and can be retried with the same key (Wolverine-style). Parked facts are not claimed either. |
-| Duplicate answer | business code does not run. The coordinator **re-reads the claimed range** and answers with those events and `DELIVERY_OUTCOME_DUPLICATE`. |
-| Concurrency | **optimistic**: the stream's expected sequence and the claim's uniqueness. One concurrent delivery commits, and the loser re-reads and answers DUPLICATE. There is no IN_PROGRESS state. |
-| Fingerprint | **UUIDv5**(`ANGZARR_FINGERPRINT_NAMESPACE` `a749bd8c-7bf0-47e6-a5c9-dc54ebde74aa`, name), name = the UTF-8 type URL's length as 4 bytes big-endian, then the type URL bytes, then the `Any` value bytes, all **as received** (never re-serialised); stored as a 16-byte `UUID` (pass 10; the encoding and a worked example are in the `derived_ids` region of `types.proto`). SDKs serialise deterministically. **Misuse detection, not tamper protection**, and unrelated to the deferred event hash chain. |
-| Mismatch | A **request** key that arrives with a different fingerprint is refused `FAILED_PRECONDITION`. A **fact** key likewise by default; configurable per command type or component to answer DUPLICATE plus an alert and a metric (coordinator configuration, not wire; pass 10). A **causation** mismatch is always refused and dead-lettered with an alert: never applied, never DUPLICATE, not configurable (pass 10, decision 10.4). |
-| Retention | **24 hours** for client (request) keys; **7 days** for causation and fact keys |
-| DLQ replay | keeps the original keys. It refuses an entry older than its key's retention unless the operator overrides it. |
-| Required keys | A client-supplied `request_id` is required for `HandleAsync` and DLQ replay. `Handle`/`HandleSync` accept requests without one, which are simply not deduplicated. Request ids are still **always assigned** (pass 8): the coordinator mints a UUIDv7 and sets `RequestOrigin.minted`, for audit only; minted ids are never claimed or fingerprinted. |
-| Backend capability | a backend that cannot write the claim atomically with the append does not offer `HandleAsync` or replay (`UNIMPLEMENTED`) |
-| Schema | `IdempotencyClaim` in `types.proto`, documented as storage-only |
+| Key | **One `command_id` per command** (`CommandPage.command_id`, a `UUID`). A client Command's is client-supplied (any version; an SDK mints a v7 and reuses it on retry) or, when absent, a UUIDv7 the coordinator mints. A reaction command's is **derived**: UUIDv5(`ANGZARR_COMMAND_NAMESPACE`, netstrings of the trigger `EventRef`, the reacting component and the command's index). A Fact's is **derived**: UUIDv5(`ANGZARR_FACT_CORRELATION_NAMESPACE`, `external_id`). The exact encodings and worked values are in the `derived_ids` region. |
+| Where it lives | **On the events.** Every event the command produces carries it (`EventMeta.command_id`). There is no separate store. |
+| Lookup | "Already applied?" means that the addressed stream holds events with this `command_id`. Every backend keeps an index on (stream, `command_id`), which is not unique: a command may write several events. |
+| Scope | Per addressed stream (`CommandBook.cover`). The same id sent to two streams is two commands. |
+| Order | **Normative**: validate, then assign ids (mint or derive), then the dedup lookup, then resolve and check Handling, then business code. A retry of an applied STRICT command whose expected sequence is now stale is therefore DUPLICATE, not ABORTED. |
+| Duplicate answer | Business code does not run. The coordinator answers with the stored events, in sequence order, and `DELIVERY_OUTCOME_DUPLICATE`. |
+| Atomicity | Inherent: the id is written in the append itself, on every backend. There is no "atomic claims" capability. |
+| Concurrency | The append's optimistic sequence check: one concurrent delivery commits, and the loser re-runs from the lookup and is answered DUPLICATE. |
+| Rejections and parked facts | Write nothing, so a retry with the same id runs business code again (Wolverine-style release, for free). |
+| `HandleAsync` and DLQ replay | The id is assigned before enqueueing (and stored with the dead letter), so queue redelivery and replay are deduplicated. A client-supplied id is no longer required; the caller supplies one only to make its *own* retries safe. |
+| Retention | **None. Dedup is forever**: the events are permanent, so a command id that applied to a stream never applies to it again. |
+
+### Accepted costs
+
+These are the user's, and they are deliberate:
+- **Zero-event decisions are re-decided.** A decision that emitted nothing
+  leaves nothing to find, so a redelivery decides again, against the state
+  as it is then. This is Equinox's behaviour. The re-decision is correct
+  against the current state, but it is not deduplicated. (Review finding
+  W2 raised exactly this against an earlier design. Pass 5 answered it with
+  claims; pass 12 accepts it.)
+- **A reused id with a different payload goes undetected.** Without a
+  fingerprint, a client that sends a new command under an old id is
+  answered DUPLICATE with the old command's events. A fact source that
+  re-sends one `external_id` with a changed payload is treated the same
+  way. Clients must mint a new id for every new command.
+- **Dedup is forever.** No expiry, no purge and no retention window. The
+  index grows with the events, not faster.
 
 ### Alignments
 
-- **Client key, fingerprint, 24-hour retention**: Stripe and the IETF draft.
-- **Atomic with the business write, 7-day retention for message keys**: the
-  NServiceBus outbox. The Wolverine and MassTransit transactional inboxes are
-  the same idea.
-- **Release on failure**: Wolverine, the NServiceBus rollback, and AWS
-  Powertools deleting the record when the handler throws.
-- **No separate command log**: like KurrentDB, Equinox and Marten, the events
-  are the record. The claim stores a range into the stream, not a copy of the
-  response. This honours the user's lean against storing commands.
+- **Message id = command id; correlation and causation as metadata**:
+  KurrentDB (`$correlationId`, `$causationId`, event ids), NServiceBus and
+  MassTransit (message id, conversation and correlation ids), and Marten's
+  causation and correlation metadata.
+- **Deduplication on the stream, no separate store**: KurrentDB's
+  idempotent appends (event ids) and Equinox (processed ids in the stream,
+  zero-event decisions re-decided).
+- **Release on failure**: Wolverine and the NServiceBus rollback. A
+  rejection writes nothing.
+- **No command log**: the events are the record, which honours the user's
+  lean against storing commands.
 
 ### Divergences, and why
 
-- **Rejections are not replayed** (Stripe stores and replays error results).
-  An angzarr rejection depends on stream state. A retry after the state moves
-  on must be able to succeed, and storing the rejection would block that.
-- **The scope is the addressed aggregate, not the account.** The claim must
-  share the append's transaction, which is per stream. The same request may
-  legitimately address two streams with one request id (one command
-  each, so one claim per stream).
-- **Duplicates re-read events instead of storing a response.** The events are
-  already durable, which keeps claims small.
-- **No IN_PROGRESS state, and no 409 on concurrent use** (the IETF draft and
-  Powertools have both). Because the claim commits with the append, a
-  concurrent duplicate loses the optimistic race and is answered DUPLICATE,
-  with no lock to expire.
-- **A fact mismatch is refused by default** (pass 10). Inboxes keyed on a
-  message id simply drop a repeated id; angzarr refuses it when the payload
-  differs, as Stripe does for API keys, because a changed fact under one id
-  is a source bug or a correction the domain never saw. Sources whose
-  redeliveries vary in bytes opt into DUPLICATE plus an alert, per command
-  type or component.
-- **Fingerprint mismatch is `FAILED_PRECONDITION`, not 422.** gRPC has no 422;
-  `FAILED_PRECONDITION` is the closest terminal code ("the system is not in a
-  state required for the operation": the key is bound to another payload).
-  The REST gateway may map it to 422.
-- **A causation mismatch is refused and dead-lettered, with an alert, and
-  is not configurable** (decision 10.4). The transient outbox re-sends a
-  reaction's commands verbatim, so the only causes are a framework bug or a
-  corrupted outbox. Answering DUPLICATE would hide the bug and drop a
-  command; applying it would run a command the claim says already ran.
-  There is no legitimate source of variation to opt into, unlike facts
-  (backlog KS-12).
+- **No payload check** (Stripe and the IETF draft detect a changed payload
+  under a reused key). That would need a stored fingerprint, and so a store.
+  The user judged misuse detection not worth one.
+- **No retention** (Stripe keeps keys for 24 hours, NServiceBus for 7 days).
+  The ids are on permanent events, so dedup is permanent, at no extra cost.
+- **Derived ids for reactions and facts.** KurrentDB and the inboxes use
+  whatever id the message carries. angzarr derives reaction and fact ids,
+  so a redelivery reproduces the id without anyone storing it. The
+  transient outbox re-sends verbatim regardless.
+- **Dedup is per stream, not per endpoint.** The id is found where the
+  events are.
 
 ### Still open
 
-- **Repeated parks.** A parked fact is not claimed, so a webhook that keeps
+- **Repeated parks.** A parked fact writes nothing, so a webhook that keeps
   redelivering a fact whose ingest fails produces a dead-letter entry per
-  attempt, unless the DLQ deduplicates entries per key (backlog KS-9).
-- **Reactions on backends without atomic claims.** The capability note
-  removes `HandleAsync` and replay. Reaction delivery is also at least once,
-  so it is unclear whether such a backend can run sagas and PMs at all, or
-  whether it runs them unsafely and flags them.
+  attempt, unless the DLQ deduplicates entries per command id (backlog
+  CI-8).
+- **Reactor re-runs.** A reactor re-run (for example after a checkpoint
+  reset) re-derives the same command ids for the same (trigger, component,
+  index), so its commands are answered DUPLICATE, even if the new run would
+  have emitted different commands (review finding T8). This is the "reused
+  id with a different payload" cost, applied to reactions.
+
+## Superseded: the key-store design (passes 5–10)
+
+For the record, the design pass 12 replaced: a storage-only
+`IdempotencyClaim` per (stream, key), written in the append's transaction
+for applied outcomes only. The keys were `request_id` (client-supplied
+only), the causation tuple, or `external_id`. Each claim held a v5
+fingerprint of the payload (a mismatch was refused, or for facts optionally
+answered DUPLICATE), and retention was 24 hours (requests) or 7 days
+(causation and facts). DLQ replay refused entries older than their key's
+retention unless overridden, and backends without atomic claims offered no
+`HandleAsync` or replay. Decisions 5.1–5.5, 5.19 and 10.1–10.4 record it.
+Decision 12.2 records why it went.
 
 ## annals
 
-annals needs no idempotency store. It is in-process and atomic, with no
-at-least-once bus. The residual risks are covered without one: webhook facts
-use a unique index on (stream, `external_id`), and an optional
-`record_command` port protects HTTP retries. See
+annals deduplicates the same way: by `command_id` on its events, with the
+same derivations (through `angzarr_proto::ids`). Its `record_command` port,
+its claims and its fingerprints are gone, and so is the fact-mismatch
+setting. It is in-process and atomic, so redelivery inside it cannot
+happen. The derived fact id covers webhook redeliveries, and a
+client-supplied command id covers HTTP retries. See
 [annals-divergence.md](annals-divergence.md).
-
-annals **fingerprints** like angzarr (user, after pass 7): it records the
-payload fingerprint with each request key it records and refuses a request
-key reused with a different payload. It follows pass 10 too: no request
-index (the key is the request id alone), the same v5 fingerprint
-(`angzarr_proto::ids::fingerprint`), and a fact re-sent with a different
-payload refused by default, configurably DUPLICATE plus an alert. It also follows pass 8: request ids are
-always assigned (a UUIDv7 minted when absent, flagged `minted`), and only
-client-supplied ones deduplicate.
