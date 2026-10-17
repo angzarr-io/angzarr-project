@@ -8,7 +8,11 @@
 //! `FactOrigin`, shared by the page, the event meta and the claim key),
 //! snapshots (with their `rules_version`), the response-only `Outcome`, the
 //! storage-only `IdempotencyClaim` schema, `ComponentDescriptor` and
-//! `ComponentKind`, and the upcaster request/response messages, plus
+//! `ComponentKind`, the upcaster request/response messages, the
+//! `options.proto` option messages (`ConflictUnit` for COMMUTATIVE conflict
+//! units, `ComponentOptions`, `CommandOptions`, `EventConsumer`; prost skips
+//! the `extend` declarations, so option values are read from descriptors),
+//! plus
 //! `sererr.v1`, which `types.proto` imports. Every message implements [`prost::Name`] with no type-name domain,
 //! so `prost_types::Any::from_msg` yields type URLs of the form
 //! `/io.angzarr.v1.EventPage`, matching angzarr's TYPE_URL_PREFIX ("/").

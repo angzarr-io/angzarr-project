@@ -51,7 +51,7 @@ before business code.
 
 | Aspect | Decision |
 |---|---|
-| Keys | `(request_id, index)` for a request origin; `(event, component, index)` for causation; `external_id` for a fact |
+| Keys | `(request_id, index)` for a request origin, **client-supplied only** (pass 8: a minted request id is never a key); `(event, component, index)` for causation; `external_id` for a fact |
 | Scope | per addressed aggregate: the unique key is (`CommandBook.cover`, key) |
 | Claim | written **in the same transaction as the event append**, so a claim exists if and only if its events do |
 | What is claimed | only an **applied** outcome: a sequence range on the stream, where zero events is a valid, claimed range |
@@ -61,7 +61,7 @@ before business code.
 | Fingerprint | a hash over the body payload **as received** (the `Any` type URL and value bytes, never re-serialised). SDKs serialise deterministically. A request key that arrives with a different fingerprint is refused `FAILED_PRECONDITION`. |
 | Retention | **24 hours** for client (request) keys; **7 days** for causation and fact keys |
 | DLQ replay | keeps the original keys. It refuses an entry older than its key's retention unless the operator overrides it. |
-| Required keys | `request_id` is required for `HandleAsync` and DLQ replay. `Handle`/`HandleSync` accept keyless requests, which are simply not deduplicated. |
+| Required keys | A client-supplied `request_id` is required for `HandleAsync` and DLQ replay. `Handle`/`HandleSync` accept requests without one, which are simply not deduplicated. Request ids are still **always assigned** (pass 8): the coordinator mints a UUIDv7 and sets `RequestOrigin.minted`, for audit only; minted ids are never claimed or fingerprinted. |
 | Backend capability | a backend that cannot write the claim atomically with the append does not offer `HandleAsync` or replay (`UNIMPLEMENTED`) |
 | Schema | `IdempotencyClaim` in `types.proto`, documented as storage-only |
 
@@ -118,3 +118,9 @@ at-least-once bus. The residual risks are covered without one: webhook facts
 use a unique index on (stream, `external_id`), and an optional
 `record_command` port protects HTTP retries. See
 [annals-divergence.md](annals-divergence.md).
+
+annals **fingerprints** like angzarr (user, after pass 7): it records the
+payload fingerprint with each request key it records and refuses a request
+key reused with a different payload. It also follows pass 8: request ids are
+always assigned (a UUIDv7 minted when absent, flagged `minted`), and only
+client-supplied ones deduplicate.

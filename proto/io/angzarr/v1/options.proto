@@ -124,4 +124,198 @@ extend google.protobuf.MessageOptions {
   CommandOptions command = 50104;
   // Repeated: one entry per consuming component.
   repeated EventConsumer event = 50105;
+  // Marks an aggregate's (or process manager's) event-sourced STATE message
+  // as eligible for CONFLICT_RESOLUTION_COMMUTATIVE, and turns on the
+  // conflict-unit markers ((conflict), below) on its fields. See the
+  // conflict_units region. 50101-50103 are skipped: earlier, since-deleted
+  // options used them, and stale descriptors may still carry them.
+  bool commutative_state = 50106;
 }
+
+// region conflict_units
+// Conflict units: what CONFLICT_RESOLUTION_COMMUTATIVE compares.
+//
+// COMMUTATIVE (see ConflictResolution in types.proto) accepts a stale
+// command when the state the command changes is disjoint from the state the
+// concurrency window changed. "The state it changes" is defined here, once,
+// for every language: a code generator (one protoc plugin for all client
+// languages, backlog CR-1) reads these markers from the descriptors and
+// emits, per commutative_state message,
+//
+//   changed(before, after) -> set of unit paths
+//
+// a pure function over two values of the state message. The client library's
+// COMMUTATIVE resolver calls it; business code never does. annals generates
+// the same function from the same markers, and a shared golden fixture suite
+// holds every implementation to identical output.
+//
+// Marking. A state message opts in with `option (commutative_state) = true`.
+// Each of its fields is then MARKED by carrying (conflict), possibly empty:
+//   string title = 1 [(conflict) = {}];
+//   map<string, Item> items = 2 [(conflict) = {descend: true}];
+// The ConflictUnit fields only refine how a marked field is split into
+// units; an empty ConflictUnit means "this field, at its natural unit".
+//
+// Units, by field kind. A unit path names one piece of state; changed()
+// returns the path of every unit whose value differs between before and
+// after.
+//
+//   Field kind                          Unit                                          Example path
+//   ----------------------------------  --------------------------------------------  ------------------
+//   scalar / string / bytes / enum      the field                                     title
+//   optional scalar (explicit presence) the field; set <-> unset is a change          deadline
+//   message, not descend                the whole message (deep equality, presence)   settings
+//   message with descend                each inner field, recursively, by these rules settings.cooldown_days
+//   map                                 one unit per key (added, removed or changed)  items[42]
+//   map of messages with descend        per key, then per inner field                 items[42].weight
+//   repeated message with element_key   per element by key; plus field[#order] if     columns[due]
+//                                       ordered and the order changed                 columns[#order]
+//   repeated message, no element_key    the whole list                                columns
+//   repeated scalar / string / bytes    the whole list                                tags
+//   oneof                               the whole oneof (a case switch or a value     payment
+//                                       change)
+//
+// Details of each rule:
+// - Scalars compare by value. A proto3 field without explicit presence has
+//   no unset state: unset and the default are the same value. A field with
+//   explicit presence (proto3 `optional`) also changes when it goes from set
+//   to unset or back, even to or from its default. Strings compare as UTF-8
+//   bytes; bytes compare as bytes; enums compare by number.
+// - FLOATS (float, double) compare BITWISE, on their IEEE 754 encoding: NaN
+//   equals NaN only with the same bits, and +0.0 differs from -0.0. Never
+//   numeric equality, so every language agrees.
+// - Deep equality (a message that is not descended, a map value or list
+//   element that is not descended) applies these same comparisons to every
+//   field of the message, recursively, markers or not; map entries compare
+//   by key regardless of order. Message presence counts: an unset message
+//   differs from a set, empty one.
+// - descend: the inner message's own fields become units, each under the
+//   rules in this table, by its own (conflict) marker (the inner message
+//   type needs no commutative_state). Unmarked inner fields follow the
+//   unmarked-field rule below. A descended message going between unset and
+//   set is a change of the field itself (path `settings`), not of its inner
+//   fields.
+// - Maps: one unit per key present in before or after, named
+//   `field[key]`, reported when that entry differs; a key added or removed
+//   is a change of `field[key]`. With
+//   descend (map values must be messages), a key present on both sides is
+//   split into its value's inner fields (`items[42].weight`).
+// - Keyed repeated (element_key names a field of the element message: a
+//   singular scalar, string, bytes or enum field): one unit per key,
+//   `field[key]`, like a map; with descend, split per inner field like a
+//   map. With ordered, the field also has the unit `field[#order]`, which
+//   changes iff the keys present on BOTH sides appear in a different
+//   relative order; adding or removing an element alone is not an order
+//   change. Without ordered, order is ignored. If the key is not unique
+//   within before or within after, that field falls back to one unit for
+//   the whole list (`columns`), compared by deep equality.
+// - Oneofs: one unit named after the oneof (`payment`), which changes when
+//   the set case changes (including to or from none) or the set member's
+//   value changes (deep equality). The oneof is marked iff EVERY member
+//   carries (conflict), and members carry only an empty ConflictUnit
+//   (descend, element_key or ordered on a oneof member is a generation
+//   error). A proto3 `optional` field's synthetic oneof is not a oneof here:
+//   it is the optional-scalar row.
+//
+// Unit path syntax. Proto field names (never JSON names), joined by `.`.
+// A map or keyed-repeated key is written in brackets after the field:
+// integer keys in decimal, bool keys as `true` / `false`, enum keys by
+// number (element keys only; map keys cannot be enums), string and bytes
+// keys as their UTF-8 / raw bytes with each `\`, `]` and `#` preceded by a
+// `\`. A key therefore never starts with a bare `#`, so `[#order]` cannot
+// collide with a key (the string key "#order" is written `[\#order]`).
+// Paths are compared as byte strings.
+//
+// UNMARKED FIELDS CONFLICT WITH EVERYTHING (fail-safe). A field of a
+// commutative_state message (or of a descended message) without (conflict)
+// is never silently ignored: if it differs, changed() reports the wildcard
+// unit `*` followed by the field's path (e.g. `*notes`), and a wildcard
+// overlaps every unit of the other set. A field added to the state without
+// a marker therefore makes COMMUTATIVE behave like STRICT whenever that
+// field moves, never like a blind merge. Unknown fields (state decoded from
+// a newer schema) are compared as raw bytes per message and, if they
+// differ, report the wildcard `*` + that message's path (`*` alone at the
+// top level).
+//
+// Overlap. Two unit sets OVERLAP iff
+//   - one set holds a wildcard and the other set is non-empty, or
+//   - a unit of one set equals a unit of the other, or is a path prefix of
+//     it ending at a `.` or `[` boundary (`items[42]` overlaps
+//     `items[42].weight`; `items[4]` does not overlap `items[42]`).
+// Prefixes make every fallback sound: a coarser unit always overlaps the
+// finer units inside it.
+//
+// Recursion bound. descend may recurse, including through a message type
+// that contains itself, to a depth of 32 descended messages counted from
+// the commutative_state message. At depth 32 the field is treated as not
+// descended (one whole-message unit, by deep equality): coarser, so still
+// sound. Every implementation uses the same bound, so paths agree.
+//
+// The resolver (client library; see ConflictResolution in types.proto):
+//   1. expected = state folded to Handling.expected_sequence;
+//      head = expected with the window's events folded in.
+//   2. window = changed(expected, head).
+//   3. decide runs on head (never on expected), so every invariant decide
+//      checks is checked against the window's effects.
+//   4. mine = changed(head, head with the command's events folded in).
+//   5. window and mine disjoint (no overlap): the library acknowledges the
+//      nonce itself and the events are kept. Otherwise the command fails as
+//      stale (ABORTED), as STRICT would. An empty window or an empty mine is
+//      always disjoint.
+// The resolver uses the CURRENT markers, from the descriptors of the code
+// that runs decide; markers are never stored with events, so a marker change
+// affects resolutions from its deployment on, never history.
+//
+// COMMUTATIVE is allowed only on a component whose state message has
+// commutative_state. A command resolved to COMMUTATIVE for any other state
+// is malformed: refused INVALID_ARGUMENT before decide (the client library
+// checks it, as the coordinator is domain-blind), and a configuration that
+// names COMMUTATIVE for such a component is refused when the component
+// registers.
+//
+// Generation errors (the plugin fails, naming the field): (conflict) on a
+// field of a message that is neither commutative_state nor reachable by
+// descend from one; descend on a non-message field, a map whose values
+// are not messages, or a repeated message field without element_key;
+// element_key on anything but a repeated message field;
+// an element_key naming no singular scalar, string, bytes or enum field of
+// the element; ordered without element_key; a non-empty ConflictUnit on a
+// oneof member.
+//
+// Worked example: hatpick's ListState. hatpick treats a stale edit as safe
+// when it touches different items, or the columns versus the settings; the
+// markers reproduce exactly that "touched" rule.
+//
+//   message ListState {
+//     option (io.angzarr.v1.commutative_state) = true;
+//     map<string, Item> items = 1 [(io.angzarr.v1.conflict) = {}];  // per item: items[<id>]
+//     repeated Column columns = 2 [(io.angzarr.v1.conflict) = {}];  // the whole column list
+//     Settings settings = 3 [(io.angzarr.v1.conflict) = {}];        // the whole settings message
+//   }
+//
+// Two stale edits to different items commute (items[a] vs items[b]); two
+// edits to one item conflict; a column change conflicts with any other
+// column change but not with item or settings edits; a settings change
+// conflicts only with another settings change. Finer variants are one
+// marker away: {descend: true} on items gives per-field item units
+// (items[a].weight), and {element_key: "id", ordered: true} on columns gives
+// per-column units plus columns[#order].
+message ConflictUnit {
+  // Message fields (including map values and keyed list elements): split
+  // into the inner message's fields instead of comparing the message whole.
+  bool descend = 1;
+  // Repeated message fields only: the name of the element field whose value
+  // identifies an element, giving one unit per element (`columns[due]`).
+  string element_key = 2;
+  // With element_key only: the relative order of the elements is state too,
+  // reported as the unit `field[#order]`.
+  bool ordered = 3;
+}
+
+extend google.protobuf.FieldOptions {
+  // Marks a field of a commutative_state message (or of a message reached
+  // from one by descend) as a conflict unit; see the conflict_units region.
+  // Unmarked fields of such messages conflict with everything.
+  ConflictUnit conflict = 50107;
+}
+// endregion

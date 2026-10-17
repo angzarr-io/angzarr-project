@@ -1,4 +1,4 @@
-# Audit-meta decision log (passes 1–7)
+# Audit-meta decision log (passes 1–8)
 
 Part of the [audit-meta design record](../audit-meta-followups.md).
 
@@ -274,7 +274,9 @@ nondeterminism dead-letter.
 correlation are copied from the trigger, and a reactor that sets differing
 values is refused. Correlation is never empty: it is the caller's value, or
 it is derived from `request_id` (or `external_id`). A keyless request gets a
-newly minted correlation (pass-5 choice).
+newly minted correlation (pass-5 choice; superseded by 8.3: request ids are
+always assigned, so the derivation is the request id verbatim and nothing
+mints a correlation).
 - Aligns with: correlation propagation in NServiceBus, MassTransit and the
   KurrentDB conventions.
 
@@ -550,6 +552,9 @@ during pass 6).** `CONFLICT_RESOLUTION_COMMUTATIVE = 1` (its old number).
   It is justified by goal 2, and it is opt-in because a structural diff
   cannot see semantic links between fields: two commands that touch
   different fields can still break an invariant that spans them.
+- The "protobuf reflection" diff was left unspecified here; pass 8 (8.1)
+  replaces it with declared conflict units, and decide on the head (which
+  keeps invariants checked).
 
 ## Pass 7: the main timeline is the unset edition
 
@@ -595,6 +600,119 @@ kept), so `EventRef.stream` and every other nested `Cover` follow.
   each backend's choice and never reaches the wire.
 - Aligns with: protobuf's own guidance to use explicit presence when unset
   and empty must differ.
+
+## Pass 8: conflict units, minted ids and always-assigned request ids
+
+Decided by the user. As before, only the protos, the `rust/angzarr-proto`
+crate and these documents changed, and nothing is reserved (the 6.6 policy
+now covers passes up to and including 8; nothing was removed).
+
+**8.1 COMMUTATIVE compares declared conflict units (replaces 6.12's
+"reflection diff").** `options.proto` gains
+`extend google.protobuf.MessageOptions { bool commutative_state = 50106; }`,
+`extend google.protobuf.FieldOptions { ConflictUnit conflict = 50107; }` and
+`message ConflictUnit { bool descend = 1; string element_key = 2; bool
+ordered = 3; }`. A generated `changed(before, after)` returns a set of unit
+paths:
+
+| Field kind | Unit | Example path |
+|---|---|---|
+| scalar / string / bytes / enum | the field | `title` |
+| optional scalar | the field; set↔unset is a change | `deadline` |
+| message, not `descend` | the whole message (deep equality) | `settings` |
+| message with `descend` | each marked inner field, recursively | `settings.cooldown_days` |
+| map | one unit per key (added, removed or changed) | `items[42]` |
+| map of messages with `descend` | per key, then per inner field | `items[42].weight` |
+| repeated message with `element_key` | per element by key; plus `field[#order]` if `ordered` and the order changed | `columns[due]` |
+| repeated message without `element_key` | the whole list | `columns` |
+| repeated scalar | the whole list | `tags` |
+| oneof | the whole oneof (a case switch or a value change) | `payment` |
+
+- **Unmarked fields conflict with everything** (fail-safe): a changed
+  unmarked field reports a wildcard unit (`*` + its path) that overlaps any
+  non-empty set. An unmarked field can only make COMMUTATIVE stricter.
+- **Floats compare bitwise** (IEEE 754 bits: NaN = NaN with equal bits, +0
+  ≠ −0), so every language agrees.
+- **Overlap** is equality or a path prefix at a `.`/`[` boundary, so every
+  coarser fallback (a non-unique element key falls back to the whole list)
+  stays sound.
+- **Recursive `descend`** is allowed to a depth of 32 descended messages; at
+  the bound the field is one whole-message unit (coarser, still sound).
+- **Path syntax** is fixed for parity: proto field names, `.` joins, keys in
+  brackets (decimal integers, `true`/`false`, enum numbers, string and bytes
+  keys with `\`, `]` and `#` escaped by `\`), so `[#order]` never collides
+  with a key.
+- **The resolver**: `window = changed(state@expected, state@head)`; decide
+  runs on head; `mine = changed(head, head + events)`. Disjoint: the library
+  acknowledges the nonce. Otherwise `ABORTED`. **Invariants are checked on
+  head**, so the residual risk is only a caller's intent that depended on a
+  disjoint unit the window changed (read A, write B).
+- **The resolver uses the current markers** (the code running decide);
+  markers are never stored with events.
+- **COMMUTATIVE requires `commutative_state`**; otherwise the command is
+  malformed (`INVALID_ARGUMENT`, refused by the client library, which alone
+  knows the state type) and such a configuration is refused at registration.
+- **Extension numbers**: 50106 and 50107, after the existing 50100, 50104
+  and 50105. 50101–50103 are skipped because deleted options used them and
+  stale descriptors in old branches still carry them.
+- **One protoc plugin generates `changed()` for every language**, plus a
+  shared golden fixture parity suite (backlog CR-1). annals generates the
+  same function from the same markers.
+- Worked example: hatpick's `ListState { option commutative_state; map<string,
+  Item> items [conflict]; repeated Column columns [conflict]; Settings
+  settings [conflict] }` gives per-item units, one unit for the column list
+  and one for the settings, which is hatpick's "touched" rule. (The fixture
+  `rust/angzarr-proto/tests/fixtures/list_state.proto` carries it.)
+- Why: "reflection diff" left granularity undefined per language, so seven
+  client libraries and annals would each have invented one. Declared units
+  make the merge rule part of the schema, reviewable and identical
+  everywhere.
+- Cost: a protoc plugin and golden suite to build (CR-1); state authors
+  annotate fields.
+- Aligns with: nothing directly (6.12's divergence stands). The unit model
+  resembles CRDT-style per-key maps and JSON Merge Patch granularity, but is
+  only a conflict detector: the merge is always "decide on head".
+
+**8.2 Every framework-minted id is a UUIDv7 (RFC 9562).** Request ids,
+anything an SDK mints for its caller (request ids, new roots), and (through
+8.3) derived correlations. Canonical lowercase 36-character text in string
+fields, 16 bytes in `UUID`. Client-supplied ids stay opaque strings that are
+never parsed. The conflict nonce and the DLQ's int64 row ids are not
+identifiers and are not covered. Documented as the `minted_ids` region of
+`types.proto`.
+- Why: time-ordered ids index and sort well, and one rule in both runtimes
+  keeps annals and angzarr records alike.
+- Aligns with: RFC 9562's recommendation of v7 for new time-ordered keys,
+  and the same idea as Marten's sequential (comb) Guid ids.
+
+**8.3 Request ids are always assigned; only client-supplied ones
+deduplicate.** A request without a `request_id` gets a minted v7 recorded in
+its origin, so every command and event has a request id for audit.
+`RequestOrigin` gains `bool minted = 3`: set only by the coordinator (a
+client that sets it is malformed), recorded with the origin in `EventMeta`.
+A minted id is never claimed, never fingerprinted and never deduplicates;
+`HandleAsync` and DLQ replay still require a client-supplied one (empty or
+minted is refused). Supersedes "refuse keyless" for annals too.
+- **Representation chosen**: a bool on `RequestOrigin`, not a separate
+  `minted_request_id` field. Alternatives: (a) a separate field, which would
+  leave `request_id` empty on keyless requests and make every audit reader
+  check two fields; (b) a prefix or other magic in the id string, which would
+  break opacity of client ids. The bool keeps one field holding "the request
+  id", costs zero bytes for the common client-keyed case (proto3 default
+  false), and keeps `IdempotencyClaim.key` as the origin verbatim.
+- **Correlation when absent** = the request id verbatim (always present now);
+  for a fact, `external_id` verbatim; a causation is stamped from its
+  trigger. No hashing and no name-based UUID (this supersedes backlog PS-3's
+  earlier "name-based UUID" wording); nothing mints a correlation itself,
+  so pass 5's "keyless request gets a freshly minted correlation" is
+  unreachable and removed.
+- Why: audit wants a request id everywhere; dedup must only trust keys the
+  client will reproduce on retry.
+- Cost: core, the clients and annals mint and record the id (backlog MI-1,
+  MI-2); a wire field.
+- Aligns with: request-id middleware convention (an `X-Request-Id` is
+  generated when absent and logged), while Stripe-style dedup honours only
+  the client's `Idempotency-Key`.
 
 ## Corrections
 

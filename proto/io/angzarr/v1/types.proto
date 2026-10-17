@@ -30,9 +30,33 @@ option ruby_package = "Angzarr";
 // Matching compares full names exactly: "orders.OrderCreated" never matches
 // "OrderCreated" or "orders.v2.OrderCreated".
 
+// A UUID as its 16 bytes, most significant first (RFC 9562 byte order).
+// A root the framework or an SDK mints is a UUIDv7 (see the minted_ids
+// region); a root the caller chooses is any 16 bytes, never inspected.
 message UUID {
   bytes value = 1;
 }
+
+// region minted_ids
+// Minted identifiers. Every identifier the framework mints is a UUIDv7
+// (RFC 9562): time-ordered, so minted ids sort by creation time and index
+// well, with 74 random bits. This holds in angzarr (coordinator and client
+// libraries) and in annals alike. In a string field a minted id is the
+// canonical text form, 36 lowercase characters (8-4-4-4-12 hex with
+// hyphens); in a UUID message it is the 16 bytes. Today the framework mints:
+//   - RequestOrigin.request_id, when the caller supplied none
+//     (RequestOrigin.minted);
+//   - correlation, only indirectly: an absent correlation is the request id
+//     verbatim (see Provenance), which may be a minted one;
+//   - ids an SDK mints on its caller's behalf (a command helper's
+//     request_id, a new aggregate root); these count as client-supplied.
+// Client-supplied identifiers (request_id, correlation_id, external_id,
+// actor, roots) stay OPAQUE: the framework never parses, validates or
+// reformats them, and never requires them to be UUIDs.
+// Not identifiers, so not covered: the conflict nonce
+// (ContextualCommand.conflict_nonce, opaque per-delivery bytes) and
+// store-assigned row numbers (e.g. the DLQ's int64 entry ids).
+// endregion
 
 // region cover
 // Stream identity, and nothing else: one stream is (domain, edition, root).
@@ -131,23 +155,38 @@ message Cover {
 // the nonce are delivered exactly as under AGGREGATE_HANDLES, and the same
 // snapshot rule applies (the delivered snapshot is at or below
 // expected_sequence-1, so the window arrives as pages). The library, not
-// the handler, then compares, by protobuf reflection, the state fields the
-// window's events changed (the state folded to expected_sequence versus
-// the state folded to the head) with the state fields the command's events
-// change. Disjoint: the library acknowledges the nonce itself
-// (resolve_conflicts) and the command's events are kept. Overlapping: the
-// command fails as stale (ABORTED), as under STRICT. Everything happens
-// locally in the client library: there is no Replay RPC and no
-// coordinator-side diff; to the coordinator COMMUTATIVE is delivered
-// exactly like AGGREGATE_HANDLES.
+// the handler, then compares CONFLICT UNITS (the conflict_units region of
+// options.proto, which defines them field kind by field kind):
+//   window = changed(state at expected_sequence, state at the head)
+//   decide runs on the head state, so its invariants are checked against
+//     the window's effects
+//   mine   = changed(head, head with the command's events folded in)
+// changed() is generated from the state message's (commutative_state) and
+// (conflict) markers, the current ones of the code running decide.
+// Disjoint (no overlap, as options.proto defines it): the library
+// acknowledges the nonce itself (resolve_conflicts) and the command's
+// events are kept. Overlapping: the command fails as stale (ABORTED), as
+// under STRICT. Unmarked fields conflict with everything, so an unmarked
+// change can only make COMMUTATIVE stricter. Everything happens locally in
+// the client library: there is no Replay RPC and no coordinator-side diff;
+// to the coordinator COMMUTATIVE is delivered exactly like
+// AGGREGATE_HANDLES. (Conflict units replace pass 6's unspecified
+// "reflection diff".)
+//
+// COMMUTATIVE is allowed only for a component whose state message has
+// (commutative_state). A command resolved to COMMUTATIVE for any other
+// state is malformed (see Handling): the client library refuses it
+// INVALID_ARGUMENT before decide, and a configuration naming COMMUTATIVE
+// for such a component is refused when the component registers.
 //
 // COMMUTATIVE is a justified divergence from established frameworks (none
 // of Axon, Marten, Eventuous, KurrentDB or NServiceBus ships automatic
 // field-overlap merging): it serves goal 2, hiding CQRS/ES complexity so
 // implementors do not write conflict logic. It is opt-in only, never a
-// default, because a structural diff cannot see semantic links between
-// fields (two commands touching different fields can still violate an
-// invariant that spans them). It is enabled per command type or per
+// default. Because decide runs on the head, the invariants decide checks
+// still hold; what no structural comparison can see is a caller's intent
+// that depended on state the window changed in a disjoint unit (the caller
+// read A, decided to change B). It is enabled per command type or per
 // component in configuration, or in Handling where configuration allows the
 // override; STRICT stays the default.
 //
@@ -156,7 +195,7 @@ message Cover {
 // framework RPC for conflict resolution.
 enum ConflictResolution {
   CONFLICT_RESOLUTION_UNSPECIFIED = 0; // Not specified: the configured default applies (STRICT if none)
-  CONFLICT_RESOLUTION_COMMUTATIVE = 1; // Opt-in: the client library accepts iff the window and the command touch disjoint state fields
+  CONFLICT_RESOLUTION_COMMUTATIVE = 1; // Opt-in: the client library accepts iff the window and the command change disjoint conflict units (options.proto)
   CONFLICT_RESOLUTION_STRICT = 2; // Reject on sequence mismatch (optimistic concurrency); default without config
   CONFLICT_RESOLUTION_AGGREGATE_HANDLES = 3; // decide receives the window and applies its own conflict rule
 }
@@ -243,10 +282,21 @@ message EventRef {
 // as someone else.
 //
 // Correlation is never empty on a persisted event. The coordinator uses the
-// caller's correlation_id when supplied; otherwise it derives one
-// deterministically from the command's key (request_id for a request,
-// external_id for a fact), so every retry of one request lands in one
-// correlation; a keyless request gets a freshly minted one.
+// caller's correlation_id when supplied (verbatim, opaque). When it is
+// absent (empty), the coordinator sets it, before business code, from the
+// command's origin, VERBATIM (no hashing, prefixing or reformatting):
+//   request   — origin.request.request_id, which is always present by then
+//               (client-supplied, or minted; see RequestOrigin). Every retry
+//               of a client-keyed request lands in one correlation; a
+//               request without a client key gets its minted request id.
+//   fact      — origin.fact.external_id (required, so never empty).
+//   causation — never derived: stamped from the trigger, as above, and a
+//               trigger's correlation is never empty.
+// The framework therefore never mints a correlation of its own. Correlation
+// stays opaque: derived from a client-supplied key it is whatever that key
+// is, not necessarily a UUID. Correlation groups a workflow and is not an
+// identity: two sources' external ids can coincide, and a sender that must
+// keep them apart supplies correlation_id itself.
 message Provenance {
   // Who caused the command. Opaque and pseudonymous: an identifier whose
   // mapping to a real person lives outside the event store, so erasing the
@@ -270,8 +320,10 @@ message Provenance {
 // Validation (the body arm and the origin must agree; see CommandPage):
 //   Fact arm      requires origin.fact (it carries the external_id key).
 //   Command arm   requires origin.request or origin.causation, never
-//                 origin.fact. A Command sent with no origin is a keyless
-//                 request: it is recorded as an empty RequestOrigin.
+//                 origin.fact. A Command sent with no origin is a request
+//                 without a client key: the coordinator records a
+//                 RequestOrigin with a minted request_id (minted set,
+//                 index 0).
 // Violations are refused loudly, never repaired: a client's command is
 // answered INVALID_ARGUMENT; a reaction command is dead-lettered and
 // alerted as a reactor bug. (Pass 6 replaced the per-arm origin fields,
@@ -281,12 +333,17 @@ message Provenance {
 // Idempotency: the claim model. The coordinator deduplicates every keyed
 // command before business code runs, against an idempotency key store (see
 // IdempotencyClaim). Each origin supplies the key:
-//   request   — (request_id, index)
+//   request   — (request_id, index), only when the caller supplied
+//               request_id (RequestOrigin.minted false)
 //   causation — (event, component, index)
 //   fact      — external_id
-// A request-origin command with no request_id has no key and is not
-// deduplicated; HandleAsync and DLQ replay require one (see
-// command_handler.proto).
+// Request ids are ALWAYS ASSIGNED: a request that arrives without one is
+// given a minted UUIDv7 (RequestOrigin.minted), so every command and event
+// has a request id for audit. ONLY A CLIENT-SUPPLIED request_id is a key: a
+// minted one is never claimed and never deduplicates anything (a retry of
+// the same request gets a different minted id). HandleAsync and DLQ replay
+// require a client-supplied one (see command_handler.proto and
+// dlq_admin.proto).
 //
 // Scope. A key is claimed per addressed aggregate: the key store is keyed on
 // (CommandBook.cover, key), so the same key sent to two streams is two
@@ -314,7 +371,9 @@ message Provenance {
 // re-serialises before hashing). SDKs serialise deterministically so an
 // honest retry reproduces the same bytes. A request key that arrives again
 // with a different fingerprint is refused FAILED_PRECONDITION (the key was
-// reused for a different command) and is never answered DUPLICATE. Causation
+// reused for a different command) and is never answered DUPLICATE. Only
+// client-supplied request ids are claimed, so only they are fingerprinted;
+// a minted request id has no claim and no fingerprint. Causation
 // and fact keys record the fingerprint too; how a mismatch on them is
 // answered is open (see docs/design/audit-meta/idempotency.md).
 //
@@ -331,12 +390,28 @@ message Provenance {
 // A command issued directly by a caller, as part of one inbound request
 // (e.g. one API call). (request_id, index) is the command's idempotency key
 // at the addressed aggregate, kept 24 hours (see the claim model above).
+//
+// Client-supplied versus minted. The caller may supply request_id (its
+// idempotency key) or leave it empty. Empty is not recorded as empty: the
+// coordinator mints a UUIDv7 (see the minted_ids region), writes it to
+// request_id and sets minted, after validation and before deduplication. So
+// on every accepted command and every persisted event request_id is
+// non-empty, and minted says whose it is.
 message RequestOrigin {
-  // Identifier of the inbound request, chosen by the caller and reused
-  // verbatim on every retry of that request. Empty means "no key": the
-  // command is not deduplicated, and HandleAsync refuses it.
+  // Identifier of the inbound request. Client-supplied: chosen by the caller,
+  // opaque, and reused verbatim on every retry of that request; it is the
+  // idempotency key. Empty on arrival: minted by the coordinator (see
+  // minted). Never empty after the coordinator accepts the command.
   string request_id = 1;
   uint32 index = 2; // Position of the command within that request
+  // True iff the coordinator minted request_id because the caller supplied
+  // none. Set only by the coordinator: a client command that arrives with
+  // minted set is malformed (INVALID_ARGUMENT). A minted request_id is
+  // recorded for audit only: it is never claimed and never deduplicates,
+  // and HandleAsync and DLQ replay do not accept it as a key. Recorded with
+  // the origin on every event (EventMeta.origin), so audit can always tell
+  // a caller's key from a minted id.
+  bool minted = 3;
 }
 
 // A command emitted by a saga, process manager or policy reacting to an
@@ -391,7 +466,8 @@ message IdempotencyClaim {
   // The addressed aggregate: the claim's scope. (stream, key) is unique.
   Cover stream = 1;
   // The key: the producing command's origin, exactly as it arrived. For a
-  // request, (request_id, index) with request_id never empty here; for a
+  // request, (request_id, index) with a client-supplied request_id (never
+  // empty and never minted here: minted ids are not claimed); for a
   // causation, (event, component, index); for a fact, external_id only
   // (description is not part of the key).
   Origin key = 10;
@@ -431,8 +507,9 @@ message IdempotencyClaim {
 message EventMeta {
   Provenance provenance = 1; // Copied from the producing command (actor, correlation)
   // Why the producing command exists: the command's CommandPage.origin,
-  // copied unchanged (see the origin region). Always recorded: a keyless
-  // request is recorded as an empty RequestOrigin. The event that caused
+  // copied unchanged (see the origin region). Always recorded: a request
+  // without a client key is recorded with its minted request_id
+  // (RequestOrigin.minted). The event that caused
   // this one, if any, is origin.causation.event.
   Origin origin = 12;
   // When the event was durably recorded, stamped by the server that persisted
@@ -562,7 +639,11 @@ message Projection {
 //     component;
 //   - expected_sequence on a Fact (see below);
 //   - any Handling on a reaction command (see below);
-//   - a body arm and origin that disagree (see the origin region).
+//   - a body arm and origin that disagree (see the origin region);
+//   - RequestOrigin.minted set by the sender (only the coordinator mints);
+//   - conflict_resolution COMMUTATIVE for a component whose state message
+//     lacks (commutative_state) (refused by the client library, the only
+//     side that knows the state type; see ConflictResolution).
 // A client's malformed command is answered INVALID_ARGUMENT, by every
 // coordinator RPC (HandleAsync included: it validates before enqueueing).
 // A reaction command has no caller to answer, so it is dead-lettered as a
@@ -585,9 +666,11 @@ message Handling {
   //
   // If provided, the command is rejected before business code unless the
   // stream is at expected_sequence, or the resolved conflict resolution is
-  // AGGREGATE_HANDLES or COMMUTATIVE, in which case decide receives the
-  // events since expected_sequence and the conflict rule is applied (by
-  // decide, or by the client library's COMMUTATIVE resolver). If absent, the
+  // AGGREGATE_HANDLES or COMMUTATIVE, in which case the events since
+  // expected_sequence are delivered with the command and a conflict rule is
+  // applied: under AGGREGATE_HANDLES decide receives them and applies its
+  // own; under COMMUTATIVE decide runs on the head and the client library
+  // compares conflict units (see ConflictResolution). If absent, the
   // framework stamps the head it decides against, before business code.
   //
   // Either way, the check or the stamp happens in the framework before the

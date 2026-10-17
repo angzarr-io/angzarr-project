@@ -1,8 +1,11 @@
 //! Generates the domain-neutral `io.angzarr.v1` types from this repo's
 //! canonical protos (lifted from angzarr-router's `crates/router/build.rs`).
 //!
-//! Only `types.proto` (with `sererr/v1/sererr.proto`, which it imports) and
-//! `upcaster.proto` are compiled. prost-build emits messages only: the
+//! Only `types.proto` (with `sererr/v1/sererr.proto`, which it imports),
+//! `upcaster.proto` and `options.proto` are compiled. prost generates the
+//! option messages (`ConflictUnit`, `ComponentOptions`, ...) but not the
+//! `extend` declarations, which it ignores; their values are read from
+//! descriptors (see `tests/conflict_units.rs`). prost-build emits messages only: the
 //! `UpcasterService` in upcaster.proto is skipped because no service generator
 //! is configured. Nothing here pulls in `google.api`.
 //!
@@ -29,6 +32,7 @@ fn main() {
     let files = [
         root.join("io/angzarr/v1/types.proto"),
         root.join("io/angzarr/v1/upcaster.proto"),
+        root.join("io/angzarr/v1/options.proto"),
         root.join("sererr/v1/sererr.proto"),
     ];
     println!("cargo:rerun-if-env-changed=ANGZARR_PROJECT_PROTO");

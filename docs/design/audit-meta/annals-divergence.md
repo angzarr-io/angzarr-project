@@ -27,7 +27,11 @@ runtimes. This is accepted.
     (stream, `external_id`) rejects the duplicate at the append.
   - **HTTP retries.** A client retrying a request is the one at-least-once
     edge. An **optional `record_command` port** records request keys for
-    servers that want retry safety.
+    servers that want retry safety. It records each key's payload
+    fingerprint too and refuses a key reused with a different payload,
+    exactly as angzarr's claim does, so fingerprinting is no longer a
+    divergence (pass 8). As in angzarr, only client-supplied request ids
+    are recorded keys; minted ones are not.
 - **No transient outbox.** Reactions commit in the same transaction as their
   trigger, so there is nothing to re-send.
 - **`rules_version` is load-bearing.** In angzarr it is opaque, used only to
@@ -53,12 +57,25 @@ runtimes. This is accepted.
   (pass 7): annals' `Option<EditionName>` with `None` = main is exactly the
   wire's `optional string edition`, and a set edition is never empty.
 - Sequences are u64, and `EventPage.sequence` is always definite.
-- Correlation is always set. Causation names the triggering event.
+- Correlation is always set. Causation names the triggering event. When
+  absent, correlation is the request id verbatim (a fact: its `external_id`
+  verbatim), as in angzarr (pass 8).
+- **Minted ids are UUIDv7** and **request ids are always assigned**: a
+  request without a client-supplied id gets a minted v7 flagged
+  `RequestOrigin.minted`, recorded for audit, never deduplicating (pass 8;
+  supersedes annals' earlier "refuse a request with no id").
+- **Payload fingerprints** on request keys, with a reused key refused on a
+  different payload (see above).
+- **COMMUTATIVE uses the same conflict units.** annals' `Domain::changed()`
+  is generated from the same `(commutative_state)` and `(conflict)` markers
+  (`options.proto`, `conflict_units` region) and must pass the same golden
+  fixture suite as the client libraries (backlog CR-1), so a state message
+  resolves identically under both runtimes.
 - Facts use an infallible `ingest`. Strict replay: an unknown type URL fails,
   naming it.
 - Business output is payloads, and the runtime stamps meta.
 
-The plan's annals items (record_command and the commands table, refusing a
-request with no id, `created_at` = `recorded_at`) are tracked in the session
-plan, not here. "Materially similar" to angzarr means the same wire meaning,
+The plan's annals items (record_command and the commands table, `created_at`
+= `recorded_at`) are tracked in the session plan, not here. (Refusing a
+request with no id is superseded by always-assigned request ids, pass 8.) "Materially similar" to angzarr means the same wire meaning,
 not the same execution model.

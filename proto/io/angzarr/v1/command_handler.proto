@@ -87,9 +87,12 @@ service CommandHandlerService {
 // Idempotency is the same in every mode (see the claim model in the origin
 // region of types.proto): a keyed command is deduplicated per addressed
 // aggregate before business code runs, only an applied outcome is claimed,
-// and a duplicate is answered from the claimed range. HandleAsync requires a
-// key (see below); Handle and HandleSync accept a keyless request, which is
-// simply not deduplicated.
+// and a duplicate is answered from the claimed range. Every mode assigns a
+// request id: a request without a client-supplied request_id gets a minted
+// UUIDv7 (RequestOrigin.minted), recorded for audit and never used as a key.
+// HandleAsync requires a client-supplied key (see below); Handle and
+// HandleSync accept a request without one, which is simply not
+// deduplicated.
 //
 // Status codes. One set, used by every coordinator and by every framework
 // retry loop (reaction delivery, the PM and saga outbox, asynchronous
@@ -149,11 +152,13 @@ service CommandHandlerCoordinatorService {
   // decision has been made, and deduplication happens when it is processed,
   // so there are no events and no delivery outcome to report.
   //
-  // The command must carry an idempotency key: a request origin with a
-  // non-empty request_id, or a fact's external_id (CommandPage.origin). Asynchronous delivery is
-  // at least once, and the key is what makes redelivery safe; a keyless
-  // command is refused INVALID_ARGUMENT. On a backend without atomic claims
-  // HandleAsync answers UNIMPLEMENTED.
+  // The command must carry a client-supplied idempotency key: a request
+  // origin with a non-empty request_id (and minted unset), or a fact's
+  // external_id (CommandPage.origin). Asynchronous delivery is at least
+  // once, and only a client key makes redelivery safe (a minted request id
+  // never deduplicates), so a command without one is refused
+  // INVALID_ARGUMENT, before anything is minted or enqueued. On a backend
+  // without atomic claims HandleAsync answers UNIMPLEMENTED.
   //
   // Validation happens before enqueueing: a malformed command (see Handling)
   // is refused INVALID_ARGUMENT here, never enqueued. A business rejection

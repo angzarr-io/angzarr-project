@@ -51,6 +51,7 @@ fn request() -> RequestOrigin {
     RequestOrigin {
         request_id: "req-1".into(),
         index: 3,
+        minted: false,
     }
 }
 
@@ -206,6 +207,47 @@ fn one_origin_message_is_shared_by_page_meta_and_claim() {
             meta_origin.encode_to_vec()
         );
     }
+}
+
+#[test]
+fn request_origin_records_whether_its_request_id_was_minted() {
+    // Client-supplied: minted unset, the default, so it costs no bytes on
+    // the wire and a client never has to set anything.
+    let client = request();
+    assert!(!client.minted);
+    assert_eq!(
+        client.encode_to_vec(),
+        RequestOrigin {
+            request_id: "req-1".into(),
+            index: 3,
+            ..Default::default()
+        }
+        .encode_to_vec()
+    );
+
+    // Minted by the coordinator: a UUIDv7 in canonical text form, flagged,
+    // and recorded on the event meta exactly as on the page.
+    let minted = RequestOrigin {
+        request_id: "01920c8e-7b3a-7cc2-9f4e-5a1b2c3d4e5f".into(),
+        index: 0,
+        minted: true,
+    };
+    let kind = origin::Kind::Request(minted.clone());
+    let decoded = round_trip(&meta(kind));
+    match decoded.origin.and_then(|o| o.kind) {
+        Some(origin::Kind::Request(r)) => {
+            assert!(r.minted);
+            assert_eq!(r, minted);
+            // Version nibble 7 (RFC 9562).
+            assert_eq!(r.request_id.as_bytes()[14], b'7');
+        }
+        other => panic!("expected request origin, got {other:?}"),
+    }
+    assert_ne!(minted.encode_to_vec(), {
+        let mut m = minted.clone();
+        m.minted = false;
+        m.encode_to_vec()
+    });
 }
 
 #[test]

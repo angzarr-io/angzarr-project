@@ -2,7 +2,7 @@
 
 ## Status
 
-Open. The seven `feat/audit-meta` passes changed **only** the protos under
+Open. The eight `feat/audit-meta` passes changed **only** the protos under
 `proto/io/angzarr/` and the `rust/angzarr-proto` crate. No angzarr code has
 changed. The user is not taking on heavy angzarr refactoring now, so every
 code consequence is recorded in the backlog, which is the part that must not
@@ -10,7 +10,7 @@ be lost.
 
 Wire breaks are accepted pre-freeze. Reservation policy (D6, pass 6):
 removed fields and messages are deleted outright, with no `reserved`
-statements, up to and including pass 7. From the first stored production
+statements, up to and including pass 8. From the first stored production
 event onwards, every removal reserves its number and name (see
 `proto/buf.yaml` and backlog GAP-3).
 
@@ -18,12 +18,12 @@ event onwards, every removal reserves its number and name (see
 
 | Document | Contents |
 |---|---|
-| [audit-meta/decision-log.md](audit-meta/decision-log.md) | Every decision of passes 1–7: why, the accepted cost, and the standard it aligns with. Also the corrections (Event Modeling, KurrentDB, Axon). |
+| [audit-meta/decision-log.md](audit-meta/decision-log.md) | Every decision of passes 1–8: why, the accepted cost, and the standard it aligns with. Also the corrections (Event Modeling, KurrentDB, Axon). |
 | [audit-meta/critical-review-source.md](audit-meta/critical-review-source.md) | The post-pass-4 critical review's own record (authoritative for the findings' content). |
 | [audit-meta/critical-review.md](audit-meta/critical-review.md) | The status of each review finding: W1–W14, D1–D11, FINE and annals fitness, with where each was resolved. |
 | [audit-meta/idempotency.md](audit-meta/idempotency.md) | The idempotency research (a comparison table) and the chosen key-store design, with its alignments and divergences. |
-| [audit-meta/backlog.md](audit-meta/backlog.md) | **The code follow-up backlog**, by workstream with a by-repo index. 101 items, each with what, why, and what settles it. |
-| [audit-meta/annals-divergence.md](audit-meta/annals-divergence.md) | Why annals keeps its atomic in-process chain, and what it does and does not need as a result. |
+| [audit-meta/backlog.md](audit-meta/backlog.md) | **The code follow-up backlog**, by workstream with a by-repo index. 104 items, each with what, why, and what settles it. |
+| [audit-meta/annals-divergence.md](audit-meta/annals-divergence.md) | Why annals keeps its atomic in-process chain, and what it does and does not need as a result. Also where annals now matches angzarr: conflict units, fingerprints, minted ids. |
 
 ## Passes
 
@@ -74,11 +74,52 @@ event onwards, every removal reserves its number and name (see
     `conflict_resolution`, and `CONFLICT_RESOLUTION_COMMUTATIVE` restored as
     an opt-in client-library resolver.
   - The review record reconciled against its source.
-- **Pass 7** (this change): the main timeline is the **unset** edition, not
+- **Pass 7** (279bc89): the main timeline is the **unset** edition, not
   `""` (decision 7.1, by the user). `Cover.edition` and
   `CorrelationQuery.edition` are `optional string`; a set empty edition is
   refused `INVALID_ARGUMENT`; the edition admin names are required and
   non-empty; the main CloudEvent id has no edition segment.
+- **Pass 8** (this change): decisions 8.1–8.3, by the user.
+  - **Conflict units for COMMUTATIVE** (`options.proto`, `conflict_units`
+    region): `(commutative_state)` on the state message (50106),
+    `(conflict)` = `ConflictUnit { descend, element_key, ordered }` on its
+    fields (50107). A generated `changed(before, after)` returns unit paths;
+    unmarked fields conflict with everything; floats compare bitwise;
+    `descend` recurses to depth 32. The resolver: `window =
+    changed(state@expected, state@head)`, decide on head (invariants
+    hold), `mine = changed(head, head + events)`, disjoint acknowledges the
+    nonce, otherwise `ABORTED`. COMMUTATIVE on a state without
+    `commutative_state` is malformed. Replaces 6.12's "reflection diff".
+  - **Minted ids are UUIDv7** (the `minted_ids` region of `types.proto`);
+    client ids stay opaque.
+  - **Request ids are always assigned**: `RequestOrigin.minted` (field 3)
+    marks a coordinator-minted id, recorded for audit and never
+    deduplicating; only client-supplied ids are keys. An absent correlation
+    is the request id verbatim (a fact's: its `external_id`); nothing mints
+    a correlation.
+  - **annals** generates `changed()` from the same markers (same golden
+    suite), and now fingerprints request keys like angzarr: neither is a
+    divergence.
+
+### Worked example: hatpick's `ListState`
+
+```proto
+message ListState {
+  option (io.angzarr.v1.commutative_state) = true;
+  map<string, Item> items = 1 [(io.angzarr.v1.conflict) = {}];  // items[<id>]
+  repeated Column columns = 2 [(io.angzarr.v1.conflict) = {}];  // columns
+  Settings settings = 3 [(io.angzarr.v1.conflict) = {}];        // settings
+}
+```
+
+This reproduces hatpick's "touched" rule. Stale edits to different items
+commute (`items[a]` against `items[b]`); two edits to one item conflict; a
+column change conflicts only with another column change; a settings change
+only with another settings change. Finer variants are one marker away:
+`{descend: true}` on `items` gives per-field units (`items[a].weight`), and
+`{element_key: "id", ordered: true}` on `columns` gives per-column units plus
+`columns[#order]`. The fixture `rust/angzarr-proto/tests/fixtures/list_state.proto`
+carries both and the crate's tests read the markers back from descriptors.
 
 ## Resolved questions
 
@@ -117,6 +158,13 @@ event onwards, every removal reserves its number and name (see
   get storage.
 - **The main timeline's name** (pass 7): it has none. Main is the unset
   edition; a set `""` is malformed (`INVALID_ARGUMENT`).
+- **COMMUTATIVE field granularity** (pass 8): declared conflict units,
+  defined once in `options.proto` and generated for every language by one
+  protoc plugin with a shared golden suite (backlog CR-1).
+- **Client-supplied versus minted request ids** (pass 8): a bool,
+  `RequestOrigin.minted`, rather than a second id field (decision 8.3).
+- **Correlation when absent** (pass 8): the request id verbatim, or a
+  fact's `external_id` verbatim; never minted, never hashed.
 
 ## Open questions
 
@@ -130,8 +178,6 @@ event onwards, every removal reserves its number and name (see
 - **The exact default divergence point** (backlog EA-3): a create-time stamp
   can tie with a concurrent main append, and clocks differ across
   instances.
-- **COMMUTATIVE field granularity** (backlog CR-1): nested messages,
-  repeated and map fields, defined once for every language.
 - **Per-event saga causation** (W3a, backlog OB-6).
 - **The SIMPLE mode name** (W14): not renamed, with no decision recorded.
 - **Multi-instance affinity for in-memory editions.** An in-memory edition

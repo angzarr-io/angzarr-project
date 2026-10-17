@@ -180,8 +180,10 @@ message GetDeadLetterResponse {
 // (FRESH_SEQUENCE has nothing to clear).
 //
 // Refusals (the call fails; nothing is published or recorded):
-//   - the entry's command has no idempotency key (a request origin with an
-//     empty request_id): FAILED_PRECONDITION;
+//   - the entry's command has no client-supplied idempotency key (a request
+//     origin whose request_id is empty or was minted by the coordinator,
+//     RequestOrigin.minted; a minted id never deduplicates):
+//     FAILED_PRECONDITION;
 //   - the entry is older than its key's retention (24 hours for a request
 //     key, 7 days for causation and fact keys; see IdempotencyClaim), so
 //     the key store can no longer recognise a duplicate:

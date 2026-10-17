@@ -1,8 +1,8 @@
-# Code follow-up backlog (passes 1–7)
+# Code follow-up backlog (passes 1–8)
 
 Part of the [audit-meta design record](../audit-meta-followups.md).
 
-The seven `feat/audit-meta` passes changed only the protos and the
+The eight `feat/audit-meta` passes changed only the protos and the
 `rust/angzarr-proto` crate. **Nothing in this backlog is done.** It is the
 durable record of the code work the new contract implies: the user is not
 taking on heavy angzarr refactoring now, and this list must not be lost.
@@ -76,7 +76,9 @@ range.**
   and a GC job is wired into each backend.
 
 **KS-6** [core] **`HandleAsync` key requirement and backend capability.**
-- What: refuse a keyless command with `INVALID_ARGUMENT`, and answer
+- What: refuse a command without a client-supplied key (no `request_id`,
+  or `RequestOrigin.minted` set) with `INVALID_ARGUMENT`, before minting or
+  enqueueing, and answer
   `UNIMPLEMENTED` on backends without atomic claims (as replay does, DQ-3).
 - Why: `command_handler.proto`, the HandleAsync and backend-capability text.
 - Settled when: both refusals are tested.
@@ -86,6 +88,8 @@ range.**
   `proto.MarshalOptions{Deterministic: true}`, sorted map entries in the
   others, and prost's field order in Rust. Every SDK's command helpers set
   `RequestOrigin.request_id` (and `index`), and reuse it verbatim on retry.
+  An SDK that generates the id for its caller mints a UUIDv7 (MI-2) and
+  never sets `minted` (it is a client key).
 - Why: the fingerprint is taken over the bytes as received, so an honest
   retry must reproduce them.
 - Settled when: a cross-language golden test produces identical bytes for a
@@ -185,12 +189,17 @@ range.**
   an empty one is stamped.
 
 **PS-3** [core] **Correlation is never empty.**
-- What: use the caller's value. Otherwise derive it deterministically from
-  the key: a name-based UUID over `request_id`, or over `external_id` for a
-  fact. Mint a fresh value for keyless requests.
-- Why: W5.
-- Settled when: retries of one keyless-correlation request land in one
-  correlation, and no persisted event has an empty correlation.
+- What: use the caller's value. Otherwise set it, before business code, to
+  the origin's key VERBATIM: `request_id` for a request (always present
+  after MI-3, client-supplied or minted), `external_id` for a fact. No
+  hashing, no name-based UUID, and no correlation minting of its own
+  (pass 8, decision 8.3, supersedes the earlier name-based-UUID wording).
+  Causation commands keep the trigger's (PS-2).
+- Why: W5; decision 8.3.
+- Settled when: retries of one client-keyed request without a correlation
+  land in one correlation equal to its `request_id`; a request without a
+  client key gets its minted request id as correlation; and no persisted
+  event has an empty correlation.
 
 **PS-4** [core] **Correlation is per page only.**
 - What: stop reading correlation from `Cover`, and implement
@@ -423,7 +432,8 @@ range.**
 - Settled when: `GetDeadLetter` shows a replay going PENDING, then APPLIED.
 
 **DQ-3** [core] **Replay refusals.**
-- What: a keyless command entry is refused `FAILED_PRECONDITION`. An entry
+- What: a command entry without a client-supplied key (empty or minted
+  `request_id`) is refused `FAILED_PRECONDITION`. An entry
   past its key's retention is refused `FAILED_PRECONDITION` unless
   `override_retention` is set. A backend without atomic claims answers
   `UNIMPLEMENTED`.
@@ -652,7 +662,8 @@ code.**
   without a fact origin or with an empty `external_id`, a Command with a fact
   origin. `INVALID_ARGUMENT` for a client; dead-letter and alert for a
   reactor (including a reactor that emits a Fact). A Command with no origin
-  is a keyless request, recorded as an empty `RequestOrigin`.
+  is a request without a client key, recorded as a `RequestOrigin` with a
+  minted `request_id` (MI-3).
 - Why: `types.proto`, origin region. The rule was structural before pass 6
   and is now a check.
 - Settled when: each mismatch is refused in every mode, and none reaches
@@ -750,22 +761,35 @@ code.**
 - Why: as NC-1.
 - Settled when: two deliveries of one command carry different nonces.
 
-## CR: COMMUTATIVE in the client libraries (pass 6)
+## CR: COMMUTATIVE in the client libraries (passes 6 and 8)
 
-**CR-1** [clients, router] **The reflection-diff resolver in each language.**
-- What: in each language, an opt-in COMMUTATIVE resolver: fold the state to
-  `expected_sequence` and to the head, diff the two by protobuf reflection
-  to get the fields the window changed, compute the fields the command's
-  events change (folding them over the head state), and if the sets are
-  disjoint acknowledge the nonce (NC-1) and keep the output; otherwise fail
-  `ABORTED`. Define field granularity (top-level fields, nested message
-  paths, repeated and map fields as wholes or per entry) once, in a
-  cross-language parity spec. Delete core's coordinator-side commutative
-  diff.
-- Why: decision 6.12; `ConflictResolution` in `types.proto`.
-- Settled when: the parity spec passes in every language: disjoint edits
-  succeed, overlapping edits fail stale, and the handler writes no conflict
-  code.
+**CR-1** [clients, router, project] **`protoc-gen-angzarr-conflict`: one
+plugin generates `changed()` for every language, held to a golden suite.**
+- What: a protoc plugin, `protoc-gen-angzarr-conflict`, that reads
+  `(commutative_state)` and `(conflict)` from the descriptors and emits, for
+  each marked state message and in every client language (go, rust, python,
+  java, csharp, cpp, typescript), a pure `changed(before, after)` returning
+  unit paths exactly as the `conflict_units` region of `options.proto`
+  specifies (units per field kind, the wildcard for unmarked fields and
+  unknown fields, bitwise floats, path syntax and escaping, `[#order]`, the
+  non-unique-key fallback, the descend depth bound of 32, and the overlap
+  rule with path prefixes). It fails generation on the listed marker
+  errors. Plus a shared golden fixture parity suite in angzarr-project
+  `parity/`: fixture protos (hatpick's `ListState` worked example among them)
+  and before/after state pairs with their expected unit sets, run against
+  every language's generated code (and annals'). Each client library's
+  COMMUTATIVE resolver then folds to `expected_sequence` and to the head,
+  computes `window = changed(expected, head)`, runs decide on the head,
+  computes `mine = changed(head, head + events)`, acknowledges the nonce
+  (NC-1) when they do not overlap and otherwise fails `ABORTED`; it refuses
+  COMMUTATIVE for a state without `commutative_state` (`INVALID_ARGUMENT`)
+  and at registration. Delete core's coordinator-side commutative diff.
+- Why: decisions 6.12 and 8.1; `ConflictResolution` in `types.proto`; the
+  `conflict_units` region of `options.proto`.
+- Settled when: the golden suite passes in every language and in annals
+  (identical unit sets for every fixture pair); disjoint edits succeed,
+  overlapping edits and unmarked-field edits fail stale, and the handler
+  writes no conflict code.
 
 **CR-2** [core] **Configuration names COMMUTATIVE as opt-in.**
 - What: the conflict-resolution config (HD-2) accepts COMMUTATIVE per
@@ -773,6 +797,43 @@ code.**
   is never a default.
 - Why: decision 6.12.
 - Settled when: COMMUTATIVE applies only where configured or overridden.
+
+## MI: minted ids and always-assigned request ids (pass 8)
+
+**MI-1** [core] **Mint UUIDv7 in core.**
+- What: every identifier core mints is a UUIDv7 (RFC 9562), as canonical
+  lowercase text in string fields and 16 bytes in `UUID`: today the minted
+  request id (MI-3). Replace any v4 or ad-hoc id generation core keeps for
+  identifiers (DQ-1 deletes the DLQ's `new_correlation_id` minting
+  outright). Client-supplied ids are never parsed or validated as UUIDs.
+- Why: decision 8.2; the `minted_ids` region of `types.proto`.
+- Settled when: every id core mints parses as a version-7 UUID, and a
+  non-UUID client id passes through untouched.
+
+**MI-2** [clients] **Mint UUIDv7 in the client libraries.**
+- What: wherever an SDK generates an id for its caller (a command helper's
+  `request_id`, a new aggregate root), it mints a UUIDv7. These are
+  client-supplied ids: the SDK never sets `RequestOrigin.minted`.
+- Why: decision 8.2.
+- Settled when: in every language, SDK-generated request ids and roots are
+  version-7 UUIDs, and helpers reuse the same request id on retry (KS-7).
+
+**MI-3** [core, clients] **Always-assigned request ids.**
+- What: after validation and before deduplication, a request-origin command
+  whose `request_id` is empty (or a Command with no origin) gets a minted
+  UUIDv7 in `request_id`, with `minted = true` and (for a missing origin)
+  `index = 0`, recorded in `EventMeta.origin`. A client command that
+  arrives with `minted` set is refused `INVALID_ARGUMENT`. A minted id is
+  never claimed, fingerprinted or used to deduplicate; `HandleAsync` (KS-6)
+  and DLQ replay (DQ-3) still require a client-supplied one. The derived
+  correlation then follows PS-3. Clients expose `minted` when reading
+  origins and never set it.
+- Why: decision 8.3 (supersedes "refuse keyless" in annals too).
+- Settled when: every persisted event has a non-empty
+  `origin.request.request_id` (for request origins); two identical
+  keyless requests both apply, with different minted ids; a client-set
+  `minted` is refused; and a client-keyed retry is still answered
+  DUPLICATE.
 
 ## CL: D9 cleanups (pass 6)
 
@@ -957,12 +1018,13 @@ no-op implementations only.
 | CQ: cross-domain correlation query (pass 6) | 2 |
 | EA: edition administration (pass 6) | 4 |
 | NC: the conflict nonce (pass 6) | 2 |
-| CR: COMMUTATIVE in the client libraries (pass 6) | 2 |
+| CR: COMMUTATIVE in the client libraries (passes 6 and 8) | 2 |
+| MI: minted ids and request ids (pass 8) | 3 |
 | CL: D9 cleanups (pass 6) | 5 |
 | AU: attempt-audit sink (pass 6, held) | 1 |
 | GAP: carried gaps | 3 |
 | DOC: site, specs, branches | 6 |
-| **Total** | **101** |
+| **Total** | **104** |
 
 ## By-repo index
 
@@ -970,9 +1032,9 @@ An item tagged with several repos appears under each of them.
 
 | Repo | Items |
 |---|---|
-| core | KS-1–6, KS-8–10, OB-1–3, OB-5–6, PS-1–5, BO-1, RV-1, MD-1–5, ST-1, ED-1–4, SN-1–3, RT-1–2, DQ-1–6, RN-1–2, PR-1–2, FA-1–2, HD-1–5, WS-1–5, RM-1–3, RM-6, TG-1, OR-1–2, CQ-1–2, EA-1–3, NC-2, CR-2, CL-1–5, AU-1, GAP-1–2 |
+| core | KS-1–6, KS-8–10, OB-1–3, OB-5–6, PS-1–5, BO-1, RV-1, MD-1–5, ST-1, ED-1–4, SN-1–3, RT-1–2, DQ-1–6, RN-1–2, PR-1–2, FA-1–2, HD-1–5, WS-1–5, RM-1–3, RM-6, TG-1, OR-1–2, CQ-1–2, EA-1–3, NC-2, CR-2, MI-1, MI-3, CL-1–5, AU-1, GAP-1–2 |
 | router | OB-4, OB-6, PS-2, RN-1, FA-3, HD-3, WS-2, TG-1–2, OR-2, NC-1, CR-1, CL-2, CL-4 |
-| clients (go, rust, python, java, csharp, cpp, typescript) | KS-7, BO-2, RV-2, MD-6, ST-2, ED-3, RN-1–2, FA-3, HD-5, WS-1–2, RM-4, RM-6, TG-1, OR-2, CQ-2, EA-4, NC-1, CR-1, CL-1–2, CL-4–5 |
+| clients (go, rust, python, java, csharp, cpp, typescript) | KS-7, BO-2, RV-2, MD-6, ST-2, ED-3, RN-1–2, FA-3, HD-5, WS-1–2, RM-4, RM-6, TG-1, OR-2, CQ-2, EA-4, NC-1, CR-1, MI-2–3, CL-1–2, CL-4–5 |
 | examples | BO-3, WS-2, RM-5 |
 | site | RN-2, EA-4, CL-5, DOC-1–4 |
-| project (features, CI, branches) | EA-4, GAP-3, DOC-5–6 |
+| project (features, CI, branches, parity) | EA-4, CR-1, GAP-3, DOC-5–6 |
