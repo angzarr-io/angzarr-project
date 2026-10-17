@@ -114,7 +114,8 @@ A second review walked the protos at fd61f93 against the established
 frameworks, finding by finding. Its notes are in the coordinating session's
 scratchpad (`illuminated/review.md`), not in this repository. The user
 decided the findings below during flow 1 (the client command), and pass 12
-applied them. Findings not listed are still open in those notes.
+applied them; PM2 and T8, left open by pass 12, were decided after it and
+applied in pass 13. Findings not listed are still open in those notes.
 
 | # | Finding | Status | Resolution |
 |---|---|---|---|
@@ -126,6 +127,8 @@ applied them. Findings not listed are still open in those notes.
 | T13 | Snapshot validity compared against a "registered state type" that registration did not carry. | **Resolved** (pass 12) | Validity is checked where the state is decoded, in the client library, against its own state type and rules version. A mismatch answers `snapshot_refused`, and the coordinator re-delivers without the snapshot. Decision 12.6; backlog RV-3. |
 | CH1 | `HandleAsync` refused causation keys, yet reaction delivery and DLQ replay of reaction commands went through it. | **Resolved** (pass 12) | Every command has a `command_id` before it is enqueued (derived for reactions), so `HandleAsync` no longer requires a client key. Reaction delivery and DLQ replay are framework-authenticated, so `causation_id` is accepted on them. Decisions 12.2 and 12.10; backlog CI-3, CI-5. |
 | SG3 | The saga and PM coordinator entry points accepted caller-supplied triggers, whose provenance was then copied onto commands. | **Resolved** (pass 12) | The same RPCs, accepted only from callers authenticated as framework components; a client is refused `PERMISSION_DENIED`. Decision 12.10; backlog CI-5. |
+| PM2 | A PM's own process events have no producing command, so `EventMeta.command_id` (always set) had no source. | **Resolved** (pass 13) | `EventMeta.causation` is a oneof: `command_id` (17) for every command's events, `triggering_event` (18) for process events. Process events carry the trigger's correlation and are deduplicated on `triggering_event` within the PM's stream. Decisions 13.1, 13.2; backlog PR-3 (closed), PR-4. |
+| T8 | A reactor re-run re-derives the same command ids, so different output from a re-run (after a rules change) is answered DUPLICATE, undetected. | **Resolved** (pass 13), by documenting it as intended | No switch: reaction ids never include the rules version, so a re-run always deduplicates; checkpoint resets are for recovery only. Repairs are NEW commands, which append after the buggy-era events (history is never lost). The framework will ship standard re-drive commands. Decision 13.4; backlog RD-1; [idempotency.md](idempotency.md) and the guide's "Re-running reactors". |
 
 ## Comparisons, corrections and "solved elsewhere"
 

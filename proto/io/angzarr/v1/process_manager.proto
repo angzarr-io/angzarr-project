@@ -34,10 +34,11 @@ option ruby_package = "Angzarr";
 // trigger's correlation_id (stamped by the coordinator; see the
 // command_identity region of types.proto), so the target's events carry it
 // too, and the PM subscribed to that domain receives them under the same
-// correlation. Causation always names the triggering event: a PM command's
-// causation_id is the trigger it reacted to, never one of the PM's own
-// process events, and a reply event's causation_id names the PM's command's
-// trigger in turn. There is no compensation or
+// correlation. A PM command's causation_id is the trigger it reacted to,
+// never one of the PM's own process events; a reply event's causation is
+// the PM's command that produced it (EventMeta.causation.command_id), and
+// the trigger edge behind that command is in the traces (see the
+// command_identity region of types.proto). There is no compensation or
 // notification channel. A hard rejection of a PM's command is retried when
 // retryable and otherwise dead-lettered.
 //
@@ -48,7 +49,17 @@ option ruby_package = "Angzarr";
 // commands verbatim, so the PM is never re-run for a trigger whose output is
 // stored and need not be pure or deterministic. The destination
 // deduplicates on each command's derived command_id (UUIDv5 of the
-// trigger, the PM's registered name and the command's index).
+// trigger, the PM's registered name and the command's index), and the PM's
+// own stream deduplicates its process events on their triggering_event.
+//
+// Process events. The PM's own events have no producing command. Its
+// coordinator stamps their EventMeta from the trigger: causation =
+// triggering_event (the trigger's EventRef), correlation_id = the
+// trigger's, recorded_at, and the reported rules_version; never a
+// command_id or a fact. "Already applied?" for a trigger means the PM's
+// stream holds events whose causation.triggering_event is that trigger;
+// on a hit they are not appended again (see the command_identity region of
+// types.proto, Process events).
 service ProcessManagerService {
   // Handle with trigger + process state. Returns commands for other
   // aggregates and events for the PM's own domain.
@@ -98,7 +109,11 @@ message ProcessManagerHandleResponse {
   // concatenation policy; a PM that emits a single book sends a 1-element list.
   // Business output only: payloads (and an optional snapshot state). Page
   // meta, sequences and a cover other than the PM's own stream are refused,
-  // as for an aggregate (see CommandHandlerService.Handle).
+  // as for an aggregate (see CommandHandlerService.Handle). The coordinator
+  // stamps each page's meta: causation.triggering_event = the trigger's
+  // EventRef, the trigger's correlation_id, recorded_at and this
+  // response's rules_version (see ProcessManagerService, Process events).
+  // They are deduplicated on triggering_event within the PM's stream.
   repeated EventBook process_events = 1;
   // Remote: Commands to issue to other aggregates, delivered through the
   // outbox (see ProcessManagerService) under the PM's configured delivery

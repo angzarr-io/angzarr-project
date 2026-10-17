@@ -43,7 +43,8 @@ behaves differently under the two runtimes. This is accepted.
   derived ones, so the audit record is identical.
 - **Causation is never accepted from outside.** No caller outside the
   process can deliver a reaction. annals' own in-process chain stamps
-  `causation_id` and the derived `command_id`. angzarr needs mTLS-identified
+  `causation_id` on the reaction command (it is not persisted on events,
+  pass 13) and the derived `command_id`. angzarr needs mTLS-identified
   framework components for the same guarantee (decision 12.10).
 - **The "DLQ" is a logger.** annals has no dead-letter store or replay.
   Whatever angzarr would dead-letter (a failing fact ingest, a reactor bug, a
@@ -59,18 +60,23 @@ behaves differently under the two runtimes. This is accepted.
   from the domain's declaration. It is the author's short label (e.g.
   `"v3"`), bumped when decide, ingest or apply semantics change.
 - **No root-request pointer in angzarr (D2, pass 6).** angzarr records only
-  correlation and causation on a reaction's events. Correlation is enough to
-  find the workflow (`GetCorrelatedEvents`), and the originating command is
-  reachable by walking `causation_id`. If annals wants the originating
-  command on every event, that is its own divergence, decided in its own
-  design. On the wire, `EventMeta` has no slot for it.
+  correlation and the direct cause (the producing command, or a PM process
+  event's trigger) on a reaction's events. Correlation is enough to find the
+  workflow (`GetCorrelatedEvents`); since pass 13 the trigger edge of a
+  reaction command is in traces, not on events (decision 13.3). If annals
+  wants the originating command on every event, that is its own divergence,
+  decided in its own design. On the wire, `EventMeta` has no slot for it.
 
 ## Where annals follows angzarr
 
-- **`EventMeta` is the same** (pass 12): `command_id`, `causation_id`,
-  `fact`, `correlation_id`, `recorded_at` and `rules_version`. There is no
-  actor (who-did-it goes to security logs in both), no origin and no base
-  sequence.
+- **`EventMeta` is the same** (pass 13): `causation` (`command_id`, or
+  `triggering_event` on a PM's process events), `fact`, `correlation_id`,
+  `recorded_at` and `rules_version`. There is no actor (who-did-it goes to
+  security logs in both), no origin, no base sequence, and no copy of a
+  reaction command's `causation_id`.
+- **Reactor re-runs** (pass 13): the same derivation, with no
+  `rules_version` in it, so a re-run dedupes in annals too, and repairs are
+  new commands (decision 13.4).
 - **The same pipeline order**: validate, assign ids, dedup lookup,
   resolve and check Handling, business code. annals' in-process coordinator
   struct loads the snapshot and newer events (or events up to the

@@ -3,7 +3,8 @@
 This guide is for anyone writing an aggregate or process manager on
 angzarr (or annals). It explains how you declare your **state message**
 in proto so that stale commands are resolved for you, and how to do that
-without merging something you should not.
+without merging something you should not. Its last section covers
+re-running sagas and process managers after a bug fix.
 
 The normative text lives in the protos:
 - `proto/io/angzarr/v1/options.proto`, the `conflict_units` region (the
@@ -14,8 +15,8 @@ The normative text lives in the protos:
 Where this guide and the protos disagree, the protos win. Report the
 disagreement.
 
-**Status.** This describes the pass 12 protos (decision log entries 12.7,
-12.8 and 12.11, in `docs/design/audit-meta/decision-log.md`). The generators described below (`angzarr_build::compile` and
+**Status.** This describes the pass 13 protos (decision log entries 12.7,
+12.8, 12.11 and 13.4, in `docs/design/audit-meta/decision-log.md`). The generators described below (`angzarr_build::compile` and
 `protoc-gen-angzarr`) are specified but not yet built (backlog CR-1). The
 options compile today, and `rust/angzarr-proto` reads them back from
 descriptors in its tests.
@@ -32,6 +33,7 @@ descriptors in its tests.
 8. [Build setup](#8-build-setup)
 9. [Registration fills `StateDescriptor`](#9-registration-fills-statedescriptor)
 10. [Versioning commands](#10-versioning-commands)
+11. [Re-running reactors](#11-re-running-reactors)
 
 ## 1. The problem: stale commands
 
@@ -523,3 +525,62 @@ refused `INVALID_ARGUMENT`, naming the type URL.
 
 Event upcasting has none of these caveats. Stored events never go away, so
 their upcasters are permanent.
+
+## 11. Re-running reactors
+
+You shipped a saga or process manager with a bug, fixed it, and bumped its
+`rules_version`. The events it caused are wrong. Re-running the reactor
+will **not** fix them, by design. The normative text is the
+`command_identity` region of `types.proto` (Reactor re-runs); the
+reasoning is decision 13.4 and `docs/design/audit-meta/idempotency.md`.
+
+**What deduplicates.** Each command a reactor emits gets a derived id:
+UUIDv5 of the trigger event, the reactor's registered name and the
+command's position in its output. Nothing about the reactor's code or
+`rules_version` goes in. So if you reset the reactor's checkpoint and let
+it run over triggers it already handled, it emits the same ids, and every
+destination answers DUPLICATE with the events the first, buggy run
+produced. A process manager's own process events dedupe the same way, on
+the trigger they name (`EventMeta.causation.triggering_event`). Even if
+the fixed code would now emit different commands, the re-run changes
+nothing.
+
+**History is never lost.** Nothing in angzarr overwrites, deletes or
+re-sequences an event. The buggy-era events stay in their streams, and
+stay readable, with the `rules_version` that produced them.
+
+**Checkpoint resets are for recovery only**: re-delivering triggers whose
+output never made it into the outbox (for example after restoring a
+position store). Do not use them to repair.
+
+**How to repair: issue new commands.**
+1. Find what to fix. `GetCorrelatedEvents` gives you each affected
+   workflow; `EventMeta.rules_version` tells you which events the buggy
+   version decided. (Which trigger led to which reaction command is in the
+   coordinators' traces, not on the events; see `CorrelationQuery`.)
+2. Decide the correction as a business question. Often it is a
+   compensating command ("reverse charge", "reissue reminder"), not "do it
+   again": downstream readers may already have acted on the wrong events.
+3. Send it as NEW commands, each with a fresh `command_id` (let the SDK or
+   coordinator mint it). New ids apply; their events append after the old
+   ones, with later sequence numbers, and projections see the correction.
+4. Where the fix is "run the corrected reactor over these triggers", use a
+   re-drive: a new command whose events the fixed reactor reacts to.
+   angzarr will ship standard re-drive commands for this (backlog RD-1);
+   until then, define one in your domain.
+
+**Risks.**
+- **Assuming a reset repairs.** It does not, silently: every command is
+  answered DUPLICATE and the dashboards look healthy. Check that your fix
+  produced new events.
+- **Repairing twice.** A repair command is an ordinary command: give each
+  correction one id and reuse it on retry, or a retried repair applies
+  twice.
+- **Readers of the old events.** Projections, external sinks and other
+  reactors have already seen the buggy events. A correction must make sense
+  to them as a new fact, which is why compensating commands are usually
+  better than replays.
+- **Reaction ids are frozen.** Never rename a reactor's registered name to
+  "force" new ids: renaming changes every id it derives from then on, so
+  any trigger it handles again (a reset, a redelivery not yet in the
+  outbox) applies a second time, with no record of why.

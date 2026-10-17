@@ -1,4 +1,4 @@
-# Audit-meta decision log (passes 1–12)
+# Audit-meta decision log (passes 1–13)
 
 Part of the [audit-meta design record](../audit-meta-followups.md).
 
@@ -19,6 +19,8 @@ Every code consequence is in the [backlog](backlog.md).
 ## Pass 1 (9cfed59, 17bc1cd): provenance, sequences, one command per book
 
 > **Amended by 12.4 (pass 12):** `EventMeta` is now `command_id`, `causation_id`, `fact`, `correlation_id`, `recorded_at` and `rules_version`; no actor, no origin, no base sequence.
+>
+> **Amended by 13.1 and 13.3 (pass 13):** `EventMeta` is now `oneof causation { command_id 17 | triggering_event 18 }`, `fact`, `correlation_id`, `recorded_at` and `rules_version`; `causation_id` is no longer on events.
 
 **1.1 Every persisted event carries `EventMeta`.** The fields are
 `Provenance` (actor, correlation), the origin (request, causation or fact),
@@ -446,6 +448,8 @@ says when. The interface specification is backlog AU-1. No proto changed.
   needs to see what was tried.
 - Aligns with: the NServiceBus audit queue, kept outside the business
   store.
+
+> **Amended by 13.3 (pass 13):** forward causation from the result is exact only for PM process events (`triggering_event`); reaction commands' events are linked by correlation, and exact trigger edges come from traces.
 
 **6.4 A cross-domain correlation query (D4).** `EventQueryService.
 GetCorrelatedEvents(CorrelationQuery { correlation_id, edition })` streams
@@ -1046,6 +1050,8 @@ before deduplication:
   namespace keeps its name and value, so `pi_1234` is still
   `917f26ae-ea2e-58af-86de-77013a69617e`.
 
+> **Amended by 13.3 (pass 13):** `causation_id` stays on the command but is no longer copied onto its events; the events' causation is the command (`EventMeta.causation.command_id`).
+
 `causation_id` (an `EventRef`, `CommandPage` field 10) names the trigger
 on reaction commands and is copied onto their events. It is metadata, not a
 key. `FactOrigin` (`external_id`, `description`) stays for audit, as
@@ -1132,6 +1138,8 @@ deployment. The principle is stated once, in the `security_logs` region of
   actor stamping), T4 (actor authentication: there is no actor to
   authenticate), and the actor-in-proto question for the edition and DLQ
   records.
+
+> **Superseded in part by 13.1 and 13.3 (pass 13):** `command_id` (13) and `causation_id` (15) are replaced by `oneof causation { command_id 17 | triggering_event 18 }`.
 
 **12.4 `EventMeta` is `{command_id, causation_id, fact, correlation_id,
 recorded_at, rules_version}`.** The fields are 13, 15, 16, 14, 5 and 7.
@@ -1266,6 +1274,113 @@ never stored.
   `fact_command_id(external_id)`, keeping `fact_correlation` (now the same
   value) and the display helpers. Its tests check values computed
   independently with Python's `uuid.uuid5`.
+
+## Pass 13: causation is the direct cause; PM process events; reactor re-runs
+
+Decided by the user after pass 12 (eec6676), closing the two questions pass
+12 left open: the meta of a PM's own process events (review PM2, backlog
+PR-3) and reactor re-runs (review T8). The protos, the `rust/angzarr-proto`
+crate's tests and these documents changed; the crate's API did not.
+
+Nothing is reserved: the 6.6 policy now covers every pass up to and
+including 13 (`proto/buf.yaml`). `buf breaking` against eec6676 reports
+exactly the deliberate breaks: `EventMeta` field 13 (`command_id`) and field
+15 (`causation_id`) deleted without reserving their numbers or names (four
+lines, a number and a name each). The new fields take fresh numbers (17,
+18), so pass-12 bytes never misdecode into them; the crate's tests decode
+pass-12 bytes for 13 and 15 to an empty `EventMeta`. Because `command_id`
+keeps its name, its JSON (`commandId`) is unchanged.
+
+**13.1 `EventMeta.causation` is a oneof of the event's direct cause.**
+`oneof causation { UUID command_id = 17; EventRef triggering_event = 18; }`.
+`command_id` is set on every event a command produced (client, reaction or
+fact) and is still the deduplication key (12.2). `triggering_event` is set
+only on a process manager's own process events (13.2). Exactly one is set
+on every persisted event. Field 13 is deleted, unreserved.
+- Why: the standard's causation (KurrentDB's `$causationId`, NServiceBus,
+  Marten, Wolverine) is a message's DIRECT cause. An event's direct cause is
+  the command that produced it; a process event has no command, and its
+  direct cause is the trigger the PM reacted to. A oneof states that the two
+  never coexist.
+- Cost: readers switch on the arm; the dedup index reads one arm.
+- Supersedes: 12.4's field list (with 13.3).
+
+**13.2 PM process events name their trigger, carry its correlation, and
+deduplicate on it.** The PM's coordinator stamps each process event with
+`causation.triggering_event` (the trigger's `EventRef`, the same event its
+commands' `causation_id` names), the trigger's `correlation_id`,
+`recorded_at` and the response's `rules_version`; never a `command_id` or a
+fact. "Already applied?" for a trigger is "the PM's stream holds events whose
+`triggering_event` is this trigger", on a (stream, `triggering_event`)
+index; on a hit nothing is appended. A PM writes at most one process write
+per trigger, so the trigger alone is the key. Business output stays
+payloads only. Resolves PM2; closes PR-3 (implementation: PR-4).
+- Why: the PM's stream is an aggregate's stream, and its events need the
+  same "already applied?" answer as a command's, for a checkpoint reset or a
+  redelivery that bypasses the outbox. The trigger is the identity the
+  coordinator already has; deriving a synthetic command id for events no
+  command produced would invent a message that never existed.
+- Cost: a second, non-unique index on PM streams; the zero-output cost of
+  12.2 applies (a reaction that wrote no process events leaves nothing to
+  find).
+- Rejected: a `command_id` derived from the trigger and PM name at a
+  reserved index (backlog PR-3's suggestion), for the reason above.
+
+**13.3 No command-causation on events.** `EventMeta.causation_id` (15) is
+deleted. The triggering event of a reaction command (the events' "grand
+cause") is not stored on events; that edge goes to OpenTelemetry traces and
+logs, as in Marten and Wolverine, by the same principle that sent the actor
+to security logs (12.3). `CommandPage.causation_id` (10) **stays**: it is
+the command message's own causation per the standard (a command's
+causation is its trigger), the input its derived `command_id` hashes, and
+transport and trace metadata, not persisted on its events.
+- **Forward causation** (`CorrelationQuery`): process events are linked to
+  their trigger exactly (`triggering_event`); events of reaction commands
+  are linked only by correlation (coarse), grouped per command by
+  `command_id`; exact trigger edges come from traces.
+- Why: each event records its own direct cause, as the standard does; the
+  trigger is one hop further back, and the convention keeps hops in the
+  trace. The event store records why (direct cause, correlation, rules),
+  not the whole call graph.
+- Cost (accepted): the store alone cannot answer "which events did this
+  saga's reaction to E produce"; that needs the traces, and their retention
+  is the deployment's. Backlog PS-6 (record the edge in spans) and CQ-2
+  (the helper) carry it.
+- Supersedes: 12.1's "copied onto their events" and 12.4's field list; 6.4's
+  "forward causation is derivable from the result" (now exact for process
+  events only).
+
+**13.4 Reactor re-runs: no switch; repairs are new commands.** A reaction
+`command_id` depends only on (trigger, component, index), never on the
+reactor's `rules_version` or code. A re-run over a handled trigger (a
+checkpoint reset) re-derives the same ids, which every destination answers
+DUPLICATE, and a PM's process events dedupe on `triggering_event`.
+Checkpoint resets are for recovery only. Repairing what a buggy reactor did
+is done with NEW commands (new ids), which append new, correct events after
+the buggy-era ones. **History is never lost**: nothing is overwritten,
+either way. The framework will ship standard re-drive commands that trigger
+reprocessing (backlog RD-1). Resolves T8. The guide's "Re-running reactors"
+(`docs/guide/state-and-conflicts.md`) and [idempotency.md](idempotency.md)
+document it.
+- Considered and dropped: a per-reactor configuration switch putting the
+  reactor's `rules_version` into the derivation, so a re-run after a
+  version bump would yield new ids and apply. It made toggling the switch,
+  or bumping the version, silently change every id derived afterwards, and
+  made a reset a repair mechanism with no record of intent. With it gone,
+  the question of where a saga reports its `rules_version` is moot.
+- Why: deduplication stays one simple rule (an id applies once, forever),
+  and every repair is an explicit command with its own id and audit trail,
+  as in the event-sourcing practice of compensating rather than rewriting.
+- Cost: a re-run never repairs anything; the developer issues (until RD-1,
+  hand-builds) re-drive commands.
+
+**13.5 No reacting-component field.** Events and commands carry no field
+naming the reacting saga or PM: source control says what makes what.
+Confirms 12.1's "the reacting component is no longer recorded on events".
+
+**13.6 No command-causation on events** (the principle of 13.3, recorded on
+its own): an event never carries its producing command's causation. Events
+record their direct cause only.
 
 ## Corrections
 

@@ -18,7 +18,7 @@ lint:
 #
 # Reservation policy (decision D6, pass 6): reserve from the first stored
 # production event onwards. Until then (every pass up to and including
-# pass 12) removed fields, enum values and messages are deleted outright,
+# pass 13) removed fields, enum values and messages are deleted outright,
 # with no `reserved` statements, and stored data is wiped across schema
 # changes. From the first production event any store keeps (hatpick stores
 # EventPage bytes as written), every removed field number and name gets a

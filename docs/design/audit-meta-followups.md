@@ -2,7 +2,7 @@
 
 ## Status
 
-Open. The `feat/audit-meta` passes (1–12) changed **only** the protos under
+Open. The `feat/audit-meta` passes (1–13) changed **only** the protos under
 `proto/io/angzarr/`, the `rust/angzarr-proto` crate and the documentation
 (the design record here, and from pass 12 a developer guide under
 `docs/guide/`). No angzarr code has changed. The user is not taking on heavy angzarr refactoring now, so every
@@ -11,7 +11,7 @@ be lost.
 
 Wire breaks are accepted pre-freeze. Reservation policy (D6, pass 6):
 removed fields and messages are deleted outright, with no `reserved`
-statements, up to and including pass 12. From the first stored production
+statements, up to and including pass 13. From the first stored production
 event onwards, every removal reserves its number and name (see
 `proto/buf.yaml` and backlog GAP-3).
 
@@ -19,13 +19,13 @@ event onwards, every removal reserves its number and name (see
 
 | Document | Contents |
 |---|---|
-| [audit-meta/decision-log.md](audit-meta/decision-log.md) | Every decision of passes 1–12: why, the accepted cost, and the standard it aligns with, with superseded entries marked. Also the corrections (Event Modeling, KurrentDB, Axon). |
+| [audit-meta/decision-log.md](audit-meta/decision-log.md) | Every decision of passes 1–13: why, the accepted cost, and the standard it aligns with, with superseded entries marked. Also the corrections (Event Modeling, KurrentDB, Axon). |
 | [audit-meta/critical-review-source.md](audit-meta/critical-review-source.md) | The post-pass-4 critical review's own record (authoritative for the findings' content). |
-| [audit-meta/critical-review.md](audit-meta/critical-review.md) | The status of each review finding: W1–W14, D1–D11, FINE and annals fitness, with where each was resolved; and the illuminated review's findings decided in pass 12 (T3–T7, T13, CH1, SG3). |
-| [audit-meta/idempotency.md](audit-meta/idempotency.md) | The idempotency research (a comparison table) and the chosen design since pass 12: one `command_id` per command, deduplicated on the events, with its accepted costs; the superseded key-store design in brief. |
-| [audit-meta/backlog.md](audit-meta/backlog.md) | **The code follow-up backlog**, by workstream with a by-repo index. 108 open items, each with what, why, and what settles it; items closed by pass 12 are kept in place with their disposition. |
+| [audit-meta/critical-review.md](audit-meta/critical-review.md) | The status of each review finding: W1–W14, D1–D11, FINE and annals fitness, with where each was resolved; and the illuminated review's findings decided in passes 12 and 13 (T3–T8, T13, CH1, SG3, PM2). |
+| [audit-meta/idempotency.md](audit-meta/idempotency.md) | The idempotency research (a comparison table) and the chosen design since pass 12: one `command_id` per command, deduplicated on the events, with its accepted costs; PM process events deduplicated on their trigger, and reactor re-runs (pass 13); the superseded key-store design in brief. |
+| [audit-meta/backlog.md](audit-meta/backlog.md) | **The code follow-up backlog**, by workstream with a by-repo index. 110 open items, each with what, why, and what settles it; items closed by passes 12 and 13 are kept in place with their disposition. |
 | [audit-meta/annals-divergence.md](audit-meta/annals-divergence.md) | Why annals keeps its atomic in-process chain, and what it does and does not need as a result (no claims, no outbox, a logging "DLQ"). Also where annals matches angzarr: the proto types themselves, `EventMeta`, command ids and dedup on events, the pipeline order, conflict units with COMMUTATIVE the default in both. |
-| [../guide/state-and-conflicts.md](../guide/state-and-conflicts.md) | **Developer guide** (pass 12): custom options, the `(state)` option, marking conflict units, how COMMUTATIVE resolves and its risks, the generator's warnings and errors, the build setup, registration, and versioning commands. |
+| [../guide/state-and-conflicts.md](../guide/state-and-conflicts.md) | **Developer guide** (pass 12): custom options, the `(state)` option, marking conflict units, how COMMUTATIVE resolves and its risks, the generator's warnings and errors, the build setup, registration, versioning commands, and (pass 13) re-running reactors. |
 
 ## Passes
 
@@ -142,7 +142,7 @@ event onwards, every removal reserves its number and name (see
     hash chain. Rust: `angzarr_proto::ids::fingerprint`.
   - *Superseded by pass 12:* the claims, the fingerprint and both mismatch
     rules are deleted (decision 12.2).
-- **Pass 12** (this change): decisions 12.1–12.12, by the user, from the
+- **Pass 12** (eec6676): decisions 12.1–12.12, by the user, from the
   illuminated review of fd61f93.
   - **One `command_id` per command** (`CommandPage` 8): client-supplied or
     a minted v7; derived v5 for reaction commands (netstrings of the trigger
@@ -181,6 +181,21 @@ event onwards, every removal reserves its number and name (see
   - The crate: `bytes::Bytes`, `Eq`/`Hash` on key types,
     `ids::reaction_command_id` and `ids::fact_command_id` in place of
     `ids::fingerprint`.
+- **Pass 13** (this change): decisions 13.1–13.6, by the user, closing
+  PM2/PR-3 and T8.
+  - **`EventMeta.causation`** = `oneof { UUID command_id = 17; EventRef
+    triggering_event = 18; }`, the event's direct cause. Fields 13
+    (`command_id`) and 15 (`causation_id`) deleted, unreserved.
+  - **PM process events**: `causation.triggering_event`, the trigger's
+    correlation, deduplicated on `triggering_event` within the PM's stream.
+  - **No command-causation on events**: a reaction command's trigger stays
+    on `CommandPage.causation_id` (transport and trace metadata) and goes
+    to OpenTelemetry traces. Forward causation from `CorrelationQuery` is
+    exact for process events, by correlation for reaction commands' events.
+  - **Reactor re-runs: no switch.** Reaction ids never include the rules
+    version, so re-runs dedupe; checkpoint resets are for recovery; repairs
+    are new commands; standard re-drive commands are backlog RD-1.
+  - **No reacting-component field**: source control says what makes what.
 
 ### Worked example: hatpick's `ListState`
 
@@ -282,6 +297,15 @@ markers can go wrong.
   framework components; clients get `PERMISSION_DENIED` (decision 12.10).
 - **Command upcasting** (pass 12): supported and discouraged (decision
   12.11).
+- **Meta for a PM's own process events** (pass 13, PM2): causation is the
+  trigger (`EventMeta.causation.triggering_event`), with the trigger's
+  correlation; deduplicated on it within the PM's stream (decision 13.2).
+- **Causation on events** (pass 13): only the direct cause; a reaction
+  command's trigger goes to traces, not events (decision 13.3).
+- **Reactor re-runs** (pass 13, T8): no switch; same ids always dedupe;
+  repairs are new commands (decision 13.4).
+- **A reacting-component field** (pass 13): none; source control says what
+  makes what (decision 13.5).
 
 ## Open questions
 
@@ -308,7 +332,6 @@ markers can go wrong.
   operator can at least see them, once it exists.
 - **Repeated parks of one fact.** One DLQ entry per command id, or one per
   attempt (backlog CI-8).
-- **Meta for a PM's own process events** (review PM2, backlog PR-3): they
-  have no producing command, so their `command_id` has no source yet.
-- **Reactor re-runs** (review T8): a re-run re-derives the same command ids,
-  so different output from a re-run is answered DUPLICATE, undetected.
+- **Shipped re-drive commands** (backlog RD-1): their command types, where
+  they live (the angzarr protos or a shipped domain), and the operator
+  entry point.

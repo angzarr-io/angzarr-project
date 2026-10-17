@@ -1,8 +1,8 @@
-# Code follow-up backlog (passes 1–12)
+# Code follow-up backlog (passes 1–13)
 
 Part of the [audit-meta design record](../audit-meta-followups.md).
 
-The `feat/audit-meta` passes (1–12) changed only the protos, the
+The `feat/audit-meta` passes (1–13) changed only the protos, the
 `rust/angzarr-proto` crate and the docs. **Nothing in this backlog is done.** It is the
 durable record of the code work the new contract implies: the user is not
 taking on heavy angzarr refactoring now, and this list must not be lost.
@@ -34,7 +34,8 @@ relative to the core repository root.
 Replaces the KS key-store workstream (closed below).
 
 **CI-1** [core] **The (stream, `command_id`) index, and dedup on events.**
-- What: in every storage backend, index `EventMeta.command_id` per stream
+- What: in every storage backend, index `EventMeta.causation.command_id`
+  per stream
   (not unique: one command may write several events). Before business code
   (pipeline step 3), look up (`CommandBook.cover`, `command_id`). On a hit,
   read those events in sequence order and answer `DELIVERY_OUTCOME_DUPLICATE`
@@ -199,12 +200,15 @@ disposition:
 
 **PS-1** [core] **Persist `EventMeta`.**
 - What: stamp `EventMeta` on every page the coordinator writes, in its
-  pass-12 shape: `command_id`, `causation_id` (reactions), `fact` (facts),
+  pass-13 shape: `causation` (`command_id` for every command's events;
+  `triggering_event` for a PM's process events, PR-4), `fact` (facts),
   `correlation_id`, `recorded_at`, and `rules_version` (from the response,
-  RV-1). No actor, origin or base sequence.
-- Why: passes 1 and 12 (decision 12.4).
+  RV-1). No actor, origin or base sequence, and no copy of a reaction
+  command's `causation_id` (it goes to traces, PS-6).
+- Why: passes 1, 12 and 13 (decisions 12.4, 13.1 and 13.3).
 - Settled when: a round-trip test reads back full meta for a client
-  command, a reaction command and a fact.
+  command, a reaction command, a fact and a PM process event, and a
+  reaction command's events carry no trigger.
 
 **PS-2** [core, router] **Stamp reaction identity from the trigger.**
 - What: the saga and PM coordinators stamp each emitted command's
@@ -240,6 +244,21 @@ disposition:
   angzarr's task log.
 - Why: they corrupt the provenance this contract relies on.
 - Settled when: both tasks are closed.
+
+**PS-6** [core] **Record the reaction trigger edge in traces (pass 13).**
+- What: the saga and PM coordinators record, for every reaction command
+  they stamp, its `causation_id` (the trigger's `EventRef`) and its
+  `command_id` in the command's OpenTelemetry span (as span attributes,
+  with the span linked to the trigger's), and the receiving coordinator
+  records the `command_id` on the append's span. Logs carry the same pair.
+  This is the only record of "which event led to this reaction command"
+  once the events no longer carry it.
+- Why: decision 13.3; the `command_identity` region of `types.proto`
+  (`causation_id` is transport and trace metadata), and the forward
+  causation text on `CorrelationQuery`.
+- Settled when: from a trace of a saga chain across three domains, every
+  reaction command's trigger and the events it produced can be read off,
+  and no event carries the trigger.
 
 ## BO: business output is payloads only (pass 5, W7)
 
@@ -525,14 +544,25 @@ built.
 - Why: pass 2.
 - Settled when: the question is decided and implemented.
 
-**PR-3** [core] **Meta for a PM's own process events (review PM2).**
-- What: decide, then implement, what `EventMeta` a PM's `process_events`
-  carry. They have no producing command, so `command_id` (always set on a
-  persisted event) has no source. One option is a `command_id` derived from
-  the trigger and the PM's name, at an index that cannot collide with its
-  commands'.
-- Why: decision 12.4 leaves it open; `types.proto` `EventMeta` says so.
-- Settled when: the user decides, and the rule is in the protos.
+**PR-3** (meta for a PM's own process events, review PM2): **closed** by
+pass 13 (decision 13.2). The rule is in the protos; its implementation is
+PR-4.
+
+**PR-4** [core] **Stamp and deduplicate PM process events on their
+trigger.**
+- What: the PM coordinator stamps every process event's `EventMeta` with
+  `causation.triggering_event` (the trigger's `EventRef`), the trigger's
+  `correlation_id`, `recorded_at` and the response's `rules_version`; never
+  a `command_id` or a `fact`. Every backend indexes (stream,
+  `causation.triggering_event`), not unique. Before appending, look the
+  trigger up in the PM's own stream; on a hit, append nothing. The lookup
+  shares the append's transaction with the outbox and checkpoint (OB-2).
+- Why: decision 13.2; `EventMeta` and the `command_identity` region
+  (Process events) of `types.proto`, and `process_manager.proto`.
+- Settled when: a PM re-run over a handled trigger (checkpoint reset)
+  appends no process events and its commands are answered DUPLICATE; its
+  process events carry the trigger's correlation; and the lookup cost is
+  independent of stream length.
 
 ## VC: command versioning (pass 12)
 
@@ -730,8 +760,29 @@ code.**
 form (`Origin` is deleted). What remains: delete every use of `Origin`,
 `RequestOrigin` and `Causation` and their mapping code, in favour of the
 page's `command_id`, `correlation_id`, `causation_id` and `fact_origin`,
-copied onto `EventMeta`.
+and of `EventMeta`'s `causation` oneof, `correlation_id` and `fact`.
 - Settled when: no code names the deleted messages.
+
+## RD: re-driving reactions (pass 13, T8)
+
+**RD-1** [core, clients] **Standard, shipped re-drive commands.**
+- What: the framework ships commands that trigger reprocessing, so a
+  developer repairing what a buggy reactor did never hand-builds them. A
+  re-drive is a NEW client command (a fresh `command_id`) addressed to a
+  stream or reactor, naming what to reprocess (for example a trigger
+  `EventRef`, or a range of a source stream), whose events the reactor
+  reacts to under its current rules version. Because its ids are new, its
+  output applies and appends after the buggy-era events, which stay. Not a
+  checkpoint reset (resets are for recovery only, and their output
+  deduplicates). Define the command types (in the angzarr protos or a
+  shipped domain), the coordinator or reactor handling, and an operator
+  entry point.
+- Why: decision 13.4; the `command_identity` region (Reactor re-runs) of
+  `types.proto`; `idempotency.md` and the guide's "Re-running reactors".
+- Settled when: after a reactor's rules bump, a shipped re-drive over one
+  past trigger yields new commands that apply, the original events are
+  untouched, and a checkpoint reset over the same trigger still yields
+  DUPLICATE.
 
 ## CQ: cross-domain correlation query (pass 6, D4)
 
@@ -748,11 +799,14 @@ copied onto `EventMeta`.
 
 **CQ-2** [core, clients] **Serve `GetCorrelatedEvents`, and a forward-causation helper.**
 - What: implement the RPC (validation, editions, one book per stream, the
-  HTTP route). Client libraries offer a helper that indexes the result on
-  `EventMeta.causation_id` to answer "what did this event cause".
+  HTTP route). Client libraries offer a helper over the result: it links a
+  PM's process events to their trigger exactly (on
+  `EventMeta.causation.triggering_event`) and groups every other event by
+  its command (`causation.command_id`); reaction commands' trigger edges
+  are not in the result (decision 13.3) and come from traces (PS-6).
 - Why: `query.proto`, `CorrelationQuery` in `types.proto`.
 - Settled when: a saga chain across three domains comes back in one call,
-  and the helper rebuilds its causation tree.
+  and the helper rebuilds the PM edges and the per-command groups.
 
 ## EA: edition administration (pass 6, D5)
 
@@ -1133,14 +1187,14 @@ no-op implementations only.
 
 ## Counts
 
-Open items only. The closed KS items, SN-3, DQ-3 and MI-3 are listed in
-place with their disposition but not counted.
+Open items only. The closed KS items, SN-3, DQ-3, MI-3 and PR-3 are listed
+in place with their disposition but not counted.
 
 | Workstream | Items |
 |---|---|
 | CI: command identity and dedup on events (pass 12) | 8 |
 | OB: transient reactor outbox | 6 |
-| PS: provenance stamping and correlation | 5 |
+| PS: provenance stamping and correlation | 6 |
 | BO: business output is payloads only | 3 |
 | RV: rules_version reporting | 3 |
 | MD: the three RPC modes and the Outcome | 6 |
@@ -1158,6 +1212,7 @@ place with their disposition but not counted.
 | RM: removed features | 6 |
 | TG: type generation and router | 2 |
 | OR: arm and fact source | 2 |
+| RD: re-driving reactions (pass 13) | 1 |
 | CQ: cross-domain correlation query (pass 6) | 2 |
 | EA: edition administration (pass 6) | 4 |
 | NC: the conflict nonce (pass 6) | 2 |
@@ -1168,7 +1223,7 @@ place with their disposition but not counted.
 | AU: attempt-audit sink (pass 6, held) | 1 |
 | GAP: carried gaps | 3 |
 | DOC: site, specs, branches | 7 |
-| **Total** | **108** |
+| **Total** | **110** |
 
 Pass 12 closed 15 items (KS-1–12, with KS-9's content moved to CI-8;
 SN-3, DQ-3 and MI-3), opened 13 (CI-1–8, RV-3, PR-3, VC-1, CR-3 and
@@ -1176,15 +1231,19 @@ DOC-7), and rewrote others in place (PS-1–3, RV-1–2, DQ-1–2, RN-1, HD-2,
 HD-4, OR-1–2, CR-1–2, MI-1–2, UU-2–4, EA-1, AU-1, OB-6): 110 open items
 became 108.
 
+Pass 13 closed PR-3 (decided; its implementation is PR-4), opened 3 (PR-4,
+PS-6, RD-1), and rewrote CI-1, PS-1, OR-2 and CQ-2 in place: 108 open
+items became 110. Review T8 needs no item of its own beyond RD-1.
+
 ## By-repo index
 
 An item tagged with several repos appears under each of them.
 
 | Repo | Items |
 |---|---|
-| core | CI-1–6, CI-8, OB-1–3, OB-5–6, PS-1–5, BO-1, RV-1, RV-3, MD-1–5, ST-1, ED-1–4, SN-1–2, RT-1–2, DQ-1–2, DQ-4–6, RN-1–2, PR-1–3, FA-1–2, HD-1–5, WS-1–5, RM-1–3, RM-6, TG-1, OR-1–2, CQ-1–2, EA-1–3, NC-2, CR-2–3, MI-1, UU-2–4, CL-1–5, AU-1, GAP-1–2 |
+| core | CI-1–6, CI-8, OB-1–3, OB-5–6, PS-1–6, BO-1, RV-1, RV-3, MD-1–5, ST-1, ED-1–4, SN-1–2, RT-1–2, DQ-1–2, DQ-4–6, RN-1–2, PR-1–2, PR-4, FA-1–2, HD-1–5, WS-1–5, RM-1–3, RM-6, TG-1, OR-1–2, RD-1, CQ-1–2, EA-1–3, NC-2, CR-2–3, MI-1, UU-2–4, CL-1–5, AU-1, GAP-1–2 |
 | router | OB-4, OB-6, PS-2, RN-1, VC-1, FA-3, HD-3, WS-2, TG-1–2, OR-2, NC-1, CR-1, CL-2, CL-4 |
-| clients (go, rust, python, java, csharp, cpp, typescript) | CI-2, CI-7, BO-2, RV-2–3, MD-6, ST-2, ED-3, RN-1–2, VC-1, FA-3, HD-5, WS-1–2, RM-4, RM-6, TG-1, OR-2, CQ-2, EA-4, NC-1, CR-1, CR-3, MI-2, UU-1–2, CL-1–2, CL-4–5 |
+| clients (go, rust, python, java, csharp, cpp, typescript) | CI-2, CI-7, BO-2, RV-2–3, MD-6, ST-2, ED-3, RN-1–2, VC-1, FA-3, HD-5, WS-1–2, RM-4, RM-6, TG-1, OR-2, RD-1, CQ-2, EA-4, NC-1, CR-1, CR-3, MI-2, UU-1–2, CL-1–2, CL-4–5 |
 | examples | BO-3, WS-2, RM-5 |
 | site | RN-2, EA-4, CL-5, DOC-1–4, DOC-7 |
 | project (features, CI, branches, parity) | EA-4, CR-1, GAP-3, DOC-5–6 |

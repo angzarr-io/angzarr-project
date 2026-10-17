@@ -4,7 +4,9 @@
 //! (the `CommandPage` body, `Command` or `Fact`, with the command's identity:
 //! `command_id`, `correlation_id`, `causation_id`, `fact_origin`), covers,
 //! `Handling` (on `CommandBook`, with `ConflictResolution`),
-//! `ContextualCommand` (with the conflict nonce), `EventMeta`, `EventRef`,
+//! `ContextualCommand` (with the conflict nonce), `EventMeta` (with its
+//! `causation` oneof: `command_id`, or a process event's `triggering_event`),
+//! `EventRef`,
 //! `FactOrigin`, snapshots (with their `rules_version`), the response-only
 //! `Outcome`, `ComponentDescriptor` with its `StateDescriptor` and
 //! `StateOptions`, `ComponentKind`, the upcaster request/response messages,

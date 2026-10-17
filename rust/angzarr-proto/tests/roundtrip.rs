@@ -3,11 +3,11 @@ use std::hash::Hash;
 
 use angzarr_proto::ids::{fact_command_id, reaction_command_id};
 use angzarr_proto::v1::{
-    angzarr_dead_letter, command_page, AngzarrDeadLetter, Command, CommandBook, CommandPage,
-    ComponentDescriptor, ComponentKind, ConflictResolution, ConflictUnit, ContextualCommand,
-    CorrelationQuery, Cover, DeliveryOutcome, EventBook, EventMeta, EventPage, EventRef, Fact,
-    FactOrigin, Handling, Outcome, Projection, ProjectorFailure, Snapshot, StateDescriptor,
-    StateOptions, Target, UpcastRequest, Uuid,
+    angzarr_dead_letter, command_page, event_meta, AngzarrDeadLetter, Command, CommandBook,
+    CommandPage, ComponentDescriptor, ComponentKind, ConflictResolution, ConflictUnit,
+    ContextualCommand, CorrelationQuery, Cover, DeliveryOutcome, EventBook, EventMeta, EventPage,
+    EventRef, Fact, FactOrigin, Handling, Outcome, Projection, ProjectorFailure, Snapshot,
+    StateDescriptor, StateOptions, Target, UpcastRequest, Uuid,
 };
 use prost::{Message, Name};
 
@@ -86,19 +86,37 @@ fn command_page(kind: Kind) -> CommandPage {
     }
 }
 
-/// The meta the coordinator stamps from a command page: its identity copied,
-/// plus recorded_at and the reported rules version.
+fn recorded_at() -> Option<prost_types::Timestamp> {
+    Some(prost_types::Timestamp {
+        seconds: 1_700_000_001,
+        nanos: 0,
+    })
+}
+
+/// The meta the coordinator stamps from a command page: the command as the
+/// event's causation, its correlation and fact source, plus recorded_at and
+/// the reported rules version. The page's causation_id (a reaction's
+/// trigger) is not recorded.
 fn meta(kind: Kind) -> EventMeta {
     let page = command_page(kind);
     EventMeta {
-        command_id: page.command_id,
-        causation_id: page.causation_id,
+        causation: page.command_id.map(event_meta::Causation::CommandId),
         fact: page.fact_origin,
         correlation_id: page.correlation_id,
-        recorded_at: Some(prost_types::Timestamp {
-            seconds: 1_700_000_001,
-            nanos: 0,
-        }),
+        recorded_at: recorded_at(),
+        rules_version: "v3".into(),
+    }
+}
+
+/// The meta a process manager's coordinator stamps on its own process
+/// events: the trigger as causation, the trigger's correlation, no command
+/// id and no fact.
+fn process_meta() -> EventMeta {
+    EventMeta {
+        causation: Some(event_meta::Causation::TriggeringEvent(cause())),
+        fact: None,
+        correlation_id: Some(uuid(0xc0)),
+        recorded_at: recorded_at(),
         rules_version: "v3".into(),
     }
 }
@@ -197,33 +215,77 @@ fn page_identity_fields_have_their_numbers() {
 }
 
 #[test]
-fn event_meta_copies_the_page_identity_unchanged() {
-    // One shape on the page and the meta: the coordinator copies the
-    // command's identity onto every event, byte for byte.
+fn event_meta_records_the_command_as_causation_not_its_trigger() {
+    // An event's causation is its direct cause, the producing command. The
+    // command's own causation (a reaction's trigger) is not on the event.
     for kind in KINDS {
         let page = command_page(kind);
         let meta = round_trip(&meta(kind));
-        assert_eq!(meta.command_id, page.command_id);
+        let id = page.command_id.clone().expect("assigned");
+        assert_eq!(meta.causation, Some(event_meta::Causation::CommandId(id)));
         assert_eq!(meta.correlation_id, page.correlation_id);
-        assert_eq!(meta.causation_id, page.causation_id);
         assert_eq!(meta.fact, page.fact_origin);
         assert_eq!(meta.rules_version, "v3");
         assert!(meta.recorded_at.is_some());
     }
+    // The reaction page does carry a trigger; its event meta does not.
+    assert!(command_page(Kind::Reaction).causation_id.is_some());
+    assert!(!matches!(
+        meta(Kind::Reaction).causation,
+        Some(event_meta::Causation::TriggeringEvent(_))
+    ));
+}
+
+#[test]
+fn process_event_meta_names_its_trigger_and_carries_its_correlation() {
+    let meta = round_trip(&process_meta());
+    assert_eq!(meta, process_meta());
+    match meta.causation {
+        Some(event_meta::Causation::TriggeringEvent(t)) => assert_eq!(t, cause()),
+        other => panic!("expected the trigger as causation, got {other:?}"),
+    }
+    assert_eq!(meta.correlation_id, Some(uuid(0xc0)));
+    assert_eq!(meta.fact, None);
+}
+
+#[test]
+fn event_meta_causation_is_one_or_the_other() {
+    // A oneof: the last arm on the wire wins, so a command id and a trigger
+    // can never both be recorded on one event.
+    let with_id = EventMeta {
+        causation: Some(event_meta::Causation::CommandId(uuid(1))),
+        ..Default::default()
+    };
+    let mut bytes = with_id.encode_to_vec();
+    bytes.extend(process_meta().encode_to_vec());
+    let decoded = EventMeta::decode(bytes.as_slice()).expect("decode");
+    assert_eq!(decoded.causation, process_meta().causation);
 }
 
 #[test]
 fn event_meta_field_numbers() {
-    // command_id 13, correlation_id 14, causation_id 15, fact 16,
-    // recorded_at 5, rules_version 7: no actor, no origin, no base_sequence.
+    // causation: command_id 17 | triggering_event 18; correlation_id 14,
+    // fact 16, recorded_at 5, rules_version 7. No actor, no origin, no
+    // base_sequence, and no causation_id: 13 and 15 are gone.
     let first_two = |meta: EventMeta| meta.encode_to_vec()[..2].to_vec();
     let id = Some(uuid(1));
+    // Fields 17 and 18 need two-byte tags: 17 << 3 | 2 = 138 = 0x8a 0x01,
+    // 18 << 3 | 2 = 146 = 0x92 0x01.
     assert_eq!(
-        first_two(EventMeta {
-            command_id: id.clone(),
+        EventMeta {
+            causation: id.clone().map(event_meta::Causation::CommandId),
             ..Default::default()
-        }),
-        [0x6a, 18]
+        }
+        .encode_to_vec()[..3],
+        [0x8a, 0x01, 18]
+    );
+    assert_eq!(
+        EventMeta {
+            causation: Some(event_meta::Causation::TriggeringEvent(EventRef::default())),
+            ..Default::default()
+        }
+        .encode_to_vec(),
+        [0x92, 0x01, 0]
     );
     assert_eq!(
         first_two(EventMeta {
@@ -232,12 +294,12 @@ fn event_meta_field_numbers() {
         }),
         [0x72, 18]
     );
+    // Pass-12 bytes for command_id (13) and causation_id (15) decode to
+    // nothing: unknown fields, not misread as the new causation.
+    let old = [&[0x6a, 16][..], &[1; 16][..], &[0x7a, 0][..]].concat();
     assert_eq!(
-        first_two(EventMeta {
-            causation_id: Some(EventRef::default()),
-            ..Default::default()
-        }),
-        [0x7a, 0]
+        EventMeta::decode(old.as_slice()).expect("decode"),
+        EventMeta::default()
     );
     // Field 16 needs a two-byte tag: 16 << 3 | 2 = 130 = 0x82 0x01.
     assert_eq!(
@@ -408,10 +470,15 @@ fn event_meta_round_trips_each_kind() {
         assert_eq!(decoded, original);
         assert_eq!(decoded.meta, Some(meta(kind)));
     }
+    let process = EventPage {
+        meta: Some(process_meta()),
+        ..page(Kind::Client)
+    };
+    assert_eq!(round_trip(&process), process);
 }
 
 #[test]
-fn causation_id_nests_a_cover_with_its_edition() {
+fn event_refs_nest_a_cover_with_its_edition() {
     let decoded = round_trip(&cause());
     let stream = decoded.stream.expect("stream");
     assert_eq!(stream.domain, "lists");
@@ -419,13 +486,20 @@ fn causation_id_nests_a_cover_with_its_edition() {
     assert_eq!(stream.root, Some(uuid(0xab)));
     assert_eq!(decoded.sequence, u64::MAX);
 
-    // Nested deeper: event meta -> causation_id -> cover.
-    let p = round_trip(&page(Kind::Reaction));
-    let causation = p.meta.unwrap().causation_id.unwrap();
+    // Nested deeper: command page -> causation_id -> cover, and a process
+    // event's meta -> triggering_event -> cover.
+    let page = round_trip(&book(Kind::Reaction, None)).page.unwrap();
+    let causation = page.causation_id.unwrap();
     assert_eq!(
         causation.stream.unwrap().edition.as_deref(),
         Some("what-if")
     );
+    match round_trip(&process_meta()).causation {
+        Some(event_meta::Causation::TriggeringEvent(t)) => {
+            assert_eq!(t.stream.unwrap().edition.as_deref(), Some("what-if"))
+        }
+        other => panic!("expected a trigger, got {other:?}"),
+    }
 }
 
 /// Main is unset, not a magic name: an unset edition is absent from the wire

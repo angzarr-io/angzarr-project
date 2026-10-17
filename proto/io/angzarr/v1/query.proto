@@ -28,8 +28,9 @@ service EventQueryService {
   }
   // Every event of one correlation, across all domains: one EventBook per
   // stream holding that stream's pages with the correlation, in sequence
-  // order (see CorrelationQuery in types.proto, which also says how to
-  // derive forward causation from the result). A Query's correlation
+  // order (see CorrelationQuery in types.proto, which also says how much
+  // forward causation the result gives: exact for process events, by
+  // correlation only for reaction commands' events). A Query's correlation
   // selector stays within one domain; this RPC does not. An unset
   // correlation_id, or one that is not 16 bytes, is INVALID_ARGUMENT; a
   // correlation with no events is an empty stream, not NOT_FOUND. REST: the

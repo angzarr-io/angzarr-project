@@ -61,7 +61,7 @@ model, with the message-id convention of the messaging inboxes.
 | Aspect | Decision |
 |---|---|
 | Key | **One `command_id` per command** (`CommandPage.command_id`, a `UUID`). A client Command's is client-supplied (any version; an SDK mints a v7 and reuses it on retry) or, when absent, a UUIDv7 the coordinator mints. A reaction command's is **derived**: UUIDv5(`ANGZARR_COMMAND_NAMESPACE`, netstrings of the trigger `EventRef`, the reacting component and the command's index). A Fact's is **derived**: UUIDv5(`ANGZARR_FACT_CORRELATION_NAMESPACE`, `external_id`). The exact encodings and worked values are in the `derived_ids` region. |
-| Where it lives | **On the events.** Every event the command produces carries it (`EventMeta.command_id`). There is no separate store. |
+| Where it lives | **On the events.** Every event the command produces carries it as its causation (`EventMeta.causation.command_id`, pass 13). There is no separate store. |
 | Lookup | "Already applied?" means that the addressed stream holds events with this `command_id`. Every backend keeps an index on (stream, `command_id`), which is not unique: a command may write several events. |
 | Scope | Per addressed stream (`CommandBook.cover`). The same id sent to two streams is two commands. |
 | Order | **Normative**: validate, then assign ids (mint or derive), then the dedup lookup, then resolve and check Handling, then business code. A retry of an applied STRICT command whose expected sequence is now stale is therefore DUPLICATE, not ABORTED. |
@@ -71,6 +71,8 @@ model, with the message-id convention of the messaging inboxes.
 | Rejections and parked facts | Write nothing, so a retry with the same id runs business code again (Wolverine-style release, for free). |
 | `HandleAsync` and DLQ replay | The id is assigned before enqueueing (and stored with the dead letter), so queue redelivery and replay are deduplicated. A client-supplied id is no longer required; the caller supplies one only to make its *own* retries safe. |
 | Retention | **None. Dedup is forever**: the events are permanent, so a command id that applied to a stream never applies to it again. |
+| PM process events (pass 13) | No producing command, so no `command_id`. Their causation is the trigger (`EventMeta.causation.triggering_event`), and they deduplicate on it within the PM's own stream, on a (stream, `triggering_event`) index: a trigger's process events are appended once. They carry the trigger's correlation. Decision 13.2. |
+| Reactor re-runs (pass 13) | Same trigger, component and index give the same id, whatever the reactor's rules version, so a re-run always deduplicates. Repairs are new commands. See [Reactor re-runs](#reactor-re-runs). |
 
 ### Accepted costs
 
@@ -94,7 +96,10 @@ These are the user's, and they are deliberate:
 - **Message id = command id; correlation and causation as metadata**:
   KurrentDB (`$correlationId`, `$causationId`, event ids), NServiceBus and
   MassTransit (message id, conversation and correlation ids), and Marten's
-  causation and correlation metadata.
+  causation and correlation metadata. Since pass 13 an event's causation
+  is its direct cause only (its command, or a process event's trigger); a
+  reaction command's trigger stays on the command and in traces, as in
+  Marten and Wolverine (decision 13.3).
 - **Deduplication on the stream, no separate store**: KurrentDB's
   idempotent appends (event ids) and Equinox (processed ids in the stream,
   zero-event decisions re-decided).
@@ -123,11 +128,44 @@ These are the user's, and they are deliberate:
   redelivering a fact whose ingest fails produces a dead-letter entry per
   attempt, unless the DLQ deduplicates entries per command id (backlog
   CI-8).
-- **Reactor re-runs.** A reactor re-run (for example after a checkpoint
-  reset) re-derives the same command ids for the same (trigger, component,
-  index), so its commands are answered DUPLICATE, even if the new run would
-  have emitted different commands (review finding T8). This is the "reused
-  id with a different payload" cost, applied to reactions.
+
+## Reactor re-runs
+
+Decided in pass 13 (decision 13.4; review finding T8).
+
+**What deduplicates.** A reaction command's id is UUIDv5 of (trigger,
+component, index) and nothing else: not the reactor's `rules_version`, not
+its code. A reactor run again over a trigger it already handled (a
+checkpoint reset) emits the same ids, so every destination answers
+DUPLICATE with the events the first run produced, and a process manager's
+process events for that trigger dedupe on `triggering_event`. This holds
+even if the reactor's code changed in between and would now emit different
+commands: that is the "reused id with a different payload" cost, applied to
+reactions, and it is deliberate.
+
+**History is never lost.** A re-run adds nothing where the first run
+applied; it never overwrites, deletes or re-sequences an event. The
+buggy-era events stay where they are, append-only.
+
+**Checkpoint resets are for recovery only**: re-delivering triggers whose
+output never reached the outbox. They are not a repair tool.
+
+**Repairs are new commands.** To fix what a buggy reactor did, issue NEW
+commands, with new command ids, that make the corrections (or re-drive the
+fixed reactor over the affected triggers). Their ids are new, so they
+apply, and their events append after the buggy-era ones, with later
+sequence numbers; projections and readers see the correction as what it
+is. The framework will ship standard re-drive commands for this (backlog
+RD-1); until then they are ordinary client commands.
+
+**Considered and dropped**: a per-reactor switch putting `rules_version`
+into the derivation, so a re-run after a version bump would apply. It made
+toggling the switch or bumping a version silently change every later id,
+and turned a reset into an unrecorded repair.
+
+The developer guide's "Re-running reactors" section
+([state-and-conflicts.md](../../guide/state-and-conflicts.md)) gives the
+procedure and the risks.
 
 ## Superseded: the key-store design (passes 5–10)
 

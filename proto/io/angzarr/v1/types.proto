@@ -103,6 +103,9 @@ message UUID {
 // "what-if" (name 4:list,7:what-if,36:...) gives
 // e2321e9e-d55a-5f48-bbe1-b09081c2e445; component "a,b:c" (name
 // ...,1:7,5:a,b:c,1:0,) gives 27ccb6bf-e37e-54bd-b0f0-9eac56ff5f93.
+// The name never includes the reactor's rules_version or anything else
+// about its code, so a re-run reproduces the same ids (see Reactor re-runs
+// in the command_identity region).
 //
 // Fact command ids and correlations. A fact's command id is
 //   UUIDv5(ANGZARR_FACT_CORRELATION_NAMESPACE, external_id)
@@ -374,7 +377,8 @@ message EventPage {
 // region event_ref
 // Identifies one event: the page at `sequence` in the stream `stream`. This
 // is an event's identity — no separate event id is minted — and is how one
-// event names another (CommandPage.causation_id, EventMeta.causation_id).
+// event names another (CommandPage.causation_id,
+// EventMeta.triggering_event).
 message EventRef {
   Cover stream = 1; // The stream holding the event (domain, edition, root)
   uint64 sequence = 2; // The event's EventPage.sequence within that stream
@@ -385,11 +389,14 @@ message EventRef {
 // Why a command exists, and how it is deduplicated. Every command carries
 // one command_id; reaction commands also carry the triggering event
 // (causation_id); facts carry their source (fact_origin). All of it rides
-// the CommandPage and is copied onto every event the command produces
-// (EventMeta), where it is plain metadata. This follows the established
-// message-metadata convention (KurrentDB's $correlationId / $causationId,
-// NServiceBus and Marten): one message id, a correlation id and a causation
-// id.
+// the CommandPage. This follows the established message-metadata
+// convention (KurrentDB's $correlationId / $causationId, NServiceBus,
+// Marten and Wolverine): one message id, a correlation id, and a causation
+// id naming the message's DIRECT cause. A command's direct cause is its
+// trigger (causation_id); an event's direct cause is the command that
+// produced it, or, for a process manager's own process events, the trigger
+// it reacted to (EventMeta.causation). Each event records only its own
+// direct cause, never its command's causation (decision 13.3).
 //
 // command_id: one per command, a UUID, assigned before deduplication:
 //   client Command  the caller's CommandPage.command_id (any UUID version,
@@ -408,6 +415,8 @@ message EventRef {
 //                   fact_origin.external_id) (derived_ids region). A sender
 //                   may set it only to that value (an SDK may compute it);
 //                   any other value is malformed.
+// Every event the command produces records it as its causation
+// (EventMeta.causation.command_id).
 //
 // correlation_id: the workflow. The caller's when supplied (verbatim; a
 // UUID of any version). When absent, the coordinator sets it, before
@@ -415,25 +424,33 @@ message EventRef {
 // or minted), so every retry of a client-keyed command lands in one
 // correlation; a Fact's is its derived command_id. A reaction command's is
 // its trigger's correlation, stamped by the coordinator; a reactor that sets
-// a different one is a reactor bug. Correlation is never unset on a
-// persisted event, and the framework never mints one of its own. It groups
-// a workflow and is not an identity: two sources' external ids can
-// coincide, and a sender that must keep them apart supplies correlation_id
-// itself. Correlation is recorded per page only (covers carry none);
-// Query.correlation_id, CorrelationQuery and EventStreamFilter select by it.
+// a different one is a reactor bug. A process manager's process events
+// carry their trigger's correlation too (see Process events, below).
+// Correlation is never unset on a persisted event, and the framework never
+// mints one of its own. It groups a workflow and is not an identity: two
+// sources' external ids can coincide, and a sender that must keep them
+// apart supplies correlation_id itself. Correlation is recorded per page
+// only (covers carry none); Query.correlation_id, CorrelationQuery and
+// EventStreamFilter select by it.
 //
-// causation_id: the EventRef of the event a saga or process manager reacted
+// causation_id: the command message's own causation, as the standard
+// defines it: the EventRef of the event a saga or process manager reacted
 // to, always the triggering event (never the reactor's own earlier event; a
 // process manager's command names the trigger it is answering, like a
-// saga's). Set on reaction commands only, by the reactor's coordinator.
-// Plain metadata: it is not a deduplication key (the command_id is), and
-// the events the command produces carry it unchanged, so the forward
-// causation graph is derivable (see CorrelationQuery). Accepted only from a
-// caller authenticated as a framework component (command_handler.proto,
-// the entry_points region); a client caller that sets it is refused
-// PERMISSION_DENIED.
+// saga's). Set on reaction commands only, by the reactor's coordinator, and
+// the input the reaction command_id is derived from (derived_ids region).
+// It is transport and trace metadata, NOT persisted on the events the
+// command produces: their causation is the command itself
+// (EventMeta.causation.command_id). The coordinators record the trigger
+// edge in the command's trace and logs (OpenTelemetry), as Marten and
+// Wolverine do, so "which event led to these events" is answered from
+// traces, not from the event store (decision 13.3; see CorrelationQuery for
+// what the store still answers). Accepted only from a caller authenticated
+// as a framework component (command_handler.proto, the entry_points
+// region); a client caller that sets it is refused PERMISSION_DENIED.
 //
-// fact_origin: where a Fact came from (FactOrigin, below), kept for audit.
+// fact_origin: where a Fact came from (FactOrigin, below), kept for audit
+// and copied onto every event the fact produces (EventMeta.fact).
 //
 // Validation (refused before deduplication; see Handling for the full list):
 //   Fact      requires fact_origin with a non-empty external_id; never
@@ -446,21 +463,48 @@ message EventRef {
 //
 // Deduplication: by command_id, ON THE EVENTS. There is no separate key
 // store. "Already applied?" means: the addressed stream (CommandBook.cover)
-// already holds events whose EventMeta.command_id is this command's. Every
-// backend keeps an index on (stream, command_id) for that lookup; it is not
-// unique, since one command may produce several events. On a hit the
-// coordinator does not run business code: it answers with those events, in
-// sequence order, and Outcome.delivery DUPLICATE. Deduplication is per
-// addressed stream, the same command_id sent to two streams is two
-// commands, and because the id is written with the events it is atomic
-// with the append on every backend. (KurrentDB deduplicates appends by
-// event id the same way, and Equinox keeps processed ids in the stream.)
+// already holds events whose EventMeta.causation.command_id is this
+// command's. Every backend keeps an index on (stream, command_id) for that
+// lookup; it is not unique, since one command may produce several events.
+// On a hit the coordinator does not run business code: it answers with
+// those events, in sequence order, and Outcome.delivery DUPLICATE.
+// Deduplication is per addressed stream, the same command_id sent to two
+// streams is two commands, and because the id is written with the events it
+// is atomic with the append on every backend. (KurrentDB deduplicates
+// appends by event id the same way, and Equinox keeps processed ids in the
+// stream.)
 //
 // Concurrent deliveries of one command race on the append's optimistic
 // sequence check: exactly one commits. The losing append writes nothing,
 // and the coordinator runs the losing delivery again from the deduplication
 // lookup, which now finds the winner's events and answers DUPLICATE (or,
 // if the winner produced no events, decides again; see the costs below).
+//
+// Process events. The events a process manager writes to its own stream in
+// reaction to a trigger (ProcessManagerHandleResponse.process_events) have
+// no producing command, so they carry no command_id. The PM's coordinator
+// stamps their meta: causation.triggering_event = the trigger's EventRef
+// (the same event its commands' causation_id names), the trigger's
+// correlation_id, recorded_at, and the PM's reported rules_version; never
+// a fact. They are deduplicated the same way, on triggering_event within
+// the PM's own stream: "already applied?" means the PM stream holds events
+// whose causation.triggering_event is this trigger. Every backend keeps an
+// index on (stream, triggering_event), not unique. On a hit the coordinator
+// does not append them again. A PM writes at most one process write per
+// trigger, so that is the whole key. The same costs apply: a reaction that
+// wrote no process events leaves nothing to find.
+//
+// Reactor re-runs. A reaction command_id depends only on (trigger,
+// component, index), never on the reactor's rules_version or code, so a
+// reactor run again over a trigger it already handled (a checkpoint reset)
+// emits the same ids, which every destination answers DUPLICATE, and a
+// PM's process events for that trigger dedupe on triggering_event. A re-run
+// never changes history: it adds nothing where the first run applied, even
+// if the reactor's code has changed since. Checkpoint resets are for
+// recovery only (output that was lost before it reached the outbox).
+// Repairing what a buggy reactor did is done with NEW commands, with new
+// ids, which append new events after the old ones; the buggy-era events
+// remain, append-only (decision 13.4).
 //
 // Accepted costs (decision 12.2):
 //   - A decision that produced NO events leaves nothing to find, so a
@@ -470,6 +514,8 @@ message EventRef {
 //   - A command_id reused for a DIFFERENT command goes undetected: it is
 //     answered DUPLICATE with the first command's events. Payloads are not
 //     fingerprinted. A client must mint a new id for every new command.
+//     The same holds for a reactor re-run whose new code would emit
+//     different commands (above).
 //   - Deduplication is FOREVER: the events are permanent, so a command_id
 //     that applied on a stream can never apply on it again. There is no
 //     expiry, purge or retention window.
@@ -512,38 +558,50 @@ message FactOrigin {
 }
 
 // region event_meta
-// Provenance of one persisted event, stamped by the framework from the
-// producing command. Every persisted event carries meta. Business code never
-// sets meta: an EventBook returned by business code whose pages carry meta
-// is refused (see CommandHandlerService.Handle).
+// Provenance of one persisted event, stamped by the framework. Every
+// persisted event carries meta. Business code never sets meta: an EventBook
+// returned by business code whose pages carry meta is refused (see
+// CommandHandlerService.Handle).
 //
-// command_id, correlation_id and recorded_at are always recorded.
-// causation_id is set iff the command was a reaction command, and fact iff
-// it was a Fact. rules_version is always recorded from the business logic's
-// report (empty only if the business logic reports none).
+// causation, correlation_id and recorded_at are always recorded. causation
+// is the event's DIRECT cause (see the command_identity region):
+// command_id for an event a command produced (client, reaction or fact),
+// triggering_event for a process manager's own process event. fact is set
+// iff the producing command was a Fact. rules_version is always recorded
+// from the business logic's report (empty only if the business logic
+// reports none). A reaction command's causation_id (its trigger) is NOT
+// recorded: an event names its own cause, not its cause's cause (decision
+// 13.3; the trigger edge is in traces).
 //
 // The event's own identity is the EventRef of its page (its stream plus
 // EventPage.sequence); EventMeta does not repeat it.
 //
-// One write is the events one command produced. All pages of one write
-// share one EventMeta, so the events of one command are exactly the pages
-// with its command_id; the deduplication index (command_identity region)
-// is on that field. The head the decision saw is not recorded: it is the
-// sequence of the write's first event (decision 12.4).
-//
-// A process manager's own process_events have no producing command; how
-// their meta is stamped is open (backlog PR-3).
+// One write is the events one command (or one process manager reaction)
+// produced. All pages of one write share one EventMeta, so the events of
+// one command are exactly the pages with its command_id, and a PM's process
+// events for one trigger exactly the pages with that triggering_event; the
+// deduplication indexes (command_identity region) are on those fields. The
+// head the decision saw is not recorded: it is the sequence of the write's
+// first event (decision 12.4).
 message EventMeta {
-  // The producing command's command_id (see the command_identity region).
-  UUID command_id = 13;
-  // The event the producing reaction command reacted to: the command's
-  // causation_id, copied. Unset for client commands and facts.
-  EventRef causation_id = 15;
+  // The event's direct cause. Always set on a persisted event.
+  oneof causation {
+    // The producing command's command_id (see the command_identity
+    // region): every event a client Command, reaction command or Fact
+    // produced. The deduplication key on the stream.
+    UUID command_id = 17;
+    // The trigger a process manager reacted to when it wrote this event to
+    // its own stream (ProcessManagerHandleResponse.process_events), stamped
+    // by the PM's coordinator. Set only on process events, which have no
+    // producing command. The deduplication key within the PM's stream.
+    EventRef triggering_event = 18;
+  }
   // The producing Fact's source: the command's fact_origin, copied. Unset
-  // for Commands.
+  // for Commands and process events.
   FactOrigin fact = 16;
-  // The producing command's correlation (see the command_identity region).
-  // Never unset on a persisted event.
+  // The producing command's correlation, or for a process event its
+  // trigger's (see the command_identity region). Never unset on a persisted
+  // event.
   UUID correlation_id = 14;
   // When the event was durably recorded, stamped by the server that persisted
   // it. The only timestamp an event carries; TemporalQuery.as_of_time selects
@@ -768,14 +826,17 @@ message CommandPage {
   }
   // The command's id: client-supplied or minted (client Command), derived
   // (reaction command, Fact). Unset on arrival from a client means "mint
-  // one". Copied onto every event it produces (EventMeta.command_id) and
-  // the deduplication key there.
+  // one". Recorded on every event it produces as their causation
+  // (EventMeta.causation.command_id), and the deduplication key there.
   UUID command_id = 8;
   // The workflow correlation; set by the coordinator when absent. Copied
   // onto every event (EventMeta.correlation_id).
   UUID correlation_id = 9;
-  // Reaction commands only: the triggering event. Framework-authenticated
-  // callers only. Copied onto every event (EventMeta.causation_id).
+  // Reaction commands only: the command's own causation, its triggering
+  // event. Framework-authenticated callers only. The reaction command_id
+  // is derived from it. Transport and trace metadata: NOT persisted on the
+  // events the command produces (their causation is this command; see the
+  // command_identity region).
   EventRef causation_id = 10;
   // Facts only, and required there: where the fact came from. Copied onto
   // every event (EventMeta.fact).
@@ -990,15 +1051,27 @@ message Query {
 // edition, root) holding that stream's pages with this correlation, in
 // sequence order. The order of books is unspecified.
 //
-// Forward causation is derivable from the result, with no further query.
-// Every reaction command (and so every event it produces) carries its
-// trigger's correlation (see the command_identity region), so the result
-// is closed under "what did this event cause": the events caused by event E
-// are exactly the result pages whose EventMeta.causation_id equals E's
-// EventRef (E's book cover plus its EventPage.sequence). Indexing the result
-// on causation_id gives the forward graph; pages without a causation_id
-// (client commands and facts) are its roots. Rejected commands leave no events, so they do
-// not appear (see the attempt-audit sink in the design record).
+// Forward causation, from the result alone. Every reaction (its commands,
+// their events, and a process manager's process events) carries its
+// trigger's correlation (see the command_identity region), so everything
+// event E led to is in the result. How exactly each edge is known depends
+// on the kind of event (decision 13.3):
+//   - Process events are linked EXACTLY: the process events a process
+//     manager wrote in reaction to E are the result pages whose
+//     EventMeta.causation.triggering_event equals E's EventRef (E's book
+//     cover plus its EventPage.sequence).
+//   - Events of reaction commands are linked only COARSELY, by
+//     correlation: the pages of one command share its
+//     causation.command_id, but the command's trigger (its causation_id)
+//     is not on its events. The exact trigger edge (E -> the commands a
+//     saga or PM emitted for it -> their events) is in the traces and
+//     logs the coordinators write (OpenTelemetry), not in the store.
+// Accepted cost: the event store alone answers "what belongs to this
+// workflow" and "what did this PM do about E", but not "which events did
+// this saga's reaction to E produce"; that question goes to the traces,
+// whose retention the deployment chooses. Rejected commands leave no
+// events, so they do not appear (see the attempt-audit sink in the design
+// record).
 message CorrelationQuery {
   // Required: INVALID_ARGUMENT when unset or not 16 bytes.
   UUID correlation_id = 1;
