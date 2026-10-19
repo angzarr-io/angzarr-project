@@ -674,8 +674,10 @@ message EventMeta {
 // Queries (EventQueryService, including a TemporalQuery) choose snapshots
 // the same way: while a component owning the queried domain is registered,
 // a returned EventBook carries a snapshot only if it passes both checks
-// against that registration. While none is registered, a query returns no
-// snapshot and every page from sequence 0.
+// against EVERY registration of that component (during a rolling
+// deployment, instances may be registered with different versions). While
+// none is registered, or when any registration rejects the snapshot, a
+// query returns no snapshot and every page from sequence 0.
 message Snapshot {
   // Sequence of the last event folded into `state`. A TemporalQuery
   // as_of_time T may start from this snapshot iff that event's
