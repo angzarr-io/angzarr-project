@@ -16,11 +16,13 @@ option ruby_package = "Angzarr";
 //
 // Commands can be upcast too, but should rarely be. The client library
 // applies the SAME upcaster chain, by type URL, to an incoming command's
-// payload before dispatch (inside CommandHandlerService.Handle; no RPC
-// round trip, and the coordinator, being domain-blind, never upcasts). A
-// command type URL with no handler and no upcaster path to one is refused
-// INVALID_ARGUMENT, naming the type URL. Commands are never stored, so a
-// command upcaster only translates what an out-of-date client sends.
+// payload, and to a fact's, before dispatch (inside
+// CommandHandlerService.Handle; no RPC round trip, and the coordinator,
+// being domain-blind, never upcasts). A payload whose type URL, after
+// upcasting, reaches no handler is refused INVALID_ARGUMENT: the status
+// message names the type URL as sent, and the status details carry the
+// type URL the chain ended at. Commands are never stored, so a command
+// upcaster only translates what an out-of-date client sends.
 //
 // Prefer, in order:
 //   1. evolving the command compatibly: add fields (proto3 makes an absent

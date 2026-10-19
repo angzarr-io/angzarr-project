@@ -634,10 +634,12 @@ fn component_descriptor_carries_its_state_descriptor() {
             domain: "lists".into(),
         }],
         state: Some(state),
+        rules_version: "1.4.2+build.7".into(),
     };
     let decoded = round_trip(&original);
     assert_eq!(decoded, original);
     assert_eq!(decoded.kind(), ComponentKind::Aggregate);
+    assert_eq!(decoded.rules_version, "1.4.2+build.7");
     let resolutions: Vec<ConflictResolution> = decoded
         .state
         .unwrap()
@@ -653,13 +655,17 @@ fn component_descriptor_carries_its_state_descriptor() {
             ConflictResolution::AggregateHandles
         ]
     );
-    // No rules_version on the descriptor (it is reported per response), and
-    // the state is field 6.
+    // The state is field 6 and the rules version field 4.
     let bare = ComponentDescriptor {
         state: Some(StateDescriptor::default()),
         ..Default::default()
     };
     assert_eq!(bare.encode_to_vec(), [0x32, 0]);
+    let versioned = ComponentDescriptor {
+        rules_version: "1".into(),
+        ..Default::default()
+    };
+    assert_eq!(versioned.encode_to_vec(), [0x22, 1, b'1']);
 }
 
 #[test]

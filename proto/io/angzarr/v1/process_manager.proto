@@ -1,8 +1,8 @@
 syntax = "proto3";
 package io.angzarr.v1;
 
-import "io/angzarr/v1/types.proto";
 import "google/api/annotations.proto";
+import "io/angzarr/v1/types.proto";
 
 option csharp_namespace = "Angzarr";
 option go_package = "github.com/benjaminabbitt/angzarr/client/go/proto/io/angzarr/v1;angzarr";
@@ -68,8 +68,9 @@ service ProcessManagerService {
   // events into commands. Emitted commands are Commands (never Facts) whose
   // causation_id names the trigger, stamped exactly as saga commands are
   // (see the command_identity region of types.proto). The PM's own state
-  // arrives as process_state; its snapshot is validated by the client
-  // library as an aggregate's is (Snapshot in types.proto).
+  // arrives as process_state; the coordinator offers a snapshot in it only
+  // if it passes the same validity checks as an aggregate's (Snapshot in
+  // types.proto).
   rpc Handle(ProcessManagerHandleRequest) returns (ProcessManagerHandleResponse);
 }
 
@@ -103,6 +104,9 @@ message ProcessManagerHandleRequest {
 // PM handle response: local events, then remote commands.
 // Execution order: process_events persisted first, then commands sent.
 message ProcessManagerHandleResponse {
+  reserved 4;
+  reserved "snapshot_refused";
+
   // Local: Events for the process manager's own domain (non-duplicative workflow state).
   // These are persisted via AggregateCoordinator to the PM's domain.
   // Each book is merged by the coordinator, which owns the cover and page
@@ -125,11 +129,8 @@ message ProcessManagerHandleResponse {
   // causation_id and correlation_id are left unset for the coordinator to
   // stamp from the trigger; a differing value is refused the same way.
   repeated CommandBook commands = 2;
-  // The PM's rules version for this answer, as CommandHandlerResponse.
-  // rules_version: stamped onto the process events (and any snapshot).
+  // The full version of the PM's business binary, as
+  // CommandHandlerResponse.rules_version: stamped in full onto the process
+  // events (and any snapshot).
   string rules_version = 3;
-  // The client library refused the delivered process_state snapshot, as
-  // CommandHandlerResponse.snapshot_refused: nothing else is set, and the
-  // coordinator re-delivers with no snapshot.
-  bool snapshot_refused = 4;
 }

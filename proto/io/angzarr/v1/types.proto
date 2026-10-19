@@ -613,16 +613,17 @@ message EventMeta {
   // recorded_at. Because of this, the events recorded at or before any time
   // T are always a prefix of the stream (see TemporalQuery).
   google.protobuf.Timestamp recorded_at = 5;
-  // The version of the business rules that decided (or ingested) the event:
-  // a short label the domain's author chooses (e.g. "v3") and bumps
-  // whenever decide, ingest or apply semantics change. Reported by the
-  // business logic with every response (CommandHandlerResponse.rules_version,
-  // ProcessManagerHandleResponse.rules_version) and stamped by the
-  // coordinator; business code never sets it on an event. Opaque to the
-  // framework; used to explain a historical decision, and (with the state
-  // type) to validate snapshots in the client library (see Snapshot).
-  // (annals, which shares these protos, treats rules_version as
-  // load-bearing rather than opaque: a documented divergence, see
+  // The full version of the business binary that decided (or ingested) the
+  // event (e.g. "1.4.2+build.7"): baked in when the binary is built (e.g.
+  // by versionator), never a label chosen by hand. Reported by the business
+  // logic with every response (CommandHandlerResponse.rules_version,
+  // ProcessManagerHandleResponse.rules_version) and stamped in full by the
+  // coordinator from that response, so during a rolling deployment each
+  // event names the build that decided it. Business code never sets it on
+  // an event. The framework reads it only to choose which snapshots to
+  // offer (see Snapshot); otherwise it explains a historical decision.
+  // (annals, which shares these protos, treats rules_version differently:
+  // a documented divergence, see
   // docs/design/audit-meta/annals-divergence.md.)
   string rules_version = 7;
 }
@@ -639,18 +640,34 @@ message EventMeta {
 // events, never retained snapshots.
 //
 // Validity. A snapshot records what produced it: the state's type (the type
-// URL of `state`) and the rules version the business logic reported when it
-// returned the state (rules_version). Validity is checked where the state
-// is decoded: in the client library, never by the domain-blind coordinator.
-// Before decoding a delivered snapshot, the library compares both with its
-// own state type and its own current rules version. On any mismatch it does
-// not decode the snapshot and does not run business code: it answers the
-// delivery with snapshot_refused set (CommandHandlerResponse,
-// ProcessManagerHandleResponse), and the coordinator delivers the same
-// command again with no snapshot and every page from sequence 0, and stops
-// offering that snapshot. A state-schema change or a rules change therefore
-// never needs a snapshot migration: the next load replays, and the next
-// snapshot is written under the current rules version.
+// URL of `state`) and the rules version reported with the response that
+// returned the state (rules_version, the business binary's full version).
+// The coordinator, never the business logic, decides whether a snapshot may
+// be used. It offers a snapshot with a delivery (ContextualCommand.events,
+// ProcessManagerHandleRequest.process_state) only if both hold:
+//   1. its state type URL equals the type_url of the StateDescriptor the
+//      component registered (ComponentDescriptor.state); and
+//   2. its rules_version passes the domain's compatibility rule against the
+//      version the component registered (ComponentDescriptor.rules_version).
+// The default rule: both versions parse as SemVer 2.0.0 and their major and
+// minor numbers are equal (patch, pre-release and build metadata are
+// ignored). If either version does not parse as SemVer 2.0.0, the default
+// rule is exact string equality.
+// Coordinator configuration may replace the default rule for a domain with
+// an accept pattern and an optional reject pattern, each matched against
+// the snapshot's rules_version. The snapshot passes iff the accept pattern
+// matches and the reject pattern, when set, does not: a reject match wins.
+// A pattern matches only the WHOLE version (full-match semantics, as if
+// anchored at both ends). Patterns use the RE2 syntax, which runs in linear
+// time and has no lookaround and no backreferences; a pattern outside that
+// syntax is refused when the configuration is loaded.
+// A snapshot that fails either check is simply not offered: the delivery
+// carries no snapshot and every page from sequence 0, and business code
+// folds the full history. The business logic declares no snapshot
+// compatibility and never checks or refuses a delivered snapshot. A
+// state-schema change or a rules change therefore never needs a snapshot
+// migration: the next load replays, and the next snapshot is written under
+// the current rules version.
 message Snapshot {
   // Sequence of the last event folded into `state`. A TemporalQuery
   // as_of_time T may start from this snapshot iff that event's
@@ -662,12 +679,13 @@ message Snapshot {
   // rules_version.
   uint64 sequence = 2;
   // The folded state. Its type URL is the state type recorded with the
-  // snapshot and compared on load (see Validity above).
+  // snapshot and checked before the snapshot is offered (see Validity
+  // above).
   google.protobuf.Any state = 3;
   // The rules version reported with the response that returned `state`
-  // (CommandHandlerResponse.rules_version), stamped by the coordinator,
-  // never by business code. Compared on load by the client library (see
-  // Validity above).
+  // (CommandHandlerResponse.rules_version), stamped in full by the
+  // coordinator, never by business code. Checked by the coordinator before
+  // the snapshot is offered (see Validity above).
   string rules_version = 5;
 }
 // endregion
@@ -738,9 +756,9 @@ message Projection {
 //                    step 3 loaded, and resolve conflict_resolution
 //                    (STRICT's ABORTED happens here);
 //   5. business code CommandHandlerService.Handle (the client library
-//                    upcasts the payload, checks the snapshot, dispatches
-//                    to decide or ingest, and resolves AGGREGATE_HANDLES /
-//                    COMMUTATIVE), then the append.
+//                    upcasts the payload, dispatches to decide or ingest,
+//                    and resolves AGGREGATE_HANDLES / COMMUTATIVE), then
+//                    the append.
 // The load comes before the lookup: under READ COMMITTED, a lookup first
 // could miss an original delivery that commits before the load, and the
 // retry would append after the original's events with no conflict (applied
@@ -814,8 +832,11 @@ message Handling {
 // it may be rejected), a Fact through ingest (infallible). Within the
 // pipeline the payload's type URL picks the handler, after the client
 // library's upcaster chain has brought an old payload type up to the
-// current one (see upcaster.proto). A type URL with no handler and no
-// upcaster path to one is refused INVALID_ARGUMENT, naming the type URL. On
+// current one (see upcaster.proto); Command and Fact payloads alike are
+// upcast. A payload whose type URL, after upcasting, reaches no handler is
+// refused INVALID_ARGUMENT: the status message names the type URL as sent,
+// and the status details carry the type URL the chain ended at (the sent
+// one when no upcaster applies). On
 // the wire the arm is the fact marker; in code, the handler registration (a
 // fact handler, e.g. #[handles_fact] / ingest, versus a command handler) is
 // the declaration, and the router refuses an arm that does not match the
@@ -864,6 +885,10 @@ message Command {
 // A fact: something that already happened outside the system (a webhook,
 // an integration), delivered through the command coordinator like any
 // command (Handle, HandleAsync or HandleSync).
+//
+// Facts are upcast like commands: the client library applies the same
+// upcaster chain to the payload, by type URL, before dispatch (see
+// upcaster.proto).
 //
 // Fact handlers are infallible: they record the fact (possibly together
 // with events that flag it, e.g. a payment received for an unknown order)
@@ -970,8 +995,9 @@ message ContextualCommand {
   // no part of the window is hidden inside snapshot state. Under STRICT, E
   // is the head and the window is empty.
   //
-  // The snapshot, when present, is unchecked: the client library validates
-  // it before decoding (see Snapshot) and refuses it with snapshot_refused.
+  // The snapshot, when present, has passed the coordinator's validity
+  // checks (see Snapshot); the client library decodes it without checking
+  // it again.
   EventBook events = 1;
   CommandBook command = 2;
   // The conflict nonce. Set when, and only when, the resolved
@@ -1214,6 +1240,11 @@ message ComponentDescriptor {
   string name = 1;
   ComponentKind kind = 5;
   repeated Target inputs = 3; // Domains I subscribe to (event types I consume)
+  // The business binary's full version, baked in when it is built: the same
+  // value the component reports on every response
+  // (CommandHandlerResponse.rules_version). The coordinator checks snapshot
+  // versions against it before offering a snapshot (see Snapshot).
+  string rules_version = 4;
   // The component's event-sourced state: set for AGGREGATE and
   // PROCESS_MANAGER, unset for SAGA and PROJECTOR. Generated from the state
   // message's descriptor by the codegen (registration fills it; business

@@ -1,9 +1,9 @@
 syntax = "proto3";
 package io.angzarr.v1;
 
-import "io/angzarr/v1/types.proto";
 import "google/api/annotations.proto";
 import "google/protobuf/empty.proto";
+import "io/angzarr/v1/types.proto";
 
 option csharp_namespace = "Angzarr";
 option go_package = "github.com/benjaminabbitt/angzarr/client/go/proto/io/angzarr/v1;angzarr";
@@ -27,22 +27,22 @@ service CommandHandlerService {
   // coordinator RPC the caller used (the command mode) is not passed on.
   //
   // In the client library, in order:
-  //   1. the snapshot, if delivered, is validated before it is decoded (its
-  //      state type URL and rules_version against the library's own; see
-  //      Snapshot in types.proto). A mismatch answers snapshot_refused, with
-  //      no events and no business code run; the coordinator re-delivers
-  //      with no snapshot.
-  //   2. the payload is upcast through the library's upcaster chain, by
-  //      type URL (see upcaster.proto). A type URL that reaches no
-  //      registered handler is refused INVALID_ARGUMENT, naming the type
-  //      URL ("no handler for type URL /orders.v1.PlaceOrder").
-  //   3. reflective dispatch: the body arm picks the pipeline (Command ->
+  //   1. the payload is upcast through the library's upcaster chain, by
+  //      type URL (see upcaster.proto), for a Command and a Fact alike. A
+  //      type URL that, after upcasting, reaches no registered handler is
+  //      refused INVALID_ARGUMENT: the status message names the type URL as
+  //      sent ("no handler for type URL /orders.v1.PlaceOrder"), and the
+  //      status details carry the type URL the chain ended at.
+  //   2. reflective dispatch: the body arm picks the pipeline (Command ->
   //      decide, which may reject; Fact -> ingest, which never rejects), and
   //      the type URL picks the handler. A failing fact handler is a bug,
   //      not a business rejection: the fact is dead-lettered (and alerted)
   //      and the sender answered PARKED, never a rejection.
-  //   4. AGGREGATE_HANDLES and COMMUTATIVE are resolved (the nonce; see
+  //   3. AGGREGATE_HANDLES and COMMUTATIVE are resolved (the nonce; see
   //      ConflictResolution).
+  // The library never checks a delivered snapshot: the coordinator offers
+  // only snapshots that pass its validity checks (see Snapshot in
+  // types.proto), and the library folds whatever it is given.
   //
   // A rejection is answered as a gRPC error status, never as a response
   // message. There is no compensation input: an aggregate that must refuse
@@ -54,7 +54,7 @@ service CommandHandlerService {
   // nothing else. The returned EventBook carries pages with only a payload
   // set (and, optionally, snapshot.state). The coordinator supplies the
   // cover (the command's), every sequence and every EventMeta, stamping
-  // EventMeta.rules_version (and Snapshot.rules_version) from the
+  // EventMeta.rules_version (and Snapshot.rules_version) in full from the
   // response's rules_version. Output that sets page meta or a page sequence,
   // or a cover other than the command's (empty counts as the command's), is
   // a handler bug: the coordinator refuses it and persists nothing. A caller
@@ -66,23 +66,22 @@ service CommandHandlerService {
 
 // What the business logic answers for one command.
 message CommandHandlerResponse {
+  reserved 3;
+  reserved "snapshot_refused";
+
   // The events (payloads only) and optional snapshot state; see Handle.
-  // Empty when snapshot_refused is set.
   EventBook events = 1;
-  // The version of the business rules that produced this answer: a short
-  // label the domain's author chooses (e.g. "v3") and bumps whenever
-  // decide, ingest or apply semantics change. The client library fills it
-  // from the domain's declaration on every response; the coordinator stamps
-  // it onto every event (EventMeta.rules_version) and onto any snapshot
-  // written from this response. Reported per response, never registered
-  // once, so a rolling deployment stamps each event with the rules that
-  // actually decided it.
+  // The full version of the business binary that produced this answer
+  // (e.g. "1.4.2+build.7"), baked in when the binary is built (e.g. by
+  // versionator), never a label chosen by hand: the same value the
+  // component registered (ComponentDescriptor.rules_version). The client
+  // library fills it on every response; the coordinator stamps it in full
+  // onto every event (EventMeta.rules_version) and onto any snapshot
+  // written from this response. Reported per response, so a rolling
+  // deployment stamps each event with the build that actually decided it.
+  // The business logic only reports it: what it means for snapshot
+  // compatibility is the coordinator's rule (see Snapshot in types.proto).
   string rules_version = 2;
-  // The client library refused the delivered snapshot (state type or rules
-  // version mismatch; see Snapshot in types.proto) without running business
-  // code. The coordinator delivers the command again with no snapshot and
-  // every page from sequence 0, and stops offering that snapshot.
-  bool snapshot_refused = 3;
 }
 
 // region command_modes
