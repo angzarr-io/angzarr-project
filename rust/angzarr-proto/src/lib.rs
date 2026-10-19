@@ -28,6 +28,10 @@
 //! [`ids::compute_root`], [`ids::reaction_command_id`],
 //! [`ids::fact_command_id`] and [`ids::fact_correlation`].
 //!
+//! [`protos`] embeds the `.proto` sources themselves, for dependents whose
+//! own protos import angzarr's (a state message's `state` and `conflict`
+//! options).
+//!
 //! No gRPC services, tonic, or `google.api` annotations: this crate is a
 //! dependency leaf (beyond prost, only `bytes` and `uuid` without default
 //! features) and builds for `wasm32-unknown-unknown`.
@@ -54,5 +58,6 @@ pub mod io {
 pub use io::angzarr::v1;
 
 pub mod ids;
+pub mod protos;
 
 pub use uuid;

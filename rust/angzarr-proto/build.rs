@@ -9,6 +9,13 @@
 //! `UpcasterService` in upcaster.proto is skipped because no service generator
 //! is configured. Nothing here pulls in `google.api`.
 //!
+//! The same `.proto` files are also copied to `$OUT_DIR/proto/`, keeping
+//! their import paths, so the crate can embed them ([`protos`] in the
+//! library): a dependent's own protos import angzarr's (`options.proto` for
+//! the `state` and `conflict` options) through
+//! `angzarr_proto::protos::write_include_dir`, with no vendored copy and no
+//! path into this repository.
+//!
 //! Requires `protoc` on PATH (or `PROTOC` set): prost-build 0.14 does not
 //! bundle it.
 
@@ -41,6 +48,8 @@ fn main() {
         println!("cargo:rerun-if-changed={}", f.display());
     }
 
+    export_protos(&root, &files);
+
     let mut config = prost_build::Config::new();
     config
         .enable_type_names()
@@ -55,4 +64,16 @@ fn main() {
     config
         .compile_protos(&files, &[root])
         .expect("prost: compile angzarr domain-neutral protos");
+}
+
+/// Copies each compiled proto to `$OUT_DIR/proto/<its path under root>`,
+/// for `src/protos.rs` to embed with `include_str!`.
+fn export_protos(root: &std::path::Path, files: &[PathBuf]) {
+    let out = PathBuf::from(std::env::var("OUT_DIR").expect("OUT_DIR")).join("proto");
+    for file in files {
+        let relative = file.strip_prefix(root).expect("a proto under the root");
+        let target = out.join(relative);
+        std::fs::create_dir_all(target.parent().expect("a parent")).expect("create proto dir");
+        std::fs::copy(file, &target).expect("copy proto");
+    }
 }
