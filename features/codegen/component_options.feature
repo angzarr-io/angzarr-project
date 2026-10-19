@@ -1,45 +1,55 @@
-Feature: Component declarations - fact handlers and fact lint
+Feature: Component declarations - cross-component lint warnings
   angzarr-cli reads ComponentOptions from compiled descriptors, lints the
   declarations across the whole proto tree, and generates per-component
-  handler interfaces and dispatch tables. These scenarios pin the `facts`
-  and `emits_facts` declarations (options.proto).
+  handler interfaces and dispatch tables. These scenarios pin the
+  cross-component warnings `angzarr lint` reports: declarations that compile
+  but are unlikely to work. A warning leaves the exit status unaffected.
 
-  - facts (AGGREGATE only): fully-qualified event types the aggregate
-    accepts as facts. One fact handler per entry; dispatch routes a fact by
-    its fully-qualified type.
-  - emits_facts (SAGA / PROCESS_MANAGER only): fact types the component
-    injects into its output domains. Each must be declared in `facts` by an
-    aggregate owning one of those domains.
-
-  @C-0486
-  Scenario: An aggregate's facts declaration generates one fact handler per entry
-    Given an aggregate "OrderState" owning domain "order" declaring facts "shipping.ShipmentDispatched" and "payment.PaymentCaptured"
-    When code is generated
-    Then the OrderState handler interface has a ShipmentDispatched fact handler and a PaymentCaptured fact handler, in declaration order
-    And the generated dispatch routes a "shipping.ShipmentDispatched" fact to the ShipmentDispatched fact handler
-
-  @C-0487
-  Scenario Outline: facts is a lint error outside aggregates
-    Given a <kind> component declaring facts "shipping.ShipmentDispatched"
+  @C-0514
+  Scenario: A command emitting an event its aggregate has no applier for is a lint warning
+    Given an aggregate "OrderState" owning domain "order"
+    And a command "order.ShipOrder" for "OrderState" whose (command).emits lists "order.OrderShipped"
+    And no (event) entry for "order.OrderShipped" names "OrderState"
     When the protos are linted
-    Then lint reports an error that facts is allowed only on aggregates
+    Then lint reports warning ANZ100 naming command "order.ShipOrder" and event "order.OrderShipped"
+    And lint exits with status 0
+
+  @C-0515
+  Scenario Outline: A saga or process manager targeting a domain no aggregate owns is a lint warning
+    Given an aggregate "OrderState" owning domain "order"
+    And a <kind> component "Fulfillment" triggered by domain "order" with output_domain "inventory"
+    When the protos are linted
+    Then lint reports warning ANZ101 naming "Fulfillment" and output domain "inventory"
+    And lint exits with status 0
 
     Examples:
       | kind            |
+      | SAGA            |
+      | PROCESS_MANAGER |
+
+  @C-0516
+  Scenario Outline: A saga or process manager triggering on a domain no aggregate produces is a lint warning
+    Given an aggregate "InventoryState" owning domain "inventory"
+    And a <kind> component "Fulfillment" triggered by domain "order" with output_domain "inventory"
+    When the protos are linted
+    Then lint reports warning ANZ102 naming "Fulfillment" and source domain "order"
+    And lint exits with status 0
+
+    Examples:
+      | kind            |
+      | SAGA            |
+      | PROCESS_MANAGER |
+
+  @C-0517
+  Scenario Outline: A component declaring no commands or events is a lint warning
+    Given a <kind> component "Idle" that no (command) or (event) entry names
+    When the protos are linted
+    Then lint reports warning ANZ103 naming "Idle"
+    And lint exits with status 0
+
+    Examples:
+      | kind            |
+      | AGGREGATE       |
       | PROCESS_MANAGER |
       | SAGA            |
       | PROJECTOR       |
-
-  @C-0488
-  Scenario: A saga emitting a fact type no target-domain aggregate declares is a lint error
-    Given an aggregate "OrderState" owning domain "order" declaring facts "shipping.ShipmentDispatched"
-    And a saga "ShippingToOrder" from "shipping" to "order" declaring emits_facts "shipping.ShipmentDelayed"
-    When the protos are linted
-    Then lint reports an error naming fact type "shipping.ShipmentDelayed" and output domain "order"
-
-  @C-0489
-  Scenario: A saga emitting a fact type its target-domain aggregate declares lints clean
-    Given an aggregate "OrderState" owning domain "order" declaring facts "shipping.ShipmentDispatched"
-    And a saga "ShippingToOrder" from "shipping" to "order" declaring emits_facts "shipping.ShipmentDispatched"
-    When the protos are linted
-    Then lint reports no error for "ShippingToOrder"

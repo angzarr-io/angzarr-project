@@ -7,7 +7,7 @@ generates. Client and coordinator repos do not run this tier.
 
 | Feature | Covers |
 |---|---|
-| `component_options.feature` | `facts` (one fact handler per entry; aggregates only) and `emits_facts` (lint against target-domain aggregates' `facts`) |
+| `component_options.feature` | cross-component lint warnings ANZ100-ANZ103 (exit status unaffected) |
 
 Generic domain vocabulary only (`order`, `inventory`, `payment`,
 `shipping`); scenario IDs are `@C-NNNN`, shared with the other framework
