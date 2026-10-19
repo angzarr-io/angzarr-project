@@ -40,7 +40,7 @@ time" are configurations of that fake; no coordinator runs.
 
 A scenario that needs a real coordinator, bus or clock is not in this tier.
 Coordinator behaviour belongs in [`../coordinator-contract/`](../coordinator-contract/);
-example end-to-end belongs in `example/acceptance/`.
+the example's end-to-end flows belong in `example/blackjack-acceptance/`.
 
 ## Scenario IDs
 
