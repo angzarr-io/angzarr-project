@@ -20,8 +20,9 @@ option ruby_package = "Angzarr";
 // CommandHandlerService.Handle; no RPC round trip, and the coordinator,
 // being domain-blind, never upcasts). A payload whose type URL, after
 // upcasting, reaches no handler is refused INVALID_ARGUMENT: the status
-// message names the type URL as sent, and the status details carry the
-// type URL the chain ended at. Commands are never stored, so a command
+// message names the type URL as sent, and the status details carry a
+// google.rpc.ErrorInfo whose metadata key "upcast_type_url" holds the type
+// URL the chain ended at. Commands are never stored, so a command
 // upcaster only translates what an out-of-date client sends.
 //
 // Prefer, in order:

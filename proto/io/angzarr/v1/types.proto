@@ -649,10 +649,12 @@ message EventMeta {
 //      component registered (ComponentDescriptor.state); and
 //   2. its rules_version passes the domain's compatibility rule against the
 //      version the component registered (ComponentDescriptor.rules_version).
-// The default rule: both versions parse as SemVer 2.0.0 and their major and
-// minor numbers are equal (patch, pre-release and build metadata are
-// ignored). If either version does not parse as SemVer 2.0.0, the default
-// rule is exact string equality.
+// The default rule: strip ONE leading "v" or "V" from each version, then
+// both parse as SemVer 2.0.0 and their major and minor numbers are equal
+// (patch, pre-release and build metadata are ignored), so "v1.4.2" and
+// "1.4.7" are compatible. If either version, so stripped, does not parse as
+// SemVer 2.0.0, the default rule is exact string equality of the versions
+// as recorded.
 // Coordinator configuration may replace the default rule for a domain with
 // an accept pattern and an optional reject pattern, each matched against
 // the snapshot's rules_version. The snapshot passes iff the accept pattern
@@ -668,6 +670,12 @@ message EventMeta {
 // state-schema change or a rules change therefore never needs a snapshot
 // migration: the next load replays, and the next snapshot is written under
 // the current rules version.
+//
+// Queries (EventQueryService, including a TemporalQuery) choose snapshots
+// the same way: while a component owning the queried domain is registered,
+// a returned EventBook carries a snapshot only if it passes both checks
+// against that registration. While none is registered, a query returns no
+// snapshot and every page from sequence 0.
 message Snapshot {
   // Sequence of the last event folded into `state`. A TemporalQuery
   // as_of_time T may start from this snapshot iff that event's
@@ -835,8 +843,9 @@ message Handling {
 // current one (see upcaster.proto); Command and Fact payloads alike are
 // upcast. A payload whose type URL, after upcasting, reaches no handler is
 // refused INVALID_ARGUMENT: the status message names the type URL as sent,
-// and the status details carry the type URL the chain ended at (the sent
-// one when no upcaster applies). On
+// and the status details carry a google.rpc.ErrorInfo whose metadata key
+// "upcast_type_url" holds the type URL the chain ended at (the sent one
+// when no upcaster applies). On
 // the wire the arm is the fact marker; in code, the handler registration (a
 // fact handler, e.g. #[handles_fact] / ingest, versus a command handler) is
 // the declaration, and the router refuses an arm that does not match the
@@ -1242,8 +1251,12 @@ message ComponentDescriptor {
   repeated Target inputs = 3; // Domains I subscribe to (event types I consume)
   // The business binary's full version, baked in when it is built: the same
   // value the component reports on every response
-  // (CommandHandlerResponse.rules_version). The coordinator checks snapshot
-  // versions against it before offering a snapshot (see Snapshot).
+  // (CommandHandlerResponse.rules_version). Required: a registration with
+  // an empty rules_version is refused INVALID_ARGUMENT, so a binary built
+  // without a version cannot register. The coordinator checks snapshot
+  // versions against it before offering a snapshot (see Snapshot), and
+  // refuses a response that reports any other version (see
+  // CommandHandlerResponse.rules_version).
   string rules_version = 4;
   // The component's event-sourced state: set for AGGREGATE and
   // PROCESS_MANAGER, unset for SAGA and PROJECTOR. Generated from the state

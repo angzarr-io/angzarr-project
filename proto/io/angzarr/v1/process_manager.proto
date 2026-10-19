@@ -104,9 +104,6 @@ message ProcessManagerHandleRequest {
 // PM handle response: local events, then remote commands.
 // Execution order: process_events persisted first, then commands sent.
 message ProcessManagerHandleResponse {
-  reserved 4;
-  reserved "snapshot_refused";
-
   // Local: Events for the process manager's own domain (non-duplicative workflow state).
   // These are persisted via AggregateCoordinator to the PM's domain.
   // Each book is merged by the coordinator, which owns the cover and page
@@ -131,6 +128,8 @@ message ProcessManagerHandleResponse {
   repeated CommandBook commands = 2;
   // The full version of the PM's business binary, as
   // CommandHandlerResponse.rules_version: stamped in full onto the process
-  // events (and any snapshot).
+  // events (and any snapshot). A response reporting a version other than
+  // the PM's registered one is refused as a PM bug: nothing is persisted or
+  // sent, and the trigger is dead-lettered and alerted.
   string rules_version = 3;
 }

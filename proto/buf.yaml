@@ -20,9 +20,7 @@ lint:
 # production event onwards. Until then (every pass up to and including
 # pass 14) removed fields, enum values and messages are deleted outright,
 # with no `reserved` statements, and stored data is wiped across schema
-# changes. The one exception is `snapshot_refused`, whose numbers and names
-# are reserved on CommandHandlerResponse and ProcessManagerHandleResponse
-# (decision 14.1). From the first production event any store keeps (hatpick stores
+# changes. From the first production event any store keeps (hatpick stores
 # EventPage bytes as written), every removed field number and name gets a
 # `reserved` statement in the same change that removes it, so a later field
 # can never misdecode stored rows. That moment is also when `buf breaking`
