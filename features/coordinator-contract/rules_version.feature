@@ -244,6 +244,20 @@ Feature: Rules version - recording who decided, and choosing snapshots
     When a client queries the events of order "order-1"
     Then the result carries no snapshot and events 0 to 7
 
+  @snapshot_selection @query
+  @C-0560
+  Scenario Outline: While instances run different versions, a query uses a snapshot only if every registered version accepts it
+    Given another instance of the "order" business binary is registered with rules version "<other version>"
+    And order "order-1" has a snapshot at sequence 5 of state type "/orders.v1.OrderState" recorded under rules version "1.4.0"
+    And order "order-1" has events at sequences 0 to 7
+    When a client queries the events of order "order-1"
+    Then the result <carries>
+
+    Examples:
+      | other version | carries                                              |
+      | 1.4.9+build.3 | carries the snapshot at sequence 5 and events 6 to 7 |
+      | 1.5.0+build.1 | carries no snapshot and events 0 to 7                |
+
   # ===========================================================================
   # Registering and reporting a version
   # ===========================================================================
