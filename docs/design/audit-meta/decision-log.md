@@ -1,4 +1,4 @@
-# Audit-meta decision log (passes 1–13)
+# Audit-meta decision log (passes 1–14)
 
 Part of the [audit-meta design record](../audit-meta-followups.md).
 
@@ -306,6 +306,8 @@ hatch is removed from `CommandOptions.emits`.
 
 > **Superseded by 12.6 (pass 12):** the business logic reports `rules_version` with every response; `ComponentDescriptor.rules_version` is deleted.
 
+> **Partly restored by 14.1 (pass 14):** `ComponentDescriptor.rules_version` is back, as the binary's full build version, alongside the per-response report.
+
 **5.9 `rules_version` is declared at registration and stamped by the
 coordinator (W8).**
 - Pass-5 choice: it is declared on `ComponentDescriptor.rules_version` (field
@@ -514,6 +516,8 @@ the command as stale (`ABORTED`).
   the handler never examined them.
 
 > **Amended by 12.6 (pass 12):** validity is checked in the client library, where the state is decoded, against the reported rules version; a refused snapshot is answered `snapshot_refused` and the coordinator re-delivers without it.
+
+> **Amended by 14.1 (pass 14):** the coordinator checks validity before offering a snapshot, against the registered state type and the domain's version-compatibility rule; a snapshot that fails is not offered.
 
 **6.8 Snapshots record what produced them (D8).** `Snapshot.rules_version`
 (field 5; 4 was pass 2's retention field) is stamped by the framework, and
@@ -1158,6 +1162,8 @@ original's commit is never applied twice under READ COMMITTED. A retry of an app
 with a now-stale sequence is therefore DUPLICATE, never ABORTED (T6). The
 order is written once, in the `handling` region of `types.proto`.
 
+> **Superseded by 14.1 (pass 14):** `rules_version` is the business binary's full build version, also carried on `ComponentDescriptor.rules_version`; the coordinator, not the client library, decides snapshot validity, and `snapshot_refused` is removed.
+
 **12.6 `rules_version` is reported per response.**
 `CommandHandlerService.Handle` returns `CommandHandlerResponse { EventBook
 events = 1; string rules_version = 2; bool snapshot_refused = 3; }`.
@@ -1383,6 +1389,65 @@ Confirms 12.1's "the reacting component is no longer recorded on events".
 **13.6 No command-causation on events** (the principle of 13.3, recorded on
 its own): an event never carries its producing command's causation. Events
 record their direct cause only.
+
+## Pass 14: the coordinator selects snapshots by build version
+
+Decided by the owner on 2026-10-19, superseding 12.6 and backlog RV-3 as
+pass 12 wrote it. The protos, the `rust/angzarr-proto` crate's tests, the
+contract features and these documents changed; the crate's API gained one
+field.
+
+**14.1 `rules_version` is the build version, and the coordinator decides
+snapshot validity.** Supersedes 12.6; amends 6.8; partly restores 5.9.
+- **The business logic declares no snapshot compatibility.** It implements
+  the gRPC protocol and reports its version, nothing more.
+- **The version is the business binary's full version**, baked in at build
+  time (e.g. by versionator), never a label chosen by hand. It is still
+  reported on every `CommandHandlerResponse` and
+  `ProcessManagerHandleResponse` (`rules_version`), and the coordinator
+  stamps it **in full** on `EventMeta.rules_version` and
+  `Snapshot.rules_version`, per response, so a rolling deployment stamps
+  each event with the build that decided it.
+- **`ComponentDescriptor.rules_version` (4) is back**: the registration
+  hello a component sends its coordinator on startup carries the same full
+  version.
+- **The coordinator offers a snapshot only if** its state type URL equals
+  the registered `StateDescriptor.type_url` and its `rules_version` passes
+  the domain's compatibility rule against the registered version.
+  - Default rule: both versions parse as SemVer 2.0.0 and their major and
+    minor numbers are equal. If either does not parse, exact string
+    equality.
+  - Coordinator configuration may replace the rule per domain with an
+    accept pattern and an optional reject pattern, matched against the
+    snapshot's version. A reject match wins. Patterns use RE2 syntax
+    (linear time, no lookaround, no backreferences) with full-match
+    semantics; a pattern outside it is refused when configuration loads.
+  - A snapshot that fails is simply not offered: the delivery carries every
+    page from sequence 0.
+- **`snapshot_refused` is removed** from `CommandHandlerResponse` (3) and
+  `ProcessManagerHandleResponse` (4), with the re-deliver-without-snapshot
+  path. Both numbers and names are **reserved**, by the owner's ruling,
+  ahead of the 6.6 policy (`proto/buf.yaml`).
+- The client library's steps in `Handle` are now upcast, dispatch,
+  conflicts. It folds whatever snapshot it is given.
+- Why: compatibility is an operational policy, not business logic. A
+  build version needs no author discipline to bump, and the coordinator
+  already holds the registration, so it can refuse a snapshot before
+  delivery instead of paying a refused round trip. The registered state
+  type also settles T13 at its source.
+- Cost: every build changes the stamped version, so the default rule must
+  tolerate patch and build-metadata changes (it compares major.minor); a
+  semantic change shipped as a patch release reuses old snapshots unless
+  the domain's rule says otherwise. Operators own the per-domain override.
+- Aligns with: snapshots as caches invalidated by a version check (Marten,
+  Axon, Eventuous), here checked where the snapshot is loaded.
+
+**14.2 An unknown type after upcasting names both type URLs; facts are
+upcast too.** The client library upcasts Command and Fact payloads alike.
+A payload whose type URL, after upcasting, reaches no handler is refused
+`INVALID_ARGUMENT`; the status message names the type URL as sent, and the
+status details carry the type URL the chain ended at. Clarifies 12.11 for
+the router work (backlog VC-1).
 
 ## Corrections
 

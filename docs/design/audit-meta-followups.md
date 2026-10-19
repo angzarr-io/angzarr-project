@@ -2,7 +2,7 @@
 
 ## Status
 
-Open. The `feat/audit-meta` passes (1–13) changed **only** the protos under
+Open. The `feat/audit-meta` passes (1–14) changed **only** the protos under
 `proto/io/angzarr/`, the `rust/angzarr-proto` crate and the documentation
 (the design record here, and from pass 12 a developer guide under
 `docs/guide/`). No angzarr code has changed. The user is not taking on heavy angzarr refactoring now, so every
@@ -19,7 +19,7 @@ event onwards, every removal reserves its number and name (see
 
 | Document | Contents |
 |---|---|
-| [audit-meta/decision-log.md](audit-meta/decision-log.md) | Every decision of passes 1–13: why, the accepted cost, and the standard it aligns with, with superseded entries marked. Also the corrections (Event Modeling, KurrentDB, Axon). |
+| [audit-meta/decision-log.md](audit-meta/decision-log.md) | Every decision of passes 1–14: why, the accepted cost, and the standard it aligns with, with superseded entries marked. Also the corrections (Event Modeling, KurrentDB, Axon). |
 | [audit-meta/critical-review-source.md](audit-meta/critical-review-source.md) | The post-pass-4 critical review's own record (authoritative for the findings' content). |
 | [audit-meta/critical-review.md](audit-meta/critical-review.md) | The status of each review finding: W1–W14, D1–D11, FINE and annals fitness, with where each was resolved; and the illuminated review's findings decided in passes 12 and 13 (T3–T8, T13, CH1, SG3, PM2). |
 | [audit-meta/idempotency.md](audit-meta/idempotency.md) | The idempotency research (a comparison table) and the chosen design since pass 12: one `command_id` per command, deduplicated on the events, with its accepted costs; PM process events deduplicated on their trigger, and reactor re-runs (pass 13); the superseded key-store design in brief. |
@@ -181,7 +181,7 @@ event onwards, every removal reserves its number and name (see
   - The crate: `bytes::Bytes`, `Eq`/`Hash` on key types,
     `ids::reaction_command_id` and `ids::fact_command_id` in place of
     `ids::fingerprint`.
-- **Pass 13** (this change): decisions 13.1–13.6, by the user, closing
+- **Pass 13** (5850057): decisions 13.1–13.6, by the user, closing
   PM2/PR-3 and T8.
   - **`EventMeta.causation`** = `oneof { UUID command_id = 17; EventRef
     triggering_event = 18; }`, the event's direct cause. Fields 13
@@ -196,6 +196,15 @@ event onwards, every removal reserves its number and name (see
     version, so re-runs dedupe; checkpoint resets are for recovery; repairs
     are new commands; standard re-drive commands are backlog RD-1.
   - **No reacting-component field**: source control says what makes what.
+- **Pass 14** (this change): decisions 14.1–14.2, by the owner.
+  - **`rules_version` is the build version**, reported per response and at
+    registration (`ComponentDescriptor.rules_version` 4), stamped in full.
+  - **The coordinator selects snapshots**: registered state type, then the
+    domain's compatibility rule (major.minor; exact for non-semver; RE2
+    accept/reject patterns, reject wins). `snapshot_refused` removed and
+    reserved on both responses.
+  - **Unknown type after upcasting**: the message names the sent type URL,
+    the details the chain's final one; facts are upcast too.
 
 ### Worked example: hatpick's `ListState`
 
@@ -249,9 +258,14 @@ markers can go wrong.
   with no purity contract.
 - **The parked-fact answer** (pass 5): a `DeliveryOutcome` value, not an
   `Outcome` field.
-- **Where `rules_version` comes from** (pass 5, revised in pass 12): the
-  business logic reports it with every response
-  (`CommandHandlerResponse.rules_version`).
+- **Where `rules_version` comes from** (pass 5, revised in passes 12 and
+  14): it is the business binary's full build version, reported with every
+  response (`CommandHandlerResponse.rules_version`) and at registration
+  (`ComponentDescriptor.rules_version`), and stamped in full.
+- **Who decides snapshot validity** (pass 12, revised in pass 14): the
+  coordinator, against the registered state type and the domain's
+  version-compatibility rule (major.minor by default; configurable accept
+  and reject patterns). `snapshot_refused` is removed (decision 14.1).
 - **Where the DLQ replay audit lives** (pass 5): `StoredDeadLetter.replays`.
   The published `AngzarrDeadLetter` stays immutable.
 - **The review's D1–D11** (pass 6): all decided. See

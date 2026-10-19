@@ -51,14 +51,20 @@ behaves differently under the two runtimes. This is accepted.
   malformed reaction command), annals writes to its log. Every such entry is
   prefixed with a warning that anything arriving there almost certainly
   indicates a problem.
-- **`rules_version` is load-bearing.** In angzarr it is opaque, used to
-  explain a historical decision and to validate snapshots. annals' runtime
-  relies on the value, not only reports it. How it does so is annals' own
-  design, in annals' `docs/design/audit.md`. The proto comment on
-  `EventMeta.rules_version` points here. Both runtimes take it from the
-  business logic: angzarr per response (`CommandHandlerResponse`), annals
-  from the domain's declaration. It is the author's short label (e.g.
-  `"v3"`), bumped when decide, ingest or apply semantics change.
+- **`rules_version` means different things.** In angzarr it is the
+  business binary's full build version (e.g. `"1.4.2+build.7"`), baked in at
+  build time, reported with every response and at registration
+  (`ComponentDescriptor.rules_version`), and stamped in full. angzarr reads
+  it for one thing besides explaining a decision: its coordinator offers a
+  snapshot only when the snapshot's version passes the domain's
+  compatibility rule (major.minor by default; decision 14.1). annals takes
+  the value from the domain's declaration, the author's short label (e.g.
+  `"v3"`), and its runtime relies on it in its own way, in annals'
+  `docs/design/audit.md`. The proto comment on `EventMeta.rules_version`
+  points here. Both runtimes still take it from the business logic and
+  stamp it unaltered. Whether annals adopts the build version is annals'
+  decision; until it does, an annals label under angzarr's default rule is
+  not a semantic version, so it selects snapshots by exact equality.
 - **No root-request pointer in angzarr (D2, pass 6).** angzarr records only
   correlation and the direct cause (the producing command, or a PM process
   event's trigger) on a reaction's events. Correlation is enough to find the

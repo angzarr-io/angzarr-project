@@ -528,8 +528,9 @@ their upcasters are permanent.
 
 ## 11. Re-running reactors
 
-You shipped a saga or process manager with a bug, fixed it, and bumped its
-`rules_version`. The events it caused are wrong. Re-running the reactor
+You shipped a saga or process manager with a bug, fixed it, and released a
+new build (so a new `rules_version`, which is the build's version). The
+events it caused are wrong. Re-running the reactor
 will **not** fix them, by design. The normative text is the
 `command_identity` region of `types.proto` (Reactor re-runs); the
 reasoning is decision 13.4 and `docs/design/audit-meta/idempotency.md`.

@@ -1,8 +1,8 @@
-# Code follow-up backlog (passes 1–13)
+# Code follow-up backlog (passes 1–14)
 
 Part of the [audit-meta design record](../audit-meta-followups.md).
 
-The `feat/audit-meta` passes (1–13) changed only the protos, the
+The `feat/audit-meta` passes (1–14) changed only the protos, the
 `rust/angzarr-proto` crate and the docs. **Nothing in this backlog is done.** It is the
 durable record of the code work the new contract implies: the user is not
 taking on heavy angzarr refactoring now, and this list must not be lost.
@@ -284,37 +284,45 @@ disposition:
 - Why: BO-1 would refuse them.
 - Settled when: the example suites pass against BO-1.
 
-## RV: rules_version reporting (passes 5 and 12, W8)
+## RV: rules_version reporting and snapshot selection (passes 5, 12 and 14, W8)
 
-**RV-1** [core] **Stamp the reported rules version.**
+**RV-1** [core] **Stamp the reported build version in full.**
 - What: read `rules_version` from every `CommandHandlerResponse` and
-  `ProcessManagerHandleResponse`, and stamp it on that response's events
-  (`EventMeta.rules_version`) and any snapshot written from it
-  (`Snapshot.rules_version`). Delete `ComponentDescriptor.rules_version`
-  handling.
-- Why: decision 12.6 (superseding 5.9's registration-time declaration).
-- Settled when: during a rolling deployment, each event carries the version
-  of the instance that decided it.
+  `ProcessManagerHandleResponse`, and stamp it, unaltered, on that
+  response's events (`EventMeta.rules_version`) and on any snapshot written
+  from it (`Snapshot.rules_version`). Store `ComponentDescriptor.rules_version`
+  from each component's registration (RV-3 reads it).
+- Why: decision 14.1 (superseding 12.6).
+- Settled when: during a rolling deployment, each event carries the full
+  version of the instance that decided it, and a registration's version is
+  readable per component.
 
-**RV-2** [clients] **Report a rules version per response.**
-- What: the domain declares a short label (e.g. `"v3"`, bumped when decide,
-  ingest or apply semantics change), and the client library puts it on every
-  response. Generated components expose the declaration in one place.
-- Why: decision 12.6.
-- Settled when: every SDK fills `rules_version` on every response.
+**RV-2** [clients, router] **Report the build version.**
+- What: bake the business binary's full version in at build time (e.g. from
+  versionator) and put it on every response and on the registration hello
+  (`ComponentDescriptor.rules_version`). No hand-chosen label and no
+  snapshot-compatibility declaration in business code. Remove any
+  client-side snapshot check and any `snapshot_refused` handling.
+- Why: decision 14.1.
+- Settled when: every SDK fills `rules_version` on every response and on
+  registration with the same build version, and folds whatever snapshot
+  it is delivered. Scenarios C-0533 to C-0536.
 
-**RV-3** [core, clients] **Snapshot validity in the client library.**
-- What: before decoding a delivered snapshot, the client library compares
-  its state type URL and `rules_version` with its own. On a mismatch it
-  answers `snapshot_refused` without running business code. The
-  coordinator then re-delivers with no snapshot and every page from 0, and
-  stops offering that snapshot (skipping it, or deleting it). Count refusals
-  in a metric. Replaces SN-3's coordinator-side check.
-- Why: decision 12.6 (review T13: the coordinator never had a registered
-  state type to compare).
-- Settled when: changing the state type or the rules version makes the next
-  delivery refuse the snapshot, replay from events and succeed, and the
-  replayed state equals a full replay.
+**RV-3** [core] **The coordinator selects snapshots.**
+- What: before offering a snapshot with a delivery (aggregate or PM),
+  check its state type URL against the registered `StateDescriptor.type_url`
+  and its `rules_version` against the registered version under the
+  domain's compatibility rule: by default equal major.minor when both parse
+  as SemVer 2.0.0, otherwise exact equality; or the domain's configured
+  accept pattern and optional reject pattern (RE2, full match, a reject
+  match wins; a pattern outside RE2 refused at configuration load). A
+  snapshot that fails is not offered: deliver every page from sequence 0.
+  Count snapshots passed over in a metric. Replaces SN-3's check and pass
+  12's refuse-and-redeliver path.
+- Why: decision 14.1 (review T13 is settled by the registered state type).
+- Settled when: scenarios C-0518 to C-0530 pass: a version or state-type
+  change makes the next delivery carry no snapshot and the replayed state
+  equals a full replay.
 
 ## MD: the three RPC modes and the Outcome (passes 4 and 5, W11)
 
@@ -440,8 +448,8 @@ disposition:
 - Settled when: the config is documented, and the default is tested.
 
 **SN-3** [core] **Snapshot version-discard (pass 6, D8).** Closed by pass
-12 and replaced by RV-3: validity is checked in the client library, where
-the state is decoded.
+12 and replaced by RV-3, which pass 14 moved back to the coordinator
+(decision 14.1).
 
 ## RT: recorded_at and temporal queries (passes 2 and 5, W13)
 
@@ -566,17 +574,17 @@ trigger.**
 
 ## VC: command versioning (pass 12)
 
-**VC-1** [clients, router] **Upcast commands before dispatch, and refuse
-unknown types.**
-- What: inside `CommandHandlerService.Handle`, run the payload through the
-  library's upcaster chain (the event chain, by type URL) before dispatch,
-  and refuse a type URL with no handler and no upcaster path with
-  `INVALID_ARGUMENT`, naming the type URL. Document in each SDK that command
-  upcasters are a temporary migration aid (additive fields, or the domain
-  handling both versions, come first).
-- Why: decision 12.11; `upcaster.proto`.
-- Settled when: an old command type with an upcaster is decided as the new
-  type, and an unknown type is refused with its type URL in the message.
+**VC-1** [clients, router] **Upcast commands and facts before dispatch,
+and refuse unknown types.**
+- What: inside `CommandHandlerService.Handle`, run the payload (Command or
+  Fact) through the library's upcaster chain (the event chain, by type URL)
+  before dispatch. Refuse a type URL that, after upcasting, reaches no
+  handler with `INVALID_ARGUMENT`: the status message names the type URL as
+  sent, and the status details carry the type URL the chain ended at.
+  Document in each SDK that command upcasters are a temporary migration aid
+  (additive fields, or the domain handling both versions, come first).
+- Why: decisions 12.11 and 14.2; `upcaster.proto`.
+- Settled when: scenarios C-0537 to C-0540 pass in every language.
 
 ## FA: the fact pipeline (pass 2)
 
@@ -863,7 +871,7 @@ and of `EventMeta`'s `causation` oneof, `correlation_id` and `fact`.
   conflict_resolution region.
 - Settled when: in every language, a handler that ignores the window fails
   stale, one that resolves it succeeds, and one that passes a made-up value
-  fails.
+  fails (scenarios C-0541 to C-0545).
 
 **NC-2** [core] **Mint the nonce.**
 - What: the coordinator mints a fresh opaque value per delivery under
@@ -910,7 +918,8 @@ golden suite.**
 - Settled when: the golden suite passes in every language and in annals
   (identical unit sets and diagnostics for every fixture); disjoint edits
   succeed; overlapping, unmarked-field and `whole_state` edits fail stale;
-  and the handler writes no conflict code.
+  and the handler writes no conflict code (resolver scenarios C-0546 to
+  C-0550).
 
 **CR-2** [core] **COMMUTATIVE is the default where the state supports it.**
 - What: the conflict-resolution config (HD-2) accepts any resolution the
@@ -1196,7 +1205,7 @@ in place with their disposition but not counted.
 | OB: transient reactor outbox | 6 |
 | PS: provenance stamping and correlation | 6 |
 | BO: business output is payloads only | 3 |
-| RV: rules_version reporting | 3 |
+| RV: rules_version reporting and snapshot selection | 3 |
 | MD: the three RPC modes and the Outcome | 6 |
 | ST: status codes | 2 |
 | ED: editions, external sinks, CloudEvent id | 4 |
@@ -1235,6 +1244,10 @@ Pass 13 closed PR-3 (decided; its implementation is PR-4), opened 3 (PR-4,
 PS-6, RD-1), and rewrote CI-1, PS-1, OR-2 and CQ-2 in place: 108 open
 items became 110. Review T8 needs no item of its own beyond RD-1.
 
+Pass 14 rewrote RV-1, RV-2, RV-3, SN-3 and VC-1 in place (RV-3 moved from
+the client libraries to core) and pointed NC-1 and CR-1 at their
+scenarios: 110 open items stay 110.
+
 ## By-repo index
 
 An item tagged with several repos appears under each of them.
@@ -1242,8 +1255,8 @@ An item tagged with several repos appears under each of them.
 | Repo | Items |
 |---|---|
 | core | CI-1–6, CI-8, OB-1–3, OB-5–6, PS-1–6, BO-1, RV-1, RV-3, MD-1–5, ST-1, ED-1–4, SN-1–2, RT-1–2, DQ-1–2, DQ-4–6, RN-1–2, PR-1–2, PR-4, FA-1–2, HD-1–5, WS-1–5, RM-1–3, RM-6, TG-1, OR-1–2, RD-1, CQ-1–2, EA-1–3, NC-2, CR-2–3, MI-1, UU-2–4, CL-1–5, AU-1, GAP-1–2 |
-| router | OB-4, OB-6, PS-2, RN-1, VC-1, FA-3, HD-3, WS-2, TG-1–2, OR-2, NC-1, CR-1, CL-2, CL-4 |
-| clients (go, rust, python, java, csharp, cpp, typescript) | CI-2, CI-7, BO-2, RV-2–3, MD-6, ST-2, ED-3, RN-1–2, VC-1, FA-3, HD-5, WS-1–2, RM-4, RM-6, TG-1, OR-2, RD-1, CQ-2, EA-4, NC-1, CR-1, CR-3, MI-2, UU-1–2, CL-1–2, CL-4–5 |
+| router | OB-4, OB-6, PS-2, RN-1, RV-2, VC-1, FA-3, HD-3, WS-2, TG-1–2, OR-2, NC-1, CR-1, CL-2, CL-4 |
+| clients (go, rust, python, java, csharp, cpp, typescript) | CI-2, CI-7, BO-2, RV-2, MD-6, ST-2, ED-3, RN-1–2, VC-1, FA-3, HD-5, WS-1–2, RM-4, RM-6, TG-1, OR-2, RD-1, CQ-2, EA-4, NC-1, CR-1, CR-3, MI-2, UU-1–2, CL-1–2, CL-4–5 |
 | examples | BO-3, WS-2, RM-5 |
 | site | RN-2, EA-4, CL-5, DOC-1–4, DOC-7 |
 | project (features, CI, branches, parity) | EA-4, CR-1, GAP-3, DOC-5–6 |
