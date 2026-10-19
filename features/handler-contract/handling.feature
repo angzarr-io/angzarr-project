@@ -76,7 +76,7 @@ Feature: Handling a delivered command - versions, upcasting and conflicts
     When AddLine "apple" is handled over no prior events
     Then the command is refused INVALID_ARGUMENT
     And the refusal message names the type URL "/orders.v1.AddLine"
-    And the refusal details name the type URL "/orders.v1.AddLineItem"
+    And the refusal's error info carries upcast_type_url "/orders.v1.AddLineItem"
     And business code is not invoked
 
   @upcasting
@@ -85,7 +85,7 @@ Feature: Handling a delivered command - versions, upcasting and conflicts
     When RemoveEverything "apple" is handled over no prior events
     Then the command is refused INVALID_ARGUMENT
     And the refusal message names the type URL "/orders.v1.RemoveEverything"
-    And the refusal details name the type URL "/orders.v1.RemoveEverything"
+    And the refusal's error info carries upcast_type_url "/orders.v1.RemoveEverything"
     And business code is not invoked
 
   # ===========================================================================

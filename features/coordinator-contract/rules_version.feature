@@ -10,12 +10,19 @@ Feature: Rules version - recording who decided, and choosing snapshots
   offers a snapshot only when the snapshot's state type is the registered
   state type and its version passes the domain's compatibility rule against
   the registered version. By default, versions are compatible when their
-  major and minor numbers are equal; a version that is not a semantic
-  version is compatible only with exactly the same version. A domain may
+  major and minor numbers are equal, ignoring one leading "v" or "V"; a
+  version that is not a semantic version is compatible only with exactly
+  the same version. A domain may
   replace that rule with an accept pattern and an optional reject pattern;
   a reject match always wins, and a pattern must match the whole version.
   A snapshot that is not offered costs nothing but time: business code gets
-  the full history from sequence 0 instead.
+  the full history from sequence 0 instead. Queries choose snapshots by the
+  same rule while the domain's component is registered, and use none while
+  it is not.
+
+  A binary must register with a version, and every answer must report the
+  version it registered with: an answer reporting any other version is a
+  bug, and nothing it produced is kept.
 
   Background:
     Given an "order" aggregate registered with state type "/orders.v1.OrderState" and rules version "1.4.2+build.7"
@@ -127,6 +134,23 @@ Feature: Rules version - recording who decided, and choosing snapshots
       | release-1.4.2    |
       |                  |
 
+  @snapshot_selection
+  @C-0553
+  Scenario Outline: One leading "v" is ignored when comparing semantic versions
+    Given an "order" aggregate registered with state type "/orders.v1.OrderState" and rules version "<registered>"
+    And order "order-1" has a snapshot at sequence 5 of state type "/orders.v1.OrderState" recorded under rules version "<snapshot version>"
+    When the coordinator delivers an AddItem command for order "order-1"
+    Then the snapshot is <offered>
+
+    Examples:
+      | registered    | snapshot version | offered     |
+      | 1.4.2+build.7 | v1.4.0           | offered     |
+      | 1.4.2+build.7 | V1.4.9           | offered     |
+      | v1.4.2        | 1.4.0            | offered     |
+      | v1.4.2        | v1.5.0           | not offered |
+      | 1.4.2+build.7 | vv1.4.2          | not offered |
+      | vv1.4.2       | vv1.4.2          | offered     |
+
   # ===========================================================================
   # Choosing a snapshot: a domain's own rule
   # ===========================================================================
@@ -180,3 +204,76 @@ Feature: Rules version - recording who decided, and choosing snapshots
     Given coordinator configuration where the "order" domain accepts snapshot versions matching "1\.(?!3).*"
     When the coordinator loads its configuration
     Then the configuration is refused, naming the "order" domain's accept pattern
+
+  # ===========================================================================
+  # Queries
+  # ===========================================================================
+
+  @snapshot_selection @query
+  @C-0554
+  Scenario Outline: A query returns a snapshot only if it passes the registered component's rule
+    Given order "order-1" has a snapshot at sequence 5 of state type "/orders.v1.OrderState" recorded under rules version "<snapshot version>"
+    And order "order-1" has events at sequences 0 to 7
+    When a client queries the events of order "order-1"
+    Then the result <carries>
+
+    Examples:
+      | snapshot version | carries                                             |
+      | 1.4.0            | carries the snapshot at sequence 5 and events 6 to 7 |
+      | 1.5.0            | carries no snapshot and events 0 to 7                |
+
+  @snapshot_selection @query
+  @C-0555
+  Scenario Outline: A query as of a point in history applies the same rule
+    Given order "order-1" has a snapshot at sequence 5 of state type "/orders.v1.OrderState" recorded under rules version "<snapshot version>"
+    And order "order-1" has events at sequences 0 to 9
+    When a client queries order "order-1" as of sequence 7
+    Then the result <carries>
+
+    Examples:
+      | snapshot version | carries                                             |
+      | 1.4.9            | carries the snapshot at sequence 5 and events 6 to 7 |
+      | 2.0.0            | carries no snapshot and events 0 to 7                |
+
+  @snapshot_selection @query
+  @C-0556
+  Scenario: With no component registered for the domain, a query uses no snapshot
+    Given no component is registered for the "order" domain
+    And order "order-1" has a snapshot at sequence 5 of state type "/orders.v1.OrderState" recorded under rules version "1.4.2+build.7"
+    And order "order-1" has events at sequences 0 to 7
+    When a client queries the events of order "order-1"
+    Then the result carries no snapshot and events 0 to 7
+
+  # ===========================================================================
+  # Registering and reporting a version
+  # ===========================================================================
+
+  @rules_version
+  @C-0557
+  Scenario: A registration without a version is refused
+    When an "order" business binary registers with state type "/orders.v1.OrderState" and no rules version
+    Then the registration is refused with INVALID_ARGUMENT status
+
+  @rules_version
+  @C-0558
+  Scenario Outline: An answer reporting another version than the registered one is refused
+    When business code answers an AddItem command sent <how> with an ItemAdded event, reporting rules version "<reported>"
+    Then no events are persisted
+    And <consequence>
+
+    Examples:
+      | how                       | reported      | consequence                                         |
+      | awaiting the decision     | 1.5.0+build.9 | the caller is answered with INTERNAL status         |
+      | awaiting the decision     |               | the caller is answered with INTERNAL status         |
+      | awaiting the projections  | 1.4.2+build.8 | the caller is answered with INTERNAL status         |
+      | without waiting           | 1.5.0+build.9 | the command is dead-lettered and an alert is raised |
+      | by a saga                 | 1.5.0+build.9 | the command is dead-lettered and an alert is raised |
+
+  @rules_version
+  @C-0559
+  Scenario: A process manager answer reporting another version is refused
+    Given a process manager "Fulfillment" registered with rules version "2.0.1"
+    When the process manager reacts to an OrderPlaced event with a FulfillmentStarted event and a ShipOrder command, reporting rules version "2.0.2"
+    Then no FulfillmentStarted event is persisted
+    And no ShipOrder command is sent
+    And the trigger is dead-lettered and an alert is raised
