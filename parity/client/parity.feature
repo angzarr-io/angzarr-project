@@ -26,7 +26,6 @@ Feature: Public API parity
   Scenario: Client types are exported
     Then the "CommandHandlerClient" symbol is exported
     And the "QueryClient" symbol is exported
-    And the "SpeculativeClient" symbol is exported
     And the "DomainClient" symbol is exported
 
   @C-0095

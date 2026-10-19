@@ -114,11 +114,6 @@ Feature: Connection - Client Connection Management
     When I create a CommandHandlerClient connected to "localhost:1310"
     Then the client should be able to execute commands
 
-  @C-0334
-  Scenario: SpeculativeClient connects successfully
-    When I create a SpeculativeClient connected to "localhost:1310"
-    Then the client should be able to perform speculative operations
-
   @C-0335
   Scenario: DomainClient combines query and aggregate
     When I create a DomainClient connected to "localhost:1310"

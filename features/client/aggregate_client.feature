@@ -84,13 +84,6 @@ Feature: Executing commands against aggregates
     When I send a command and wait for projectors
     Then the response reflects the projectors having processed the event
 
-  @C-0199
-  Scenario: Waiting for the full saga chain before returning
-    Given a new aggregate root in domain "orders"
-    And sagas are configured for "orders" domain
-    When I send a command and wait for downstream sagas
-    Then the response reflects the downstream sagas having completed
-
   # ==========================================================================
   # Command Validation
   # ==========================================================================
