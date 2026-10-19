@@ -327,11 +327,13 @@ disposition:
   match wins; a pattern outside RE2 refused at configuration load). A
   snapshot that fails is not used: deliver or return every page from
   sequence 0. A query for a domain with no registered component uses no
-  snapshot. Count snapshots passed over in a metric. Replaces SN-3's check
+  snapshot; while several versions are registered, a query uses a
+  snapshot only if it passes against every one. Count snapshots passed
+  over in a metric. Replaces SN-3's check
   and pass 12's refuse-and-redeliver path.
-- Why: decisions 14.1, 14.3 and 14.4 (review T13 is settled by the
+- Why: decisions 14.1, 14.3, 14.4 and 14.9 (review T13 is settled by the
   registered state type).
-- Settled when: scenarios C-0522 to C-0530 and C-0553 to C-0556 pass: a
+- Settled when: scenarios C-0522 to C-0530, C-0553 to C-0556 and C-0560 pass: a
   version or state-type change makes the next delivery or query carry no
   snapshot, and the replayed state equals a full replay.
 

@@ -1397,7 +1397,7 @@ pass 12 wrote it. The protos, the `rust/angzarr-proto` crate's tests, the
 contract features and these documents changed; the crate's API gained one
 field.
 
-> **Amended by 14.3–14.8 (pass 14):** one leading `v`/`V` is stripped before parsing; queries use the same rule; a response reporting a version other than the registered one is refused; a registration without a version is refused; `snapshot_refused` is NOT reserved (policy 6.6 holds); the upcast type travels in `ErrorInfo` metadata `upcast_type_url`.
+> **Amended by 14.3–14.9 (pass 14):** one leading `v`/`V` is stripped before parsing; queries use the same rule; a response reporting a version other than the registered one is refused; a registration without a version is refused; `snapshot_refused` is NOT reserved (policy 6.6 holds); the upcast type travels in `ErrorInfo` metadata `upcast_type_url`.
 
 **14.1 `rules_version` is the build version, and the coordinator decides
 snapshot validity.** Supersedes 12.6; amends 6.8; partly restores 5.9.
@@ -1496,6 +1496,18 @@ names unreserved, and `proto/buf.yaml` keeps no exception. Owner ruling,
 URL the chain ended at (the sent one when no upcaster applies), as the
 router already does (ADR 0001: errors cross as `google.rpc.Status` with an
 `ErrorInfo`). Owner ruling, 2026-10-19.
+
+**14.9 With several versions registered, a query's snapshot must pass
+them all.** While several instances of a domain's component are registered
+with different versions (a rolling deployment), a query (`EventQueryService`,
+a `TemporalQuery` included) returns a snapshot only if it passes the
+compatibility rule against every registered version; otherwise it returns
+no snapshot and every page from sequence 0. Settles the open question in
+14.4. Owner ruling, 2026-10-19.
+- Why: a query has no instance of its own, so the only safe snapshot is
+  one every running build would accept.
+- Cost: during a rolling deployment across a major.minor change, queries
+  replay from 0 until the old instances deregister.
 
 ## Corrections
 
