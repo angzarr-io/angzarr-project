@@ -79,8 +79,12 @@ proto-lint:
     #!/usr/bin/env bash
     set -euo pipefail
     root="$(git rev-parse --show-toplevel)"
-    docker run --rm -e BUF_CACHE_DIR=/tmp/buf-cache \
-        -v "$root:$root:ro" -w "$root/proto" {{BUF_IMAGE}} lint
+    # buf lints an empty module cleanly, so a mount that comes up empty
+    # (e.g. a daemon that cannot see this path) would pass vacuously: fail
+    # unless buf sees at least one .proto file, in the same container run.
+    docker run --rm -e BUF_CACHE_DIR=/tmp/buf-cache --entrypoint sh \
+        -v "$root:$root:ro" -w "$root/proto" {{BUF_IMAGE}} -c \
+        'files=$(buf ls-files 2>&1) && [ -n "$files" ] || { echo "proto-lint: buf sees no .proto files under $PWD: $files" >&2; exit 1; }; buf lint'
 
 # Optional manual check (not part of `contracts` or CI): report wire/JSON
 # breakage against BREAKING_AGAINST via buf's git input. Stored data is wiped
