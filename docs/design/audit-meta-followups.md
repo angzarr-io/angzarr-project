@@ -196,15 +196,20 @@ event onwards, every removal reserves its number and name (see
     version, so re-runs dedupe; checkpoint resets are for recovery; repairs
     are new commands; standard re-drive commands are backlog RD-1.
   - **No reacting-component field**: source control says what makes what.
-- **Pass 14** (this change): decisions 14.1–14.2, by the owner.
+- **Pass 14** (this change): decisions 14.1–14.8, by the owner.
   - **`rules_version` is the build version**, reported per response and at
-    registration (`ComponentDescriptor.rules_version` 4), stamped in full.
-  - **The coordinator selects snapshots**: registered state type, then the
-    domain's compatibility rule (major.minor; exact for non-semver; RE2
-    accept/reject patterns, reject wins). `snapshot_refused` removed and
-    reserved on both responses.
+    registration (`ComponentDescriptor.rules_version` 4, required), stamped
+    in full; a response reporting another version is refused as a handler
+    bug.
+  - **The coordinator selects snapshots**, and queries use the same rule:
+    registered state type, then the domain's compatibility rule
+    (major.minor after one leading `v`; exact for non-semver; RE2
+    accept/reject patterns replacing it, reject wins). With no registered
+    component a query uses no snapshot. `snapshot_refused` deleted,
+    unreserved (policy 6.6).
   - **Unknown type after upcasting**: the message names the sent type URL,
-    the details the chain's final one; facts are upcast too.
+    `ErrorInfo` metadata `upcast_type_url` the chain's final one; facts are
+    upcast too.
 
 ### Worked example: hatpick's `ListState`
 

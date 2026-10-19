@@ -1397,6 +1397,8 @@ pass 12 wrote it. The protos, the `rust/angzarr-proto` crate's tests, the
 contract features and these documents changed; the crate's API gained one
 field.
 
+> **Amended by 14.3–14.8 (pass 14):** one leading `v`/`V` is stripped before parsing; queries use the same rule; a response reporting a version other than the registered one is refused; a registration without a version is refused; `snapshot_refused` is NOT reserved (policy 6.6 holds); the upcast type travels in `ErrorInfo` metadata `upcast_type_url`.
+
 **14.1 `rules_version` is the build version, and the coordinator decides
 snapshot validity.** Supersedes 12.6; amends 6.8; partly restores 5.9.
 - **The business logic declares no snapshot compatibility.** It implements
@@ -1448,6 +1450,52 @@ A payload whose type URL, after upcasting, reaches no handler is refused
 `INVALID_ARGUMENT`; the status message names the type URL as sent, and the
 status details carry the type URL the chain ended at. Clarifies 12.11 for
 the router work (backlog VC-1).
+
+**14.3 One leading `v` is ignored by the default rule.** Before parsing
+SemVer 2.0.0, the default rule strips one leading `v` or `V` from each
+version, so `"v1.4.2"` and `"1.4.7"` compare by major.minor. Anything else
+that does not parse still falls back to exact equality of the versions as
+recorded (`"vv1.4.2"` is not stripped twice). Owner ruling, 2026-10-19.
+- Why: git tags and many build tools write versions with a `v` prefix.
+
+**14.4 Queries choose snapshots by the same rule.** While a component
+owning the queried domain is registered, `EventQueryService` (a
+`TemporalQuery` included) returns a snapshot only if it passes the state
+type check and the domain's compatibility rule against that registration.
+While none is registered, a query returns no snapshot and every page from
+sequence 0. Owner ruling, 2026-10-19.
+- Why: a query's caller folds the returned book exactly as business code
+  does, so an incompatible snapshot is as wrong there.
+- Cost: a query for an unregistered domain replays from 0.
+
+**14.5 Version skew is a handler bug.** A `CommandHandlerResponse` or
+`ProcessManagerHandleResponse` whose `rules_version` differs from the
+version in the component's registration (an empty one included) is
+refused: nothing is persisted or sent; a caller of `Handle` or
+`HandleSync` is answered `INTERNAL`; an asynchronous or reaction delivery
+(a PM's trigger included) is dead-lettered and alerted, as for any other
+handler bug (5.8). Owner ruling, 2026-10-19.
+- Why: the registered version is what snapshot selection trusts; a binary
+  answering under another version would stamp events and snapshots that
+  selection never vetted.
+
+**14.6 A registration must carry a version.** A `ComponentDescriptor` with
+an empty `rules_version` is refused `INVALID_ARGUMENT`, so a binary built
+without a baked version cannot register. With 14.5, an empty version on a
+response is refused too. Owner ruling, 2026-10-19.
+
+**14.7 `snapshot_refused` is not reserved.** Correcting 14.1: policy 6.6
+holds, so `CommandHandlerResponse` field 3 and
+`ProcessManagerHandleResponse` field 4 are deleted outright, numbers and
+names unreserved, and `proto/buf.yaml` keeps no exception. Owner ruling,
+2026-10-19.
+
+**14.8 The upcast type travels in `ErrorInfo`.** Making 14.2 concrete: the
+`INVALID_ARGUMENT` status for an unknown type after upcasting carries a
+`google.rpc.ErrorInfo` whose metadata key `upcast_type_url` holds the type
+URL the chain ended at (the sent one when no upcaster applies), as the
+router already does (ADR 0001: errors cross as `google.rpc.Status` with an
+`ErrorInfo`). Owner ruling, 2026-10-19.
 
 ## Corrections
 

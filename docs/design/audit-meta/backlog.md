@@ -286,43 +286,54 @@ disposition:
 
 ## RV: rules_version reporting and snapshot selection (passes 5, 12 and 14, W8)
 
-**RV-1** [core] **Stamp the reported build version in full.**
-- What: read `rules_version` from every `CommandHandlerResponse` and
-  `ProcessManagerHandleResponse`, and stamp it, unaltered, on that
-  response's events (`EventMeta.rules_version`) and on any snapshot written
-  from it (`Snapshot.rules_version`). Store `ComponentDescriptor.rules_version`
-  from each component's registration (RV-3 reads it).
-- Why: decision 14.1 (superseding 12.6).
-- Settled when: during a rolling deployment, each event carries the full
-  version of the instance that decided it, and a registration's version is
-  readable per component (scenarios C-0518 to C-0521).
+**RV-1** [core] **Registration, stamping and version skew.**
+- What: refuse a registration whose `ComponentDescriptor.rules_version` is
+  empty (`INVALID_ARGUMENT`), and store each component's registered
+  version. Read `rules_version` from every `CommandHandlerResponse` and
+  `ProcessManagerHandleResponse`: if it differs from the registered version
+  (empty included), refuse the response as a handler bug (persist and send
+  nothing; `INTERNAL` to a `Handle`/`HandleSync` caller; dead-letter and
+  alert an asynchronous or reaction delivery, a PM trigger included).
+  Otherwise stamp it, unaltered, on that response's events
+  (`EventMeta.rules_version`) and any snapshot written from it
+  (`Snapshot.rules_version`).
+- Why: decisions 14.1, 14.5 and 14.6 (superseding 12.6).
+- Settled when: scenarios C-0518 to C-0521 and C-0557 to C-0559 pass:
+  during a rolling deployment each event carries the full version of the
+  instance that decided it, and a skewed or versionless answer persists
+  nothing.
 
 **RV-2** [clients, router] **Report the build version.**
 - What: bake the business binary's full version in at build time (e.g. from
   versionator) and put it on every response and on the registration hello
-  (`ComponentDescriptor.rules_version`). No hand-chosen label and no
-  snapshot-compatibility declaration in business code. Remove any
-  client-side snapshot check and any `snapshot_refused` handling.
-- Why: decision 14.1.
+  (`ComponentDescriptor.rules_version`); refuse to build or start without
+  one. No hand-chosen label and no snapshot-compatibility declaration in
+  business code. Remove any client-side snapshot check and any
+  `snapshot_refused` handling.
+- Why: decisions 14.1 and 14.6.
 - Settled when: every SDK fills `rules_version` on every response and on
   registration with the same build version, and folds whatever snapshot
   it is delivered. Scenarios C-0533 to C-0536.
 
-**RV-3** [core] **The coordinator selects snapshots.**
-- What: before offering a snapshot with a delivery (aggregate or PM),
+**RV-3** [core] **The coordinator and the query service select snapshots.**
+- What: before offering a snapshot with a delivery (aggregate or PM), or
+  returning one from `EventQueryService` (a `TemporalQuery` included),
   check its state type URL against the registered `StateDescriptor.type_url`
   and its `rules_version` against the registered version under the
-  domain's compatibility rule: by default equal major.minor when both parse
-  as SemVer 2.0.0, otherwise exact equality; or the domain's configured
-  accept pattern and optional reject pattern (RE2, full match, a reject
+  domain's compatibility rule: by default, after stripping one leading
+  `v`/`V`, equal major.minor when both parse as SemVer 2.0.0, otherwise
+  exact equality; or the domain's configured accept pattern and optional
+  reject pattern, which replace the default (RE2, full match, a reject
   match wins; a pattern outside RE2 refused at configuration load). A
-  snapshot that fails is not offered: deliver every page from sequence 0.
-  Count snapshots passed over in a metric. Replaces SN-3's check and pass
-  12's refuse-and-redeliver path.
-- Why: decision 14.1 (review T13 is settled by the registered state type).
-- Settled when: scenarios C-0522 to C-0530 pass: a version or state-type
-  change makes the next delivery carry no snapshot and the replayed state
-  equals a full replay.
+  snapshot that fails is not used: deliver or return every page from
+  sequence 0. A query for a domain with no registered component uses no
+  snapshot. Count snapshots passed over in a metric. Replaces SN-3's check
+  and pass 12's refuse-and-redeliver path.
+- Why: decisions 14.1, 14.3 and 14.4 (review T13 is settled by the
+  registered state type).
+- Settled when: scenarios C-0522 to C-0530 and C-0553 to C-0556 pass: a
+  version or state-type change makes the next delivery or query carry no
+  snapshot, and the replayed state equals a full replay.
 
 ## MD: the three RPC modes and the Outcome (passes 4 and 5, W11)
 
@@ -580,10 +591,11 @@ and refuse unknown types.**
   Fact) through the library's upcaster chain (the event chain, by type URL)
   before dispatch. Refuse a type URL that, after upcasting, reaches no
   handler with `INVALID_ARGUMENT`: the status message names the type URL as
-  sent, and the status details carry the type URL the chain ended at.
+  sent, and a `google.rpc.ErrorInfo` in the details carries the type URL
+  the chain ended at under metadata key `upcast_type_url`.
   Document in each SDK that command upcasters are a temporary migration aid
   (additive fields, or the domain handling both versions, come first).
-- Why: decisions 12.11 and 14.2; `upcaster.proto`.
+- Why: decisions 12.11, 14.2 and 14.8; `upcaster.proto`.
 - Settled when: scenarios C-0537 to C-0540 pass in every language.
 
 ## FA: the fact pipeline (pass 2)
