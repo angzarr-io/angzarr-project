@@ -9,7 +9,8 @@ implement it.
 
 | Feature | Covers |
 |---|---|
-| `merge_strategy.feature` | COMMUTATIVE field-overlap merge over the window expected..actual, STRICT, AGGREGATE_HANDLES, MANUAL→DLQ for explicit-sequence commands; deferred saga/PM commands are never checked |
+| `conflict_resolution.feature` | The default resolution from the registered state, unsupported resolutions refused, STRICT's ABORTED, AGGREGATE_HANDLES and COMMUTATIVE delivered with the window and a fresh nonce; reaction commands are never stale |
+| `rules_version.feature` | The reported build version stamped in full on events and snapshots; which snapshot is offered (registered state type, the default major.minor rule, exact match for non-semantic versions, a domain's accept and reject patterns) |
 | `fact_flow.feature` | Fact injection from sagas/PMs: 0-based sequencing, `external_deferred.external_id` idempotency, failure handling |
 | `state_building.feature` | Aggregate state reconstruction from snapshot + pages, `next_sequence` arithmetic |
 | `edition_propagation.feature` | Source/trigger edition stamped onto every saga/PM emission; main-timeline aliases (`""`, unset, `"angzarr"`) |
@@ -25,7 +26,7 @@ implement it.
   covered that way today — see the header of `edition_propagation.feature`).
 - **Client repos do not run this tier.** A client-side step definition can
   only simulate the coordinator, which tests nothing; client-rust's
-  simulation worlds for `fact_flow`, `merge_strategy` and `state_building`
+  simulation worlds for `fact_flow`, `merge_strategy` (now `conflict_resolution`) and `state_building`
   are slated for removal for that reason.
 
 ## Domain vocabulary

@@ -10,7 +10,9 @@ is specified **only** by angzarr-router's conformance suite
 ([`angzarr-router/conformance`](https://github.com/angzarr-io/angzarr-router/tree/main/conformance)).
 Every client repo's CI must run that suite against its router binding.
 This tier never restates dispatch behaviour; a scenario that would is added
-to the conformance suite instead.
+to the conformance suite instead. The `Handle` contract the conformance
+suite binds by ID (rules version, upcasting, the conflict nonce,
+COMMUTATIVE) is written in [`../handler-contract/`](../handler-contract/).
 
 ## What lives here
 

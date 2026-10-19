@@ -9,7 +9,8 @@ Feature: Dead letter queue routing
   The cover's correlation_id is the failed message's correlation_id.
 
   Sources of dead letters:
-  - MERGE_MANUAL sequence conflicts (sequence_mismatch details)
+  - queued commands whose own expected sequence is stale (sequence_mismatch
+    details)
   - saga / PM / projector handler failures once retries are exhausted
     (event_processing_failed details)
   - claim-check payloads that cannot be retrieved
@@ -21,13 +22,13 @@ Feature: Dead letter queue routing
     (compensation_delivery_failed details; see compensation_delivery.feature)
 
   @C-0443
-  Scenario: A MANUAL sequence conflict is dead-lettered with mismatch details
+  Scenario: A queued command with a stale expected sequence is dead-lettered with mismatch details
     Given an "order" aggregate "order-1" at next_sequence 3
-    When a ChangeShippingAddress command with merge_strategy MANUAL targeting sequence 1 and correlation_id "corr-7" is handled
+    When a ChangeShippingAddress command with conflict resolution STRICT targeting sequence 1 and correlation_id "corr-7" is sent asynchronously
     Then a dead letter is published to "angzarr.dlq.order"
     And the dead letter carries the rejected command
     And the dead letter's cover is domain "order" root "order-1" with correlation_id "corr-7"
-    And the dead letter's sequence_mismatch details are expected 1, actual 3, merge_strategy MERGE_MANUAL
+    And the dead letter's sequence_mismatch details are expected 1, actual 3
     And the dead letter's source_component_type is "aggregate"
     And the dead letter has occurred_at set
 

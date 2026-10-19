@@ -9,6 +9,7 @@ its own language against these feature files.
 | Tier | Path | Purpose | Domain vocabulary | Execution style | Consumed by |
 |------|------|---------|-------------------|-----------------|-------------|
 | **unit-client** | `client/` | Exercise what a client provides: consumer clients (`CommandHandlerClient`, `QueryClient`, `SpeculativeClient`, `DomainClient`). Dispatch behaviour is specified only by angzarr-router's conformance suite, which every client CI runs against its binding. | Generic — `Order`, `Payment`, `Inventory`, `Shipping`. Never example concepts. | Synchronous, against an in-process fake of the coordinator stubs. | Every `client-*-lang` repo |
+| **handler-contract** | `handler-contract/` | What the client library does inside `Handle` around business code: the reported rules version, upcasting and unknown types, the conflict nonce and the COMMUTATIVE resolver. | Generic — `Order`, `Inventory`, … | Against the shared router core and each binding. | angzarr-router's conformance suite |
 | **codegen** | `codegen/` | Declaration lint and generated handler/dispatch shape for `ComponentOptions`. | Generic — `Order`, `Inventory`, … | Against compiled descriptors. | angzarr-cli |
 | **poker** | `example/poker/` | Exercise poker rules — TDA / WSOP / Robert's. **Same scenarios run at both tiers** (in-process via aggregate handlers, cluster via gRPC). Cluster-only assertions no-op on the in-process tier. | Poker — `Player`, `Table`, `Hand`, `DealCards`, `HandStarted`, … | Both: direct handler invocation (in-process step dir) AND gRPC `CommandClient` (acceptance step dir). | Every `examples-*-lang` repo |
 | **example-framework** | `example/framework/` | Exercise the framework concepts (saga dispatch, PM state machine, projector rendering, orchestrator decision coupling) *through* concrete poker handlers — internals visible only in-process. | Poker | Direct handler invocation only. In-process tier only. | Every `examples-*-lang` repo |
@@ -38,7 +39,7 @@ Shared vocabulary conventions across all tiers and all languages:
 Every scenario carries exactly one tag `@<tier-code>-NNNN`, unique across
 the repo, where:
 
-- `C` — framework tiers (`client/`, `coordinator-contract/`, `codegen/`, `../parity/`)
+- `C` — framework tiers (`client/`, `coordinator-contract/`, `handler-contract/`, `codegen/`, `../parity/`)
 - `EU` — example unit tier
 - `EA` — example acceptance tier
 - `NNNN` — zero-padded 4-digit number, assigned in authoring order, never reused
