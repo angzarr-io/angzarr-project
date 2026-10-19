@@ -295,7 +295,7 @@ disposition:
 - Why: decision 14.1 (superseding 12.6).
 - Settled when: during a rolling deployment, each event carries the full
   version of the instance that decided it, and a registration's version is
-  readable per component.
+  readable per component (scenarios C-0518 to C-0521).
 
 **RV-2** [clients, router] **Report the build version.**
 - What: bake the business binary's full version in at build time (e.g. from
@@ -320,7 +320,7 @@ disposition:
   Count snapshots passed over in a metric. Replaces SN-3's check and pass
   12's refuse-and-redeliver path.
 - Why: decision 14.1 (review T13 is settled by the registered state type).
-- Settled when: scenarios C-0518 to C-0530 pass: a version or state-type
+- Settled when: scenarios C-0522 to C-0530 pass: a version or state-type
   change makes the next delivery carry no snapshot and the replayed state
   equals a full replay.
 
