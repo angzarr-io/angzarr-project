@@ -6,9 +6,9 @@ Feature: Deterministic aggregate identity
 
   Aggregate roots come from UUIDv5 hashing — same inputs, same bytes, every
   time. `compute_root(domain, business_key)` =
-  uuid5(NAMESPACE_OID, domain + ":" + business_key). Domain names contain
-  no ':', so the separator makes every (domain, key) pair hash a distinct
-  name. compute_root is the only identity derivation the client provides;
+  uuid5(ANGZARR_ROOT_NAMESPACE, domain + ":" + business_key) (decision
+  9.2). Domain names contain no ':', so the separator makes every (domain,
+  key) pair hash a distinct name. compute_root is the only identity derivation the client provides;
   domain-specific wrappers (e.g. `customer_root(email)`) belong in the
   applications and examples that need them.
 
@@ -37,21 +37,26 @@ Feature: Deterministic aggregate identity
 
     Examples:
       | domain | key    | uuid                                 |
-      | cart   | alice  | 92ab9191-4f7d-5ff2-adcf-93a1e494c055 |
-      | order  | ord-42 | c20a5dda-4d41-5a65-bb75-22cdc453ca0f |
-      | order  |        | 45d20a3f-923e-581e-8943-c731efc6d1c2 |
+      | cart   | alice  | 3cfe0a31-d58d-5190-af30-5459ccc221f7 |
+      | order  | ord-42 | 8ad34c5c-88df-52d4-8d28-acfd0d93e443 |
+      | order  |        | ea82cbbb-bdd2-506f-bf90-652a2c4c2125 |
 
   @C-0485
   Scenario: compute_root separates domain and key, so shifted boundaries differ
     When I call compute_root with domain "ab" and key "c"
     And I call compute_root with domain "a" and key "bc"
     Then the two UUIDs differ
-    And the first UUID equals "59dbfa29-d911-506c-ab4d-37807c015aaa"
-    And the second UUID equals "5a62a278-cbda-5121-9f05-8532f1462612"
+    And the first UUID equals "c208d221-29c2-58f8-93fa-e72d9f818374"
+    And the second UUID equals "456e2a8f-e675-5d30-8865-5ef7c175149c"
+
+  @C-0513
+  Scenario: compute_root refuses a domain containing ':'
+    When I call compute_root with domain "bad:domain" and key "k"
+    Then the error should be an invalid argument error
 
   @C-0114
   Scenario: to_proto_bytes returns the UUID's 16-byte representation
     When I call compute_root with domain "customer" and key "alice@x.com"
     And I pass the resulting UUID through to_proto_bytes
     Then the byte length is 16
-    And the bytes match the hex "3c10f075111d58308cc920b4c9fa0d50"
+    And the bytes match the hex "e013c1a3f7285251a10306ea351ead23"
