@@ -1151,8 +1151,10 @@ recorded_at, rules_version}`.** The fields are 13, 15, 16, 14, 5 and 7.
 - Supersedes: 1.1's field list and 5.16's `base_sequence` rename.
 
 **12.5 The pipeline order is normative.** In every runtime and mode the
-order is: validate → assign ids (mint or derive) → dedup lookup → resolve
-and check Handling → business code. A retry of an applied STRICT command
+order is: validate → assign ids (mint or derive) → load the stream, then the
+dedup lookup → resolve and check Handling (against the loaded head) →
+business code. The load precedes the lookup so that a retry racing its
+original's commit is never applied twice under READ COMMITTED. A retry of an applied STRICT command
 with a now-stale sequence is therefore DUPLICATE, never ABORTED (T6). The
 order is written once, in the `handling` region of `types.proto`.
 

@@ -730,15 +730,22 @@ message Projection {
 //                    minted, looked up or stored;
 //   2. assign ids    mint or derive command_id, and set an absent
 //                    correlation_id (see the command_identity region);
-//   3. deduplicate   look up (stream, command_id); a hit is answered
-//                    DUPLICATE with the stored events, and nothing below
-//                    runs;
-//   4. resolve       stamp or check expected_sequence and resolve
-//                    conflict_resolution (STRICT's ABORTED happens here);
+//   3. load, then    load the stream (snapshot and events, its head)
+//      deduplicate   FIRST, then look up (stream, command_id); a hit is
+//                    answered DUPLICATE with the stored events, and
+//                    nothing below runs;
+//   4. resolve       stamp or check expected_sequence against the head
+//                    step 3 loaded, and resolve conflict_resolution
+//                    (STRICT's ABORTED happens here);
 //   5. business code CommandHandlerService.Handle (the client library
 //                    upcasts the payload, checks the snapshot, dispatches
 //                    to decide or ingest, and resolves AGGREGATE_HANDLES /
 //                    COMMUTATIVE), then the append.
+// The load comes before the lookup: under READ COMMITTED, a lookup first
+// could miss an original delivery that commits before the load, and the
+// retry would append after the original's events with no conflict (applied
+// twice). Loading first, a commit after the load is either seen by the
+// lookup or fails this delivery's append on its expected head.
 // Deduplication comes before the sequence check, so a retry of an applied
 // command whose expected_sequence is now stale is answered DUPLICATE, never
 // ABORTED. An append that loses an optimistic race re-runs from step 3.

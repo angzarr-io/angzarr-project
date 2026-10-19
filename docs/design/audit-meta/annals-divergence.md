@@ -77,10 +77,11 @@ behaves differently under the two runtimes. This is accepted.
 - **Reactor re-runs** (pass 13): the same derivation, with no
   `rules_version` in it, so a re-run dedupes in annals too, and repairs are
   new commands (decision 13.4).
-- **The same pipeline order**: validate, assign ids, dedup lookup,
-  resolve and check Handling, business code. annals' in-process coordinator
-  struct loads the snapshot and newer events (or events up to the
-  command's expected sequence). Under STRICT, a command whose expected
+- **The same pipeline order**: validate, assign ids, load the stream then
+  the dedup lookup, resolve and check Handling, business code. annals'
+  in-process coordinator struct loads the snapshot and newer events (or
+  events up to the command's expected sequence) before it looks the
+  command up. Under STRICT, a command whose expected
   sequence is not the head is rejected as stale.
 - **Conflict resolution: all three strategies, and COMMUTATIVE is the
   default in both runtimes** where the state declares conflict units,
