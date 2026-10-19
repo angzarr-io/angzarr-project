@@ -231,9 +231,6 @@ Notifications trigger behavior but aren't part of the event stream. Their delive
 
 ### RejectionNotification
 
-```protobuf file=proto/io/angzarr/v1/types.proto region=rejection_notification
-```
-
 ### Handling Rejections
 
 The source aggregate registers rejection handlers using `@rejected` decorators. The framework dispatches based on the rejected command's domain and type — no if/else chains needed.

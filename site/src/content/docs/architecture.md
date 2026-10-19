@@ -128,9 +128,6 @@ flowchart TB
 
 ### SyncMode
 
-```protobuf file=proto/io/angzarr/v1/types.proto region=sync_mode
-```
-
 | Mode | Projectors | Sagas | Use Case |
 |------|------------|-------|----------|
 | `NONE` | Async | Async | Fire-and-forget, eventual consistency |

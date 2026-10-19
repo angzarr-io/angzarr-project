@@ -68,10 +68,7 @@ The Cover identifies *which* aggregate the event belongs to. For facts, the idem
 
 ### The PageHeader: Sequence Type Selection
 
-The `PageHeader` tells the coordinator how to handle sequencing. For facts, use `ExternalDeferredSequence`:
-
-```protobuf file=proto/io/angzarr/v1/types.proto region=page_header
-```
+The `PageHeader` tells the coordinator how to handle sequencing.
 
 The `external_deferred` variant is **transient**—after processing, it's replaced with a real `sequence` number. The event then looks like any other sequenced event. The `external_id` within the deferred sequence provides idempotency.
 
