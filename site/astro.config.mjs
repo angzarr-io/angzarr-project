@@ -73,8 +73,6 @@ document.addEventListener('astro:after-swap', run);
 						{ label: 'Overview', slug: 'features' },
 						{ label: 'Small Footprint', slug: 'features/small-footprint' },
 						{ label: 'Facts', slug: 'features/facts' },
-						{ label: 'Compensation', slug: 'features/compensation' },
-						{ label: 'Cascade', slug: 'features/cascade' },
 						{ label: 'Editions', slug: 'features/editions' },
 						{ label: 'ML Training', slug: 'features/ml-training' },
 						{ label: 'Upcasting', slug: 'features/upcasting' },
@@ -99,7 +97,6 @@ document.addEventListener('astro:after-swap', run);
 						{ label: 'Clients', slug: 'sdks/clients' },
 						{ label: 'Builders', slug: 'sdks/builders' },
 						{ label: 'Error Handling', slug: 'sdks/error-handling' },
-						{ label: 'Speculative', slug: 'sdks/speculative' },
 						{
 							label: 'By Language',
 							items: [

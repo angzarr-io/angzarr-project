@@ -39,7 +39,6 @@ The player's bet was accepted. The pot updated. Then the hand discovered they'd 
 
 In a traditional system, you'd be unwinding database transactions, hoping nothing slipped through. Here, when the table rejects the bet, the framework routes the rejection back to the hand aggregate, which emits a compensation event: `BetReverted`. The audit trail shows exactly what happened and why.
 
-[Graceful failure and compensation →](/features/compensation)
 
 ---
 

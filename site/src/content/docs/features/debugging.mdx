@@ -61,7 +61,6 @@ Two features combine to make this safe and repeatable:
 | Feature | Purpose |
 |---------|---------|
 | **[Editions](./editions)** | Isolate debugging sessions from production |
-| **[Speculative Execution](../sdks/speculative)** | Run commands without persistence |
 
 Together they let you replay production scenarios locally, modify code, and re-run—as many times as needed—without side effects.
 
@@ -327,6 +326,5 @@ def debug_player_issue(aggregate_root: str, command: CommandBook):
 ## See Also
 
 - **[Editions](./editions)** — Temporal branching for isolation
-- **[Speculative Execution](../sdks/speculative)** — Commands without persistence
 - **[Testing Strategy](/operations/testing)** — Unit-testing `@handles` methods directly
 - **[Error Handling](../sdks/error-handling)** — Capturing error context

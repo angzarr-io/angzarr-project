@@ -38,7 +38,6 @@ Understanding the differences is critical:
 |------|-------|-----------|------------|---------|
 | [Command](/glossary/command) | Imperative | No | Yes | `CreateOrder` |
 | [Event](/glossary/event) | Past | Yes | No | `OrderCreated` |
-| [Notification](/glossary/notification) | Present | No | N/A | `RejectionNotification` |
 
 ## Event Sourcing
 
@@ -72,7 +71,6 @@ Understanding the differences is critical:
 
 | Term | Description |
 |------|-------------|
-| [Merge Strategy](/glossary/merge-strategy) | How to handle concurrent command conflicts. |
 | [Correlation ID](/glossary/correlation-id) | Identifier for cross-domain workflows. |
 | [Edition](/glossary/edition) | Timeline branching for speculative execution. |
 
@@ -81,7 +79,6 @@ Understanding the differences is critical:
 | Term | Description |
 |------|-------------|
 | [Orchestration](/glossary/orchestration) | Central coordinator controls workflow vs choreography. |
-| [Compensation](/glossary/compensation) | Handling failures by emitting undo events. |
 | [Sidecar](/glossary/sidecar) | Container pattern for infrastructure concerns. |
 
 ## Error Handling
