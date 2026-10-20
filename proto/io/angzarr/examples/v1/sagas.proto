@@ -1,0 +1,52 @@
+syntax = "proto3";
+package io.angzarr.examples.v1;
+
+import "io/angzarr/v1/options.proto";
+
+option csharp_namespace = "Angzarr.Examples";
+option go_package = "github.com/benjaminabbitt/angzarr/examples/go/proto/io/angzarr/examples/v1;examples";
+option java_multiple_files = true;
+option java_package = "io.angzarr.examples";
+option ruby_package = "Angzarr::Examples";
+
+// =============================================================================
+// Sagas — stateless translators between player and table
+// =============================================================================
+//
+// A saga has no state, so each is declared on an empty marker message. Its
+// reactions are wired by the (event) entries on the events it consumes.
+// Every saga takes target roots from fields of the source event (never from
+// a lookup) and emits reaction commands: they carry no Handling, the
+// destination stamps its own head, and redelivery is deduplicated on the
+// command id derived from the triggering event.
+//
+// Two sagas of the earlier spec are not part of this port:
+// saga-player-table (top-ups, whose refusal was compensated back to the
+// wallet) and saga-table-player-settlement (which injected facts into the
+// wallet). Both wait on rulings in
+// docs/design/blackjack-latest-proto-rulings.md.
+
+// saga-table-player-history. RoundSettled -> one RecordRoundResult{table_root,
+// round, wager, net} per outcome, to that outcome's player_root, in seat
+// order. It and the loyalty saga react to the same RoundSettled in no
+// guaranteed order.
+message TablePlayerHistorySaga {
+  option (io.angzarr.v1.component) = {
+    kind: COMPONENT_KIND_SAGA
+    input_domain: "table"
+    output_domain: "player"
+  };
+}
+
+// saga-table-player-loyalty. RoundSettled -> one AwardLoyaltyPoints{table_root,
+// round, points = wager} per outcome, to that outcome's player_root, in seat
+// order. What the wallet does with an award for a player who never enrolled
+// waits on a ruling: under the latest contract a refused reaction command is
+// dead-lettered.
+message TablePlayerLoyaltySaga {
+  option (io.angzarr.v1.component) = {
+    kind: COMPONENT_KIND_SAGA
+    input_domain: "table"
+    output_domain: "player"
+  };
+}
