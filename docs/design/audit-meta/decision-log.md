@@ -1397,7 +1397,7 @@ pass 12 wrote it. The protos, the `rust/angzarr-proto` crate's tests, the
 contract features and these documents changed; the crate's API gained one
 field.
 
-> **Amended by 14.3–14.9 (pass 14):** one leading `v`/`V` is stripped before parsing; queries use the same rule; a response reporting a version other than the registered one is refused; a registration without a version is refused; `snapshot_refused` is NOT reserved (policy 6.6 holds); the upcast type travels in `ErrorInfo` metadata `upcast_type_url`.
+> **Amended by 14.3–14.10 (pass 14):** the coordinator pulls the descriptors (`ComponentService.Describe`); a versionless descriptor fails registration visibly in the coordinator's readiness, not with a status. One leading `v`/`V` is stripped before parsing; queries use the same rule; a response reporting a version other than the registered one is refused; a registration without a version is refused; `snapshot_refused` is NOT reserved (policy 6.6 holds); the upcast type travels in `ErrorInfo` metadata `upcast_type_url`.
 
 **14.1 `rules_version` is the build version, and the coordinator decides
 snapshot validity.** Supersedes 12.6; amends 6.8; partly restores 5.9.
@@ -1479,6 +1479,8 @@ handler bug (5.8). Owner ruling, 2026-10-19.
   answering under another version would stamp events and snapshots that
   selection never vetted.
 
+> **Amended by 14.10 (pass 14):** the coordinator pulls the descriptor, so a versionless one is refused in the coordinator's readiness (NOT_SERVING, error log, alert), not with `INVALID_ARGUMENT`.
+
 **14.6 A registration must carry a version.** A `ComponentDescriptor` with
 an empty `rules_version` is refused `INVALID_ARGUMENT`, so a binary built
 without a baked version cannot register. With 14.5, an empty version on a
@@ -1508,6 +1510,40 @@ no snapshot and every page from sequence 0. Settles the open question in
   one every running build would accept.
 - Cost: during a rolling deployment across a major.minor change, queries
   replay from 0 until the old instances deregister.
+
+**14.10 The coordinator pulls the descriptors.** Every business process
+serves `ComponentService.Describe(DescribeRequest) returns
+(ComponentDescriptors)` (new `component.proto`; `ComponentDescriptors {
+repeated ComponentDescriptor components = 1; }` in `types.proto`),
+answered by the client library from its components' generated descriptors,
+one per hosted component. The coordinator calls it when it first connects
+to the business process and again every time its channel comes back up;
+each successful answer replaces the held descriptors, and holding one is
+what "registered" means. Nothing (command, fact, trigger, event) is
+delivered to a component without a held descriptor: a waiting caller is
+answered `UNAVAILABLE`, and queued and reaction deliveries stay queued. An
+answer with an empty `rules_version` is refused as a whole: the
+coordinator holds nothing from it, logs an error naming the process and
+the component, raises an alert and stays `NOT_SERVING`. The coordinator
+reports `SERVING` (grpc.health.v1 and its readiness probe) only after a
+successful Describe. Version skew on responses stays refused (14.5).
+Amends 14.6 (the refusal surfaces in readiness, not as `INVALID_ARGUMENT`,
+because the coordinator is the caller). Owner ruling, 2026-10-19.
+- Direction: pull, keeping the existing dial direction (coordinator to
+  business), as Dapr's sidecar does when it calls the app's configuration
+  endpoint on startup.
+- Rejected: push, the business process calling its coordinator to
+  register (as Envoy's xDS clients, Temporal workers and Axon's
+  connector do). The coordinator already dials the business process, and
+  push would give every business process a coordinator address and client
+  code of its own.
+- One shared service, not a Describe RPC on each kind service: one process
+  may host several components of different kinds (the router's
+  `component_descriptors` already returns a list), so one call per process
+  describes them all, and a process serves it once whatever it hosts.
+- Cost: a coordinator whose business process is up but answered badly
+  stays not ready until the channel is re-established; it is visibly broken
+  rather than silently delivering.
 
 ## Corrections
 

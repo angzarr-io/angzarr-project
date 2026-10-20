@@ -287,9 +287,15 @@ disposition:
 ## RV: rules_version reporting and snapshot selection (passes 5, 12 and 14, W8)
 
 **RV-1** [core] **Registration, stamping and version skew.**
-- What: refuse a registration whose `ComponentDescriptor.rules_version` is
-  empty (`INVALID_ARGUMENT`), and store each component's registered
-  version. Read `rules_version` from every `CommandHandlerResponse` and
+- What: call `ComponentService.Describe` on the business process when the
+  coordinator first connects and every time its channel comes back up;
+  each successful answer replaces the held descriptors. Deliver nothing to
+  a component with no held descriptor (`UNAVAILABLE` to a waiting caller;
+  queued and reaction deliveries stay queued). Refuse an answer with an
+  empty `rules_version` as a whole: hold nothing from it, log an error
+  naming the process and component, alert, and stay `NOT_SERVING`. Report
+  `SERVING` (grpc.health.v1 and the readiness probe) only after a
+  successful Describe. Read `rules_version` from every `CommandHandlerResponse` and
   `ProcessManagerHandleResponse`: if it differs from the registered version
   (empty included), refuse the response as a handler bug (persist and send
   nothing; `INTERNAL` to a `Handle`/`HandleSync` caller; dead-letter and
@@ -297,23 +303,25 @@ disposition:
   Otherwise stamp it, unaltered, on that response's events
   (`EventMeta.rules_version`) and any snapshot written from it
   (`Snapshot.rules_version`).
-- Why: decisions 14.1, 14.5 and 14.6 (superseding 12.6).
-- Settled when: scenarios C-0518 to C-0521 and C-0557 to C-0559 pass:
+- Why: decisions 14.1, 14.5, 14.6 and 14.10 (superseding 12.6).
+- Settled when: scenarios C-0518 to C-0521, C-0558, C-0559 and C-0561 to
+  C-0564 pass:
   during a rolling deployment each event carries the full version of the
   instance that decided it, and a skewed or versionless answer persists
   nothing.
 
 **RV-2** [clients, router] **Report the build version.**
 - What: bake the business binary's full version in at build time (e.g. from
-  versionator) and put it on every response and on the registration hello
-  (`ComponentDescriptor.rules_version`); refuse to build or start without
-  one. No hand-chosen label and no snapshot-compatibility declaration in
+  versionator) and put it on every response and in every component's
+  descriptor (`ComponentDescriptor.rules_version`); refuse to build or start
+  without one. Serve `ComponentService.Describe` from the router's component
+  descriptors (every hosted component; business code never implements it). No hand-chosen label and no snapshot-compatibility declaration in
   business code. Remove any client-side snapshot check and any
   `snapshot_refused` handling.
-- Why: decisions 14.1 and 14.6.
-- Settled when: every SDK fills `rules_version` on every response and on
-  registration with the same build version, and folds whatever snapshot
-  it is delivered. Scenarios C-0533 to C-0536.
+- Why: decisions 14.1, 14.6 and 14.10.
+- Settled when: every SDK fills `rules_version` on every response and in
+  every Describe descriptor with the same build version, and folds whatever
+  snapshot it is delivered. Scenarios C-0533 to C-0536 and C-0565.
 
 **RV-3** [core] **The coordinator and the query service select snapshots.**
 - What: before offering a snapshot with a delivery (aggregate or PM), or
@@ -946,13 +954,14 @@ golden suite.**
   COMMUTATIVE, and configuring COMMUTATIVE for any other component is
   refused.
 
-**CR-3** [core, clients] **Registration fills `StateDescriptor`.**
+**CR-3** [core, clients] **Describe fills `StateDescriptor`.**
 - What: each client library fills `ComponentDescriptor.state` from the
-  generated descriptor when it registers an aggregate or PM (Rust:
-  `registry.register::<D>()`). The coordinator stores it per component and
+  generated descriptor in its `ComponentService.Describe` answer for an
+  aggregate or PM (Rust: `registry.register::<D>()` records it). The
+  coordinator stores it per component from the Describe it pulls and
   uses only its resolution list (HD-2, HD-4, CR-2), never the schema.
-- Why: decision 12.7 (review T3: the registration-time refusal had no data
-  to act on).
+- Why: decisions 12.7 and 14.10 (review T3: the registration-time refusal
+  had no data to act on).
 - Settled when: a coordinator refuses a COMMUTATIVE command for a component
   whose registered state lacks it, and defaults correctly for one that has
   it.

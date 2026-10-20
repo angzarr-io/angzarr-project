@@ -482,9 +482,11 @@ same unit sets, and annals generates from the same markers.
 
 ## 9. Registration fills `StateDescriptor`
 
-When your component registers with its coordinator, the client library
-sends a `ComponentDescriptor`. Its `state` field is filled from the
-generated descriptor. Do not write it by hand:
+When the coordinator connects to your business process, it asks it to
+describe its components (`ComponentService.Describe`), and the client
+library answers with a `ComponentDescriptor` for each one it hosts. Its
+`state` field is filled from the generated descriptor. Do not write it by
+hand:
 
 ```rust
 registry.register::<ListAggregate>();   // fills ComponentDescriptor.state from ListState's generated State impl

@@ -196,7 +196,10 @@ event onwards, every removal reserves its number and name (see
     version, so re-runs dedupe; checkpoint resets are for recovery; repairs
     are new commands; standard re-drive commands are backlog RD-1.
   - **No reacting-component field**: source control says what makes what.
-- **Pass 14** (this change): decisions 14.1–14.9, by the owner.
+- **Pass 14** (this change): decisions 14.1–14.10, by the owner.
+  - **The coordinator pulls the descriptors** (`ComponentService.Describe` →
+    `ComponentDescriptors`) on connect and every reconnect; nothing is
+    delivered before, and it is `SERVING` only after a successful Describe.
   - **`rules_version` is the build version**, reported per response and at
     registration (`ComponentDescriptor.rules_version` 4, required), stamped
     in full; a response reporting another version is refused as a handler
