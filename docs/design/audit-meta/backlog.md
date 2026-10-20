@@ -333,7 +333,8 @@ disposition:
 - Why: decisions 14.1, 14.6 and 14.10.
 - Settled when: every SDK fills `rules_version` on every response and in
   every Describe descriptor with the same build version, and folds whatever
-  snapshot it is delivered. Scenarios C-0533 to C-0536 and C-0565.
+  snapshot it is delivered, and a host or router refuses a second
+  component. Scenarios C-0533 to C-0536, C-0565, C-0579 and C-0580.
 
 **RV-3** [core] **The coordinator and the query service select snapshots.**
 - What: before offering a snapshot with a delivery (aggregate or PM), or
