@@ -71,6 +71,17 @@ service ProcessManagerService {
   // arrives as process_state; the coordinator offers a snapshot in it only
   // if it passes the same validity checks as an aggregate's (Snapshot in
   // types.proto).
+  //
+  // One process manager per call. The request names the PM it is for
+  // (ProcessManagerHandleRequest.component), and the response is that PM's
+  // answer alone. When several PMs subscribe to the trigger's domain, the
+  // coordinator delivers the trigger to each of them separately, each with
+  // its own process_state; a business process hosting several of them
+  // never fans a call out to the others, and the coordinator never merges
+  // their answers. A request whose component is empty is refused
+  // INVALID_ARGUMENT; one naming a PM this process does not host is
+  // refused NOT_FOUND (both terminal; see the status codes in
+  // command_handler.proto).
   rpc Handle(ProcessManagerHandleRequest) returns (ProcessManagerHandleResponse);
 }
 
@@ -97,17 +108,22 @@ service ProcessManagerCoordinatorService {
 message ProcessManagerHandleRequest {
   // Full state of triggering domain.
   EventBook trigger = 1;
-  // Current process manager state (event-sourced).
+  // Current process manager state (event-sourced): the named PM's own
+  // stream.
   EventBook process_state = 2;
+  // The process manager this request is for: its name as the business
+  // process described it (ComponentDescriptor.name, via
+  // ComponentService.Describe). Required.
+  string component = 3;
 }
 
-// PM handle response: local events, then remote commands.
+// PM handle response: the answer of the one PM the request named (never
+// several PMs' answers merged): local events, then remote commands.
 // Execution order: process_events persisted first, then commands sent.
 message ProcessManagerHandleResponse {
   // Local: Events for the process manager's own domain (non-duplicative workflow state).
-  // These are persisted via AggregateCoordinator to the PM's domain.
-  // Each book is merged by the coordinator, which owns the cover and page
-  // concatenation policy; a PM that emits a single book sends a 1-element list.
+  // These are persisted via AggregateCoordinator to the named PM's own
+  // stream: every book's cover is that stream (or empty, meaning it).
   // Business output only: payloads. The PM's state goes in process_state,
   // never in these books. A snapshot, page meta, sequences or a cover
   // other than the PM's own stream are refused, as for an aggregate (see
