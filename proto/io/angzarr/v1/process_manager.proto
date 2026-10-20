@@ -108,13 +108,10 @@ message ProcessManagerHandleResponse {
   // These are persisted via AggregateCoordinator to the PM's domain.
   // Each book is merged by the coordinator, which owns the cover and page
   // concatenation policy; a PM that emits a single book sends a 1-element list.
-  // Business output only: payloads, plus the PM's post-reaction process
-  // state, which the client library returns on EVERY response as
-  // snapshot.state on the last book (a book with no pages when the reaction
-  // wrote no process events); business code never decides when. The
-  // coordinator persists it as for an aggregate (see Snapshot). Page
-  // meta, sequences and a cover other than the PM's own stream are refused,
-  // as for an aggregate (see CommandHandlerService.Handle). The coordinator
+  // Business output only: payloads. The PM's state goes in process_state,
+  // never in these books. A snapshot, page meta, sequences or a cover
+  // other than the PM's own stream are refused, as for an aggregate (see
+  // CommandHandlerService.Handle). The coordinator
   // stamps each page's meta: causation.triggering_event = the trigger's
   // EventRef, the trigger's correlation_id, recorded_at and this
   // response's rules_version (see ProcessManagerService, Process events).
@@ -136,4 +133,11 @@ message ProcessManagerHandleResponse {
   // the PM's registered one is refused as a PM bug: nothing is persisted or
   // sent, and the trigger is dead-lettered and alerted.
   string rules_version = 3;
+  // The PM's process state after this reaction, with its process_events
+  // folded in (the counterpart of the request's process_state). The client
+  // library sets process_state.state on EVERY response, whether or not the
+  // reaction wrote process events; business code never decides when. The
+  // coordinator persists it per the PM domain's storage policy, setting
+  // sequence and rules_version, as for an aggregate (see Snapshot).
+  Snapshot process_state = 5;
 }

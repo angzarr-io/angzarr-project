@@ -687,7 +687,7 @@ message Snapshot {
   //
   // Where snapshots come from. The client library returns the post-command
   // state on EVERY response (CommandHandlerResponse.events.snapshot.state;
-  // for a process manager, ProcessManagerHandleResponse.process_events);
+  // for a process manager, ProcessManagerHandleResponse.process_state);
   // business code never decides when. The coordinator persists it per the
   // domain's storage policy (default: keep the newest only), setting
   // sequence (the last event folded in) and rules_version (the response's,
