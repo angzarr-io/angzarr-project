@@ -64,13 +64,18 @@ Feature: Component host - serving its registered component over gRPC
 
   @C-0504
   Scenario: A host with no registered component refuses to start
+    # A client whose host API cannot represent a host with no component
+    # (e.g. a Rust typestate builder, refused at compile time) satisfies
+    # this scenario.
     Given a component host with no component registered
     When the host starts
     Then starting fails with a configuration error
 
   @C-0579
   Scenario: A host given a second component refuses to start
-    # One business process is one component (decision 14.19).
+    # One business process is one component (decision 14.19). A client whose
+    # host API cannot represent a second component (e.g. a Rust typestate
+    # builder, refused at compile time) satisfies this scenario.
     Given a component host with an aggregate component for domain "order" registered
     And a second component, an aggregate for domain "payment", registered on the same host
     When the host starts

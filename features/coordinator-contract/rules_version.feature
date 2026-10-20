@@ -237,8 +237,10 @@ Feature: Rules version - recording who decided, and choosing snapshots
 
   @snapshot_selection @query
   @C-0556
-  Scenario: A coordinator holding no registration answers a query with no snapshot
-    Given the answering coordinator holds no registration for the "order" aggregate
+  Scenario: A query server holding no registration answers a query with no snapshot
+    # A coordinator before its first successful describe, or a standalone
+    # query server, which has no component behind it (query_server.feature).
+    Given the answering query server holds no registration for the "order" aggregate
     And order "order-1" has a snapshot at sequence 5 of state type "/orders.v1.OrderState" recorded under rules version "1.4.2+build.7"
     And order "order-1" has events at sequences 0 to 7
     When a client queries the events of order "order-1"
