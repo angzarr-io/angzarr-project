@@ -74,7 +74,7 @@ message LedgerProjection {
     name: "LedgerProjector"
   };
   map<string, PlayerLedgerRow> players = 1; // key = hex(player_root)
-  map<string, TableLedgerRow> tables = 2;   // key = hex(table_root)
+  map<string, TableLedgerRow> tables = 2; // key = hex(table_root)
   LedgerTotals totals = 3;
 }
 

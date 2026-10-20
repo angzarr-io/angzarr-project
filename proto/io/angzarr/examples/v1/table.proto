@@ -1,8 +1,8 @@
 syntax = "proto3";
 package io.angzarr.examples.v1;
 
-import "io/angzarr/v1/options.proto";
 import "io/angzarr/examples/v1/cards.proto";
+import "io/angzarr/v1/options.proto";
 
 option csharp_namespace = "Angzarr.Examples";
 option go_package = "github.com/benjaminabbitt/angzarr/examples/go/proto/io/angzarr/examples/v1;examples";
@@ -65,7 +65,7 @@ option ruby_package = "Angzarr::Examples";
 // 0 < min_bet <= max_bet with both even, 0 < min_buy_in <= max_buy_in,
 // min_bet <= min_buy_in.
 message CreateTable {
-  option (io.angzarr.v1.command) = { component: "io.angzarr.examples.v1.TableState" };
+  option (io.angzarr.v1.command) = {component: "io.angzarr.examples.v1.TableState"};
   string name = 1;
   int64 min_bet = 2;
   int64 max_bet = 3;
@@ -82,7 +82,7 @@ message CreateTable {
 // [min_buy_in, max_buy_in]. A player may have buy-ins pending for several
 // seats; only the first to be confirmed seats them.
 message RequestSeat {
-  option (io.angzarr.v1.command) = { component: "io.angzarr.examples.v1.TableState" };
+  option (io.angzarr.v1.command) = {component: "io.angzarr.examples.v1.TableState"};
   bytes player_root = 1;
   int32 seat = 2;
   int64 amount = 3;
@@ -92,14 +92,14 @@ message RequestSeat {
 // Cash out the whole stack and free the seat (PlayerCashedOut). Refused while
 // the seat has a wager in the current round.
 message LeaveTable {
-  option (io.angzarr.v1.command) = { component: "io.angzarr.examples.v1.TableState" };
+  option (io.angzarr.v1.command) = {component: "io.angzarr.examples.v1.TableState"};
   int32 seat = 1;
 }
 
 // Wager on the next round (AHR-5). Sent with
 // CONFLICT_RESOLUTION_AGGREGATE_HANDLES.
 message PlaceBet {
-  option (io.angzarr.v1.command) = { component: "io.angzarr.examples.v1.TableState" };
+  option (io.angzarr.v1.command) = {component: "io.angzarr.examples.v1.TableState"};
   int32 seat = 1;
   int64 amount = 2;
 }
@@ -108,23 +108,23 @@ message PlaceBet {
 // DealerPlayed + RoundSettled as well when no seat can act (dealer blackjack,
 // or every wagered hand is a blackjack).
 message DealRound {
-  option (io.angzarr.v1.command) = { component: "io.angzarr.examples.v1.TableState" };
+  option (io.angzarr.v1.command) = {component: "io.angzarr.examples.v1.TableState"};
 }
 
 // Player turn actions (AHR-9, AHR-10). Only the seat on turn may act. The
 // action that finishes the last hand also emits DealerPlayed + RoundSettled.
 message Hit {
-  option (io.angzarr.v1.command) = { component: "io.angzarr.examples.v1.TableState" };
+  option (io.angzarr.v1.command) = {component: "io.angzarr.examples.v1.TableState"};
   int32 seat = 1;
 }
 
 message Stand {
-  option (io.angzarr.v1.command) = { component: "io.angzarr.examples.v1.TableState" };
+  option (io.angzarr.v1.command) = {component: "io.angzarr.examples.v1.TableState"};
   int32 seat = 1;
 }
 
 message DoubleDown {
-  option (io.angzarr.v1.command) = { component: "io.angzarr.examples.v1.TableState" };
+  option (io.angzarr.v1.command) = {component: "io.angzarr.examples.v1.TableState"};
   int32 seat = 1;
 }
 
@@ -138,14 +138,14 @@ message DoubleDown {
 // meanwhile waits on the buy-in refusal ruling: the latest contract has no
 // channel that carries a rejection back to pmg-buy-in.
 message ConfirmSeat {
-  option (io.angzarr.v1.command) = { component: "io.angzarr.examples.v1.TableState" };
+  option (io.angzarr.v1.command) = {component: "io.angzarr.examples.v1.TableState"};
   bytes buy_in_id = 1;
 }
 
 // Free a held seat (SeatReleased). Releasing a hold that no longer exists
 // succeeds with no events.
 message ReleaseSeat {
-  option (io.angzarr.v1.command) = { component: "io.angzarr.examples.v1.TableState" };
+  option (io.angzarr.v1.command) = {component: "io.angzarr.examples.v1.TableState"};
   bytes buy_in_id = 1;
   string reason = 2;
 }
@@ -155,8 +155,11 @@ message ReleaseSeat {
 // -----------------------------------------------------------------------------
 
 message TableCreated {
-  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.TableState" };
-  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.LedgerProjection" domain: "table" };
+  option (io.angzarr.v1.event) = {component: "io.angzarr.examples.v1.TableState"};
+  option (io.angzarr.v1.event) = {
+    component: "io.angzarr.examples.v1.LedgerProjection"
+    domain: "table"
+  };
   string name = 1;
   int64 min_bet = 2;
   int64 max_bet = 3;
@@ -171,7 +174,7 @@ message TableCreated {
 // (cards.proto). Emitted by CreateTable, and by DealRound before RoundDealt
 // when fewer than 11 * (wagered seats + 1) cards remain (AHR-4).
 message ShoeShuffled {
-  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.TableState" };
+  option (io.angzarr.v1.event) = {component: "io.angzarr.examples.v1.TableState"};
   uint32 shoe_number = 1;
   uint64 seed = 2;
   int32 decks = 3;
@@ -180,8 +183,11 @@ message ShoeShuffled {
 
 // A seat is held for a buy-in; triggers pmg-buy-in.
 message SeatHeld {
-  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.TableState" };
-  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.BuyInState" domain: "table" };
+  option (io.angzarr.v1.event) = {component: "io.angzarr.examples.v1.TableState"};
+  option (io.angzarr.v1.event) = {
+    component: "io.angzarr.examples.v1.BuyInState"
+    domain: "table"
+  };
   bytes buy_in_id = 1;
   bytes player_root = 2;
   int32 seat = 3;
@@ -189,7 +195,7 @@ message SeatHeld {
 }
 
 message SeatReleased {
-  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.TableState" };
+  option (io.angzarr.v1.event) = {component: "io.angzarr.examples.v1.TableState"};
   bytes buy_in_id = 1;
   bytes player_root = 2;
   int32 seat = 3;
@@ -198,9 +204,15 @@ message SeatReleased {
 
 // The buy-in chips arrived: the player sits with `stack`.
 message PlayerSeated {
-  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.TableState" };
-  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.BuyInState" domain: "table" };
-  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.LedgerProjection" domain: "table" };
+  option (io.angzarr.v1.event) = {component: "io.angzarr.examples.v1.TableState"};
+  option (io.angzarr.v1.event) = {
+    component: "io.angzarr.examples.v1.BuyInState"
+    domain: "table"
+  };
+  option (io.angzarr.v1.event) = {
+    component: "io.angzarr.examples.v1.LedgerProjection"
+    domain: "table"
+  };
   bytes buy_in_id = 1;
   bytes player_root = 2;
   int32 seat = 3;
@@ -213,8 +225,11 @@ message PlayerSeated {
 // name = "cashout/" + decimal sequence of this event), as 16 bytes, so replay
 // and redelivery always produce the same id.
 message PlayerCashedOut {
-  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.TableState" };
-  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.LedgerProjection" domain: "table" };
+  option (io.angzarr.v1.event) = {component: "io.angzarr.examples.v1.TableState"};
+  option (io.angzarr.v1.event) = {
+    component: "io.angzarr.examples.v1.LedgerProjection"
+    domain: "table"
+  };
   bytes cashout_id = 1;
   bytes player_root = 2;
   int32 seat = 3;
@@ -222,8 +237,11 @@ message PlayerCashedOut {
 }
 
 message BetPlaced {
-  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.TableState" };
-  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.LedgerProjection" domain: "table" };
+  option (io.angzarr.v1.event) = {component: "io.angzarr.examples.v1.TableState"};
+  option (io.angzarr.v1.event) = {
+    component: "io.angzarr.examples.v1.LedgerProjection"
+    domain: "table"
+  };
   uint32 round = 1;
   int32 seat = 2;
   bytes player_root = 3;
@@ -244,7 +262,7 @@ message SeatHand {
 // each seat again, the dealer's hole card. dealer_hole is recorded for replay
 // and is not shown to players until DealerPlayed.
 message RoundDealt {
-  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.TableState" };
+  option (io.angzarr.v1.event) = {component: "io.angzarr.examples.v1.TableState"};
   uint32 round = 1;
   repeated SeatHand hands = 2;
   Card dealer_up = 3;
@@ -254,7 +272,7 @@ message RoundDealt {
 
 // A Hit drew `card` for `seat`.
 message CardDealt {
-  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.TableState" };
+  option (io.angzarr.v1.event) = {component: "io.angzarr.examples.v1.TableState"};
   int32 seat = 1;
   Card card = 2;
   uint32 total = 3;
@@ -264,7 +282,7 @@ message CardDealt {
 }
 
 message HandStood {
-  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.TableState" };
+  option (io.angzarr.v1.event) = {component: "io.angzarr.examples.v1.TableState"};
   int32 seat = 1;
   uint32 total = 2;
   int32 next_turn = 3;
@@ -273,8 +291,11 @@ message HandStood {
 // The wager was doubled (`added` moved from stack to wager) and exactly one
 // card drawn; the hand is finished.
 message HandDoubled {
-  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.TableState" };
-  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.LedgerProjection" domain: "table" };
+  option (io.angzarr.v1.event) = {component: "io.angzarr.examples.v1.TableState"};
+  option (io.angzarr.v1.event) = {
+    component: "io.angzarr.examples.v1.LedgerProjection"
+    domain: "table"
+  };
   int32 seat = 1;
   int64 added = 2;
   Card card = 3;
@@ -286,7 +307,7 @@ message HandDoubled {
 
 // The dealer revealed the hole card and drew (AHR-7, AHR-11).
 message DealerPlayed {
-  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.TableState" };
+  option (io.angzarr.v1.event) = {component: "io.angzarr.examples.v1.TableState"};
   uint32 round = 1;
   Card hole = 2;
   repeated Card drawn = 3;
@@ -300,9 +321,9 @@ message DealerPlayed {
 message SeatOutcome {
   enum Outcome {
     OUTCOME_UNSPECIFIED = 0;
-    OUTCOME_LOSE = 1;      // returned 0
-    OUTCOME_PUSH = 2;      // returned = wager
-    OUTCOME_WIN = 3;       // returned = 2 * wager
+    OUTCOME_LOSE = 1; // returned 0
+    OUTCOME_PUSH = 2; // returned = wager
+    OUTCOME_WIN = 3; // returned = 2 * wager
     OUTCOME_BLACKJACK = 4; // returned = wager + wager * 3 / 2
   }
   int32 seat = 1;
@@ -318,10 +339,19 @@ message SeatOutcome {
 // several consumers: the table folds it, saga-table-player-history and
 // saga-table-player-loyalty react to it, and the ledger projects it.
 message RoundSettled {
-  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.TableState" };
-  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.TablePlayerHistorySaga" domain: "table" };
-  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.TablePlayerLoyaltySaga" domain: "table" };
-  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.LedgerProjection" domain: "table" };
+  option (io.angzarr.v1.event) = {component: "io.angzarr.examples.v1.TableState"};
+  option (io.angzarr.v1.event) = {
+    component: "io.angzarr.examples.v1.TablePlayerHistorySaga"
+    domain: "table"
+  };
+  option (io.angzarr.v1.event) = {
+    component: "io.angzarr.examples.v1.TablePlayerLoyaltySaga"
+    domain: "table"
+  };
+  option (io.angzarr.v1.event) = {
+    component: "io.angzarr.examples.v1.LedgerProjection"
+    domain: "table"
+  };
   uint32 round = 1;
   repeated SeatOutcome outcomes = 2; // Ascending by seat
   int64 house_delta = 3;
@@ -355,8 +385,8 @@ message TableState {
   };
   enum Phase {
     PHASE_UNSPECIFIED = 0; // Table not created
-    PHASE_IDLE = 1;        // No wager placed for the next round
-    PHASE_BETTING = 2;     // At least one wager placed, not yet dealt
+    PHASE_IDLE = 1; // No wager placed for the next round
+    PHASE_BETTING = 2; // At least one wager placed, not yet dealt
     PHASE_PLAYER_TURNS = 3; // Dealt; a seat is on turn
   }
   string name = 1;

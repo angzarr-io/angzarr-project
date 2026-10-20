@@ -51,7 +51,10 @@ option ruby_package = "Angzarr::Examples";
 // FundsCaptured(B, X).
 
 message BuyInStarted {
-  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.BuyInState" applies: true };
+  option (io.angzarr.v1.event) = {
+    component: "io.angzarr.examples.v1.BuyInState"
+    applies: true
+  };
   bytes buy_in_id = 1;
   bytes player_root = 2;
   bytes table_root = 3;
@@ -60,18 +63,27 @@ message BuyInStarted {
 }
 
 message BuyInFundsHeld {
-  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.BuyInState" applies: true };
+  option (io.angzarr.v1.event) = {
+    component: "io.angzarr.examples.v1.BuyInState"
+    applies: true
+  };
   bytes buy_in_id = 1;
 }
 
 message BuyInSeated {
-  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.BuyInState" applies: true };
+  option (io.angzarr.v1.event) = {
+    component: "io.angzarr.examples.v1.BuyInState"
+    applies: true
+  };
   bytes buy_in_id = 1;
   int64 stack = 2;
 }
 
 message BuyInCompleted {
-  option (io.angzarr.v1.event) = { component: "io.angzarr.examples.v1.BuyInState" applies: true };
+  option (io.angzarr.v1.event) = {
+    component: "io.angzarr.examples.v1.BuyInState"
+    applies: true
+  };
   bytes buy_in_id = 1;
 }
 
