@@ -12,9 +12,13 @@ option ruby_package = "Angzarr";
 
 // SagaService: stateless translation from source events to commands.
 //
-// One saga per (source domain, destination domain) pair: every reaction
-// from one domain's events to another domain's commands is part of that
-// pair's single saga (see ComponentOptions in options.proto).
+// A saga translates between exactly two domains: events of its one source
+// domain (input_domain) into commands for its one destination domain
+// (output_domain). One saga per (source domain, destination domain) pair:
+// every reaction from one domain's events to another domain's commands is
+// part of that pair's single saga, and anything needing several
+// destinations is a process manager (see ComponentOptions in
+// options.proto).
 //
 // Every emitted command is a Command (never a Fact). Its coordinator stamps
 // CommandPage.causation_id (the event being reacted to), the derived
@@ -81,7 +85,11 @@ message SagaResponse {
   // stripped (see Handling). command_id, causation_id and correlation_id
   // are likewise left unset for the coordinator to stamp; a value that
   // differs from the stamp is refused the same way, as is a Fact or a
-  // fact_origin. Delivery mode comes from the saga's configuration, never
-  // from the command.
+  // fact_origin. A command whose cover names a domain other than the
+  // saga's one destination (ComponentOptions.output_domain) is a saga bug
+  // refused by the client library before it answers: SagaService.Handle
+  // fails INTERNAL with no commands, and the coordinator dead-letters the
+  // trigger and alerts, as for any terminal failure of a reaction. Delivery
+  // mode comes from the saga's configuration, never from the command.
   repeated CommandBook commands = 1;
 }

@@ -1,9 +1,9 @@
 syntax = "proto3";
 package io.angzarr.v1;
 
-import "io/angzarr/v1/types.proto";
 import "google/api/annotations.proto";
 import "google/protobuf/empty.proto";
+import "io/angzarr/v1/types.proto";
 
 option csharp_namespace = "Angzarr";
 option go_package = "github.com/benjaminabbitt/angzarr/client/go/proto/io/angzarr/v1;angzarr";
@@ -13,6 +13,20 @@ option java_package = "io.angzarr";
 option ruby_package = "Angzarr";
 
 // EventQueryService: query interface for retrieving events
+//
+// A separate, read-only interface, independent of
+// CommandHandlerCoordinatorService. An aggregate (or process manager)
+// coordinator serves it for its own component's domain. It may also run
+// standalone, as a read-only query server for downstream readers with no
+// component behind it; such a server serves no command RPCs.
+//
+// Snapshots. A coordinator judges a snapshot against its own registration
+// (see Snapshot in types.proto). A standalone query server holds no
+// registration, so it never returns a snapshot: every result carries every
+// page from sequence 0 (up to the query's point).
+//
+// Upcasting. A coordinator upcasts every event it returns through its own
+// business process's UpcasterService (see upcaster.proto).
 //
 // Editions: a Query or CorrelationQuery naming a non-main edition that was
 // never created (EditionAdminService.CreateEdition, meta.proto) is refused

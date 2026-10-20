@@ -16,6 +16,16 @@ option ruby_package = "Angzarr";
 // process (the one its coordinator dials), beside the component's kind
 // service.
 //
+// Who calls it. The coordinator of the component that owns a stream
+// upcasts that stream's events on EVERY read and publish path, by calling
+// its own business process's UpcasterService: loading the stream for
+// Handle (an aggregate's events, a process manager's process_state),
+// answering queries (EventQueryService, see query.proto), and publishing
+// events to the bus for subscribers. Consumers of another component's
+// stream (sagas, process managers, projectors) therefore only ever see
+// current event shapes and have no upcasters of their own. Stored events
+// are never rewritten: upcasting happens on the way out.
+//
 // Commands can be upcast too, but should rarely be. The client library
 // applies the SAME upcaster chain, by type URL, to an incoming command's
 // payload, and to a fact's, before dispatch (inside

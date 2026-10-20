@@ -673,12 +673,14 @@ message EventMeta {
 // the current rules version.
 //
 // Queries (EventQueryService, including a TemporalQuery) choose snapshots
-// the same way: the coordinator answering the query returns a snapshot
-// only if it passes both checks against that coordinator's own
-// registration (one business process per coordinator; during a rolling
-// deployment each instance's coordinator judges by its own instance's
-// version). While it holds no registration, a query returns no snapshot
-// and every page from sequence 0.
+// the same way: a coordinator answering a query returns a snapshot only if
+// it passes both checks against that coordinator's own registration (one
+// business process per coordinator; during a rolling deployment each
+// instance's coordinator judges by its own instance's version). A server
+// holding no registration (a coordinator before its first successful
+// Describe, or a standalone query server, which has no component behind
+// it; see query.proto) returns no snapshot and every page from sequence
+// 0.
 message Snapshot {
   // Sequence of the last event folded into `state`. A TemporalQuery
   // as_of_time T may start from this snapshot iff that event's

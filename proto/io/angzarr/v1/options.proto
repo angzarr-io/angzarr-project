@@ -39,21 +39,27 @@ option ruby_package = "Angzarr";
 //   output_domain(s)  — domains it SENDS COMMANDS to
 //
 // Per kind (generation fails on a violation):
-//   kind             domain     input_domain               output_domain(s)
-//   AGGREGATE        required   empty                      empty
-//   PROCESS_MANAGER  required   empty (per-event domains)  command targets
-//   SAGA             forbidden  required                   command targets
-//   PROJECTOR        forbidden  optional (per-event dom.)  empty
+//   kind             domain     input_domain               output_domain       output_domains
+//   AGGREGATE        required   empty                      empty               empty
+//   PROCESS_MANAGER  required   empty (per-event domains)  command targets     command targets
+//   SAGA             forbidden  required                   required (its one   empty
+//                                                          destination)
+//   PROJECTOR        forbidden  optional (per-event dom.)  empty               empty
 // An aggregate owns its domain's stream and subscribes to nothing; a process
 // manager owns its own workflow stream (domain) and takes its trigger
 // domains from (event).domain; sagas and projectors own no stream.
 //
 // Each declaration is one component, served by its own business process
 // behind its own coordinator (see ComponentService in component.proto).
-// There is at most one saga per (source domain, destination domain) pair:
-// every reaction that translates events of one domain into commands for
-// another belongs to that pair's one saga, however many event types it
-// reacts to.
+// A saga is a translator between exactly two domains: one source
+// (input_domain) and one destination (output_domain). There is one saga per
+// (source domain, destination domain) pair: every reaction that translates
+// events of one domain into commands for another belongs to that pair's
+// one saga, however many event types it reacts to. Anything that needs
+// several destinations is a process manager. A saga declaring
+// output_domains, or no output_domain, fails generation; at run time a
+// saga command addressed to any other domain is refused by the client
+// library before it answers (see SagaResponse in saga.proto).
 //
 // There are no compensation declarations. A refusal in a choreographed flow
 // is a domain event that a saga translates into commands, and a process
@@ -67,16 +73,19 @@ message ComponentOptions {
   // never the component's own domain. Empty for aggregates and process
   // managers (process-manager trigger domains come from (event).domain).
   string input_domain = 2;
-  // Domain this component issues commands to (sagas / process managers).
-  // Command targets only — never the component's own domain. Single-target
-  // shorthand: the component's output domains are output_domain (when set)
-  // together with every entry of output_domains.
+  // Domain this component issues commands to: a saga's one destination
+  // (required for SAGA), or one of a process manager's command targets.
+  // Command targets only — never the component's own domain. A process
+  // manager's output domains are output_domain (when set) together with
+  // every entry of output_domains.
   string output_domain = 3;
   // Generated handler/dispatch base name. Optional; defaults to the anchor
   // message name (e.g. a "CounterState" anchor named "Counter" emits
   // CounterHandler / NewCounterDispatch).
   string name = 4;
-  // Additional domains this component issues commands to; see output_domain.
+  // PROCESS_MANAGER only: further domains it issues commands to; see
+  // output_domain. Must be empty for every other kind (a saga has exactly
+  // one destination).
   repeated string output_domains = 6;
   // Domain of the event stream this component owns: the aggregate's domain,
   // or the process manager's own workflow domain (its events are persisted
