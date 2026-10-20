@@ -1397,7 +1397,7 @@ pass 12 wrote it. The protos, the `rust/angzarr-proto` crate's tests, the
 contract features and these documents changed; the crate's API gained one
 field.
 
-> **Amended by 14.3–14.10 (pass 14):** the coordinator pulls the descriptors (`ComponentService.Describe`); a versionless descriptor fails registration visibly in the coordinator's readiness, not with a status. One leading `v`/`V` is stripped before parsing; queries use the same rule; a response reporting a version other than the registered one is refused; a registration without a version is refused; `snapshot_refused` is NOT reserved (policy 6.6 holds); the upcast type travels in `ErrorInfo` metadata `upcast_type_url`.
+> **Amended by 14.3–14.12 (pass 14):** the coordinator pulls the descriptors (`ComponentService.Describe`); a versionless descriptor fails registration visibly in the coordinator's readiness, not with a status. One leading `v`/`V` is stripped before parsing; queries use the same rule; a response reporting a version other than the registered one is refused; a registration without a version is refused; `snapshot_refused` is NOT reserved (policy 6.6 holds); the upcast type travels in `ErrorInfo` metadata `upcast_type_url`.
 
 **14.1 `rules_version` is the build version, and the coordinator decides
 snapshot validity.** Supersedes 12.6; amends 6.8; partly restores 5.9.
@@ -1544,6 +1544,43 @@ because the coordinator is the caller). Owner ruling, 2026-10-19.
 - Cost: a coordinator whose business process is up but answered badly
   stays not ready until the channel is re-established; it is visibly broken
   rather than silently delivering.
+
+**14.11 A failing Describe is alerted only after a grace period.** Amends
+14.10. Every failed `ComponentService.Describe` call (unreachable, or an
+error status) is logged. An alert is raised only once Describe has kept
+failing for longer than the coordinator's `describe_alert_grace_period`
+(configuration; default 2 minutes). Until a later Describe succeeds the
+coordinator holds nothing from that process, delivers nothing and stays
+`NOT_SERVING`. A versionless answer still alerts at once (14.10). Owner
+ruling, 2026-10-19.
+- Why: a business process that is restarting fails Describe briefly and
+  routinely; paging on that is noise, while one that stays down is not.
+
+**14.12 The client library returns the state on every response.** The
+router returns the post-command state in
+`CommandHandlerResponse.events.snapshot.state` on EVERY response, and a
+process manager's post-reaction state as `snapshot.state` on the last
+`process_events` book (a book with no pages when the reaction wrote no
+process events). Business code never decides when, and there is no
+request flag or ask. The coordinator persists it per the domain's storage
+policy (default: newest only), stamping `sequence` and `rules_version`,
+and offers the stored bytes unchanged with the next delivery, subject to
+14.1's checks and the window bound. Owner ruling, 2026-10-19 (the PM
+placement is the spec's: the response has no other state slot).
+- Why: snapshot cadence is storage policy, not business logic (2.x, SN-2);
+  the library already holds the folded state after deciding.
+- Cost: a state message on every response, whether or not the policy
+  stores it.
+
+**14.13 Client delivery-mode names follow the RPCs.** Client methods are
+`handle_async`, `handle` and `handle_sync`; the command builder's are
+`execute_async`, `execute` and `execute_sync`, named after `HandleAsync`,
+`Handle` and `HandleSync`. The client parity scenarios follow the protos:
+a command built without an expected sequence leaves it unset (the
+coordinator stamps the head), the builder method is
+`with_expected_sequence`, the default conflict resolution is
+`UNSPECIFIED`, a cover has no correlation id, and an `EventPage` payload
+is never a `PayloadReference`. Owner ruling, 2026-10-19.
 
 ## Corrections
 

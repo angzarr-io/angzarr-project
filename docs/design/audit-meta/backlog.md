@@ -273,7 +273,8 @@ disposition:
 
 **BO-2** [clients] **Codegen returns payloads, not raw books.**
 - What: when `CommandOptions.emits` is empty, generated handlers return raw
-  payloads (`Any`, plus an optional snapshot state), not a raw `EventBook`.
+  payloads (`Any`), not a raw `EventBook`; the client library adds the
+  post-command state itself (SN-4).
   Remove every SDK path that lets a handler set a cover, sequence or meta.
 - Why: the "custom covers" escape hatch is gone (`options.proto`).
 - Settled when: no generated handler signature mentions `EventBook` as
@@ -293,7 +294,9 @@ disposition:
   a component with no held descriptor (`UNAVAILABLE` to a waiting caller;
   queued and reaction deliveries stay queued). Refuse an answer with an
   empty `rules_version` as a whole: hold nothing from it, log an error
-  naming the process and component, alert, and stay `NOT_SERVING`. Report
+  naming the process and component, alert, and stay `NOT_SERVING`. Log
+  every failed Describe call, and alert only once it has kept failing past
+  `describe_alert_grace_period` (configuration, default 2 minutes). Report
   `SERVING` (grpc.health.v1 and the readiness probe) only after a
   successful Describe. Read `rules_version` from every `CommandHandlerResponse` and
   `ProcessManagerHandleResponse`: if it differs from the registered version
@@ -303,9 +306,9 @@ disposition:
   Otherwise stamp it, unaltered, on that response's events
   (`EventMeta.rules_version`) and any snapshot written from it
   (`Snapshot.rules_version`).
-- Why: decisions 14.1, 14.5, 14.6 and 14.10 (superseding 12.6).
+- Why: decisions 14.1, 14.5, 14.6, 14.10 and 14.11 (superseding 12.6).
 - Settled when: scenarios C-0518 to C-0521, C-0558, C-0559 and C-0561 to
-  C-0564 pass:
+  C-0564, C-0566 and C-0567 pass:
   during a rolling deployment each event carries the full version of the
   instance that decided it, and a skewed or versionless answer persists
   nothing.
@@ -467,6 +470,18 @@ disposition:
   the default keeps the newest only. The config shape needs designing.
 - Why: pass 2.
 - Settled when: the config is documented, and the default is tested.
+
+**SN-4** [clients, router, core] **The state on every response.**
+- What: the client library puts the post-command state in
+  `CommandHandlerResponse.events.snapshot.state` on every response, and a
+  PM's post-reaction state as `snapshot.state` on the last
+  `process_events` book (an empty book when it wrote no process events);
+  no business-code hook decides when. Core persists it per the domain's
+  storage policy (SN-2; default newest only), stamping `sequence` and
+  `rules_version`, and offers the stored bytes unchanged with the next
+  delivery (subject to RV-3 and SN-1).
+- Why: decision 14.12.
+- Settled when: scenarios C-0568 to C-0571 pass.
 
 **SN-3** [core] **Snapshot version-discard (pass 6, D8).** Closed by pass
 12 and replaced by RV-3, which pass 14 moved back to the coordinator
@@ -1232,7 +1247,7 @@ in place with their disposition but not counted.
 | MD: the three RPC modes and the Outcome | 6 |
 | ST: status codes | 2 |
 | ED: editions, external sinks, CloudEvent id | 4 |
-| SN: snapshots | 2 |
+| SN: snapshots | 3 |
 | RT: recorded_at and temporal queries | 2 |
 | DQ: DLQ replay | 5 |
 | RN: renames | 2 |
@@ -1255,7 +1270,7 @@ in place with their disposition but not counted.
 | AU: attempt-audit sink (pass 6, held) | 1 |
 | GAP: carried gaps | 3 |
 | DOC: site, specs, branches | 7 |
-| **Total** | **110** |
+| **Total** | **111** |
 
 Pass 12 closed 15 items (KS-1–12, with KS-9's content moved to CI-8;
 SN-3, DQ-3 and MI-3), opened 13 (CI-1–8, RV-3, PR-3, VC-1, CR-3 and
@@ -1269,7 +1284,8 @@ items became 110. Review T8 needs no item of its own beyond RD-1.
 
 Pass 14 rewrote RV-1, RV-2, RV-3, SN-3 and VC-1 in place (RV-3 moved from
 the client libraries to core) and pointed NC-1 and CR-1 at their
-scenarios: 110 open items stay 110.
+scenarios: 110 open items stay 110. The follow-up rulings added SN-4
+(decision 14.12): 111.
 
 ## By-repo index
 
@@ -1277,9 +1293,9 @@ An item tagged with several repos appears under each of them.
 
 | Repo | Items |
 |---|---|
-| core | CI-1–6, CI-8, OB-1–3, OB-5–6, PS-1–6, BO-1, RV-1, RV-3, MD-1–5, ST-1, ED-1–4, SN-1–2, RT-1–2, DQ-1–2, DQ-4–6, RN-1–2, PR-1–2, PR-4, FA-1–2, HD-1–5, WS-1–5, RM-1–3, RM-6, TG-1, OR-1–2, RD-1, CQ-1–2, EA-1–3, NC-2, CR-2–3, MI-1, UU-2–4, CL-1–5, AU-1, GAP-1–2 |
-| router | OB-4, OB-6, PS-2, RN-1, RV-2, VC-1, FA-3, HD-3, WS-2, TG-1–2, OR-2, NC-1, CR-1, CL-2, CL-4 |
-| clients (go, rust, python, java, csharp, cpp, typescript) | CI-2, CI-7, BO-2, RV-2, MD-6, ST-2, ED-3, RN-1–2, VC-1, FA-3, HD-5, WS-1–2, RM-4, RM-6, TG-1, OR-2, RD-1, CQ-2, EA-4, NC-1, CR-1, CR-3, MI-2, UU-1–2, CL-1–2, CL-4–5 |
+| core | CI-1–6, CI-8, OB-1–3, OB-5–6, PS-1–6, BO-1, RV-1, RV-3, MD-1–5, ST-1, ED-1–4, SN-1–2, SN-4, RT-1–2, DQ-1–2, DQ-4–6, RN-1–2, PR-1–2, PR-4, FA-1–2, HD-1–5, WS-1–5, RM-1–3, RM-6, TG-1, OR-1–2, RD-1, CQ-1–2, EA-1–3, NC-2, CR-2–3, MI-1, UU-2–4, CL-1–5, AU-1, GAP-1–2 |
+| router | OB-4, OB-6, PS-2, RN-1, RV-2, SN-4, VC-1, FA-3, HD-3, WS-2, TG-1–2, OR-2, NC-1, CR-1, CL-2, CL-4 |
+| clients (go, rust, python, java, csharp, cpp, typescript) | CI-2, CI-7, BO-2, RV-2, SN-4, MD-6, ST-2, ED-3, RN-1–2, VC-1, FA-3, HD-5, WS-1–2, RM-4, RM-6, TG-1, OR-2, RD-1, CQ-2, EA-4, NC-1, CR-1, CR-3, MI-2, UU-1–2, CL-1–2, CL-4–5 |
 | examples | BO-3, WS-2, RM-5 |
 | site | RN-2, EA-4, CL-5, DOC-1–4, DOC-7 |
 | project (features, CI, branches, parity) | EA-4, CR-1, GAP-3, DOC-5–6 |
