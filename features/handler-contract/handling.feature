@@ -79,10 +79,16 @@ Feature: Handling a delivered command - versions, upcasting and conflicts
 
   @snapshot_source
   @C-0571
-  Scenario: A process manager's answer always carries its process state
+  Scenario Outline: A process manager's answer always carries its process state
     Given a "Fulfillment" process manager built as version "2.0.1"
-    When the process manager handles an OrderPlaced event without writing a process event
-    Then the answer carries the process manager's state as its snapshot state
+    When the process manager handles an OrderPlaced event <writing>
+    Then the answer's process state is the process manager's state after the reaction
+    And none of the answer's process events carry a state
+
+    Examples:
+      | writing                                   |
+      | and writes a FulfillmentStarted event     |
+      | without writing a process event           |
 
   # ===========================================================================
   # Upcasting and unknown types
