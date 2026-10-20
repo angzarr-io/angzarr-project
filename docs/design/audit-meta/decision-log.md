@@ -1499,6 +1499,8 @@ URL the chain ended at (the sent one when no upcaster applies), as the
 router already does (ADR 0001: errors cross as `google.rpc.Status` with an
 `ErrorInfo`). Owner ruling, 2026-10-19.
 
+> **Replaced by 14.21 (pass 14):** a query is judged against the answering coordinator's own registration; with one business process per coordinator there are never several.
+
 **14.9 With several versions registered, a query's snapshot must pass
 them all.** While several instances of a domain's component are registered
 with different versions (a rolling deployment), a query (`EventQueryService`,
@@ -1510,6 +1512,8 @@ no snapshot and every page from sequence 0. Settles the open question in
   one every running build would accept.
 - Cost: during a rolling deployment across a major.minor change, queries
   replay from 0 until the old instances deregister.
+
+> **Amended by 14.19 (pass 14):** `Describe` returns one `ComponentDescriptor` and `ComponentDescriptors` is deleted; the "one process may host several components" rationale below no longer holds. The pull direction stands.
 
 **14.10 The coordinator pulls the descriptors.** Every business process
 serves `ComponentService.Describe(DescribeRequest) returns
@@ -1604,6 +1608,8 @@ id). Parity C-0305 says so. Owner ruling, 2026-10-19.
 - Why: one rule, applied in one place; a client-minted correlation would
   differ from the command id the coordinator mints and split the trail.
 
+> **Superseded by 14.20 (pass 14):** each PM has its own coordinator; `ProcessManagerHandleRequest.component` and its refusals are deleted.
+
 **14.16 One process manager per request.** The coordinator delivers a
 trigger to each subscribed PM component separately.
 `ProcessManagerHandleRequest` gains `string component = 3`, the PM's name
@@ -1630,6 +1636,65 @@ command for retries (CI-7). Owner ruling, 2026-10-19.
 parity scenarios used strings ("trace-123", "workflow-123") for
 correlation ids; they are 16-byte `UUID`s since 9.1, so the scenarios now
 use UUID text. Owner ruling, 2026-10-19.
+
+**14.19 One coordinator, one component, one business process.** A
+component is one aggregate, one saga, one process manager or one
+projector, and nothing hosts several. A saga or process manager emitting
+commands to several aggregates or domains, and a process manager or
+projector with several input domains, are still one component.
+`ComponentService.Describe` returns one `ComponentDescriptor`;
+`ComponentDescriptors` is deleted (it was never in a release). Amends
+14.10, whose "one process may host several components" rationale is
+withdrawn; the pull direction stands. Parity C-0498 (a host serving
+several components) is deleted. Owner ruling, 2026-10-20.
+- Evidence (owner's session log): the multi-component support came from
+  an agent plan nobody asked for, and its only production use was reverted
+  the same day.
+- Why: in event-sourcing terms, co-hosting couples independent
+  subscribers (one's failure, deploy or backlog stalls the others), and it
+  forces one `rules_version` on components that change independently. One
+  component per process keeps each subscriber's position, version and
+  readiness its own.
+- Cost: more processes and coordinators to deploy; a small example runs
+  several binaries.
+
+**14.20 Each process manager has its own coordinator.** Supersedes 14.16.
+`ProcessManagerHandleRequest.component` (3) and its `INVALID_ARGUMENT` /
+`NOT_FOUND` refusals are deleted, as are the "never fans out / never
+merged" rules: with one PM per process and per coordinator there is
+nothing to fan out to or merge. Several PMs reacting to one domain are
+several coordinators, each delivering to its own PM with its own process
+state. Scenarios C-0576 and C-0577 are deleted; C-0578 is rewritten.
+Owner ruling, 2026-10-20.
+
+**14.21 A query is judged by the answering coordinator's registration.**
+Replaces 14.9. A query returns a snapshot only if it passes the state type
+check and the domain's compatibility rule against the registration of
+the coordinator answering it; while that coordinator holds none, it
+returns no snapshot. During a rolling deployment each instance's
+coordinator judges by its own instance's version. C-0560 is rewritten.
+Owner ruling, 2026-10-20.
+
+**14.22 An upcaster is part of its component.** An upcaster belongs to
+the component whose streams it upcasts. It has no `ComponentKind`, no
+descriptor and no coordinator of its own, and `UpcasterService` is served
+only by that component's own business process. The sentence allowing an
+upcaster to be "deployed as a separate binary" is deleted from
+`upcaster.proto`; no service or enum value needed removing (there is no
+upcaster kind). How a saga, process manager or projector reading another
+component's stream gets that component's upcasting stays open (backlog
+GAP-1). Owner ruling, 2026-10-20.
+
+**14.23 One saga per (source domain, destination domain) pair.** Every
+reaction that turns one domain's events into another domain's commands
+belongs to that pair's single saga, recorded on `ComponentOptions`
+(`options.proto`) and `SagaService` (`saga.proto`). In the blackjack
+example, the round-history and loyalty sagas (both table -> player) are
+merged into `TablePlayerSaga` (saga-table-player): per outcome in seat
+order, `RecordRoundResult` then `AwardLoyaltyPoints`. Owner ruling, 2026-10-20.
+- Why: one subscriber per pair, so one position, one deployment and one
+  version per translation, and no two sagas racing over the same event
+  for the same destination.
 
 ## Corrections
 

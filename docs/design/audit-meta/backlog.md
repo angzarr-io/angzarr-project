@@ -296,10 +296,11 @@ disposition:
 **RV-1** [core] **Registration, stamping and version skew.**
 - What: call `ComponentService.Describe` on the business process when the
   coordinator first connects and every time its channel comes back up;
-  each successful answer replaces the held descriptors. Deliver nothing to
-  a component with no held descriptor (`UNAVAILABLE` to a waiting caller;
-  queued and reaction deliveries stay queued). Refuse an answer with an
-  empty `rules_version` as a whole: hold nothing from it, log an error
+  each successful answer (the one `ComponentDescriptor` of the one
+  component behind this coordinator) replaces the held one. Deliver nothing
+  while no descriptor is held (`UNAVAILABLE` to a waiting caller; queued
+  and reaction deliveries stay queued). Refuse a descriptor with an empty
+  `rules_version`: hold nothing, log an error
   naming the process and component, alert, and stay `NOT_SERVING`. Log
   every failed Describe call, and alert only once it has kept failing past
   `describe_alert_grace_period` (configuration, default 2 minutes). Report
@@ -321,11 +322,13 @@ disposition:
 
 **RV-2** [clients, router] **Report the build version.**
 - What: bake the business binary's full version in at build time (e.g. from
-  versionator) and put it on every response and in every component's
+  versionator) and put it on every response and in the component's
   descriptor (`ComponentDescriptor.rules_version`); refuse to build or start
-  without one. Serve `ComponentService.Describe` from the router's component
-  descriptors (every hosted component; business code never implements it). No hand-chosen label and no snapshot-compatibility declaration in
-  business code. Remove any client-side snapshot check and any
+  without one. Serve `ComponentService.Describe` with the one component's
+  generated descriptor; business code never implements it. A business
+  process hosts exactly one component: drop any multi-component host or
+  router support. No hand-chosen label and no snapshot-compatibility
+  declaration in business code. Remove any client-side snapshot check and any
   `snapshot_refused` handling.
 - Why: decisions 14.1, 14.6 and 14.10.
 - Settled when: every SDK fills `rules_version` on every response and in
@@ -343,12 +346,12 @@ disposition:
   reject pattern, which replace the default (RE2, full match, a reject
   match wins; a pattern outside RE2 refused at configuration load). A
   snapshot that fails is not used: deliver or return every page from
-  sequence 0. A query for a domain with no registered component uses no
-  snapshot; while several versions are registered, a query uses a
-  snapshot only if it passes against every one. Count snapshots passed
+  sequence 0. A query is judged against the answering coordinator's own
+  registration, and uses no snapshot while that coordinator holds none.
+  Count snapshots passed
   over in a metric. Replaces SN-3's check
   and pass 12's refuse-and-redeliver path.
-- Why: decisions 14.1, 14.3, 14.4 and 14.9 (review T13 is settled by the
+- Why: decisions 14.1, 14.3, 14.4 and 14.21 (review T13 is settled by the
   registered state type).
 - Settled when: scenarios C-0522 to C-0530, C-0553 to C-0556 and C-0560 pass: a
   version or state-type change makes the next delivery or query carry no
@@ -594,16 +597,13 @@ built.
 - Why: pass 2.
 - Settled when: the question is decided and implemented.
 
-**PR-5** [core, clients, router] **One process manager per request.**
-- What: core delivers a trigger to each subscribed PM component
-  separately, setting `ProcessManagerHandleRequest.component` (the
-  described name) and that PM's own `process_state`, and persists each
-  answer to that PM's own stream; no fan-out and no merging of answers.
-  The client library dispatches only to the named PM, refusing an empty
-  name `INVALID_ARGUMENT` and an unhosted one `NOT_FOUND`; delete any
-  merge of co-resident PMs' answers.
-- Why: decision 14.16; `process_manager.proto`.
-- Settled when: scenarios C-0576 to C-0578 pass.
+**PR-5** [core] **Each PM's coordinator delivers to its one PM.**
+- What: a PM coordinator delivers each trigger to the one PM behind it,
+  with that PM's own `process_state`, and persists the answer to that PM's
+  own stream. Several PMs reacting to one domain are several coordinators,
+  each subscribed on its own.
+- Why: decisions 14.19 and 14.20; `process_manager.proto`.
+- Settled when: scenario C-0578 passes.
 
 **PR-3** (meta for a PM's own process events, review PM2): **closed** by
 pass 13 (decision 13.2). The rule is in the protos; its implementation is
@@ -990,9 +990,9 @@ golden suite.**
 - What: each client library fills `ComponentDescriptor.state` from the
   generated descriptor in its `ComponentService.Describe` answer for an
   aggregate or PM (Rust: `registry.register::<D>()` records it). The
-  coordinator stores it per component from the Describe it pulls and
+  coordinator stores it for its one component from the Describe it pulls and
   uses only its resolution list (HD-2, HD-4, CR-2), never the schema.
-- Why: decisions 12.7 and 14.10 (review T3: the registration-time refusal
+- Why: decisions 12.7, 14.10 and 14.19 (review T3: the registration-time refusal
   had no data to act on).
 - Settled when: a coordinator refuses a COMMUTATIVE command for a component
   whose registered state lacks it, and defaults correctly for one that has
@@ -1160,7 +1160,9 @@ no-op implementations only.
 - What: sagas, PMs, projectors and queries see raw stored versions, and a
   missing rule silently drops the event on rebuild. Upcast on every read
   path, and fail on an unknown type URL, naming it (as annals' strict replay
-  does).
+  does). An upcaster is part of the component whose streams it upcasts
+  (decision 14.22), so how a saga, PM or projector reading another
+  component's stream gets that component's upcasting is open.
 - Why: correctness on rebuild.
 - Settled when: every read path upcasts, and golden fixtures run in CI.
 
@@ -1302,7 +1304,7 @@ items became 110. Review T8 needs no item of its own beyond RD-1.
 Pass 14 rewrote RV-1, RV-2, RV-3, SN-3 and VC-1 in place (RV-3 moved from
 the client libraries to core) and pointed NC-1 and CR-1 at their
 scenarios: 110 open items stay 110. The follow-up rulings added SN-4
-(decision 14.12) and PR-5 (decision 14.16): 112.
+(decision 14.12) and PR-5 (decision 14.16, rescoped to core by 14.20): 112.
 
 ## By-repo index
 
@@ -1311,8 +1313,8 @@ An item tagged with several repos appears under each of them.
 | Repo | Items |
 |---|---|
 | core | CI-1–6, CI-8, OB-1–3, OB-5–6, PS-1–6, BO-1, RV-1, RV-3, MD-1–5, ST-1, ED-1–4, SN-1–2, SN-4, RT-1–2, DQ-1–2, DQ-4–6, RN-1–2, PR-1–2, PR-4–5, FA-1–2, HD-1–5, WS-1–5, RM-1–3, RM-6, TG-1, OR-1–2, RD-1, CQ-1–2, EA-1–3, NC-2, CR-2–3, MI-1, UU-2–4, CL-1–5, AU-1, GAP-1–2 |
-| router | OB-4, OB-6, PS-2, RN-1, RV-2, SN-4, VC-1, FA-3, HD-3, WS-2, TG-1–2, OR-2, PR-5, NC-1, CR-1, CL-2, CL-4 |
-| clients (go, rust, python, java, csharp, cpp, typescript) | CI-2, CI-7, BO-2, RV-2, SN-4, MD-6, ST-2, ED-3, RN-1–2, VC-1, FA-3, HD-5, WS-1–2, RM-4, RM-6, TG-1, OR-2, RD-1, PR-5, CQ-2, EA-4, NC-1, CR-1, CR-3, MI-2, UU-1–2, CL-1–2, CL-4–5 |
+| router | OB-4, OB-6, PS-2, RN-1, RV-2, SN-4, VC-1, FA-3, HD-3, WS-2, TG-1–2, OR-2, NC-1, CR-1, CL-2, CL-4 |
+| clients (go, rust, python, java, csharp, cpp, typescript) | CI-2, CI-7, BO-2, RV-2, SN-4, MD-6, ST-2, ED-3, RN-1–2, VC-1, FA-3, HD-5, WS-1–2, RM-4, RM-6, TG-1, OR-2, RD-1, CQ-2, EA-4, NC-1, CR-1, CR-3, MI-2, UU-1–2, CL-1–2, CL-4–5 |
 | examples | BO-3, WS-2, RM-5 |
 | site | RN-2, EA-4, CL-5, DOC-1–4, DOC-7 |
 | project (features, CI, branches, parity) | EA-4, CR-1, GAP-3, DOC-5–6 |

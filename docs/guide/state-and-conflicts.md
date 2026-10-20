@@ -483,8 +483,9 @@ same unit sets, and annals generates from the same markers.
 ## 9. Registration fills `StateDescriptor`
 
 When the coordinator connects to your business process, it asks it to
-describe its components (`ComponentService.Describe`), and the client
-library answers with a `ComponentDescriptor` for each one it hosts. Its
+describe its component (`ComponentService.Describe`), and the client
+library answers with that one component's `ComponentDescriptor` (a
+business process is exactly one component). Its
 `state` field is filled from the generated descriptor. Do not write it by
 hand:
 

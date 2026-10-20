@@ -196,17 +196,19 @@ event onwards, every removal reserves its number and name (see
     version, so re-runs dedupe; checkpoint resets are for recovery; repairs
     are new commands; standard re-drive commands are backlog RD-1.
   - **No reacting-component field**: source control says what makes what.
-- **Pass 14** (this change): decisions 14.1–14.18, by the owner.
-  - **One process manager per request**: `ProcessManagerHandleRequest.component`;
-    no fan-out, no merged answers.
+- **Pass 14** (this change): decisions 14.1–14.23, by the owner.
+  - **One coordinator, one component, one business process** (14.19):
+    `Describe` returns one descriptor; each PM has its own coordinator; a
+    query is judged by its coordinator's own registration; an upcaster is
+    part of its component; one saga per (source, destination) pair.
   - **The state on every response**: the client library returns the
     post-command state as `snapshot.state` on every response (a PM's in
     `ProcessManagerHandleResponse.process_state`); the
     coordinator stores it per policy and offers it unchanged next time.
   - **Describe failures** are logged each time and alerted after
     `describe_alert_grace_period` (default 2 minutes).
-  - **The coordinator pulls the descriptors** (`ComponentService.Describe` →
-    `ComponentDescriptors`) on connect and every reconnect; nothing is
+  - **The coordinator pulls the descriptor** (`ComponentService.Describe` →
+    `ComponentDescriptor`) on connect and every reconnect; nothing is
     delivered before, and it is `SERVING` only after a successful Describe.
   - **`rules_version` is the build version**, reported per response and at
     registration (`ComponentDescriptor.rules_version` 4, required), stamped
