@@ -404,9 +404,10 @@ message EventRef {
 //                   reused verbatim on every retry of that command; an SDK
 //                   mints a v7), or, when the caller supplied none, a
 //                   UUIDv7 the coordinator mints (see the minted_ids
-//                   region). A caller that sends several commands (a batch,
-//                   one API call fanning out) uses one command id per
-//                   command and groups them by a shared correlation_id.
+//                   region). A caller that sends several commands (several
+//                   CommandBooks, e.g. one API call fanning out) uses one
+//                   command id per command and may group them by a shared
+//                   correlation_id it sets itself.
 //   reaction        derived: UUIDv5 of (trigger EventRef, reacting
 //                   component, index in the reaction's output); the exact
 //                   name encoding and worked values are in the derived_ids
@@ -841,7 +842,7 @@ message Handling {
 // endregion
 
 // region command_page
-// One command: its identity and provenance (command_id, correlation_id,
+// The one command of a CommandBook: its identity and provenance (command_id, correlation_id,
 // causation_id, fact_origin; see the command_identity region) and a body
 // that is either a decision-requesting Command or an already-happened Fact.
 // How the command is handled is not part of the page (see
@@ -933,13 +934,17 @@ message Fact {
 
 // region command_book
 // Exactly one command addressed to one stream, with how it is to be
-// handled. Commands are not batched: a CommandBook holds a single page.
-// (EventBooks, by contrast, group the pages of one stream under a shared
-// Cover.) CommandBook is the request itself: the coordinator's Handle,
-// HandleAsync and HandleSync take it directly, with no request wrapper.
+// handled (decision 1.4). A CommandBook carries exactly one command, its
+// page. More than one is unsupported: deduplication, the expected-sequence
+// check, errors and the outcome are all per command. A caller with
+// several commands sends several CommandBooks (a client library may batch
+// such calls on its side). (EventBooks, by contrast, group the pages of one
+// stream under a shared Cover.) CommandBook is the request itself: the
+// coordinator's Handle, HandleAsync and HandleSync take it directly, with
+// no request wrapper.
 message CommandBook {
   Cover cover = 1; // The target stream (domain, edition, root)
-  CommandPage page = 3;
+  CommandPage page = 3; // The one command
   // How the system treats this command: as sent before the coordinator,
   // resolved after it (see Handling). Never persisted.
   Handling handling = 6;
