@@ -43,9 +43,14 @@ option ruby_package = "Angzarr";
 //     error naming the business process and the component, and raises an
 //     alert. It answers the business process nothing (the coordinator is
 //     the caller): the refusal is visible as the coordinator's readiness.
-//     A failed Describe call (the business process unreachable, or an
-//     error status) is treated the same way, without the alert, until the
-//     channel comes back up.
+//   - Failure: a failed Describe call (the business process unreachable, or
+//     an error status) leaves the coordinator holding no descriptors from
+//     that process, delivering nothing and NOT_SERVING, until a later
+//     Describe on a re-established channel succeeds. Every failed call is
+//     logged. An alert is raised only once Describe has kept failing for
+//     longer than the coordinator's describe_alert_grace_period
+//     (configuration; default 2 minutes), so a business process that is
+//     merely restarting does not page anyone.
 //   - Readiness: the coordinator reports itself SERVING (gRPC health
 //     checking, grpc.health.v1, and its readiness probe) only after a
 //     successful Describe, and NOT_SERVING while it holds no descriptors

@@ -108,7 +108,11 @@ message ProcessManagerHandleResponse {
   // These are persisted via AggregateCoordinator to the PM's domain.
   // Each book is merged by the coordinator, which owns the cover and page
   // concatenation policy; a PM that emits a single book sends a 1-element list.
-  // Business output only: payloads (and an optional snapshot state). Page
+  // Business output only: payloads, plus the PM's post-reaction process
+  // state, which the client library returns on EVERY response as
+  // snapshot.state on the last book (a book with no pages when the reaction
+  // wrote no process events); business code never decides when. The
+  // coordinator persists it as for an aggregate (see Snapshot). Page
   // meta, sequences and a cover other than the PM's own stream are refused,
   // as for an aggregate (see CommandHandlerService.Handle). The coordinator
   // stamps each page's meta: causation.triggering_event = the trigger's

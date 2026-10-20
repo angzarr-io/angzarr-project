@@ -92,7 +92,8 @@ message CommandOptions {
   // Fully-qualified event type(s) this command emits. When set, the generated
   // handler returns the typed events; when empty, it returns raw payloads
   // (google.protobuf.Any), for multi-type emission. Either way business
-  // output is payloads plus an optional snapshot state, nothing more: the
+  // output is payloads, plus the post-command state the client library adds
+  // to every response, nothing more: the
   // framework builds the EventBook, uses the command's cover, and stamps
   // sequences and EventMeta. A handler cannot choose a different cover,
   // sequence or meta; output that sets any of them is refused (see

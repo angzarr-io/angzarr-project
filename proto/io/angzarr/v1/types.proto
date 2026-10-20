@@ -685,9 +685,16 @@ message Snapshot {
   // EventMeta.recorded_at <= T, i.e. iff the snapshot lies within the
   // prefix recorded by T (see TemporalQuery).
   //
-  // Business code may return a snapshot's state with its events (see
-  // CommandHandlerService.Handle); the framework sets the sequence and the
-  // rules_version.
+  // Where snapshots come from. The client library returns the post-command
+  // state on EVERY response (CommandHandlerResponse.events.snapshot.state;
+  // for a process manager, ProcessManagerHandleResponse.process_events);
+  // business code never decides when. The coordinator persists it per the
+  // domain's storage policy (default: keep the newest only), setting
+  // sequence (the last event folded in) and rules_version (the response's,
+  // in full), and offers the stored bytes, unchanged, with the next
+  // delivery to that stream, subject to the Validity checks above and the
+  // window bound (see ContextualCommand). Neither side asks: there is no
+  // request flag.
   uint64 sequence = 2;
   // The folded state. Its type URL is the state type recorded with the
   // snapshot and checked before the snapshot is offered (see Validity
@@ -705,7 +712,7 @@ message Snapshot {
 // A run of events from one stream. Every page shares the book's Cover.
 message EventBook {
   Cover cover = 1;
-  Snapshot snapshot = 2; // Snapshot state; sequence computed by framework on persist
+  Snapshot snapshot = 2; // Snapshot state; always set on a business response (see Snapshot)
   repeated EventPage pages = 3;
   uint64 next_sequence = 6; // Computed on load, never stored: (last page seq OR snapshot seq if no pages) + 1
 }
