@@ -48,6 +48,13 @@ option ruby_package = "Angzarr";
 // manager owns its own workflow stream (domain) and takes its trigger
 // domains from (event).domain; sagas and projectors own no stream.
 //
+// Each declaration is one component, served by its own business process
+// behind its own coordinator (see ComponentService in component.proto).
+// There is at most one saga per (source domain, destination domain) pair:
+// every reaction that translates events of one domain into commands for
+// another belongs to that pair's one saga, however many event types it
+// reacts to.
+//
 // There are no compensation declarations. A refusal in a choreographed flow
 // is a domain event that a saga translates into commands, and a process
 // manager handles the replies to its own commands as triggers; both are

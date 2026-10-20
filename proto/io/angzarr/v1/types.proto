@@ -673,12 +673,12 @@ message EventMeta {
 // the current rules version.
 //
 // Queries (EventQueryService, including a TemporalQuery) choose snapshots
-// the same way: while a component owning the queried domain is registered,
-// a returned EventBook carries a snapshot only if it passes both checks
-// against EVERY registration of that component (during a rolling
-// deployment, instances may be registered with different versions). While
-// none is registered, or when any registration rejects the snapshot, a
-// query returns no snapshot and every page from sequence 0.
+// the same way: the coordinator answering the query returns a snapshot
+// only if it passes both checks against that coordinator's own
+// registration (one business process per coordinator; during a rolling
+// deployment each instance's coordinator judges by its own instance's
+// version). While it holds no registration, a query returns no snapshot
+// and every page from sequence 0.
 message Snapshot {
   // Sequence of the last event folded into `state`. A TemporalQuery
   // as_of_time T may start from this snapshot iff that event's
@@ -1253,9 +1253,10 @@ enum ComponentKind {
   COMPONENT_KIND_PROJECTOR = 4;
 }
 
-// Component self-description. The coordinator pulls it from the business
-// process (ComponentService.Describe in component.proto); holding it is
-// what makes the component registered.
+// Component self-description: the one component a business process is.
+// The coordinator pulls it from the business process
+// (ComponentService.Describe in component.proto); holding it is what makes
+// the component registered.
 message ComponentDescriptor {
   string name = 1;
   ComponentKind kind = 5;
@@ -1263,7 +1264,7 @@ message ComponentDescriptor {
   // The business binary's full version, baked in when it is built: the same
   // value the component reports on every response
   // (CommandHandlerResponse.rules_version). Required: the coordinator
-  // refuses a Describe answer with an empty rules_version, so a binary
+  // refuses a descriptor with an empty rules_version, so a binary
   // built without a version is never registered and never delivered to
   // (see ComponentService for how the refusal surfaces). The coordinator
   // checks snapshot
@@ -1290,9 +1291,4 @@ message StateDescriptor {
   // takes the built-in default from it (COMMUTATIVE if listed, else STRICT)
   // and refuses a command or configuration naming a resolution it lacks.
   StateOptions options = 2;
-}
-
-// Every component one business process hosts (ComponentService.Describe).
-message ComponentDescriptors {
-  repeated ComponentDescriptor components = 1;
 }

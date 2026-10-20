@@ -10,9 +10,11 @@ option java_package = "io.angzarr";
 option ruby_package = "Angzarr";
 
 // UpcasterService: transforms old event versions to current versions.
-// Implemented by the client alongside CommandHandlerService on the same gRPC
-// server. Optionally can be deployed as a separate binary for testing or
-// complex migrations.
+// An upcaster is PART of the component whose streams it upcasts, never a
+// component of its own: it has no ComponentKind, no descriptor and no
+// coordinator, and it is served only by that component's own business
+// process (the one its coordinator dials), beside the component's kind
+// service.
 //
 // Commands can be upcast too, but should rarely be. The client library
 // applies the SAME upcaster chain, by type URL, to an incoming command's

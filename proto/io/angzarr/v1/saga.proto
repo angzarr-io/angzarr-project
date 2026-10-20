@@ -1,8 +1,8 @@
 syntax = "proto3";
 package io.angzarr.v1;
 
-import "io/angzarr/v1/types.proto";
 import "google/api/annotations.proto";
+import "io/angzarr/v1/types.proto";
 
 option csharp_namespace = "Angzarr";
 option go_package = "github.com/benjaminabbitt/angzarr/client/go/proto/io/angzarr/v1;angzarr";
@@ -11,6 +11,10 @@ option java_package = "io.angzarr";
 option ruby_package = "Angzarr";
 
 // SagaService: stateless translation from source events to commands.
+//
+// One saga per (source domain, destination domain) pair: every reaction
+// from one domain's events to another domain's commands is part of that
+// pair's single saga (see ComponentOptions in options.proto).
 //
 // Every emitted command is a Command (never a Fact). Its coordinator stamps
 // CommandPage.causation_id (the event being reacted to), the derived

@@ -4,10 +4,10 @@ use std::hash::Hash;
 use angzarr_proto::ids::{fact_command_id, reaction_command_id};
 use angzarr_proto::v1::{
     angzarr_dead_letter, command_page, event_meta, AngzarrDeadLetter, Command, CommandBook,
-    CommandPage, ComponentDescriptor, ComponentDescriptors, ComponentKind, ConflictResolution,
-    ConflictUnit, ContextualCommand, CorrelationQuery, Cover, DeliveryOutcome, EventBook,
-    EventMeta, EventPage, EventRef, Fact, FactOrigin, Handling, Outcome, Projection,
-    ProjectorFailure, Snapshot, StateDescriptor, StateOptions, Target, UpcastRequest, Uuid,
+    CommandPage, ComponentDescriptor, ComponentKind, ConflictResolution, ConflictUnit,
+    ContextualCommand, CorrelationQuery, Cover, DeliveryOutcome, EventBook, EventMeta, EventPage,
+    EventRef, Fact, FactOrigin, Handling, Outcome, Projection, ProjectorFailure, Snapshot,
+    StateDescriptor, StateOptions, Target, UpcastRequest, Uuid,
 };
 use prost::{Message, Name};
 
@@ -639,18 +639,6 @@ fn component_descriptor_carries_its_state_descriptor() {
     let decoded = round_trip(&original);
     assert_eq!(decoded, original);
     assert_eq!(decoded.kind(), ComponentKind::Aggregate);
-    // A Describe answer lists every hosted component, in field 1.
-    let described = ComponentDescriptors {
-        components: vec![original.clone(), ComponentDescriptor::default()],
-    };
-    assert_eq!(round_trip(&described), described);
-    assert_eq!(
-        ComponentDescriptors {
-            components: vec![ComponentDescriptor::default()]
-        }
-        .encode_to_vec(),
-        [0x0a, 0]
-    );
     assert_eq!(decoded.rules_version, "1.4.2+build.7");
     let resolutions: Vec<ConflictResolution> = decoded
         .state
