@@ -1397,7 +1397,7 @@ pass 12 wrote it. The protos, the `rust/angzarr-proto` crate's tests, the
 contract features and these documents changed; the crate's API gained one
 field.
 
-> **Amended by 14.3–14.12 (pass 14):** the coordinator pulls the descriptors (`ComponentService.Describe`); a versionless descriptor fails registration visibly in the coordinator's readiness, not with a status. One leading `v`/`V` is stripped before parsing; queries use the same rule; a response reporting a version other than the registered one is refused; a registration without a version is refused; `snapshot_refused` is NOT reserved (policy 6.6 holds); the upcast type travels in `ErrorInfo` metadata `upcast_type_url`.
+> **Amended by 14.3–14.14 (pass 14):** the coordinator pulls the descriptors (`ComponentService.Describe`); a versionless descriptor fails registration visibly in the coordinator's readiness, not with a status. One leading `v`/`V` is stripped before parsing; queries use the same rule; a response reporting a version other than the registered one is refused; a registration without a version is refused; `snapshot_refused` is NOT reserved (policy 6.6 holds); the upcast type travels in `ErrorInfo` metadata `upcast_type_url`.
 
 **14.1 `rules_version` is the build version, and the coordinator decides
 snapshot validity.** Supersedes 12.6; amends 6.8; partly restores 5.9.
@@ -1556,6 +1556,8 @@ ruling, 2026-10-19.
 - Why: a business process that is restarting fails Describe briefly and
   routinely; paging on that is noise, while one that stays down is not.
 
+> **Amended by 14.14 (pass 14):** the PM's state has its own field, `ProcessManagerHandleResponse.process_state` (5); it no longer rides on the last `process_events` book.
+
 **14.12 The client library returns the state on every response.** The
 router returns the post-command state in
 `CommandHandlerResponse.events.snapshot.state` on EVERY response, and a
@@ -1581,6 +1583,18 @@ coordinator stamps the head), the builder method is
 `with_expected_sequence`, the default conflict resolution is
 `UNSPECIFIED`, a cover has no correlation id, and an `EventPage` payload
 is never a `PayloadReference`. Owner ruling, 2026-10-19.
+
+**14.14 A process manager's state has its own response field.** Amends
+14.12. `ProcessManagerHandleResponse` gains `Snapshot process_state = 5`,
+the counterpart of the request's `process_state`: the client library sets
+`process_state.state` to the post-reaction state on every response, and
+the coordinator stamps `sequence` and `rules_version` and persists it per
+the PM domain's storage policy. The `process_events` books carry payloads
+only; a snapshot on them is refused like any other non-payload output.
+Field 5, not 4, so bytes from the deleted `snapshot_refused` (4, a bool)
+can never decode into a message. Owner ruling, 2026-10-19.
+- Why: a dedicated field says what it is; riding on the last book (or a
+  page-less one) was a convention every implementation would have to know.
 
 ## Corrections
 

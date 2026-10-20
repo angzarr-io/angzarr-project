@@ -196,9 +196,10 @@ event onwards, every removal reserves its number and name (see
     version, so re-runs dedupe; checkpoint resets are for recovery; repairs
     are new commands; standard re-drive commands are backlog RD-1.
   - **No reacting-component field**: source control says what makes what.
-- **Pass 14** (this change): decisions 14.1–14.13, by the owner.
+- **Pass 14** (this change): decisions 14.1–14.14, by the owner.
   - **The state on every response**: the client library returns the
-    post-command state as `snapshot.state` on every response; the
+    post-command state as `snapshot.state` on every response (a PM's in
+    `ProcessManagerHandleResponse.process_state`); the
     coordinator stores it per policy and offers it unchanged next time.
   - **Describe failures** are logged each time and alerted after
     `describe_alert_grace_period` (default 2 minutes).

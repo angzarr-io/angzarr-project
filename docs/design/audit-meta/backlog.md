@@ -474,13 +474,13 @@ disposition:
 **SN-4** [clients, router, core] **The state on every response.**
 - What: the client library puts the post-command state in
   `CommandHandlerResponse.events.snapshot.state` on every response, and a
-  PM's post-reaction state as `snapshot.state` on the last
-  `process_events` book (an empty book when it wrote no process events);
+  PM's post-reaction state in `ProcessManagerHandleResponse.process_state`
+  (field 5) on every response;
   no business-code hook decides when. Core persists it per the domain's
   storage policy (SN-2; default newest only), stamping `sequence` and
   `rules_version`, and offers the stored bytes unchanged with the next
   delivery (subject to RV-3 and SN-1).
-- Why: decision 14.12.
+- Why: decisions 14.12 and 14.14.
 - Settled when: scenarios C-0568 to C-0571 pass.
 
 **SN-3** [core] **Snapshot version-discard (pass 6, D8).** Closed by pass
