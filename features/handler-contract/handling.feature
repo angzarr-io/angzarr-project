@@ -64,6 +64,26 @@ Feature: Handling a delivered command - versions, upcasting and conflicts
       | OrderFulfillment | SAGA      | 1.4.2+build.7 |                        |
     And business code is not invoked
 
+  @snapshot_source
+  @C-0570
+  Scenario Outline: Every answer carries the state after the delivery, whether or not business code asks
+    Given business code that never mentions snapshots
+    When <delivery> is handled over ItemAdded "pear"
+    Then the answer carries the order state with <items> as its snapshot state
+
+    Examples:
+      | delivery                                            | items                              |
+      | AddItem "apple"                                     | items "pear" and "apple"           |
+      | a command that business code answers with no events | item "pear"                        |
+      | a fact ItemDelivered "apple"                        | item "pear" and "apple" delivered  |
+
+  @snapshot_source
+  @C-0571
+  Scenario: A process manager's answer always carries its process state
+    Given a "Fulfillment" process manager built as version "2.0.1"
+    When the process manager handles an OrderPlaced event without writing a process event
+    Then the answer carries the process manager's state as its snapshot state
+
   # ===========================================================================
   # Upcasting and unknown types
   # ===========================================================================

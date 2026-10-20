@@ -57,10 +57,12 @@ Feature: Event Decoding - Payload Deserialization
     And the Event should contain the Any wrapper
 
   @C-0371
-  Scenario: EventPage payload can be PayloadReference
-    Given an EventPage with offloaded payload
-    Then event.payload should be PayloadReference variant
-    And the reference should contain storage details
+  Scenario: An EventPage payload is always a plain Any
+    # A claim-check PayloadReference is a bus-envelope concern resolved
+    # before any client sees the event; it never appears on a page.
+    Given an EventPage read from the event store
+    Then event.payload should be a google.protobuf.Any
+    And the page should offer no payload reference
 
   # ==========================================================================
   # Type URL Handling

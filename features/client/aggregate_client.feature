@@ -2,8 +2,10 @@
 Feature: Executing commands against aggregates
   Clients send commands to aggregates to change their state. Commands are
   validated, processed, and result in events being persisted. Callers can
-  fire and forget, wait for the write to land, or wait for downstream
-  reactions to complete before returning.
+  send without waiting (handle_async), wait for the decision (handle), or
+  also wait for the synchronous projectors (handle_sync); these are named
+  after the coordinator RPCs HandleAsync, Handle and HandleSync. No mode
+  waits for sagas or process managers.
 
   Without command execution, the system cannot accept user actions or
   change aggregate state.
@@ -68,20 +70,21 @@ Feature: Executing commands against aggregates
   # docs:end:client_concurrency
 
   # ==========================================================================
-  # Sync Modes
+  # Delivery modes
   # ==========================================================================
 
   @C-0197
-  Scenario: A fire-and-forget command returns before downstream work runs
+  Scenario: A command sent with handle_async returns before it is decided
     Given a new aggregate root in domain "orders"
-    When I send a command without waiting for downstream work
-    Then the response returns before any projectors have caught up
+    When I send a command with handle_async
+    Then the call returns without the command's events
+    And the response returns before any projectors have caught up
 
   @C-0198
-  Scenario: Waiting for projectors before returning
+  Scenario: A command sent with handle_sync waits for the synchronous projectors
     Given a new aggregate root in domain "orders"
     And projectors are configured for "orders" domain
-    When I send a command and wait for projectors
+    When I send a command with handle_sync
     Then the response reflects the projectors having processed the event
 
   # ==========================================================================

@@ -30,11 +30,12 @@ Feature: Testing helpers
     Then the bytes, string, and object all encode the same UUID
 
   @C-0118
-  Scenario: make_cover stores domain, root, and correlation_id
+  Scenario: make_cover stores domain and root
+    # A cover carries no correlation id: correlation is per command page
+    # and per event (CommandPage.correlation_id, EventMeta.correlation_id).
     Given a 16-byte root derived from the name "alice"
-    When I call make_cover with domain "order" and correlation_id "corr-99"
+    When I call make_cover with domain "order"
     Then the cover's domain is "order"
-    And the cover's correlation_id is "corr-99"
     And the cover's root bytes match the derived root
 
   @C-0119

@@ -10,8 +10,8 @@ implement it.
 | Feature | Covers |
 |---|---|
 | `conflict_resolution.feature` | The default resolution from the registered state, unsupported resolutions refused, STRICT's ABORTED, AGGREGATE_HANDLES and COMMUTATIVE delivered with the window and a fresh nonce; reaction commands are never stale |
-| `component_discovery.feature` | The coordinator asks its business process to describe its components on connect and on every reconnect; nothing is delivered before; readiness; a versionless description is refused |
-| `rules_version.feature` | The reported build version stamped in full on events and snapshots; which snapshot is offered (registered state type, the default major.minor rule, exact match for non-semantic versions, a domain's accept and reject patterns) |
+| `component_discovery.feature` | The coordinator asks its business process to describe its components on connect and on every reconnect; nothing is delivered before; readiness; a versionless description is refused; failed requests logged, alerted after the grace period |
+| `rules_version.feature` | The reported build version stamped in full on events and snapshots; the state returned with every answer stored per policy and offered unchanged; which snapshot is offered (registered state type, the default major.minor rule, exact match for non-semantic versions, a domain's accept and reject patterns) |
 | `fact_flow.feature` | Fact injection from sagas/PMs: 0-based sequencing, `external_deferred.external_id` idempotency, failure handling |
 | `state_building.feature` | Aggregate state reconstruction from snapshot + pages, `next_sequence` arithmetic |
 | `edition_propagation.feature` | Source/trigger edition stamped onto every saga/PM emission; main-timeline aliases (`""`, unset, `"angzarr"`) |

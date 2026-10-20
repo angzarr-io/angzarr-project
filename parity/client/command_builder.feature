@@ -1,8 +1,10 @@
 # docs:start:command_builder_contract
 Feature: CommandBuilder - Fluent Command Construction
   The CommandBuilder provides a fluent API for constructing commands.
-  It handles serialization, correlation IDs, sequence numbers, and
-  type URLs while providing compile-time and runtime validation.
+  It handles serialization, correlation IDs, expected sequences, and
+  type URLs while providing compile-time and runtime validation. A built
+  command is sent with execute_async, execute or execute_sync, named after
+  the coordinator RPCs HandleAsync, Handle and HandleSync.
 
   The builder pattern enables both OO-style client usage and can be
   adapted for router-based implementations.
@@ -56,17 +58,19 @@ Feature: CommandBuilder - Fluent Command Construction
     Then the built command should have correlation ID "trace-123"
 
   @C-0307
-  Scenario: Build with sequence number
+  Scenario: Build with an expected sequence
     When I build a command for domain "orders" root "order-002"
-      And I set sequence to 5
+      And I set the expected sequence to 5
       And I set the command type and payload
-    Then the built command should have sequence 5
+    Then the built command should have expected sequence 5
 
   @C-0308
-  Scenario: Build without sequence defaults to 0
+  Scenario: Build without an expected sequence leaves it unset
+    # The coordinator stamps the head it decides against; there is no
+    # default of 0.
     When I build a command for domain "orders"
       And I set the command type and payload
-    Then the built command should have sequence 0
+    Then the built command should have no expected sequence
 
   # ==========================================================================
   # Validation
@@ -97,7 +101,7 @@ Feature: CommandBuilder - Fluent Command Construction
       """
       client.command("orders", root)
         .with_correlation_id("trace-456")
-        .with_sequence(3)
+        .with_expected_sequence(3)
         .with_command("CreateOrder", payload)
         .build()
       """
@@ -132,18 +136,19 @@ Feature: CommandBuilder - Fluent Command Construction
     Then the command should be built and executed in one call
 
   # ==========================================================================
-  # Merge Strategy
+  # Conflict Resolution
   # ==========================================================================
 
   @C-0315
-  Scenario: Default merge strategy is COMMUTATIVE
-    When I build a command without specifying merge strategy
-    Then the command page should have MERGE_COMMUTATIVE strategy
+  Scenario: Default conflict resolution is UNSPECIFIED
+    # UNSPECIFIED means the coordinator applies the configured default.
+    When I build a command without specifying a conflict resolution
+    Then the command's handling should have conflict resolution CONFLICT_RESOLUTION_UNSPECIFIED
 
   @C-0316
-  Scenario: Build with explicit merge strategy
-    When I build a command with merge strategy STRICT
-    Then the command page should have MERGE_STRICT strategy
+  Scenario: Build with explicit conflict resolution
+    When I build a command with conflict resolution STRICT
+    Then the command's handling should have conflict resolution CONFLICT_RESOLUTION_STRICT
 
   # ==========================================================================
   # Extension Traits

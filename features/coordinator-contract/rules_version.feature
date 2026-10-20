@@ -285,3 +285,24 @@ Feature: Rules version - recording who decided, and choosing snapshots
     Then no FulfillmentStarted event is persisted
     And no ShipOrder command is sent
     And the trigger is dead-lettered and an alert is raised
+
+  # ===========================================================================
+  # Where snapshots come from
+  # ===========================================================================
+
+  @snapshot_source
+  @C-0568
+  Scenario: The state returned with an answer is stored and offered, unchanged, with the next command
+    When business code answers an AddItem command for order "order-1" with an ItemAdded event at sequence 3, reporting rules version "1.4.2+build.7"
+    Then a snapshot of order "order-1" is stored at sequence 3 with rules version "1.4.2+build.7"
+    When the coordinator delivers the next AddItem command for order "order-1"
+    Then business code receives that snapshot's stored bytes unchanged
+
+  @snapshot_source
+  @C-0569
+  Scenario: By default only the newest snapshot is kept
+    Given the "order" domain has the default snapshot storage policy
+    When business code answers three AddItem commands for order "order-1"
+    Then order "order-1" has exactly one stored snapshot
+    And it is the state returned with the third answer
+

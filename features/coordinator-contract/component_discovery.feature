@@ -57,3 +57,22 @@ Feature: Component discovery - the coordinator asks the business process what it
     And the coordinator logs an error naming the business process and the "order" aggregate
     And an alert is raised
     And no command for the "order" aggregate reaches business code
+
+  @discovery
+  @C-0566
+  Scenario: A failing describe request is logged every time and alerted only after the grace period
+    Given the coordinator's describe alert grace period is 2 minutes
+    And the "order" business binary does not answer requests to describe its components
+    When the coordinator has been trying to connect for 1 minute
+    Then the coordinator has logged an error for every failed request
+    And the coordinator reports itself not ready
+    And no alert has been raised
+    When the coordinator has been trying to connect for 3 minutes
+    Then an alert is raised
+
+  @discovery
+  @C-0567
+  Scenario: The describe alert grace period defaults to 2 minutes
+    Given a coordinator configured without a describe alert grace period
+    Then its describe alert grace period is 2 minutes
+
