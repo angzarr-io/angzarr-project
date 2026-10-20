@@ -5,7 +5,8 @@ Feature: Handling a delivered command - versions, upcasting and conflicts
   stale command's conflicts before its events are kept.
 
   The business binary's version is fixed when it is built. The library
-  reports it when it registers and with every answer, and never judges a
+  gives it when the coordinator asks the process to describe its
+  components, and with every answer, and never judges a
   snapshot by it: the coordinator delivers only snapshots it has already
   judged compatible.
 
@@ -39,10 +40,10 @@ Feature: Handling a delivered command - versions, upcasting and conflicts
 
   @rules_version
   @C-0535
-  Scenario: Registration announces the same build version
-    When the "order" business binary registers with its coordinator
-    Then the registration carries rules version "1.4.2+build.7"
-    And the registration carries the order state type
+  Scenario: Describing the process announces the same build version
+    When the coordinator asks the "order" business binary to describe its components
+    Then the "order" aggregate's description carries rules version "1.4.2+build.7"
+    And the "order" aggregate's description carries the order state type
 
   @rules_version
   @C-0536
@@ -51,6 +52,17 @@ Feature: Handling a delivered command - versions, upcasting and conflicts
     When AddItem "apple" is handled over that snapshot
     Then business code decides on the snapshot's state
     And the command is accepted
+
+  @describe
+  @C-0565
+  Scenario: Describing a process lists every component it hosts
+    Given the "order" business binary also hosts the "OrderFulfillment" saga reacting to "order"
+    When the coordinator asks the "order" business binary to describe its components
+    Then the answer describes exactly these components:
+      | name             | kind      | rules version | state type             |
+      | order            | AGGREGATE | 1.4.2+build.7 | /orders.v1.OrderState  |
+      | OrderFulfillment | SAGA      | 1.4.2+build.7 |                        |
+    And business code is not invoked
 
   # ===========================================================================
   # Upcasting and unknown types

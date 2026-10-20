@@ -1,8 +1,9 @@
 Feature: Rules version - recording who decided, and choosing snapshots
   Every business binary has a full version, fixed when it is built (for
-  example "1.4.2+build.7"). It tells its coordinator that version when it
-  registers, together with its state type, and reports the same version with
-  every answer. The coordinator records that version, unaltered, on every
+  example "1.4.2+build.7"). It gives that version, together with its state
+  type, when its coordinator asks it to describe its components (see
+  component_discovery.feature), and reports the same version with every
+  answer. The coordinator records that version, unaltered, on every
   event and snapshot the answer produced, so each event names the build that
   decided it.
 
@@ -20,9 +21,8 @@ Feature: Rules version - recording who decided, and choosing snapshots
   same rule while the domain's component is registered, and use none while
   it is not.
 
-  A binary must register with a version, and every answer must report the
-  version it registered with: an answer reporting any other version is a
-  bug, and nothing it produced is kept.
+  Every answer must report the version the binary described: an answer
+  reporting any other version is a bug, and nothing it produced is kept.
 
   Background:
     Given an "order" aggregate registered with state type "/orders.v1.OrderState" and rules version "1.4.2+build.7"
@@ -261,12 +261,6 @@ Feature: Rules version - recording who decided, and choosing snapshots
   # ===========================================================================
   # Registering and reporting a version
   # ===========================================================================
-
-  @rules_version
-  @C-0557
-  Scenario: A registration without a version is refused
-    When an "order" business binary registers with state type "/orders.v1.OrderState" and no rules version
-    Then the registration is refused with INVALID_ARGUMENT status
 
   @rules_version
   @C-0558
