@@ -1,7 +1,7 @@
 # docs:start:command_builder_contract
 Feature: CommandBuilder - Fluent Command Construction
   The CommandBuilder provides a fluent API for constructing commands.
-  It handles serialization, correlation IDs, expected sequences, and
+  It handles serialization, caller-set correlation IDs, expected sequences, and
   type URLs while providing compile-time and runtime validation. A built
   command is sent with execute_async, execute or execute_sync, named after
   the coordinator RPCs HandleAsync, Handle and HandleSync.
@@ -40,11 +40,12 @@ Feature: CommandBuilder - Fluent Command Construction
     And the auto-generated root should be a valid UUID
 
   @C-0305
-  Scenario: Build generates correlation ID when not provided
+  Scenario: Build leaves the correlation ID unset when not provided
+    # The coordinator applies the rule for an absent correlation: it is
+    # the command id (itself minted as a UUIDv7 when absent).
     When I build a command for domain "orders"
       And I set the command type and payload
-    Then the built command should have a non-empty correlation ID
-    And the correlation ID should be a valid UUID
+    Then the built command should have no correlation ID
 
   # ==========================================================================
   # Optional Fields
