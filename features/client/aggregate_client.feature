@@ -36,9 +36,9 @@ Feature: Executing commands against aggregates
   @C-0193
   Scenario: Commands carry a correlation ID through to their events
     Given a new aggregate root in domain "orders"
-    When I send a command tagged with correlation ID "trace-456"
+    When I send a command tagged with correlation ID "0192f3a4-5b6c-7d8e-9f01-23456789ab02"
     Then the command is accepted
-    And the resulting events carry correlation ID "trace-456"
+    And the resulting events carry correlation ID "0192f3a4-5b6c-7d8e-9f01-23456789ab02"
   # docs:end:client_command
 
   # ==========================================================================

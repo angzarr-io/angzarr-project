@@ -13,7 +13,7 @@ COMMUTATIVE resolution.
 
 | Feature | Covers |
 |---|---|
-| `handling.feature` | Describing the process's components; the post-command state on every answer; the build version on every answer and in each description; snapshots folded unchecked; command and fact upcasting and the unknown-type refusal; the AGGREGATE_HANDLES nonce; the COMMUTATIVE resolver |
+| `handling.feature` | Describing the process's components; one process manager per request; the post-command state on every answer; the build version on every answer and in each description; snapshots folded unchecked; command and fact upcasting and the unknown-type refusal; the AGGREGATE_HANDLES nonce; the COMMUTATIVE resolver |
 
 ## Who runs these
 

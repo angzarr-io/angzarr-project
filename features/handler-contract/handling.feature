@@ -90,6 +90,27 @@ Feature: Handling a delivered command - versions, upcasting and conflicts
       | and writes a FulfillmentStarted event     |
       | without writing a process event           |
 
+  @process_manager
+  @C-0576
+  Scenario: A process hosting two process managers answers only the one named
+    Given the business process hosts process managers "Fulfillment" and "Billing", both reacting to "order"
+    When an OrderPlaced trigger is handled for process manager "Billing"
+    Then only "Billing"'s business code is invoked
+    And the answer holds only "Billing"'s process events, commands and process state
+
+  @process_manager
+  @C-0577
+  Scenario Outline: A request for a process manager the process does not host is refused
+    Given the business process hosts process manager "Fulfillment"
+    When an OrderPlaced trigger is handled for process manager "<named>"
+    Then the request is refused <status>
+    And no business code is invoked
+
+    Examples:
+      | named    | status           |
+      | Shipping | NOT_FOUND        |
+      |          | INVALID_ARGUMENT |
+
   # ===========================================================================
   # Upcasting and unknown types
   # ===========================================================================

@@ -79,16 +79,16 @@ Feature: QueryBuilder - Fluent Query Construction
   @C-0392
   Scenario: Build query by correlation ID
     When I build a query for domain "orders"
-      And I set by_correlation_id to "workflow-123"
-    Then the built query should have correlation ID "workflow-123"
+      And I set by_correlation_id to "0192f3a4-5b6c-7d8e-9f01-23456789ab03"
+    Then the built query should have correlation ID "0192f3a4-5b6c-7d8e-9f01-23456789ab03"
     And the built query should have no root
 
   @C-0393
   Scenario: Correlation ID clears root
     When I build a query for domain "orders" root "order-006"
-      And I set by_correlation_id to "workflow-456"
+      And I set by_correlation_id to "0192f3a4-5b6c-7d8e-9f01-23456789ab04"
     Then the built query should have no root
-    And the built query should have correlation ID "workflow-456"
+    And the built query should have correlation ID "0192f3a4-5b6c-7d8e-9f01-23456789ab04"
 
   # ==========================================================================
   # Edition Selection

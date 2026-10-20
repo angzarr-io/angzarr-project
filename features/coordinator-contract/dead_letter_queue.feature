@@ -24,10 +24,10 @@ Feature: Dead letter queue routing
   @C-0443
   Scenario: A queued command with a stale expected sequence is dead-lettered with mismatch details
     Given an "order" aggregate "order-1" at next_sequence 3
-    When a ChangeShippingAddress command with conflict resolution STRICT targeting sequence 1 and correlation_id "corr-7" is sent asynchronously
+    When a ChangeShippingAddress command with conflict resolution STRICT targeting sequence 1 and correlation_id "0192f3a4-5b6c-7d8e-9f01-23456789ab07" is sent asynchronously
     Then a dead letter is published to "angzarr.dlq.order"
     And the dead letter carries the rejected command
-    And the dead letter's cover is domain "order" root "order-1" with correlation_id "corr-7"
+    And the dead letter's command is addressed to domain "order" root "order-1" with correlation_id "0192f3a4-5b6c-7d8e-9f01-23456789ab07"
     And the dead letter's sequence_mismatch details are expected 1, actual 3
     And the dead letter's source_component_type is "aggregate"
     And the dead letter has occurred_at set

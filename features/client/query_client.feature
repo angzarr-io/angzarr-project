@@ -106,13 +106,13 @@ Feature: Querying aggregate event histories
 
   @C-0241
   Scenario: A correlation query gathers events across every aggregate it touched
-    Given events with correlation ID "workflow-123" exist in multiple aggregates
-    When I query events by correlation ID "workflow-123"
+    Given events with correlation ID "0192f3a4-5b6c-7d8e-9f01-23456789ab03" exist in multiple aggregates
+    When I query events by correlation ID "0192f3a4-5b6c-7d8e-9f01-23456789ab03"
     Then I receive events from all correlated aggregates
 
   @C-0242
   Scenario: A correlation query with no matches returns nothing
-    When I query events by correlation ID "nonexistent-correlation"
+    When I query events by correlation ID "0192f3a4-5b6c-7d8e-9f01-23456789abff"
     Then I receive no events
 
   # ==========================================================================
