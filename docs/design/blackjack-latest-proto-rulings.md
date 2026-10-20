@@ -5,6 +5,12 @@ Branch `spec/blackjack-latest` (based on `spec/20261019-draft`) carries the
 blackjack spec ported from `feat/blackjack-spec`. Context:
 `docs/design/blackjack-mvp.plan.md` (on the blackjack-plan worktree), Stage 0.
 
+
+> **One saga per (source, destination) pair (decision 14.23).** The
+> table -> player reactions (round history and loyalty, and settlement if
+> a ruling restores it) are one saga, `TablePlayerSaga`
+> (saga-table-player). The saga names below are the earlier spec's.
+
 ## How the port was cut
 
 A proto message, field or Gherkin scenario was ported when it means the same

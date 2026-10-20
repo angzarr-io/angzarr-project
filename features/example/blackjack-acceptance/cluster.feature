@@ -1,8 +1,8 @@
 # Allocated: EA-0014 .. EA-0049
 Feature: Blackjack on a deployed cluster
-  The blackjack example deployed as separate services: the wallet and the
-  table (each with its own coordinator), the buy-in process, the round
-  translators and the ledger. These scenarios only make sense over a real
+  The blackjack example deployed as separate services, each one component
+  with its own coordinator: the wallet, the table, the buy-in process, the
+  table-to-wallet translator and the ledger. These scenarios only make sense over a real
   network: they observe what a caller waiting for an answer actually gets,
   what happens when two callers act on the same thing at once, what survives
   a restart, and what the stored history can be asked afterwards.

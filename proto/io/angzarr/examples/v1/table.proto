@@ -336,16 +336,12 @@ message SeatOutcome {
 }
 
 // The round is over. house_delta = sum(wagers) - sum(returned). One event,
-// several consumers: the table folds it, saga-table-player-history and
-// saga-table-player-loyalty react to it, and the ledger projects it.
+// several consumers: the table folds it, saga-table-player reacts to it,
+// and the ledger projects it.
 message RoundSettled {
   option (io.angzarr.v1.event) = {component: "io.angzarr.examples.v1.TableState"};
   option (io.angzarr.v1.event) = {
-    component: "io.angzarr.examples.v1.TablePlayerHistorySaga"
-    domain: "table"
-  };
-  option (io.angzarr.v1.event) = {
-    component: "io.angzarr.examples.v1.TablePlayerLoyaltySaga"
+    component: "io.angzarr.examples.v1.TablePlayerSaga"
     domain: "table"
   };
   option (io.angzarr.v1.event) = {

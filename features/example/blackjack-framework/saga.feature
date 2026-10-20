@@ -5,16 +5,16 @@ Feature: Translations between wallet and table
   for the other side.
 
   Why this matters:
-  - one settled round feeds several independent follow-ups: the player's
-    round history and their loyalty points
+  - one settled round feeds two follow-ups on each player: their round
+    history and their loyalty points
   - a translator only translates: it never looks anything up and never
     decides anything
+  - there is one translator per direction: everything the table asks of
+    the wallet goes through the table-to-wallet translator
 
-  The translators:
-  - round-history translator (saga-table-player-history): a settled round
-    becomes a round result for each seat
-  - loyalty translator (saga-table-player-loyalty): a settled round becomes
-    loyalty points for each seat, one point per chip wagered
+  The table-to-wallet translator (saga-table-player) turns a settled round
+  into, for each seat, a round result and loyalty points (one point per
+  chip wagered).
 
   The top-up translator (wallet top-ups become requests to add chips, with
   refusals undone in the wallet) and the settlement translator (chips added
@@ -31,7 +31,7 @@ Feature: Translations between wallet and table
       | seat | player | wager | outcome | returned |
       | 0    | Alice  | 20    | win     | 40       |
       | 1    | Bob    | 30    | lose    | 0        |
-    When the round-history translator handles the settlement
+    When the table-to-wallet translator handles the settlement
     Then the wallets are asked to record round 1 at table "Main" as:
       | player | wager | net |
       | Alice  | 20    | 20  |
@@ -43,16 +43,16 @@ Feature: Translations between wallet and table
       | seat | player | wager | outcome | returned |
       | 0    | Alice  | 20    | win     | 40       |
       | 1    | Bob    | 30    | lose    | 0        |
-    When the loyalty translator handles the settlement
+    When the table-to-wallet translator handles the settlement
     Then the wallets are asked to award loyalty points for round 1 at table "Main" as:
       | player | points |
       | Alice  | 20     |
       | Bob    | 30     |
 
   @EU-1543
-  Scenario: A settled round reaches the table, both translators and the ledger
+  Scenario: A settled round reaches the table, the table-to-wallet translator and the ledger
     Given round 1 at table "Main" settled
     When the settlement is delivered
     Then it is folded into table "Main"
-    And it is handled by the round-history translator and the loyalty translator
+    And it is handled once by the table-to-wallet translator
     And it is applied to the ledger

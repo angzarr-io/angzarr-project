@@ -15,35 +15,28 @@ option ruby_package = "Angzarr::Examples";
 //
 // A saga has no state, so each is declared on an empty marker message. Its
 // reactions are wired by the (event) entries on the events it consumes.
+// There is one saga per (source domain, destination domain) pair: every
+// reaction from table events to player commands is part of
+// saga-table-player.
 // Every saga takes target roots from fields of the source event (never from
 // a lookup) and emits reaction commands: they carry no Handling, the
 // destination stamps its own head, and redelivery is deduplicated on the
 // command id derived from the triggering event.
 //
-// Two sagas of the earlier spec are not part of this port:
+// Two reactions of the earlier spec are not part of this port:
 // saga-player-table (top-ups, whose refusal was compensated back to the
-// wallet) and saga-table-player-settlement (which injected facts into the
-// wallet). Both wait on rulings in
-// docs/design/blackjack-latest-proto-rulings.md.
+// wallet) and the table -> player settlement reaction (which injected
+// facts into the wallet; if restored, it is part of saga-table-player).
+// Both wait on rulings in docs/design/blackjack-latest-proto-rulings.md.
 
-// saga-table-player-history. RoundSettled -> one RecordRoundResult{table_root,
-// round, wager, net} per outcome, to that outcome's player_root, in seat
-// order. It and the loyalty saga react to the same RoundSettled in no
-// guaranteed order.
-message TablePlayerHistorySaga {
-  option (io.angzarr.v1.component) = {
-    kind: COMPONENT_KIND_SAGA
-    input_domain: "table"
-    output_domain: "player"
-  };
-}
-
-// saga-table-player-loyalty. RoundSettled -> one AwardLoyaltyPoints{table_root,
-// round, points = wager} per outcome, to that outcome's player_root, in seat
-// order. What the wallet does with an award for a player who never enrolled
-// waits on a ruling: under the latest contract a refused reaction command is
+// saga-table-player: the one saga for the table -> player pair. On
+// RoundSettled, for each outcome in seat order, it emits to that outcome's
+// player_root one RecordRoundResult{table_root, round, wager, net} followed
+// by one AwardLoyaltyPoints{table_root, round, points = wager}. What the
+// wallet does with an award for a player who never enrolled waits on a
+// ruling: under the latest contract a refused reaction command is
 // dead-lettered.
-message TablePlayerLoyaltySaga {
+message TablePlayerSaga {
   option (io.angzarr.v1.component) = {
     kind: COMPONENT_KIND_SAGA
     input_domain: "table"
