@@ -2,7 +2,10 @@ Feature: Upcasting - readers only ever see current event shapes
   Stored events keep the shape they were written in. The coordinator that
   owns a stream brings them up to date on every way out of the store: when
   it loads the stream for its own component, when it answers a query, and
-  when it publishes events for subscribers. It does so by asking its own
+  wherever stored events reach a subscriber, whether published live or read
+  from stored history (catching up, filling a gap, rebuilding). Live
+  publishing carries only newly appended events, already in the current
+  shape, so old shapes reach subscribers through stored history. It does so by asking its own
   business process, whose component's upcasters know the old shapes.
   Sagas, process managers and projectors reading another component's
   stream never see an old shape and have no upcasters of their own.
@@ -25,11 +28,17 @@ Feature: Upcasting - readers only ever see current event shapes
 
   @upcasting
   @C-0586
-  Scenario: Subscribers receive current shapes
-    Given a saga "OrderFulfillment" subscribed to "order"
-    When the "order" coordinator publishes order "order-1"'s event at sequence 0
-    Then the saga receives an OrderPlaced event
-    And the saga is never given an OrderPlacedV1 event
+  Scenario Outline: A subscriber reading stored history receives current shapes
+    Given a projector "OrderSummary" subscribed to "order"
+    When the projector <reads> order "order-1"'s stored history from sequence 0
+    Then the projector receives an OrderPlaced event at sequence 0
+    And the projector is never given an OrderPlacedV1 event
+
+    Examples:
+      | reads                     |
+      | catches up on             |
+      | fills a gap in            |
+      | is rebuilt from           |
 
   @upcasting
   @C-0587

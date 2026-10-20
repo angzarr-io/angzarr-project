@@ -137,29 +137,12 @@ Feature: CommandBuilder - Fluent Command Construction
     Then the command should be built and executed in one call
 
   # ==========================================================================
-  # Batches
+  # Correlation
   # ==========================================================================
-
-  @C-0572
-  Scenario: A batch shares the caller's correlation ID across its commands
-    When I build a batch of 3 commands for domain "orders" with correlation ID "0192f3a4-5b6c-7d8e-9f01-23456789ab05"
-    Then every command in the batch should have correlation ID "0192f3a4-5b6c-7d8e-9f01-23456789ab05"
-
-  @C-0573
-  Scenario: A batch without a caller's correlation ID shares one it mints
-    When I build a batch of 3 commands for domain "orders"
-    Then every command in the batch should have the same correlation ID
-    And that correlation ID should be a UUIDv7
-
-  @C-0574
-  Scenario: A batch can opt out of a shared correlation ID
-    # Each command then defaults, at the coordinator, to its own command ID.
-    When I build a batch of 3 commands for domain "orders" opting out of a shared correlation ID
-    Then no command in the batch should have a correlation ID
 
   @C-0575
   Scenario: A single command never gets a minted correlation ID
-    When I build one command for domain "orders" outside a batch
+    When I build one command for domain "orders"
     Then the built command should have no correlation ID
 
   # ==========================================================================
