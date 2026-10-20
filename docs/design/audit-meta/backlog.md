@@ -111,9 +111,11 @@ Replaces the KS key-store workstream (closed below).
 - What: every SDK's command helpers set `CommandPage.command_id` (a v7
   minted for the caller, one per command) and reuse it verbatim on retry. A
   batch helper mints one id per command and shares the correlation. SDKs no
-  longer need deterministic serialisation for idempotency.
-- Why: decision 12.1. Replaces KS-7.
-- Settled when: a retried SDK call is answered DUPLICATE.
+  longer need deterministic serialisation for idempotency. Builders send no
+  `correlation_id` unless the caller sets one; the coordinator fills it.
+- Why: decisions 12.1 and 14.15. Replaces KS-7.
+- Settled when: a retried SDK call is answered DUPLICATE, and parity C-0305
+  passes.
 
 **CI-8** [core] **Dead-letter entries for parked facts.**
 - What: deduplicate DLQ entries per (stream, `command_id`), so a source that

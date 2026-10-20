@@ -1596,6 +1596,14 @@ can never decode into a message. Owner ruling, 2026-10-19.
 - Why: a dedicated field says what it is; riding on the last book (or a
   page-less one) was a convention every implementation would have to know.
 
+**14.15 Builders never invent a correlation id.** A client's command
+builder sends no `correlation_id` unless the sender sets one; the
+coordinator applies the proto's rule (an absent correlation is the
+command id, itself minted as a UUIDv7 when absent; a fact's is its derived
+id). Parity C-0305 says so. Owner ruling, 2026-10-19.
+- Why: one rule, applied in one place; a client-minted correlation would
+  differ from the command id the coordinator mints and split the trail.
+
 ## Corrections
 
 Facts the earlier passes or the design note got wrong:
