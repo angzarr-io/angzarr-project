@@ -166,17 +166,13 @@ message EventBook {
 }
 ```
 
-Commands follow the same pattern—a **CommandBook** contains one or more **CommandPages** targeting a single aggregate:
+Commands use a similar envelope, with one difference: a **CommandBook** carries exactly one command (one **CommandPage**) for a single aggregate. Deduplication, the expected-sequence check and the outcome are per command, so there is no wire batching:
 
 ```protobuf
-message CommandPage {
-  PageHeader header = 1;  // explicit sequence, or angzarr_deferred provenance (routes rejections to the source)
-  google.protobuf.Any command = 3;
-}
-
 message CommandBook {
   Cover cover = 1;
-  repeated CommandPage pages = 2;
+  CommandPage page = 3;   // the one command
+  Handling handling = 6;
 }
 ```
 
@@ -251,14 +247,10 @@ func (s *ProductAggregate) Handle(ctx context.Context, cmd *angzarr.ContextualCo
     // Hydrate state from snapshot + events
     state := s.rehydrate(cmd.Events)
 
-    // Process each command
-    var newPages []*angzarr.EventPage
-    for _, page := range cmd.Command.Pages {
-        events, err := s.processCommand(state, page.Command)
-        if err != nil {
-            return nil, err
-        }
-        newPages = append(newPages, events...)
+    // Process the one command
+    newPages, err := s.processCommand(state, cmd.Command.Page)
+    if err != nil {
+        return nil, err
     }
 
     return &angzarr.EventBook{

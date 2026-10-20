@@ -142,7 +142,7 @@ Commands go through the target aggregate's `@handles` command methods and can be
 def handle_hand_started(event: HandStarted):
     return CommandBook(
         cover=Cover(domain="player", root=event.player_id),
-        pages=[CommandPage(command=DeductBlinds(amount=50))],  # deferred: no sequence
+        page=CommandPage(command=Command(payload=pack(DeductBlinds(amount=50)))),  # one command; no Handling
     )
 
 # Fact: assert reality (cannot be rejected)

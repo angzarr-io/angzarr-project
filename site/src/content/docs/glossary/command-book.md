@@ -3,39 +3,36 @@ title: CommandBook
 ---
 # CommandBook
 
-A collection of commands to be sent to aggregates. The CommandBook is the output of sagas and process managers.
+Exactly one command, addressed to one aggregate stream, with how it is to be
+handled. A CommandBook is the request itself: the coordinator's `Handle`,
+`HandleAsync` and `HandleSync` take it directly. Sagas and process managers
+emit CommandBooks too, one per command.
 
 ## Structure
 
 ```protobuf
 message CommandBook {
-  Cover cover = 1;           // Target aggregate identity
-  repeated CommandPage pages = 2;  // Commands to execute
+  Cover cover = 1;        // The target stream (domain, edition, root)
+  CommandPage page = 3;   // The one command
+  Handling handling = 6;  // Expected sequence and conflict resolution; never persisted
 }
 ```
 
+A book never carries several commands: deduplication, the expected-sequence
+check and the outcome are all per command, so there is no wire batching
+(decision 1.4). A client that has several commands sends several books.
+
 ## CommandPage
 
-Each page contains:
-- **Command payload:** The actual command (Any type)
-- **Header:** an explicit expected sequence (client commands), or `angzarr_deferred` provenance (saga/PM commands, appended at the destination head with no expected version)
-- **Merge strategy:** How to handle conflicts
+The page is the one command:
+- **Body:** a `Command` (decide, may be rejected) or a `Fact` (ingest, never
+  rejected), each wrapping its payload as an `Any`.
+- **Identity:** `command_id`, `correlation_id`, and for reaction commands
+  `causation_id`; for facts, `fact_origin`.
 
-## Merge Strategies
+## Handling
 
-| Strategy | Behavior |
-|----------|----------|
-| `MERGE_STRICT` | Reject on sequence mismatch |
-| `MERGE_COMMUTATIVE` | Allow if mutations don't overlap |
-| `MERGE_AGGREGATE_HANDLES` | Aggregate decides |
-| `MERGE_MANUAL` | Route to DLQ for review |
-
-## Deferred Provenance
-
-A saga/PM command's page header carries `angzarr_deferred`:
-- `source` — the aggregate whose event triggered the saga/PM
-- `source_seq` — the triggering event's sequence
-- `source_component` — the saga/PM's registered name (coordinator-stamped)
-- `command_index` — the command's position in the emitted output
-
-The tuple is the command's idempotency key. If the command is rejected, a [RejectionNotification](/glossary/notification) is delivered to the `source` aggregate's compensation handler.
+`expected_sequence` (optional; the coordinator stamps the head when absent)
+and `conflict_resolution` (`STRICT`, `AGGREGATE_HANDLES` or `COMMUTATIVE`;
+unspecified means the configured default). Reaction commands and facts carry
+no Handling.

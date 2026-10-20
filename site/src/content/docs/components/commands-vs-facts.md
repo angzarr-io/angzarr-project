@@ -287,14 +287,17 @@ impl SagaHandler for OrderFulfillmentSaga {
                         root: order_completed.order_id.into(),
                         ..Default::default()
                     }),
-                    pages: vec![CommandPage {
-                        header: Some(PageHeader::default()),  // Framework fills angzarr_deferred
-                        command: Some(Any::pack(StartFulfillment {
-                            order_id: order_completed.order_id,
-                            items: order_completed.items.clone(),
+                    // Exactly one command per book; the framework stamps
+                    // its ids, and a reaction command carries no Handling.
+                    page: Some(CommandPage {
+                        body: Some(command_page::Body::Command(Command {
+                            payload: Some(Any::from_msg(&StartFulfillment {
+                                order_id: order_completed.order_id,
+                                items: order_completed.items.clone(),
+                            })?),
                         })),
                         ..Default::default()
-                    }],
+                    }),
                     ..Default::default()
                 });
             }

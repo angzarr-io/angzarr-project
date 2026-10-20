@@ -27,7 +27,7 @@ This document covers ⍼ Angzarr's core architectural concepts: event sourcing d
 ```protobuf file=proto/io/angzarr/v1/types.proto region=event_book
 ```
 
-Commands follow the same pattern—a **CommandBook** contains one or more **CommandPages** targeting a single aggregate.
+Commands use a similar envelope, but a **CommandBook** carries exactly one command (one **CommandPage**) for a single aggregate: deduplication, the expected-sequence check and the outcome are per command, so there is no wire batching.
 
 ---
 
