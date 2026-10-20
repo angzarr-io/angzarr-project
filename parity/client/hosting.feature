@@ -1,7 +1,8 @@
-Feature: Component host - serving registered components over gRPC
+Feature: Component host - serving its registered component over gRPC
   Every client provides a reusable, fully generic gRPC component host. An
-  application registers its components (generated component code bound to
-  the angzarr-router binding) and, optionally, its own extra gRPC services;
+  application registers its one component (generated component code bound
+  to the angzarr-router binding; one business process is one component)
+  and, optionally, its own extra gRPC services;
   the host serves them next to the gRPC health service, which doubles as
   the readiness signal the coordinator sidecar and Kubernetes probes use.
 
@@ -11,7 +12,7 @@ Feature: Component host - serving registered components over gRPC
   router's and is specified by angzarr-router's conformance suite, not here.
 
   Fixtures use the generic client-tier vocabulary: an "order" aggregate
-  component and a "payment" aggregate component.
+  component.
 
   @C-0497
   Scenario: The host serves a registered component's framework service
@@ -19,13 +20,6 @@ Feature: Component host - serving registered components over gRPC
     When the host starts on a TCP port
     Then CommandHandlerService is served on that port
     And a ContextualCommand for domain "order" sent to CommandHandlerService.Handle reaches the order component
-
-  @C-0498
-  Scenario: The host serves several registered components
-    Given a component host with aggregate components for domains "order" and "payment" registered
-    When the host starts on a TCP port
-    Then a ContextualCommand for domain "order" reaches the order component
-    And a ContextualCommand for domain "payment" reaches the payment component
 
   @C-0499
   Scenario Outline: The host takes its transport from the environment
@@ -40,10 +34,10 @@ Feature: Component host - serving registered components over gRPC
       | Unix socket | /tmp/angzarr-host-test.sock |
 
   @C-0500
-  Scenario: The host reports SERVING only once it serves every registered component
+  Scenario: The host reports SERVING only once it serves its component
     Given a component host with an aggregate component for domain "order" registered
     When the host starts on a TCP port
-    Then the overall server's health status is SERVING only after every registered component's service is listening
+    Then the overall server's health status is SERVING only after the component's service is listening
     And the gRPC health service reports SERVING for CommandHandlerService
 
   @C-0501
@@ -69,7 +63,7 @@ Feature: Component host - serving registered components over gRPC
     And the gRPC health service reports SERVING for OrderReportService
 
   @C-0504
-  Scenario: A host with no registered components refuses to start
-    Given a component host with no components registered
+  Scenario: A host with no registered component refuses to start
+    Given a component host with no component registered
     When the host starts
     Then starting fails with a configuration error

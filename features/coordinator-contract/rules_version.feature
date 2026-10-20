@@ -1,7 +1,7 @@
 Feature: Rules version - recording who decided, and choosing snapshots
   Every business binary has a full version, fixed when it is built (for
   example "1.4.2+build.7"). It gives that version, together with its state
-  type, when its coordinator asks it to describe its components (see
+  type, when its coordinator asks it to describe its component (see
   component_discovery.feature), and reports the same version with every
   answer. The coordinator records that version, unaltered, on every
   event and snapshot the answer produced, so each event names the build that
@@ -17,9 +17,9 @@ Feature: Rules version - recording who decided, and choosing snapshots
   replace that rule with an accept pattern and an optional reject pattern;
   a reject match always wins, and a pattern must match the whole version.
   A snapshot that is not offered costs nothing but time: business code gets
-  the full history from sequence 0 instead. Queries choose snapshots by the
-  same rule while the domain's component is registered, and use none while
-  it is not.
+  the full history from sequence 0 instead. A query is judged by the same
+  rule against the answering coordinator's own registration, and uses no
+  snapshot while that coordinator holds none.
 
   Every answer must report the version the binary described: an answer
   reporting any other version is a bug, and nothing it produced is kept.
@@ -237,8 +237,8 @@ Feature: Rules version - recording who decided, and choosing snapshots
 
   @snapshot_selection @query
   @C-0556
-  Scenario: With no component registered for the domain, a query uses no snapshot
-    Given no component is registered for the "order" domain
+  Scenario: A coordinator holding no registration answers a query with no snapshot
+    Given the answering coordinator holds no registration for the "order" aggregate
     And order "order-1" has a snapshot at sequence 5 of state type "/orders.v1.OrderState" recorded under rules version "1.4.2+build.7"
     And order "order-1" has events at sequences 0 to 7
     When a client queries the events of order "order-1"
@@ -246,16 +246,16 @@ Feature: Rules version - recording who decided, and choosing snapshots
 
   @snapshot_selection @query
   @C-0560
-  Scenario Outline: While instances run different versions, a query uses a snapshot only if every registered version accepts it
-    Given another instance of the "order" business binary is registered with rules version "<other version>"
+  Scenario Outline: During a rolling deployment each coordinator judges a query by its own instance's version
+    Given a second "order" instance at rules version "1.5.0+build.1" behind its own coordinator
     And order "order-1" has a snapshot at sequence 5 of state type "/orders.v1.OrderState" recorded under rules version "1.4.0"
     And order "order-1" has events at sequences 0 to 7
-    When a client queries the events of order "order-1"
+    When a client's query for the events of order "order-1" is answered by the coordinator of the instance at "<instance>"
     Then the result <carries>
 
     Examples:
-      | other version | carries                                              |
-      | 1.4.9+build.3 | carries the snapshot at sequence 5 and events 6 to 7 |
+      | instance      | carries                                              |
+      | 1.4.2+build.7 | carries the snapshot at sequence 5 and events 6 to 7 |
       | 1.5.0+build.1 | carries no snapshot and events 0 to 7                |
 
   # ===========================================================================

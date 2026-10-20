@@ -2,7 +2,7 @@
 
 Cucumber specs for behaviour the **client library** owns when the
 coordinator calls the business process: answering
-`ComponentService.Describe` from its components, and, inside
+`ComponentService.Describe` with its one component, and, inside
 `CommandHandlerService.Handle` and `ProcessManagerService.Handle`, what
 happens between the delivery and business code and between business code
 and the answer. That is the rules version reported with every answer and in
@@ -13,7 +13,7 @@ COMMUTATIVE resolution.
 
 | Feature | Covers |
 |---|---|
-| `handling.feature` | Describing the process's components; one process manager per request; the post-command state on every answer; the build version on every answer and in each description; snapshots folded unchecked; command and fact upcasting and the unknown-type refusal; the AGGREGATE_HANDLES nonce; the COMMUTATIVE resolver |
+| `handling.feature` | Describing the process's one component; the post-command state on every answer; the build version on every answer and in each description; snapshots folded unchecked; command and fact upcasting and the unknown-type refusal; the AGGREGATE_HANDLES nonce; the COMMUTATIVE resolver |
 
 ## Who runs these
 

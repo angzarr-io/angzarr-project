@@ -6,7 +6,7 @@ Feature: Handling a delivered command - versions, upcasting and conflicts
 
   The business binary's version is fixed when it is built. The library
   gives it when the coordinator asks the process to describe its
-  components, and with every answer, and never judges a
+  component, and with every answer, and never judges a
   snapshot by it: the coordinator delivers only snapshots it has already
   judged compatible.
 
@@ -41,7 +41,7 @@ Feature: Handling a delivered command - versions, upcasting and conflicts
   @rules_version
   @C-0535
   Scenario: Describing the process announces the same build version
-    When the coordinator asks the "order" business binary to describe its components
+    When the coordinator asks the "order" business binary to describe its component
     Then the "order" aggregate's description carries rules version "1.4.2+build.7"
     And the "order" aggregate's description carries the order state type
 
@@ -55,13 +55,11 @@ Feature: Handling a delivered command - versions, upcasting and conflicts
 
   @describe
   @C-0565
-  Scenario: Describing a process lists every component it hosts
-    Given the "order" business binary also hosts the "OrderFulfillment" saga reacting to "order"
-    When the coordinator asks the "order" business binary to describe its components
-    Then the answer describes exactly these components:
-      | name             | kind      | rules version | state type             |
-      | order            | AGGREGATE | 1.4.2+build.7 | /orders.v1.OrderState  |
-      | OrderFulfillment | SAGA      | 1.4.2+build.7 |                        |
+  Scenario: Describing a process gives its one component
+    When the coordinator asks the "order" business binary to describe its component
+    Then the answer describes one component:
+      | name  | kind      | rules version | state type            |
+      | order | AGGREGATE | 1.4.2+build.7 | /orders.v1.OrderState |
     And business code is not invoked
 
   @snapshot_source
@@ -89,27 +87,6 @@ Feature: Handling a delivered command - versions, upcasting and conflicts
       | writing                                   |
       | and writes a FulfillmentStarted event     |
       | without writing a process event           |
-
-  @process_manager
-  @C-0576
-  Scenario: A process hosting two process managers answers only the one named
-    Given the business process hosts process managers "Fulfillment" and "Billing", both reacting to "order"
-    When an OrderPlaced trigger is handled for process manager "Billing"
-    Then only "Billing"'s business code is invoked
-    And the answer holds only "Billing"'s process events, commands and process state
-
-  @process_manager
-  @C-0577
-  Scenario Outline: A request for a process manager the process does not host is refused
-    Given the business process hosts process manager "Fulfillment"
-    When an OrderPlaced trigger is handled for process manager "<named>"
-    Then the request is refused <status>
-    And no business code is invoked
-
-    Examples:
-      | named    | status           |
-      | Shipping | NOT_FOUND        |
-      |          | INVALID_ARGUMENT |
 
   # ===========================================================================
   # Upcasting and unknown types
