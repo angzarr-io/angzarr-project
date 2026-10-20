@@ -25,8 +25,14 @@ fn proto_root() -> PathBuf {
 }
 
 /// Compiles the fixture (and, with --include_imports, options.proto itself)
-/// into a serialized FileDescriptorSet.
+/// into a serialized FileDescriptorSet. Compiled once per test binary: the
+/// tests run in parallel and would otherwise race on the one output file.
 fn descriptor_set() -> Vec<u8> {
+    static SET: std::sync::OnceLock<Vec<u8>> = std::sync::OnceLock::new();
+    SET.get_or_init(compile_descriptor_set).clone()
+}
+
+fn compile_descriptor_set() -> Vec<u8> {
     let manifest = Path::new(env!("CARGO_MANIFEST_DIR"));
     let out = Path::new(env!("CARGO_TARGET_TMPDIR")).join("list_state.binpb");
     let protoc = std::env::var("PROTOC").unwrap_or_else(|_| "protoc".into());
