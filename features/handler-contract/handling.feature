@@ -62,6 +62,22 @@ Feature: Handling a delivered command - versions, upcasting and conflicts
       | order | AGGREGATE | 1.4.2+build.7 | /orders.v1.OrderState |
     And business code is not invoked
 
+  @describe
+  @C-0580
+  Scenario Outline: A business process refuses to register a second component of any kind
+    # One business process is one component (decision 14.19).
+    Given the "order" business binary has its "order" aggregate registered
+    When a <kind> component "<name>" is registered in the same business process
+    Then the registration is refused, naming the "order" aggregate already registered
+    And the business process describes only the "order" aggregate
+
+    Examples:
+      | kind            | name             |
+      | aggregate       | payment          |
+      | saga            | OrderFulfillment |
+      | process manager | Fulfillment      |
+      | projector       | OrderSummary     |
+
   @snapshot_source
   @C-0570
   Scenario Outline: Every answer carries the state after the delivery, whether or not business code asks

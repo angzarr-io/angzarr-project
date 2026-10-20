@@ -67,3 +67,12 @@ Feature: Component host - serving its registered component over gRPC
     Given a component host with no component registered
     When the host starts
     Then starting fails with a configuration error
+
+  @C-0579
+  Scenario: A host given a second component refuses to start
+    # One business process is one component (decision 14.19).
+    Given a component host with an aggregate component for domain "order" registered
+    And a second component, an aggregate for domain "payment", registered on the same host
+    When the host starts
+    Then starting fails with a configuration error naming both components
+    And no service is served
