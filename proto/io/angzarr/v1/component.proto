@@ -1,0 +1,61 @@
+syntax = "proto3";
+package io.angzarr.v1;
+
+import "io/angzarr/v1/types.proto";
+
+option csharp_namespace = "Angzarr";
+option go_package = "github.com/benjaminabbitt/angzarr/client/go/proto/io/angzarr/v1;angzarr";
+option java_multiple_files = true;
+option java_package = "io.angzarr";
+option ruby_package = "Angzarr";
+
+// ComponentService: how a coordinator learns which components a business
+// process hosts. Every business process serves it, whatever kinds of
+// component it hosts, beside its kind services (CommandHandlerService,
+// ProcessManagerService, SagaService, ProjectorService, UpcasterService),
+// and the client library answers it from its components' generated
+// descriptors; business code never implements it.
+//
+// The coordinator PULLS the descriptors: it already dials the business
+// process for every delivery, and it calls Describe over that same channel.
+// The business process never calls its coordinator and needs no
+// coordinator address.
+//
+// Registration. A component is registered with a coordinator while that
+// coordinator holds a descriptor for it from the business process's last
+// successful Describe. "Registered", "the registration" and "the registered
+// version" elsewhere in these protos mean exactly that.
+//   - When: the coordinator calls Describe when it first connects to the
+//     business process, and again every time its channel to the business
+//     process comes back up after a disconnect. Each successful answer
+//     replaces the descriptors the coordinator held for that process, so a
+//     business process restarted on a new build is re-described before it
+//     is delivered to.
+//   - No descriptor, no delivery: the coordinator delivers nothing to a
+//     component it holds no descriptor for (no command, fact, trigger or
+//     event). Until it holds one, deliveries wait: a synchronous caller is
+//     answered UNAVAILABLE (retryable; see the status codes in
+//     command_handler.proto), and queued and reaction deliveries stay
+//     queued.
+//   - Refusal: an answer containing a descriptor with an empty
+//     rules_version (see ComponentDescriptor) is refused as a whole. The
+//     coordinator holds no descriptor from it, delivers nothing, logs an
+//     error naming the business process and the component, and raises an
+//     alert. It answers the business process nothing (the coordinator is
+//     the caller): the refusal is visible as the coordinator's readiness.
+//     A failed Describe call (the business process unreachable, or an
+//     error status) is treated the same way, without the alert, until the
+//     channel comes back up.
+//   - Readiness: the coordinator reports itself SERVING (gRPC health
+//     checking, grpc.health.v1, and its readiness probe) only after a
+//     successful Describe, and NOT_SERVING while it holds no descriptors
+//     from its business process.
+service ComponentService {
+  // Describe every component this business process hosts: one descriptor
+  // per component, in any order. A process hosting several components (for
+  // example an aggregate and the saga reacting to it) lists them all.
+  rpc Describe(DescribeRequest) returns (ComponentDescriptors);
+}
+
+// Describe takes no arguments.
+message DescribeRequest {}

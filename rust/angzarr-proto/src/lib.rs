@@ -9,7 +9,8 @@
 //! `EventRef`,
 //! `FactOrigin`, snapshots (with their `rules_version`), the response-only
 //! `Outcome`, `ComponentDescriptor` with its `StateDescriptor` and
-//! `StateOptions`, `ComponentKind`, the upcaster request/response messages,
+//! `StateOptions`, `ComponentDescriptors` (the answer to
+//! `ComponentService.Describe`), `ComponentKind`, the upcaster request/response messages,
 //! the `options.proto` option messages (`ConflictUnit` for COMMUTATIVE
 //! conflict units, `ComponentOptions`, `CommandOptions`, `EventConsumer`;
 //! prost skips the `extend` declarations, so option values are read from

@@ -227,8 +227,9 @@ message Cover {
 // resolves Handling, conflict_resolution is never UNSPECIFIED. A command,
 // or configuration, that names a resolution the component's state does not
 // support is malformed: the command is refused INVALID_ARGUMENT before
-// deduplication, and the configuration is refused when it is loaded or the
-// component registers.
+// deduplication, and the configuration is refused when it is loaded or
+// when the coordinator receives the component's descriptor (see
+// ComponentService in component.proto).
 //
 // The strategy matters only for commands whose sender provided
 // expected_sequence. A command without one is stamped by the framework with
@@ -1245,25 +1246,28 @@ enum ComponentKind {
   COMPONENT_KIND_PROJECTOR = 4;
 }
 
-// Component self-description, given when a component registers with its
-// coordinator.
+// Component self-description. The coordinator pulls it from the business
+// process (ComponentService.Describe in component.proto); holding it is
+// what makes the component registered.
 message ComponentDescriptor {
   string name = 1;
   ComponentKind kind = 5;
   repeated Target inputs = 3; // Domains I subscribe to (event types I consume)
   // The business binary's full version, baked in when it is built: the same
   // value the component reports on every response
-  // (CommandHandlerResponse.rules_version). Required: a registration with
-  // an empty rules_version is refused INVALID_ARGUMENT, so a binary built
-  // without a version cannot register. The coordinator checks snapshot
+  // (CommandHandlerResponse.rules_version). Required: the coordinator
+  // refuses a Describe answer with an empty rules_version, so a binary
+  // built without a version is never registered and never delivered to
+  // (see ComponentService for how the refusal surfaces). The coordinator
+  // checks snapshot
   // versions against it before offering a snapshot (see Snapshot), and
   // refuses a response that reports any other version (see
   // CommandHandlerResponse.rules_version).
   string rules_version = 4;
   // The component's event-sourced state: set for AGGREGATE and
   // PROCESS_MANAGER, unset for SAGA and PROJECTOR. Generated from the state
-  // message's descriptor by the codegen (registration fills it; business
-  // code never writes it by hand).
+  // message's descriptor by the codegen (the client library fills it when
+  // answering Describe; business code never writes it by hand).
   StateDescriptor state = 6;
 }
 
@@ -1279,4 +1283,9 @@ message StateDescriptor {
   // takes the built-in default from it (COMMUTATIVE if listed, else STRICT)
   // and refuses a command or configuration naming a resolution it lacks.
   StateOptions options = 2;
+}
+
+// Every component one business process hosts (ComponentService.Describe).
+message ComponentDescriptors {
+  repeated ComponentDescriptor components = 1;
 }

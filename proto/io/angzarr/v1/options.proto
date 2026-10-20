@@ -156,8 +156,9 @@ extend google.protobuf.MessageOptions {
 //   changed(before, after) -> set of unit paths
 //
 // a pure function over two values of the state message, plus the state's
-// StateDescriptor for registration. The client library's COMMUTATIVE
-// resolver calls changed(); business code never does. annals generates the
+// StateDescriptor for its ComponentDescriptor (ComponentService.Describe).
+// The client library's COMMUTATIVE resolver calls changed(); business code
+// never does. annals generates the
 // same function from the same markers, and a shared golden fixture suite
 // holds every implementation to identical output. The developer guide,
 // docs/guide/state-and-conflicts.md, explains all of this with examples.
