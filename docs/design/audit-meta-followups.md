@@ -196,7 +196,7 @@ event onwards, every removal reserves its number and name (see
     version, so re-runs dedupe; checkpoint resets are for recovery; repairs
     are new commands; standard re-drive commands are backlog RD-1.
   - **No reacting-component field**: source control says what makes what.
-- **Pass 14** (this change): decisions 14.1–14.26, by the owner.
+- **Pass 14** (this change): decisions 14.1–14.29, by the owner.
   - **One coordinator, one component, one business process** (14.19):
     `Describe` returns one descriptor; each PM has its own coordinator; a
     query is judged by its coordinator's own registration; an upcaster is
@@ -204,6 +204,8 @@ event onwards, every removal reserves its number and name (see
   - **A saga has one source and one destination** (14.24); the owning
     coordinator upcasts on every read and publish path (14.25); queries may
     run standalone, with no snapshots (14.26; standalone upcasting is open).
+  - **No batch helper** (14.27); **one command per CommandBook** reaffirmed
+    (14.28); upcasting covers stored-history reads (14.29).
   - **The state on every response**: the client library returns the
     post-command state as `snapshot.state` on every response (a PM's in
     `ProcessManagerHandleResponse.process_state`); the

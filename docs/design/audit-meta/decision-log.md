@@ -45,6 +45,8 @@ Every code consequence is in the [backlog](backlog.md).
 - Aligns with: correlation as message metadata (NServiceBus, MassTransit,
   KurrentDB), not stream identity.
 
+> **Reaffirmed by 14.28 (pass 14):** the owner kept the structure and had the protos say so firmly.
+
 **1.4 A `CommandBook` holds exactly one command.**
 - Why: deduplication and the outcome are per command. Core already ran only
   the first page and silently ignored the rest.
@@ -1397,7 +1399,7 @@ pass 12 wrote it. The protos, the `rust/angzarr-proto` crate's tests, the
 contract features and these documents changed; the crate's API gained one
 field.
 
-> **Amended by 14.3–14.26 (pass 14):** the coordinator pulls the descriptors (`ComponentService.Describe`); a versionless descriptor fails registration visibly in the coordinator's readiness, not with a status. One leading `v`/`V` is stripped before parsing; queries use the same rule; a response reporting a version other than the registered one is refused; a registration without a version is refused; `snapshot_refused` is NOT reserved (policy 6.6 holds); the upcast type travels in `ErrorInfo` metadata `upcast_type_url`.
+> **Amended by 14.3–14.29 (pass 14):** the coordinator pulls the descriptors (`ComponentService.Describe`); a versionless descriptor fails registration visibly in the coordinator's readiness, not with a status. One leading `v`/`V` is stripped before parsing; queries use the same rule; a response reporting a version other than the registered one is refused; a registration without a version is refused; `snapshot_refused` is NOT reserved (policy 6.6 holds); the upcast type travels in `ErrorInfo` metadata `upcast_type_url`.
 
 **14.1 `rules_version` is the build version, and the coordinator decides
 snapshot validity.** Supersedes 12.6; amends 6.8; partly restores 5.9.
@@ -1622,6 +1624,8 @@ existing status set. Owner ruling, 2026-10-19.
 - Why: each PM is its own aggregate with its own stream and state; a
   merged answer had no single stream to append to or state to store.
 
+> **Parked by 14.27 (pass 14):** there is no batch helper; this rule waits until a caller needs batching.
+
 **14.17 A batch shares one correlation unless it opts out.** By default
 the command builder's batch helper sends ONE `correlation_id` across the
 batch's commands: the caller's if given, otherwise one it mints (UUIDv7).
@@ -1720,6 +1724,8 @@ already has one destination; no example saga changed. Owner ruling,
   to several destinations is coordination, which is what a process
   manager is for.
 
+> **Amended by 14.29 (pass 14):** "publishing to the bus" means wherever stored events reach a subscriber, live publishing and reads of stored history alike.
+
 **14.25 The owning coordinator upcasts on every way out of its stream.**
 Amends 14.22 and settles backlog GAP-1's open question. The coordinator of
 the component that owns a stream upcasts that stream's events on every
@@ -1754,6 +1760,39 @@ no registration, so it returns no snapshot and every page from sequence 0
   (no dependency, but contradicts "readers only ever see current shapes");
   (c) it is not allowed for a domain whose component declares upcasters.
   Recommended: (a). Not specified in the protos until ruled.
+
+**14.27 No batch helper; the batch-correlation rule is parked.** The
+command builder's batch helper is dropped, with parity C-0572 to C-0574.
+14.17's rule (a batch shares one correlation by default, the caller's or
+one the helper mints as a UUIDv7, with an explicit opt-out) is parked
+until a caller needs batching. Decision 1.4 already permits a client
+library to batch separate calls on its side; each is still its own
+CommandBook. C-0575 stands: a single command never gets a minted
+correlation. Owner ruling, 2026-10-20.
+
+**14.28 One command per CommandBook, reaffirmed.** The owner reaffirmed
+1.4 and kept the structure: `CommandBook { cover, page, handling }`, with
+`CommandPage` as the one command, never a list. The `command_book` and
+`command_page` comments now say so, citing 1.4: deduplication, the
+expected-sequence check and the outcome are per command, and there is no
+wire batching. Site pages that showed `repeated CommandPage pages` or
+several pages per book (the CommandBook glossary entry, `pitch.mdx`,
+`architecture.md`, and code samples in `patterns.mdx`, `saga.mdx` and
+`commands-vs-facts.md`) now show one page. Owner ruling, 2026-10-20.
+- Why the page structure is kept: several command pages per book may come
+  later as an enhancement, and the structure gives such a design somewhere
+  to land. It would need new per-page error, outcome and deduplication
+  semantics, and it is not planned. The protos describe only what holds
+  now: exactly one command.
+
+**14.29 Upcasting covers stored history, not only live publishing.**
+Amends 14.25. The coordinator publishes only what it appends, and business
+code writes current shapes, so live publishing never carries an old
+shape. Old shapes reach a subscriber when it reads stored history
+(catching up, filling a gap, rebuilding). The owning coordinator upcasts
+wherever stored events reach a consumer, live publishing and history reads
+alike. C-0586 now exercises a subscriber reading stored history. Owner
+ruling, 2026-10-20 (from core's report).
 
 ## Corrections
 

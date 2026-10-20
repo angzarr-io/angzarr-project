@@ -109,17 +109,14 @@ Replaces the KS key-store workstream (closed below).
 
 **CI-7** [clients] **SDK command ids.**
 - What: every SDK's command helpers set `CommandPage.command_id` (a v7
-  minted for the caller, one per command) and reuse it verbatim on retry. A
-  batch helper mints one id per command. SDKs no longer need deterministic
-  serialisation for idempotency. Correlation: a single (unbatched) builder
-  sends no `correlation_id` unless the caller sets one; the coordinator
-  fills it. A batch shares ONE correlation across its commands by default,
-  the caller's if given, otherwise one the helper mints (UUIDv7); an
-  explicit opt-out sends none, so each command defaults coordinator-side to
-  its own command id.
-- Why: decisions 12.1, 14.15 and 14.17. Replaces KS-7.
+  minted for the caller, one per command) and reuse it verbatim on retry.
+  SDKs no longer need deterministic
+  serialisation for idempotency. Correlation: a builder sends no
+  `correlation_id` unless the caller sets one; the coordinator fills it.
+  There is no batch helper (decision 14.27).
+- Why: decisions 12.1, 14.15 and 14.27. Replaces KS-7.
 - Settled when: a retried SDK call is answered DUPLICATE, and parity C-0305
-  and C-0572 to C-0575 pass.
+  and C-0575 pass.
 
 **CI-8** [core] **Dead-letter entries for parked facts.**
 - What: deduplicate DLQ entries per (stream, `command_id`), so a source that
@@ -1185,11 +1182,12 @@ no-op implementations only.
   projectors and queries see raw stored versions. The owning coordinator
   upcasts its stream's events by calling its own business process's
   `UpcasterService` on every way out: loading for `Handle` (and a PM's
-  `process_state`), answering `EventQueryService`, and publishing to the
-  bus. Consumers get current shapes only and carry no upcasters. Fail on
+  `process_state`), answering `EventQueryService`, and wherever stored
+  events reach a subscriber (live publishing and reads of stored history:
+  catch-up, gap fill, rebuild). Consumers get current shapes only and carry no upcasters. Fail on
   an unknown type URL, naming it (as annals' strict replay does). The store
   is never rewritten.
-- Why: decisions 14.22 and 14.25 (the open question of how readers of
+- Why: decisions 14.22, 14.25 and 14.29 (the open question of how readers of
   another component's stream are upcast is settled).
 - Settled when: scenarios C-0584 to C-0587 pass, and golden fixtures run in
   CI.
