@@ -1155,17 +1155,44 @@ no-op implementations only.
   implementations are tested, and a rejected command shows up in the
   in-memory sink with its code.
 
+## SG: one saga, one destination (pass 14)
+
+**SG-1** [clients, router] **A saga has exactly one destination domain.**
+- What: angzarr-cli's lint fails a SAGA declaring `output_domains`, or no
+  `output_domain` (allocate the error codes); `output_domains` is
+  PROCESS_MANAGER only. The client library refuses a saga answer holding a
+  command for any domain but its `output_domain`: `SagaService.Handle`
+  fails `INTERNAL` with no commands, and the coordinator dead-letters the
+  trigger and alerts.
+- Why: decision 14.24; `ComponentOptions` (`options.proto`), `SagaResponse`
+  (`saga.proto`).
+- Settled when: scenarios C-0581 to C-0583 pass.
+
+## QS: standalone query server (pass 14)
+
+**QS-1** [core] **Run `EventQueryService` standalone.**
+- What: a read-only query server serving `EventQueryService` over a
+  domain's event store with no component behind it: no command RPCs
+  (`UNIMPLEMENTED`), never a snapshot (every page from 0). Its upcasting
+  waits on the owner (decision 14.26).
+- Why: decision 14.26; `query.proto`.
+- Settled when: scenarios C-0588 and C-0589 pass.
+
 ## GAP: gaps carried from earlier passes
 
-**GAP-1** [core] **Upcasting runs only on aggregate loads.**
-- What: sagas, PMs, projectors and queries see raw stored versions, and a
-  missing rule silently drops the event on rebuild. Upcast on every read
-  path, and fail on an unknown type URL, naming it (as annals' strict replay
-  does). An upcaster is part of the component whose streams it upcasts
-  (decision 14.22), so how a saga, PM or projector reading another
-  component's stream gets that component's upcasting is open.
-- Why: correctness on rebuild.
-- Settled when: every read path upcasts, and golden fixtures run in CI.
+**GAP-1** [core] **Upcast on every read and publish path.**
+- What: today upcasting runs only on aggregate loads, so sagas, PMs,
+  projectors and queries see raw stored versions. The owning coordinator
+  upcasts its stream's events by calling its own business process's
+  `UpcasterService` on every way out: loading for `Handle` (and a PM's
+  `process_state`), answering `EventQueryService`, and publishing to the
+  bus. Consumers get current shapes only and carry no upcasters. Fail on
+  an unknown type URL, naming it (as annals' strict replay does). The store
+  is never rewritten.
+- Why: decisions 14.22 and 14.25 (the open question of how readers of
+  another component's stream are upcast is settled).
+- Settled when: scenarios C-0584 to C-0587 pass, and golden fixtures run in
+  CI.
 
 **GAP-2** [core] **No multi-stream unit of work, and 1:1 upcasters.**
 - What: angzarr appends one command's events to one stream per write, and an
@@ -1288,9 +1315,11 @@ in place with their disposition but not counted.
 | UU: one UUID type, v5 derived ids (pass 9) | 4 |
 | CL: D9 cleanups (pass 6) | 5 |
 | AU: attempt-audit sink (pass 6, held) | 1 |
+| SG: one saga, one destination (pass 14) | 1 |
+| QS: standalone query server (pass 14) | 1 |
 | GAP: carried gaps | 3 |
 | DOC: site, specs, branches | 7 |
-| **Total** | **112** |
+| **Total** | **114** |
 
 Pass 12 closed 15 items (KS-1–12, with KS-9's content moved to CI-8;
 SN-3, DQ-3 and MI-3), opened 13 (CI-1–8, RV-3, PR-3, VC-1, CR-3 and
@@ -1306,6 +1335,8 @@ Pass 14 rewrote RV-1, RV-2, RV-3, SN-3 and VC-1 in place (RV-3 moved from
 the client libraries to core) and pointed NC-1 and CR-1 at their
 scenarios: 110 open items stay 110. The follow-up rulings added SN-4
 (decision 14.12) and PR-5 (decision 14.16, rescoped to core by 14.20): 112.
+The later pass-14 rulings added SG-1 (14.24) and QS-1 (14.26) and rewrote
+GAP-1 (14.25): 114.
 
 ## By-repo index
 
@@ -1313,9 +1344,9 @@ An item tagged with several repos appears under each of them.
 
 | Repo | Items |
 |---|---|
-| core | CI-1–6, CI-8, OB-1–3, OB-5–6, PS-1–6, BO-1, RV-1, RV-3, MD-1–5, ST-1, ED-1–4, SN-1–2, SN-4, RT-1–2, DQ-1–2, DQ-4–6, RN-1–2, PR-1–2, PR-4–5, FA-1–2, HD-1–5, WS-1–5, RM-1–3, RM-6, TG-1, OR-1–2, RD-1, CQ-1–2, EA-1–3, NC-2, CR-2–3, MI-1, UU-2–4, CL-1–5, AU-1, GAP-1–2 |
-| router | OB-4, OB-6, PS-2, RN-1, RV-2, SN-4, VC-1, FA-3, HD-3, WS-2, TG-1–2, OR-2, NC-1, CR-1, CL-2, CL-4 |
-| clients (go, rust, python, java, csharp, cpp, typescript) | CI-2, CI-7, BO-2, RV-2, SN-4, MD-6, ST-2, ED-3, RN-1–2, VC-1, FA-3, HD-5, WS-1–2, RM-4, RM-6, TG-1, OR-2, RD-1, CQ-2, EA-4, NC-1, CR-1, CR-3, MI-2, UU-1–2, CL-1–2, CL-4–5 |
+| core | CI-1–6, CI-8, OB-1–3, OB-5–6, PS-1–6, BO-1, RV-1, RV-3, MD-1–5, ST-1, ED-1–4, SN-1–2, SN-4, RT-1–2, DQ-1–2, DQ-4–6, RN-1–2, PR-1–2, PR-4–5, FA-1–2, HD-1–5, WS-1–5, RM-1–3, RM-6, TG-1, OR-1–2, RD-1, CQ-1–2, EA-1–3, NC-2, CR-2–3, MI-1, UU-2–4, CL-1–5, AU-1, QS-1, GAP-1–2 |
+| router | OB-4, OB-6, PS-2, RN-1, RV-2, SN-4, VC-1, FA-3, HD-3, WS-2, TG-1–2, OR-2, NC-1, CR-1, CL-2, CL-4, SG-1 |
+| clients (go, rust, python, java, csharp, cpp, typescript) | CI-2, CI-7, BO-2, RV-2, SN-4, MD-6, ST-2, ED-3, RN-1–2, VC-1, FA-3, HD-5, WS-1–2, RM-4, RM-6, TG-1, OR-2, RD-1, CQ-2, EA-4, NC-1, CR-1, CR-3, MI-2, UU-1–2, CL-1–2, CL-4–5, SG-1 |
 | examples | BO-3, WS-2, RM-5 |
 | site | RN-2, EA-4, CL-5, DOC-1–4, DOC-7 |
 | project (features, CI, branches, parity) | EA-4, CR-1, GAP-3, DOC-5–6 |

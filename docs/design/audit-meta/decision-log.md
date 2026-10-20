@@ -1397,7 +1397,7 @@ pass 12 wrote it. The protos, the `rust/angzarr-proto` crate's tests, the
 contract features and these documents changed; the crate's API gained one
 field.
 
-> **Amended by 14.3–14.14 (pass 14):** the coordinator pulls the descriptors (`ComponentService.Describe`); a versionless descriptor fails registration visibly in the coordinator's readiness, not with a status. One leading `v`/`V` is stripped before parsing; queries use the same rule; a response reporting a version other than the registered one is refused; a registration without a version is refused; `snapshot_refused` is NOT reserved (policy 6.6 holds); the upcast type travels in `ErrorInfo` metadata `upcast_type_url`.
+> **Amended by 14.3–14.26 (pass 14):** the coordinator pulls the descriptors (`ComponentService.Describe`); a versionless descriptor fails registration visibly in the coordinator's readiness, not with a status. One leading `v`/`V` is stripped before parsing; queries use the same rule; a response reporting a version other than the registered one is refused; a registration without a version is refused; `snapshot_refused` is NOT reserved (policy 6.6 holds); the upcast type travels in `ErrorInfo` metadata `upcast_type_url`.
 
 **14.1 `rules_version` is the build version, and the coordinator decides
 snapshot validity.** Supersedes 12.6; amends 6.8; partly restores 5.9.
@@ -1667,6 +1667,8 @@ several coordinators, each delivering to its own PM with its own process
 state. Scenarios C-0576 and C-0577 are deleted; C-0578 is rewritten.
 Owner ruling, 2026-10-20.
 
+> **Amended by 14.26 (pass 14):** a standalone query server holds no registration and returns no snapshot.
+
 **14.21 A query is judged by the answering coordinator's registration.**
 Replaces 14.9. A query returns a snapshot only if it passes the state type
 check and the domain's compatibility rule against the registration of
@@ -1674,6 +1676,8 @@ the coordinator answering it; while that coordinator holds none, it
 returns no snapshot. During a rolling deployment each instance's
 coordinator judges by its own instance's version. C-0560 is rewritten.
 Owner ruling, 2026-10-20.
+
+> **Amended by 14.25 (pass 14):** the open question is settled: the owning coordinator upcasts on every read and publish path through its own business process.
 
 **14.22 An upcaster is part of its component.** An upcaster belongs to
 the component whose streams it upcasts. It has no `ComponentKind`, no
@@ -1685,6 +1689,8 @@ upcaster kind). How a saga, process manager or projector reading another
 component's stream gets that component's upcasting stays open (backlog
 GAP-1). Owner ruling, 2026-10-20.
 
+> **Amended by 14.24 (pass 14):** a saga has exactly one source and one destination domain; `output_domains` is PROCESS_MANAGER only.
+
 **14.23 One saga per (source domain, destination domain) pair.** Every
 reaction that turns one domain's events into another domain's commands
 belongs to that pair's single saga, recorded on `ComponentOptions`
@@ -1695,6 +1701,59 @@ order, `RecordRoundResult` then `AwardLoyaltyPoints`. Owner ruling, 2026-10-20.
 - Why: one subscriber per pair, so one position, one deployment and one
   version per translation, and no two sagas racing over the same event
   for the same destination.
+
+**14.24 A saga has exactly one source and one destination domain.**
+Amends 14.23. A saga is a translator between two domains:
+`ComponentOptions.input_domain` is its one source and `output_domain` its
+one destination (required); `output_domains` is PROCESS_MANAGER only.
+Anything needing several destinations is a process manager. Refusals
+follow the existing style: angzarr-cli lint fails generation for a saga
+with `output_domains` or no `output_domain`; at run time the client library
+refuses a saga answer holding a command for any other domain
+(`SagaService.Handle` fails `INTERNAL` with no commands, and the
+coordinator dead-letters the trigger and alerts). The coordinator does not
+check it itself, because `ComponentDescriptor` carries no output domains.
+The blackjack example's one saga, `TablePlayerSaga` (table -> player),
+already has one destination; no example saga changed. Owner ruling,
+2026-10-20.
+- Why: a translator between two domains is the saga's whole job; fan-out
+  to several destinations is coordination, which is what a process
+  manager is for.
+
+**14.25 The owning coordinator upcasts on every way out of its stream.**
+Amends 14.22 and settles backlog GAP-1's open question. The coordinator of
+the component that owns a stream upcasts that stream's events on every
+read and publish path by calling its own business process's
+`UpcasterService`: loading for `Handle` (and a PM's `process_state`),
+answering queries, and publishing to the bus. Consumers (sagas, process
+managers, projectors) only ever see current event shapes and have no
+upcasters of their own. The store is never rewritten. Owner ruling,
+2026-10-20.
+- Why: the owner of a stream is the only party that knows its old shapes;
+  upcasting once on the way out keeps every reader on one shape.
+- Cost: publishing and queries call the business process; a business
+  process that is down stalls its stream's publishing and queries as well
+  as its commands.
+
+**14.26 Event-store queries may run standalone.** `EventQueryService`
+(`query.proto`) is a read-only interface independent of
+`CommandHandlerCoordinatorService`. An aggregate (or process manager)
+coordinator serves it for its own component's domain; a standalone query
+server may serve it for downstream readers with no component behind it,
+and serves no command RPCs. Snapshots: through a coordinator, judged
+against that coordinator's registration (14.21); a standalone server holds
+no registration, so it returns no snapshot and every page from sequence 0
+(C-0556, C-0589). Owner ruling, 2026-10-20.
+- **Open (owner question): upcasting on a standalone server.** 14.25
+  assumes a component behind the server. Proposed options:
+  (a) the standalone server is configured with the stream owner's
+  `UpcasterService` address and upcasts through it, as the owner's
+  coordinator would (consistent results, but a runtime dependency on the
+  owner's business process);
+  (b) it serves events as stored, and its readers must accept old shapes
+  (no dependency, but contradicts "readers only ever see current shapes");
+  (c) it is not allowed for a domain whose component declares upcasters.
+  Recommended: (a). Not specified in the protos until ruled.
 
 ## Corrections
 

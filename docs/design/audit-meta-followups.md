@@ -23,7 +23,7 @@ event onwards, every removal reserves its number and name (see
 | [audit-meta/critical-review-source.md](audit-meta/critical-review-source.md) | The post-pass-4 critical review's own record (authoritative for the findings' content). |
 | [audit-meta/critical-review.md](audit-meta/critical-review.md) | The status of each review finding: W1–W14, D1–D11, FINE and annals fitness, with where each was resolved; and the illuminated review's findings decided in passes 12 and 13 (T3–T8, T13, CH1, SG3, PM2). |
 | [audit-meta/idempotency.md](audit-meta/idempotency.md) | The idempotency research (a comparison table) and the chosen design since pass 12: one `command_id` per command, deduplicated on the events, with its accepted costs; PM process events deduplicated on their trigger, and reactor re-runs (pass 13); the superseded key-store design in brief. |
-| [audit-meta/backlog.md](audit-meta/backlog.md) | **The code follow-up backlog**, by workstream with a by-repo index. 112 open items, each with what, why, and what settles it; items closed by passes 12 and 13 are kept in place with their disposition. |
+| [audit-meta/backlog.md](audit-meta/backlog.md) | **The code follow-up backlog**, by workstream with a by-repo index. 114 open items, each with what, why, and what settles it; items closed by passes 12 and 13 are kept in place with their disposition. |
 | [audit-meta/annals-divergence.md](audit-meta/annals-divergence.md) | Why annals keeps its atomic in-process chain, and what it does and does not need as a result (no claims, no outbox, a logging "DLQ"). Also where annals matches angzarr: the proto types themselves, `EventMeta`, command ids and dedup on events, the pipeline order, conflict units with COMMUTATIVE the default in both. |
 | [../guide/state-and-conflicts.md](../guide/state-and-conflicts.md) | **Developer guide** (pass 12): custom options, the `(state)` option, marking conflict units, how COMMUTATIVE resolves and its risks, the generator's warnings and errors, the build setup, registration, versioning commands, and (pass 13) re-running reactors. |
 
@@ -196,11 +196,14 @@ event onwards, every removal reserves its number and name (see
     version, so re-runs dedupe; checkpoint resets are for recovery; repairs
     are new commands; standard re-drive commands are backlog RD-1.
   - **No reacting-component field**: source control says what makes what.
-- **Pass 14** (this change): decisions 14.1–14.23, by the owner.
+- **Pass 14** (this change): decisions 14.1–14.26, by the owner.
   - **One coordinator, one component, one business process** (14.19):
     `Describe` returns one descriptor; each PM has its own coordinator; a
     query is judged by its coordinator's own registration; an upcaster is
     part of its component; one saga per (source, destination) pair.
+  - **A saga has one source and one destination** (14.24); the owning
+    coordinator upcasts on every read and publish path (14.25); queries may
+    run standalone, with no snapshots (14.26; standalone upcasting is open).
   - **The state on every response**: the client library returns the
     post-command state as `snapshot.state` on every response (a PM's in
     `ProcessManagerHandleResponse.process_state`); the
