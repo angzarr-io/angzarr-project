@@ -110,12 +110,16 @@ Replaces the KS key-store workstream (closed below).
 **CI-7** [clients] **SDK command ids.**
 - What: every SDK's command helpers set `CommandPage.command_id` (a v7
   minted for the caller, one per command) and reuse it verbatim on retry. A
-  batch helper mints one id per command and shares the correlation. SDKs no
-  longer need deterministic serialisation for idempotency. Builders send no
-  `correlation_id` unless the caller sets one; the coordinator fills it.
-- Why: decisions 12.1 and 14.15. Replaces KS-7.
+  batch helper mints one id per command. SDKs no longer need deterministic
+  serialisation for idempotency. Correlation: a single (unbatched) builder
+  sends no `correlation_id` unless the caller sets one; the coordinator
+  fills it. A batch shares ONE correlation across its commands by default,
+  the caller's if given, otherwise one the helper mints (UUIDv7); an
+  explicit opt-out sends none, so each command defaults coordinator-side to
+  its own command id.
+- Why: decisions 12.1, 14.15 and 14.17. Replaces KS-7.
 - Settled when: a retried SDK call is answered DUPLICATE, and parity C-0305
-  passes.
+  and C-0572 to C-0575 pass.
 
 **CI-8** [core] **Dead-letter entries for parked facts.**
 - What: deduplicate DLQ entries per (stream, `command_id`), so a source that
@@ -589,6 +593,17 @@ built.
   not one of the review's D items).
 - Why: pass 2.
 - Settled when: the question is decided and implemented.
+
+**PR-5** [core, clients, router] **One process manager per request.**
+- What: core delivers a trigger to each subscribed PM component
+  separately, setting `ProcessManagerHandleRequest.component` (the
+  described name) and that PM's own `process_state`, and persists each
+  answer to that PM's own stream; no fan-out and no merging of answers.
+  The client library dispatches only to the named PM, refusing an empty
+  name `INVALID_ARGUMENT` and an unhosted one `NOT_FOUND`; delete any
+  merge of co-resident PMs' answers.
+- Why: decision 14.16; `process_manager.proto`.
+- Settled when: scenarios C-0576 to C-0578 pass.
 
 **PR-3** (meta for a PM's own process events, review PM2): **closed** by
 pass 13 (decision 13.2). The rule is in the protos; its implementation is
@@ -1253,7 +1268,7 @@ in place with their disposition but not counted.
 | RT: recorded_at and temporal queries | 2 |
 | DQ: DLQ replay | 5 |
 | RN: renames | 2 |
-| PR: process-manager replies and process events | 3 |
+| PR: process-manager replies and process events | 4 |
 | VC: command versioning (pass 12) | 1 |
 | FA: fact pipeline | 3 |
 | HD: Handling resolution | 5 |
@@ -1272,7 +1287,7 @@ in place with their disposition but not counted.
 | AU: attempt-audit sink (pass 6, held) | 1 |
 | GAP: carried gaps | 3 |
 | DOC: site, specs, branches | 7 |
-| **Total** | **111** |
+| **Total** | **112** |
 
 Pass 12 closed 15 items (KS-1–12, with KS-9's content moved to CI-8;
 SN-3, DQ-3 and MI-3), opened 13 (CI-1–8, RV-3, PR-3, VC-1, CR-3 and
@@ -1287,7 +1302,7 @@ items became 110. Review T8 needs no item of its own beyond RD-1.
 Pass 14 rewrote RV-1, RV-2, RV-3, SN-3 and VC-1 in place (RV-3 moved from
 the client libraries to core) and pointed NC-1 and CR-1 at their
 scenarios: 110 open items stay 110. The follow-up rulings added SN-4
-(decision 14.12): 111.
+(decision 14.12) and PR-5 (decision 14.16): 112.
 
 ## By-repo index
 
@@ -1295,9 +1310,9 @@ An item tagged with several repos appears under each of them.
 
 | Repo | Items |
 |---|---|
-| core | CI-1–6, CI-8, OB-1–3, OB-5–6, PS-1–6, BO-1, RV-1, RV-3, MD-1–5, ST-1, ED-1–4, SN-1–2, SN-4, RT-1–2, DQ-1–2, DQ-4–6, RN-1–2, PR-1–2, PR-4, FA-1–2, HD-1–5, WS-1–5, RM-1–3, RM-6, TG-1, OR-1–2, RD-1, CQ-1–2, EA-1–3, NC-2, CR-2–3, MI-1, UU-2–4, CL-1–5, AU-1, GAP-1–2 |
-| router | OB-4, OB-6, PS-2, RN-1, RV-2, SN-4, VC-1, FA-3, HD-3, WS-2, TG-1–2, OR-2, NC-1, CR-1, CL-2, CL-4 |
-| clients (go, rust, python, java, csharp, cpp, typescript) | CI-2, CI-7, BO-2, RV-2, SN-4, MD-6, ST-2, ED-3, RN-1–2, VC-1, FA-3, HD-5, WS-1–2, RM-4, RM-6, TG-1, OR-2, RD-1, CQ-2, EA-4, NC-1, CR-1, CR-3, MI-2, UU-1–2, CL-1–2, CL-4–5 |
+| core | CI-1–6, CI-8, OB-1–3, OB-5–6, PS-1–6, BO-1, RV-1, RV-3, MD-1–5, ST-1, ED-1–4, SN-1–2, SN-4, RT-1–2, DQ-1–2, DQ-4–6, RN-1–2, PR-1–2, PR-4–5, FA-1–2, HD-1–5, WS-1–5, RM-1–3, RM-6, TG-1, OR-1–2, RD-1, CQ-1–2, EA-1–3, NC-2, CR-2–3, MI-1, UU-2–4, CL-1–5, AU-1, GAP-1–2 |
+| router | OB-4, OB-6, PS-2, RN-1, RV-2, SN-4, VC-1, FA-3, HD-3, WS-2, TG-1–2, OR-2, PR-5, NC-1, CR-1, CL-2, CL-4 |
+| clients (go, rust, python, java, csharp, cpp, typescript) | CI-2, CI-7, BO-2, RV-2, SN-4, MD-6, ST-2, ED-3, RN-1–2, VC-1, FA-3, HD-5, WS-1–2, RM-4, RM-6, TG-1, OR-2, RD-1, PR-5, CQ-2, EA-4, NC-1, CR-1, CR-3, MI-2, UU-1–2, CL-1–2, CL-4–5 |
 | examples | BO-3, WS-2, RM-5 |
 | site | RN-2, EA-4, CL-5, DOC-1–4, DOC-7 |
 | project (features, CI, branches, parity) | EA-4, CR-1, GAP-3, DOC-5–6 |

@@ -1604,6 +1604,33 @@ id). Parity C-0305 says so. Owner ruling, 2026-10-19.
 - Why: one rule, applied in one place; a client-minted correlation would
   differ from the command id the coordinator mints and split the trail.
 
+**14.16 One process manager per request.** The coordinator delivers a
+trigger to each subscribed PM component separately.
+`ProcessManagerHandleRequest` gains `string component = 3`, the PM's name
+as `ComponentService.Describe` reported it, and the response is that one
+PM's process events (covers: its own stream), commands and
+`process_state`. There is no fan-out to co-resident PMs and no merging of
+answers. An empty `component` is refused `INVALID_ARGUMENT` (malformed); a
+PM the process does not host is refused `NOT_FOUND`; both terminal in the
+existing status set. Owner ruling, 2026-10-19.
+- Why: each PM is its own aggregate with its own stream and state; a
+  merged answer had no single stream to append to or state to store.
+
+**14.17 A batch shares one correlation unless it opts out.** By default
+the command builder's batch helper sends ONE `correlation_id` across the
+batch's commands: the caller's if given, otherwise one it mints (UUIDv7).
+An explicit opt-out sends none, so each command defaults coordinator-side
+to its own command id. A single, unbatched builder still sends none unless
+the caller sets one (14.15). SDK helpers still mint a command id per
+command for retries (CI-7). Owner ruling, 2026-10-19.
+- Why: a batch is usually one piece of work, and sharing its correlation
+  is what lets `GetCorrelatedEvents` find all of it.
+
+**14.18 Correlation ids in the scenarios are UUIDs.** The client and
+parity scenarios used strings ("trace-123", "workflow-123") for
+correlation ids; they are 16-byte `UUID`s since 9.1, so the scenarios now
+use UUID text. Owner ruling, 2026-10-19.
+
 ## Corrections
 
 Facts the earlier passes or the design note got wrong:
