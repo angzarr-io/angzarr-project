@@ -188,7 +188,7 @@ event onwards, every removal reserves its number and name (see
     (`command_id`) and 15 (`causation_id`) deleted, unreserved.
   - **PM process events**: `causation.triggering_event`, the trigger's
     correlation, deduplicated on `triggering_event` within the PM's stream
-    (superseded by 14.31: a PM takes facts only, and `triggering_event`
+    (superseded by 14.31: a PM is a domain with no triggers, and `triggering_event`
     is deleted).
   - **No command-causation on events**: a reaction command's trigger stays
     on `CommandPage.causation_id` (transport and trace metadata) and goes
@@ -232,21 +232,22 @@ event onwards, every removal reserves its number and name (see
     upcast too.
   - **A PM's root is its correlation id** (14.30), unchanged; since 14.31
     the correlation of the facts addressed to it.
-  - **Process managers take facts only** (14.31, revised by the owner on
-    2026-10-28): a PM's only input is facts addressed to it; it
-    subscribes to nothing and takes no commands (rejection would need
-    compensation; revisit if a real case appears); it records each fact
-    and never refuses one (a failing handler is dead-lettered); it sends
-    no commands, so sagas from its domain build them
-    (`ProcessManagerHandleResponse.commands` and `output_domains`
-    deleted). Only a declared starting fact starts an instance (annals
-    ruling B1, `CommandOptions.starts`,
-    `ComponentDescriptor.starting_types`); deduplication by the fact's id
-    runs before the handler. `EventMeta.triggering_event`,
-    `ProcessManagerCoordinatorService` and `EventConsumer.applies` are
-    deleted. **The saga contract changes (flagged):** a saga emits facts
-    for a PM's domain and commands for an aggregate's. The outbox is one
-    kind-agnostic capability, used today by sagas; a PM needs none.
+  - **A process manager is a domain** (14.31, settled by the owner on
+    2026-10-28): commands (refusable; sagas translate other domains'
+    events into them) and facts (timeouts, webhooks, rejection facts) in,
+    its own events out; no triggers; served by `CommandHandlerService` like
+    an aggregate (`ProcessManagerService` and its messages deleted). Only
+    declared starting inputs start an instance (B1; a non-starting fact is
+    skipped silently, a non-starting command refused as PROPOSED).
+    `EventMeta.triggering_event`, `ProcessManagerCoordinatorService` and
+    `EventConsumer.applies` are deleted.
+  - **Refusals (2.2 amended):** a saga's target refuses and records
+    nothing; the saga's on-refused callback, `OnRefused(Refusal { event,
+    command, response })`, declared by `(on_refused)`, crafts a fact for the
+    saga's own source domain, written to the outbox in the transaction that
+    clears the command. A context object was considered and deferred. The
+    outbox is one kind-agnostic capability, used today by sagas; a PM
+    needs none.
 
 ### Worked example: hatpick's `ListState`
 
@@ -357,7 +358,7 @@ markers can go wrong.
 - **Command upcasting** (pass 12): supported and discouraged (decision
   12.11).
 - **Meta for a PM's own process events** (pass 13, PM2; revised in pass
-  14): a PM takes facts only, so its events carry the fact's `command_id`
+  14): a PM is a domain, so its events carry their command's or fact's `command_id`
   and correlation and deduplicate on it (decision 14.31, superseding
   13.2).
 - **Causation on events** (pass 13): only the direct cause; a reaction
@@ -384,7 +385,7 @@ markers can go wrong.
   can tie with a concurrent main append, and clocks differ across
   instances.
 - **Per-event saga causation** (W3a, backlog OB-6); it now covers a
-  saga's facts for a process manager too.
+  saga's rejection facts too.
 - **The SIMPLE mode name** (W14): not renamed, with no decision recorded.
 - **Multi-instance affinity for in-memory editions.** An in-memory edition
   lives in one process. Options:

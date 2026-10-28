@@ -71,7 +71,7 @@ model, with the message-id convention of the messaging inboxes.
 | Rejections and parked facts | Write nothing, so a retry with the same id runs business code again (Wolverine-style release, for free). |
 | `HandleAsync` and DLQ replay | The id is assigned before enqueueing (and stored with the dead letter), so queue redelivery and replay are deduplicated. A client-supplied id is no longer required; the caller supplies one only to make its *own* retries safe. |
 | Retention | **None. Dedup is forever**: the events are permanent, so a command id that applied to a stream never applies to it again. |
-| PM process events (pass 13, revised in pass 14) | A PM takes facts only (decision 14.31, superseding 13.2), so its events are a fact's events: `causation.command_id` is the fact's id, and they deduplicate on it like any fact's. A saga's fact for a PM takes its id from the reaction origin (`"angzarr-reaction:"` + the reaction name), so a saga re-run is deduplicated too. There is no trigger lookup and no `triggering_event`. |
+| PM process events (pass 13, revised in pass 14) | A PM is a domain (decision 14.31, superseding 13.2): its events are its commands' and facts' events, with `causation.command_id`, deduplicated like any domain's. A saga's rejection fact takes its id from the refusal origin (`"angzarr-refusal:"` + the refused command's reaction name), so a re-run refused again is deduplicated too. There is no trigger lookup and no `triggering_event`. |
 | Reactor re-runs (pass 13) | Same trigger, component and index give the same id, whatever the reactor's rules version, so a re-run always deduplicates. Repairs are new commands. See [Reactor re-runs](#reactor-re-runs). |
 
 ### Accepted costs
@@ -137,9 +137,9 @@ Decided in pass 13 (decision 13.4; review finding T8).
 component, index) and nothing else: not the reactor's `rules_version`, not
 its code. A reactor run again over a trigger it already handled (a
 checkpoint reset) emits the same ids, so every destination answers
-DUPLICATE with the events the first run produced; a saga's facts for a
-process manager reproduce their reaction origin, so the PM answers
-DUPLICATE too (decision 14.31). This holds
+DUPLICATE with the events the first run produced, a process manager
+included; a command refused again yields the same rejection fact id, which
+the saga's source answers DUPLICATE (decision 14.31). This holds
 even if the reactor's code changed in between and would now emit different
 commands: that is the "reused id with a different payload" cost, applied to
 reactions, and it is deliberate.

@@ -76,7 +76,7 @@ behaves differently under the two runtimes. This is accepted.
 ## Where annals follows angzarr
 
 - **`EventMeta` is the same** (pass 13, revised by 14.31): `causation`
-  (`command_id`, its one arm; a PM takes facts only, so
+  (`command_id`, its one arm; a PM is a domain with no triggers, so
   `triggering_event` is deleted), `fact`, `correlation_id`,
   `recorded_at` and `rules_version`. There is no actor (who-did-it goes to
   security logs in both), no origin, no base sequence, and no copy of a
