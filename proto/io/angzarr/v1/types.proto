@@ -1,7 +1,8 @@
 // DOC: This file is referenced in docs/docs/reference/patterns.mdx
 //      Update documentation when making changes to ConflictResolution,
 //      Handling, Cover (editions), Snapshot, the command identity
-//      fields, or the CommandPage body. The command handling modes (DECISION, ASYNC, SIMPLE) are RPCs, documented in
+//      fields, or the CommandPage body. The command handling modes
+//      (DECISION, ASYNC, SIMPLE) are RPCs, documented in
 //      command_handler.proto.
 
 syntax = "proto3";
@@ -25,8 +26,9 @@ option ruby_package = "Angzarr";
 // the type URL "/" + the message's fully-qualified name (TYPE_URL_PREFIX =
 // "/"), e.g. "/io.angzarr.v1.EventPage", "/orders.OrderCreated". Readers
 // accept any prefix: a type URL identifies the message whose fully-qualified
-// name is the text after its last "/", so "type.googleapis.com/orders.OrderCreated",
-// "/orders.OrderCreated" and "orders.OrderCreated" all name the same message.
+// name is the text after its last "/", so
+// "type.googleapis.com/orders.OrderCreated", "/orders.OrderCreated" and
+// "orders.OrderCreated" all name the same message.
 // Matching compares full names exactly: "orders.OrderCreated" never matches
 // "OrderCreated" or "orders.v2.OrderCreated".
 
@@ -418,8 +420,8 @@ message EventRef {
 // id naming the message's DIRECT cause. A command's direct cause is its
 // trigger (causation_id); an event's direct cause is the command that
 // produced it, or, for a process manager's trigger-caused process events,
-// the trigger it reacted to (EventMeta.causation). Each event records only its own
-// direct cause, never its command's causation (decision 13.3).
+// the trigger it reacted to (EventMeta.causation). Each event records only
+// its own direct cause, never its command's causation (decision 13.3).
 //
 // command_id: one per command, a UUID, assigned before deduplication:
 //   client Command  the caller's CommandPage.command_id (any UUID version,
@@ -464,8 +466,9 @@ message EventRef {
 // causation_id: the command message's own causation, as the standard
 // defines it: the EventRef of the event a saga reacted to, always the
 // triggering event (a process manager emits no commands, so it stamps no
-// causation_id; decision 14.31). Set on reaction commands only, by the reactor's coordinator, and
-// the input the reaction command_id is derived from (derived_ids region).
+// causation_id; decision 14.31). Set on reaction commands only, by the
+// reactor's coordinator, and the input the reaction command_id is derived
+// from (derived_ids region).
 // It is transport and trace metadata, NOT persisted on the events the
 // command produces: their causation is the command itself
 // (EventMeta.causation.command_id). The coordinators record the trigger
@@ -640,8 +643,8 @@ message EventMeta {
   // for Commands and trigger-caused process events.
   FactOrigin fact = 16;
   // The producing command's correlation, or for a trigger-caused process
-  // event its trigger's (see the command_identity region). Never unset on a persisted
-  // event.
+  // event its trigger's (see the command_identity region). Never unset on
+  // a persisted event.
   UUID correlation_id = 14;
   // When the event was durably recorded, stamped by the server that persisted
   // it. The only timestamp an event carries; TemporalQuery.as_of_time selects
@@ -803,7 +806,8 @@ message Projection {
 // Whatever is chosen must be supported by the component's state (see
 // ConflictResolution).
 //
-// The pipeline. The coordinator's order, NORMATIVE in every runtime and every mode:
+// The pipeline. The coordinator's order, NORMATIVE in every runtime and
+// every mode:
 //   1. validate      the malformed list below; refuse before anything is
 //                    minted, looked up or stored;
 //   2. assign ids    mint or derive command_id, and set an absent
@@ -891,8 +895,9 @@ message Handling {
 // endregion
 
 // region command_page
-// The one command of a CommandBook: its identity and provenance (command_id, correlation_id,
-// causation_id, fact_origin; see the command_identity region) and a body
+// The one command of a CommandBook: its identity and provenance
+// (command_id, correlation_id, causation_id, fact_origin; see the
+// command_identity region) and a body
 // that is either a decision-requesting Command or an already-happened Fact.
 // How the command is handled is not part of the page (see
 // CommandBook.handling).
@@ -1169,9 +1174,9 @@ message Query {
 // event E led to is in the result. How exactly each edge is known depends
 // on the kind of event (decision 13.3):
 //   - Trigger-caused process events are linked EXACTLY: the process
-//     events a process manager wrote in reaction to E are the result pages whose
-//     EventMeta.causation.triggering_event equals E's EventRef (E's book
-//     cover plus its EventPage.sequence).
+//     events a process manager wrote in reaction to E are the result
+//     pages whose EventMeta.causation.triggering_event equals E's EventRef
+//     (E's book cover plus its EventPage.sequence).
 //   - Events of reaction commands are linked only COARSELY, by
 //     correlation: the pages of one command share its
 //     causation.command_id, but the command's trigger (its causation_id)
@@ -1295,7 +1300,8 @@ message AngzarrDeadLetter {
 // ============================================================================
 
 // Describes what a component subscribes to.
-// Topology edges derived from inputs: if A subscribes to domain X, edge X→A exists.
+// Topology edges derived from inputs: if A subscribes to domain X, edge
+// X→A exists.
 message Target {
   string domain = 1;
   // PROCESS_MANAGER only: the type URLs of the events from this domain that
