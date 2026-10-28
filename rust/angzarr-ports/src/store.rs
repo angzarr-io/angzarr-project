@@ -110,6 +110,11 @@ pub struct Written {
 ///   [`Editions::remove_deleted`], once the deletion has propagated onward.
 ///   A deletion written to a stream with no event in the edition writes
 ///   nothing (there is nothing to delete).
+/// - An edition is being deleted while any stream of it holds a recorded
+///   deletion, and does not exist once no creation of it remains. Then an
+///   arrival's creation (one with `propagated_from`) and a position on a
+///   stream with no rows of it are refused [`StoreError::EditionNotFound`]:
+///   nothing re-creates a deleted edition but an origin creation.
 /// - Main is never written by any of it.
 pub trait EventStore: MaybeSend + MaybeSync {
     /// Land `write` at once, or none of it. Refused, writing nothing: its

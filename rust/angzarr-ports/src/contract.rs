@@ -1351,7 +1351,11 @@ where
     append(&store, e, 3, &[deleted_page(3, "what-if")])
         .await
         .unwrap();
-    assert_eq!(store.remove_deleted(e).await, Ok(4), "its four events");
+    assert_eq!(
+        store.remove_deleted(e).await,
+        Ok(3),
+        "its three events: the creation, its own, the deletion"
+    );
     assert_eq!(
         store.read(e, 0, None).await.unwrap().pages,
         [page(0, 1)],
@@ -1465,6 +1469,88 @@ where
     .unwrap();
     store.remove_deleted(reached).await.unwrap();
     assert_eq!(store.list_editions().await, Ok(vec![]), "nothing remains");
+}
+
+/// The owner's ruling (revising D6): once an edition is deleted, a later
+/// arrival in it is REFUSED, because the edition does not exist, and it
+/// re-creates neither the stream nor the edition. While any stream of it
+/// holds a recorded deletion, it is being deleted; once no creation of it
+/// remains, it does not exist. Either way, an arrival's creation (one with
+/// `propagated_from`) and a position on a stream with no rows of it are
+/// refused `EditionNotFound`. Only an explicit (origin) creation brings
+/// the name back.
+pub async fn after_deletion_a_later_arrival_in_the_edition_is_refused<S>(store: S)
+where
+    S: Store + Editions,
+{
+    let (origin, reached) = (
+        edition_stream("player", 1, "what-if"),
+        edition_stream("table", 1, "what-if"),
+    );
+    fork(&store, origin).await;
+    append(
+        &store,
+        reached,
+        0,
+        &[propagated_created_page(
+            0,
+            "what-if",
+            event_ref(origin, 0),
+            command(9),
+        )],
+    )
+    .await
+    .unwrap();
+    append(&store, origin, 1, &[deleted_page(1, "what-if")])
+        .await
+        .unwrap();
+    append(
+        &store,
+        reached,
+        1,
+        &[propagated_deleted_page(
+            1,
+            "what-if",
+            event_ref(origin, 1),
+            command(10),
+        )],
+    )
+    .await
+    .unwrap();
+    store.remove_deleted(origin).await.unwrap();
+    let gone = || StoreError::EditionNotFound {
+        name: "what-if".to_string(),
+    };
+    let arrival = [propagated_created_page(
+        0,
+        "what-if",
+        event_ref(reached, 0),
+        command(11),
+    )];
+    assert_eq!(
+        store.write(Write::append(origin, 0, &arrival)).await,
+        Err(gone()),
+        "being deleted: an arrival at the removed stream re-creates nothing"
+    );
+    let positions = [(key("table-player", origin), 2)];
+    assert_eq!(
+        store.write(Write::positions(&positions)).await,
+        Err(gone()),
+        "nor does a step's position on it"
+    );
+    assert_eq!(store.head(origin).await.unwrap().next_sequence, 0);
+    store.remove_deleted(reached).await.unwrap();
+    assert_eq!(
+        store.write(Write::append(origin, 0, &arrival)).await,
+        Err(gone()),
+        "deleted: the edition does not exist"
+    );
+    assert_eq!(store.list_editions().await, Ok(vec![]), "and is not listed");
+    assert_eq!(
+        append(&store, origin, 0, &[created_page(0, "what-if")]).await,
+        Ok(1),
+        "only an explicit creation brings the name back"
+    );
 }
 
 /// The reference what-if (the owner's use: games and AI experimentation):
@@ -2163,6 +2249,7 @@ macro_rules! store_contract {
             a_deleted_stream_is_removed_with_every_row_of_it,
             a_deletion_reaching_an_uncreated_stream_writes_nothing,
             a_deletion_is_recorded_and_removed_stream_by_stream,
+            after_deletion_a_later_arrival_in_the_edition_is_refused,
             a_what_if_edition_runs_beside_main_and_leaves_main_untouched,
         );
     };

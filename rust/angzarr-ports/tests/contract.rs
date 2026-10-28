@@ -3,11 +3,6 @@
 //!
 //! tests/meta.rs proves each check can fail.
 //!
-//! **Red, for the owner's review (this revision):** the one-call write
-//! (no unit of work) and editions' meta-events (creation, and deletion
-//! recorded, propagated, then removed) are pinned here and not yet
-//! implemented by `MemoryStore`, whose `write` and `Editions` are
-//! `todo!()`; nearly every check writes, so nearly every check fails there.
 //!
 //! # Rulings (the human, 2026-10-28)
 //!
@@ -95,29 +90,37 @@
 //!   event but changes the `Watch` token.
 //! - **RULED(H) The wasm suite runs** (`just wasm-test`, in `just check`).
 //!
-//! # Flagged for the owner (this revision's proposals)
-//!
-//! - **FLAG(W1) The write's shape:** `write(Write { events:
+//! - **RULED(W1) The write's shape:** `write(Write { events:
 //!   Option<Append { stream, expected, pages }>, positions: &[(PositionKey,
 //!   u64)], outbox: &[OutboxEntry] }) -> Result<Written { next_sequence:
-//!   Option<u64> }>`, with `Write::append(..)` and `Write::positions(..)`.
-//! - **FLAG(W2) Positions are written only in a write:** `PositionStore` is
-//!   reads alone (`put_position` is gone), so a projector's step is a
-//!   position-only write.
-//! - **FLAG(W3) A store that keeps no outbox** (no `Outbox`) is never given
-//!   entries; whether it refuses them with an error is not pinned.
-//! - **FLAG(D3) The removal is `Editions::remove_deleted(stream)`,** called
-//!   after the deletion has propagated; the store refuses it while an
-//!   outbox entry of the edition, written with the stream or with a
-//!   position on it, is pending (`EditionNotPropagated`), and before the
-//!   stream's deletion is recorded (`EditionNotDeleted`). `DeleteEdition`
-//!   itself is the coordinator's: deletion pages written to the origins.
-//! - **FLAG(D4) A deletion reaching an uncreated stream writes nothing**
-//!   (`a_deletion_reaching_an_uncreated_stream_writes_nothing`).
-//! - **FLAG(D5) `EditionDeleted.commit_position`** (the edition's commit
-//!   position at the call) is in the proto but used by nothing here.
-//! - **FLAG(D6) Rows written in an edition after a stream's removal** (a
-//!   position on the removed stream by a later step) are not removed by it.
+//!   Option<u64> }>`.
+//! - **RULED(W2) Positions are written only in a write;** `PositionStore`
+//!   is reads alone.
+//! - **RULED(D3) The removal is `Editions::remove_deleted(stream)`,**
+//!   refused while the stream's edition outbox entries are pending
+//!   (`EditionNotPropagated`) and before its deletion is recorded
+//!   (`EditionNotDeleted`); writing `EditionDeleted` to the origins is the
+//!   runtime's job.
+//! - **RULED(D4) A deletion reaching a stream with no rows of its edition
+//!   writes nothing.**
+//! - **RULED(D6), revised by the owner: after deletion, a later arrival is
+//!   refused** (`after_deletion_a_later_arrival_in_the_edition_is_refused`):
+//!   it re-creates neither the stream nor the edition; only an explicit
+//!   creation brings the name back.
+//!
+//! # Still flagged for the owner
+//!
+//! - **FLAG(D5) `EditionDeleted.commit_position`** is used by nothing here;
+//!   proposed: drop it unless something needs it.
+//! - **FLAG(D7) How a store knows an edition is deleted, from its rows
+//!   alone:** being deleted while any stream of it holds an
+//!   `EditionDeleted`; gone once no `EditionCreated` of it remains. The
+//!   refusal is `EditionNotFound` (NOT_FOUND), not a code of its own. Gap:
+//!   if every recorded deletion is removed while an unreachable stream
+//!   still holds a creation, the edition reads as live again, and an
+//!   arrival at a removed stream would be taken.
+//! - **FLAG(W3) A store that keeps no outbox** refuses a write that carries
+//!   entries (proposed; not pinned, since `MemoryStore` keeps one).
 //! - **FLAG(E3') `read_by_correlation` in an edition** answers an uncreated
 //!   stream's pages under the edition's cover.
 

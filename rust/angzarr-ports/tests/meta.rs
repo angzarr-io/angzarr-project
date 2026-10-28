@@ -137,6 +137,10 @@ enum Bug {
     RemovesUndeleted,
     /// A deletion reaching an uncreated stream is refused.
     DeletionToUncreatedRefused,
+    /// After deletion, an arrival re-creates the stream (as an origin).
+    ArrivalRecreates,
+    /// After deletion, a position on a removed stream is taken (and lost).
+    PositionOnRemovedAccepted,
     // ---- read units
     /// Its read units read the live store.
     ReadUnitIsLive,
@@ -439,6 +443,31 @@ impl EventStore for Broken {
                 };
                 self.inner.write(landed).await?;
                 return Err(refused);
+            }
+            Err(StoreError::EditionNotFound { .. })
+                if self.is(Bug::ArrivalRecreates) && events.is_some() =>
+            {
+                // Write the arrival as an origin creation.
+                let (stream, expected) = events.unwrap();
+                let name = stream.edition.unwrap_or_default();
+                let mut origin = pages.clone();
+                origin[0] = contract::created_page(origin[0].sequence, name);
+                self.inner
+                    .write(Write {
+                        events: Some(Append {
+                            stream,
+                            expected,
+                            pages: &origin,
+                        }),
+                        positions: &positions,
+                        outbox: &outbox,
+                    })
+                    .await?
+            }
+            Err(StoreError::EditionNotFound { .. })
+                if self.is(Bug::PositionOnRemovedAccepted) && events.is_none() =>
+            {
+                return Ok(Written::default());
             }
             Err(StoreError::EditionNotForked { .. }) if self.is(Bug::AcceptsUnforkedInput) => {
                 let (_, expected) = events.unwrap();
@@ -1221,6 +1250,12 @@ fn the_edition_checks_catch_a_wrong_fork_point_list_or_removal() {
         RemoveSpreads
     );
     catches!(
+        after_deletion_a_later_arrival_in_the_edition_is_refused,
+        broken,
+        ArrivalRecreates,
+        PositionOnRemovedAccepted,
+    );
+    catches!(
         a_what_if_edition_runs_beside_main_and_leaves_main_untouched,
         broken,
         RemoveTakesMain,
@@ -1366,6 +1401,7 @@ fn an_honest_broken_store_passes_every_check() {
         a_deleted_stream_is_removed_with_every_row_of_it,
         a_deletion_reaching_an_uncreated_stream_writes_nothing,
         a_deletion_is_recorded_and_removed_stream_by_stream,
+        after_deletion_a_later_arrival_in_the_edition_is_refused,
         a_what_if_edition_runs_beside_main_and_leaves_main_untouched,
         a_deleted_stream_is_removed_only_after_its_deletion_has_propagated,
         a_read_unit_reads_a_forked_stream_through_to_main,
