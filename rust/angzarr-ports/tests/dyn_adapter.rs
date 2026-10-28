@@ -90,8 +90,8 @@ async fn one_dyn_store_upcasts_to_each_port() {
 }
 
 /// Core's edition admin through `Arc<dyn DynEditions>`: a creation and a
-/// deletion (writes, through the dyn store), the time-based fork point,
-/// `ListEditions` and the removal.
+/// deletion (writes, through the dyn store), `ListEditions` and the
+/// removal.
 #[tokio::test]
 async fn editions_are_served_through_dyn() {
     let store = MemoryStore::new();
@@ -103,8 +103,6 @@ async fn editions_are_served_through_dyn() {
     DynEventStore::write(&*events, Write::append(main, 0, &first))
         .await
         .unwrap();
-    let p = DynEventStore::commit_position(&*events).await.unwrap();
-    assert_eq!(editions.fork_point(main, p).await, Ok(1));
     let created = [created_page(1, "what-if")];
     DynEventStore::write(&*events, Write::append(e, 1, &created))
         .await

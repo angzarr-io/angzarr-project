@@ -958,8 +958,7 @@ and of `EventMeta`'s `causation` oneof, `correlation_id` and `fact`.
 - What: serve the reshaped `EditionAdminService` (decision 14.32):
   `ForkStream` appends `meta.EditionCreated` to (D, X, R) at main's next
   sequence for that stream (refusing an already-forked stream
-  `ALREADY_EXISTS`, and a time-based fork the stores cannot place
-  `FAILED_PRECONDITION`); `ListEditions` answers `EditionSummary` rows
+  `ALREADY_EXISTS`); `ListEditions` answers `EditionSummary` rows
   derived from the edition stores' creation events; `DeleteEdition`
   appends `meta.EditionDeleted` to each origin stream in X. Per stream,
   in order (the owner's rulings): the event is recorded in the stream's
@@ -992,23 +991,20 @@ unforked targets.**
   storage).
 - Settled when: scenarios C-0629, C-0633, C-0634 and C-0635 pass.
 
-**EA-3** [core, router] **The fork travels with the data; the time-based
-option.**
+**EA-3** [core, router] **The fork travels with the data.**
 - What: when a saga's command in X (it carries a causation_id) reaches a
-  stream with no fork in X, append `meta.EditionCreated` at the stream's head
-  (or X's commit position), with `propagated_from` = the fork of the
+  stream with no fork in X, append `meta.EditionCreated` at the stream's head,
+  with `propagated_from` = the fork of the
   causation_id's stream in X and `forked_by` = the command's id, with a
   framework-derived `command_id` of its own, then handle the command; a
   concurrent arrival that loses the append finds the stream forked. The
   arrival in an edition that is deleted, or being deleted, is refused
   `NOT_FOUND` and re-creates nothing; only `ForkStream` brings the name
-  back. The client library never hands a meta-event to business code. The time-based option forks
-  every stream at the origin fork's commit position, which needs the store
-  contract's global commit position (the 2026-10-27 ruling, now this
-  option). Supersedes this item's earlier "make the whole-system
-  divergence point exact" (decision 14.32).
-- Why: decision 14.32, the `editions` region of `types.proto`.
-- Settled when: scenarios C-0630, C-0631, C-0638 and C-0639 pass.
+  back. The client library never hands a meta-event to business code.
+  Every fork is per stream: there is no global position to fork at
+  (decision 14.35).
+- Why: decisions 14.32 and 14.35, the `editions` region of `types.proto`.
+- Settled when: scenarios C-0630, C-0631 and C-0639 pass.
 
 **EA-4** [clients, site, project] **What-if callers fork a stream first.**
 - What: client helpers for `ForkStream`, `ListEditions` and

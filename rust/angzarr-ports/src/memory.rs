@@ -109,14 +109,10 @@ struct Data {
     /// Each stream's OWN rows: main's whole log, an edition stream's from
     /// its creation on.
     streams: BTreeMap<Key, Vec<EventPage>>,
-    /// The commit position each own row landed at, row for row.
-    landed_at: BTreeMap<Key, Vec<u64>>,
     snapshots: BTreeMap<Key, Snapshot>,
     positions: BTreeMap<PositionPlace, u64>,
     /// Pending outbox entries, oldest write first.
     outbox: Vec<Pending>,
-    /// Writes that landed an event: the commit position.
-    commit_position: u64,
     /// Commits of anything: the change token.
     commits: u64,
 }
@@ -170,7 +166,6 @@ impl Data {
     fn remove(&mut self, k: &Key) -> u64 {
         self.snapshots.remove(k);
         self.positions.retain(|(stream, _), _| stream != k);
-        self.landed_at.remove(k);
         self.streams.remove(k).map_or(0, |pages| pages.len() as u64)
     }
 }
@@ -369,12 +364,6 @@ impl EventStore for MemoryStore {
         let data = Arc::make_mut(&mut guard);
         if let Some(Landing { key: k, pages }) = landing {
             if !pages.is_empty() {
-                data.commit_position += 1;
-                let at = data.commit_position;
-                data.landed_at
-                    .entry(k.clone())
-                    .or_default()
-                    .extend(pages.iter().map(|_| at));
                 data.streams.entry(k).or_default().extend(pages);
             }
         }
@@ -417,10 +406,6 @@ impl EventStore for MemoryStore {
     async fn covers(&self, domain: &str) -> Result<Vec<Cover>, StoreError> {
         Ok(covers_of(&self.data().streams, domain))
     }
-
-    async fn commit_position(&self) -> Result<u64, StoreError> {
-        Ok(self.data().commit_position)
-    }
 }
 
 impl SnapshotStore for MemoryStore {
@@ -458,18 +443,6 @@ impl Purge for MemoryStore {
 }
 
 impl Editions for MemoryStore {
-    async fn fork_point(
-        &self,
-        stream: StreamRef<'_>,
-        commit_position: u64,
-    ) -> Result<u64, StoreError> {
-        let data = self.data();
-        let main = main_key(&key(stream));
-        Ok(data.landed_at.get(&main).map_or(0, |at| {
-            at.iter().take_while(|&&c| c <= commit_position).count() as u64
-        }))
-    }
-
     async fn list_editions(&self) -> Result<Vec<EditionSummary>, StoreError> {
         let data = self.data();
         let mut editions: BTreeMap<String, EditionSummary> = BTreeMap::new();
@@ -484,11 +457,7 @@ impl Editions for MemoryStore {
                     ..EditionSummary::default()
                 });
             summary.forked_streams += 1;
-            let created = creation(first);
-            if created.commit_position != 0 {
-                summary.commit_position = created.commit_position;
-            }
-            if created.propagated_from.is_none() {
+            if creation(first).propagated_from.is_none() {
                 summary.origins.push(EventRef {
                     stream: Some(cover(k)),
                     sequence: first.sequence,

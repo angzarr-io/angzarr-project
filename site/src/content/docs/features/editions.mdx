@@ -55,7 +55,7 @@ send(Cover(domain="orders", root=order_id, edition="pricing-experiment"),
 
 A command you send yourself to a stream the edition hasn't reached is refused (`FAILED_PRECONDITION`, `EDITION_NOT_FORKED`) until propagation forks it, or until you fork it with `ForkStream`. A query of such a stream reads main's version and forks nothing.
 
-**The time-based option.** Fork at one global commit position instead, and every stream the edition forks diverges at that same moment, for a consistent snapshot.
+**Every fork is per stream.** angzarr orders events per stream only and has no global position, so an edition's streams diverge at their own points, never at one store-wide moment.
 
 ---
 

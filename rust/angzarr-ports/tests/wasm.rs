@@ -44,9 +44,6 @@ impl EventStore for RcStore {
     async fn covers(&self, domain: &str) -> Result<Vec<Cover>, StoreError> {
         self.0.covers(domain).await
     }
-    async fn commit_position(&self) -> Result<u64, StoreError> {
-        self.0.commit_position().await
-    }
 }
 
 impl SnapshotStore for RcStore {

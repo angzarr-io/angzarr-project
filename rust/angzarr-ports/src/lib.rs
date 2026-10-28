@@ -18,12 +18,12 @@
 //!
 //! | Port | What it keeps | |
 //! |---|---|---|
-//! | [`EventStore`] | one append-only log of opaque pages per stream, the dedup lookups, the commit position | base |
+//! | [`EventStore`] | one append-only log of opaque pages per stream, the dedup lookups | base |
 //! | [`SnapshotStore`] | the snapshot last written per stream; the caller judges it | base |
 //! | [`PositionStore`] | a handler's next sequence per stream | base |
 //! | [`EventStore::write`] | ONE handling step's atomic write: optionally one stream's events at an expected length, with the step's positions and outbox entries; there is no unit of work | base |
 //! | [`Purge`] | delete a stream | opt-in |
-//! | [`Editions`] | per-stream forks' administration: the time-based fork point, `ListEditions`, and removing a stream after its deletion has propagated | opt-in |
+//! | [`Editions`] | per-stream forks' administration: `ListEditions`, and removing a stream after its deletion has propagated | opt-in |
 //! | [`ReadStore`] / [`ReadUnit`] | reads that all see one moment | opt-in |
 //! | [`Watch`] | a cheap "anything committed?" | opt-in |
 //! | [`ReadUntilTime`], [`ReadByCorrelation`], [`ListStreams`] | core's queries | opt-in |

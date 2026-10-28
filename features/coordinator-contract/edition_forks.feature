@@ -158,15 +158,8 @@ Feature: Editions are per-stream forks, and the fork travels with the data
     And ListEditions and the existence check read only the edition store
     And main's coordinators, projectors and readers received nothing about edition "what-if"
 
-  @editions
-  @C-0638
-  Scenario: The time-based option forks every stream at one commit position
-    Given the stores keep a global commit position
-    And "table" "t-1" on the main timeline gains 1 event after commit position 100
-    When ForkStream forks "player" "p-1" into edition "snapshot" at commit position 100
-    And "player" "p-1" records PlayerReady in edition "snapshot"
-    Then the arrival fork of "table" "t-1" in edition "snapshot" carries commit position 100
-    And "table" "t-1" in edition "snapshot" reads only main's events committed at or before position 100
+  # C-0638 (a fork at one store-wide position) is retired: there is no
+  # global position, and every fork is per stream (decision 14.35).
 
   @editions
   @C-0639

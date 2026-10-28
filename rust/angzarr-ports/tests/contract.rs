@@ -37,7 +37,8 @@
 //!   `two_writers_racing_on_one_stream_land_one`,
 //!   `an_outbox_entry_lands_with_its_write_or_not_at_all`). Dedup reads
 //!   come before the write.
-//! - **RULED(9) The commit position** is required of every store.
+//! - **RULED(9) No commit position.** angzarr has no global or
+//!   store-wide position: ordering is per stream (decision 14.35).
 //! - **RULED(10) Purge** is opt-in, its own call, and deletes positions too.
 //! - **RULED(11, B, C, E1) Editions are per-stream forks (14.32), their
 //!   lifecycle framework META-EVENTS** in the reserved namespace
@@ -110,8 +111,6 @@
 //!
 //! # Still flagged for the owner
 //!
-//! - **FLAG(D5) `EditionDeleted.commit_position`** is used by nothing here;
-//!   proposed: drop it unless something needs it.
 //! - **FLAG(D7) How a store knows an edition is deleted, from its rows
 //!   alone:** being deleted while any stream of it holds an
 //!   `EditionDeleted`; gone once no `EditionCreated` of it remains. The

@@ -32,7 +32,6 @@ fn the_edition_creation_meta_event_round_trips_with_its_field_numbers() {
     let fork = EditionCreated {
         edition: "what-if".into(),
         parent_sequence: 12,
-        commit_position: 0,
         propagated_from: Some(EventRef {
             stream: Some(stream("what-if")),
             sequence: 3,
@@ -62,13 +61,6 @@ fn the_edition_creation_meta_event_round_trips_with_its_field_numbers() {
     );
     assert_eq!(
         tag(EditionCreated {
-            commit_position: 1,
-            ..Default::default()
-        }),
-        3 << 3
-    );
-    assert_eq!(
-        tag(EditionCreated {
             propagated_from: Some(EventRef::default()),
             ..Default::default()
         }),
@@ -84,21 +76,15 @@ fn the_edition_creation_meta_event_round_trips_with_its_field_numbers() {
 }
 
 #[test]
-fn fork_stream_request_names_the_stream_and_the_optional_commit_position() {
-    let per_stream = ForkStreamRequest {
+fn fork_stream_request_names_the_stream_as_field_one() {
+    let request = ForkStreamRequest {
         stream: Some(stream("what-if")),
-        commit_position: 0,
     };
     assert_eq!(
-        ForkStreamRequest::decode(&*per_stream.encode_to_vec()).unwrap(),
-        per_stream
+        ForkStreamRequest::decode(&*request.encode_to_vec()).unwrap(),
+        request
     );
-    assert_eq!(first_tag(&per_stream), (1 << 3) | 2);
-    let time_based = ForkStreamRequest {
-        commit_position: 42,
-        ..Default::default()
-    };
-    assert_eq!(first_tag(&time_based), 2 << 3);
+    assert_eq!(first_tag(&request), (1 << 3) | 2);
 }
 
 #[test]
@@ -111,7 +97,6 @@ fn editions_are_listed_as_summaries_derived_from_fork_events() {
                 sequence: 12,
             }],
             forked_streams: 4,
-            commit_position: 0,
         }],
     };
     assert_eq!(
@@ -170,7 +155,6 @@ fn meta_proto_and_its_google_api_imports_are_embedded() {
 fn the_edition_deletion_meta_event_round_trips_with_its_field_numbers() {
     let deleted = EditionDeleted {
         edition: "what-if".into(),
-        commit_position: 42,
         propagated_from: Some(EventRef {
             stream: Some(stream("what-if")),
             sequence: 7,
@@ -190,13 +174,6 @@ fn the_edition_deletion_meta_event_round_trips_with_its_field_numbers() {
             ..Default::default()
         }),
         (1 << 3) | 2
-    );
-    assert_eq!(
-        tag(EditionDeleted {
-            commit_position: 1,
-            ..Default::default()
-        }),
-        2 << 3
     );
     assert_eq!(
         tag(EditionDeleted {

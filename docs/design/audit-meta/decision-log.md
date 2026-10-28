@@ -2178,13 +2178,12 @@ and 14.30.
 
 **14.32 Editions are per-stream forks.** Owner rulings, 2026-10-28 (plan
 ruling 14, and the rulings on its first draft). Supersedes 6.5's
-administrative create and edition record, EA-3's whole-system divergence
-default, and the owner's 2026-10-27 commit-order ruling for EA-3 (a global
-commit position in the store contract), which becomes the time-based
-option below.
+administrative create and edition record, and EA-3's whole-system
+divergence default. Every fork is per stream: there is no global position
+and no fork at one (14.35).
 - **An edition is a set of per-stream forks.** Creating edition X forks an
   origin stream S = (D, main, R): an `EditionForked { edition,
-  parent_sequence, commit_position, propagated_from, forked_by }` event
+  parent_sequence, propagated_from, forked_by }` event
   (`types.proto`, the `editions` region) is appended to (D, X, R) at S's
   NEXT sequence. It is the first event of X's version of S, and its
   sequence (the fork sequence) marks main's end and X's start for that
@@ -2198,7 +2197,7 @@ option below.
   the same system as data flows". When a SAGA's command in X reaches a
   stream with no fork in X, that arrival is the propagation: the
   coordinator appends the stream's `EditionForked` at the stream's own
-  head (or at X's commit position, for a time-based edition), with
+  head, with
   `propagated_from` = the fork event of the stream the saga reacted to and
   `forked_by` = the arriving command's id, then handles the command.
   Streams X's activity never touches are never forked; the data flow is
@@ -2245,8 +2244,9 @@ option below.
   tombstone, no per-stream deleted state, no `NOT_FOUND`-after-delete
   state beyond X being unknown again, nothing travelling to forked
   streams, no coordinator querying fork events.
-  - **The sequence point needs no marker (the owner's ruling).** `DeleteEdition` takes X's commit position at the call; the
-    removal runs once all of X's work below it has completed (X's outbox
+  - **The sequence point needs no marker (the owner's ruling; superseded
+    by the amendment below, and there is no commit position, 14.35).**
+    `DeleteEdition` takes X's commit position at the call; the removal runs once all of X's work below it has completed (X's outbox
     holds no entry below it, and X's deliveries and subscriptions have
     passed it). That is ordering, not polling; nothing retries. So no
     `EditionDeleted` event is written (and the message is deleted): the
@@ -2260,12 +2260,6 @@ option below.
     commands of X held in an undeployed saga's outbox) holds the delete
     back; the edition stays visible in `ListEditions` while it waits, and
     the user can act on it there.
-- **The time-based option.** `ForkStreamRequest.commit_position` forks at
-  one global commit position: every stream the edition forks, at its
-  origin or on a saga command's arrival, diverges at the same moment, for
-  a consistent snapshot. This is EA-3's former whole-system behaviour and
-  the 2026-10-27 commit-order ruling, kept as an option, not the default;
-  it needs the store contract's global commit position.
 - **Withdrawn with the earlier drafts:** eager propagation of a fork from
   the origin along recorded reaction edges, the saga coordinators' edge
   table, the hop limit (8) and fan-out alert (1,000), the 13.3 amendment
@@ -2279,8 +2273,8 @@ option below.
 - **Owner's rulings, 2026-10-28 (all the drafter's choices settled):**
   the spec as drafted is approved; `EditionDeleted` is dropped, and the
   delete's sequence point is X's commit position at the call, with no
-  marker event; `EditionForked` with `forked_by`, the fork event's own
-  framework-derived command id, `EDITION_NOT_FORKED`, store placement by
+  marker event (superseded by the amendment below; 14.35); `EditionForked`
+  with `forked_by`, the fork event's own framework-derived command id, `EDITION_NOT_FORKED`, store placement by
   configuration, `EditionSummary`, `ALREADY_EXISTS` on an already-forked
   stream, and existence as a cacheable query over fork events are all
   accepted.
@@ -2288,7 +2282,7 @@ option below.
   reaches it, at that stream's own point, with no second source of truth
   beside the events, and nothing to bound but the data flow itself.
 - Cost: an edition's streams diverge at slightly different moments
-  (eventually consistent) unless the time-based option is used; a caller
+  (eventually consistent); a caller
   that wants to address a stream the edition has not reached must fork it
   first; existence checks query the edition stores; a deletion completes
   eventually, in order, and waits on any of X's work that never
@@ -2324,11 +2318,9 @@ option below.
 >   outgoing saga steps and outbox entries for it have completed) are the
 >   stream's rows tagged X removed, the `EditionDeleted` event included.
 >   Nothing remains. A removal before propagation is a bug.
-> - `EditionDeleted { edition, commit_position, propagated_from,
->   deleted_by }`: `commit_position` is the edition's global commit
->   position at the call (flagged: the stream's own sequence already
->   orders the deletion after its earlier work); the last two mirror
->   `EditionCreated`'s propagation fields.
+> - `EditionDeleted { edition, propagated_from, deleted_by }`: the stream's
+>   own sequence orders the deletion after its earlier work; the last two
+>   mirror `EditionCreated`'s propagation fields.
 > - **Known limitation, with no new mechanism:** a stream of X that the
 >   deletion cannot reach through the saga flows keeps its rows and stays
 >   visible in `ListEditions`, for the user to act on.
@@ -2426,6 +2418,40 @@ happened, which its handler records and cannot refuse.
 - The examples mark the buy-in's `SeatConfirmationRefused` (its translated
   refusal fact) as a fact. The buy-in example declares no timeout or
   expiry input yet.
+
+**14.35 No global position, ever: ordering is per stream.** Owner ruling,
+2026-10-28, hard. angzarr has no global or store-wide position, now or
+later: events are ordered within their stream only, and no store keeps an
+order across streams.
+- **The commit position is removed.** `EventStore::commit_position`,
+  `Editions::fork_point`, their dyn twins, `MemoryStore`'s bookkeeping for
+  them and the suite's checks of them are deleted from angzarr-ports.
+  `ForkStreamRequest.commit_position` (2), `EditionSummary.commit_position`
+  (4), `meta.EditionCreated.commit_position` (3) and
+  `meta.EditionDeleted.commit_position` (2) are deleted, each number and
+  name reserved, and `ForkStream` loses its `FAILED_PRECONDITION` for a
+  time-based fork.
+- **The time-based edition fork is dropped entirely.** An edition is
+  per-stream forks only (14.32): the origin at its own head, each stream
+  a policy command reaches at its own head on arrival. Scenario C-0638 is
+  retired.
+- **Set-based validation uses the existing primitives.** A rule that spans
+  streams ("usernames are unique") is a process manager's: a domain that
+  keeps the state the rule needs and refuses or compensates a breaking
+  claim. Reservation domains are a possible future option, seen as added
+  complexity that process managers already cover. Dynamic Consistency
+  Boundaries are not pursued at this time: DCB needs a globally ordered
+  log, which angzarr does not have (`FUTURE.md`, Set-based validation).
+- **The 2026-10-27 "commit-order ruling" was never the owner's.** The
+  store-wide commit position came in with annals 074f7ff, whose commit
+  message asserted an owner ruling the owner did not make; 14.32 took it
+  in as its time-based option. Where earlier entries cite that ruling,
+  read this one.
+- Why: per-stream ordering is what the stores can keep cheaply and
+  everywhere, in memory, in SQLite and distributed alike; a store-wide
+  order is a single point of contention that nothing in angzarr needs.
+- Cost: an edition's streams cannot be forked at one store-wide moment;
+  a consistent cross-stream snapshot is not offered.
 
 ## Corrections
 

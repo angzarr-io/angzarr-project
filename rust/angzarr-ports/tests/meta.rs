@@ -17,7 +17,7 @@ compile_error!("the meta-tests need the `contract` and `memory` features: run `j
 
 use std::future::Future;
 use std::panic::AssertUnwindSafe;
-use std::sync::atomic::{AtomicI64, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 use angzarr_ports::angzarr_proto::ids::fact_command_id;
@@ -49,8 +49,6 @@ enum Bug {
     EmptyAppendUnchecked,
     /// An empty append creates the stream.
     EmptyAppendCreates,
-    /// An empty append raises the commit position.
-    EmptyAppendCommits,
     // ---- reads
     /// A read ignores its `to`.
     IgnoresTo,
@@ -79,13 +77,8 @@ enum Bug {
     PositionNeverLowers,
     /// A position is keyed by stream alone.
     PositionIgnoresHandler,
-    // ---- commit position
-    /// Its commit position never moves.
-    PositionStandsStill,
-    /// A snapshot write raises its commit position.
+    /// A snapshot write lands an event on its stream too.
     SnapshotIsAnEvent,
-    /// Its commit position counts this handle's commits only.
-    PositionPerHandle,
     // ---- the write
     /// A refused write still lands its positions.
     ConflictLandsPositions,
@@ -104,8 +97,6 @@ enum Bug {
     PurgeKeepsPositions,
     /// A purge deletes nothing, and says it did.
     PurgeIsANoOp,
-    /// A purge lowers the commit position.
-    PurgeLowersPosition,
     // ---- editions' forks (every store)
     /// An unforked edition stream reads empty, not as main's.
     UnforkedReadsEmpty,
@@ -118,8 +109,6 @@ enum Bug {
     /// An edition stream with no snapshot of its own reads main's.
     SnapshotFallsThrough,
     // ---- editions (the administration)
-    /// The time-based fork point is always main's head.
-    ForkPointIsTheHead,
     /// `ListEditions` counts propagated forks among the origins.
     OriginsIncludePropagated,
     /// A recorded deletion removes the stream at once.
@@ -195,8 +184,6 @@ struct Local {
 /// What every handle on one broken store shares.
 #[derive(Default)]
 struct Shared {
-    /// Added to the commit position.
-    offset: AtomicI64,
     /// Streams an empty append created.
     created: Mutex<Vec<Owned>>,
     /// Every position ever put: (handler, stream).
@@ -324,9 +311,6 @@ impl EventStore for Broken {
                     }
                     Bug::EmptyAppendCreates => {
                         self.shared.created.lock().unwrap().push(Owned::of(stream))
-                    }
-                    Bug::EmptyAppendCommits => {
-                        self.shared.offset.fetch_add(1, Ordering::SeqCst);
                     }
                     _ => {}
                 }
@@ -595,16 +579,6 @@ impl EventStore for Broken {
         }
         Ok(covers)
     }
-
-    async fn commit_position(&self) -> Result<u64, StoreError> {
-        let inner = match self.bug {
-            Bug::PositionStandsStill => 7,
-            Bug::PositionPerHandle => self.local.commits.load(Ordering::SeqCst),
-            _ => self.inner.commit_position().await?,
-        };
-        let offset = self.shared.offset.load(Ordering::SeqCst);
-        Ok((inner as i64 + offset).max(0) as u64)
-    }
 }
 
 impl SnapshotStore for Broken {
@@ -629,7 +603,10 @@ impl SnapshotStore for Broken {
             }
         }
         if self.is(Bug::SnapshotIsAnEvent) {
-            self.shared.offset.fetch_add(1, Ordering::SeqCst);
+            let head = self.inner.head(stream).await?.next_sequence;
+            self.inner
+                .write(Write::append(stream, head, &[contract::page(head, 0)]))
+                .await?;
         }
         self.inner.write_snapshot(stream, snapshot).await
     }
@@ -677,25 +654,11 @@ impl Purge for Broken {
             };
             self.inner.write(Write::positions(&[(key, next)])).await?;
         }
-        if self.is(Bug::PurgeLowersPosition) {
-            self.shared.offset.fetch_sub(100, Ordering::SeqCst);
-        }
         Ok(deleted)
     }
 }
 
 impl Editions for Broken {
-    async fn fork_point(
-        &self,
-        stream: StreamRef<'_>,
-        commit_position: u64,
-    ) -> Result<u64, StoreError> {
-        if self.is(Bug::ForkPointIsTheHead) {
-            return Ok(self.inner.head(main_of(stream)).await?.next_sequence);
-        }
-        self.inner.fork_point(stream, commit_position).await
-    }
-
     async fn list_editions(&self) -> Result<Vec<EditionSummary>, StoreError> {
         let mut listed = self.inner.list_editions().await?;
         if self.is(Bug::OriginsIncludePropagated) {
@@ -1005,13 +968,12 @@ fn the_append_checks_catch_a_gap_and_an_unchecked_expected_length() {
 }
 
 #[test]
-fn the_empty_append_check_catches_one_that_checks_creates_or_commits() {
+fn the_empty_append_check_catches_one_that_skips_the_check_or_creates() {
     catches!(
         an_empty_append_checks_and_creates_nothing,
         broken,
         EmptyAppendUnchecked,
         EmptyAppendCreates,
-        EmptyAppendCommits,
         PositionsDropped,
     );
 }
@@ -1074,7 +1036,8 @@ fn the_snapshot_and_position_checks_catch_a_store_that_judges_or_merges() {
     catches!(
         a_store_keeps_the_newest_snapshot_per_stream,
         broken,
-        KeepsHighestSnapshot
+        KeepsHighestSnapshot,
+        SnapshotIsAnEvent,
     );
     catches!(
         a_position_is_zero_until_put_then_the_last_put,
@@ -1085,16 +1048,6 @@ fn the_snapshot_and_position_checks_catch_a_store_that_judges_or_merges() {
         positions_are_per_handler_and_per_stream,
         broken,
         PositionIgnoresHandler
-    );
-}
-
-#[test]
-fn the_commit_position_check_catches_one_that_stands_still_or_counts_snapshots() {
-    catches!(
-        the_commit_position_rises_with_every_commit,
-        broken,
-        PositionStandsStill,
-        SnapshotIsAnEvent,
     );
 }
 
@@ -1118,12 +1071,7 @@ fn the_write_checks_catch_a_split_or_lost_write() {
 }
 
 #[test]
-fn the_pair_checks_catch_a_handles_own_count_and_a_lost_race_landing() {
-    catches!(
-        the_commit_position_counts_every_handles_commits,
-        broken_pair,
-        PositionPerHandle
-    );
+fn the_pair_check_catches_a_lost_race_landing() {
     catches!(
         two_writers_racing_on_one_stream_land_one,
         broken_pair,
@@ -1133,7 +1081,7 @@ fn the_pair_checks_catch_a_handles_own_count_and_a_lost_race_landing() {
 }
 
 #[test]
-fn the_purge_checks_catch_what_a_purge_leaves_or_lowers() {
+fn the_purge_checks_catch_what_a_purge_leaves() {
     catches!(
         a_purge_deletes_a_streams_events_snapshot_and_command_ids,
         broken,
@@ -1154,11 +1102,6 @@ fn the_purge_checks_catch_what_a_purge_leaves_or_lowers() {
         a_purged_stream_starts_again_from_nothing,
         broken,
         PurgeIsANoOp
-    );
-    catches!(
-        a_purge_never_lowers_the_commit_position,
-        broken,
-        PurgeLowersPosition
     );
 }
 
@@ -1216,12 +1159,7 @@ fn the_fork_checks_catch_a_store_that_breaks_the_fork_rule() {
 }
 
 #[test]
-fn the_edition_checks_catch_a_wrong_fork_point_list_or_removal() {
-    catches!(
-        fork_point_is_mains_first_sequence_after_a_commit_position,
-        broken,
-        ForkPointIsTheHead
-    );
+fn the_edition_checks_catch_a_wrong_list_or_removal() {
     catches!(
         list_editions_derives_each_edition_from_its_fork_events,
         broken,
@@ -1389,13 +1327,10 @@ fn an_honest_broken_store_passes_every_check() {
         a_store_keeps_the_newest_snapshot_per_stream,
         a_position_is_zero_until_put_then_the_last_put,
         positions_are_per_handler_and_per_stream,
-        the_commit_position_rises_with_every_commit,
         a_purge_deletes_a_streams_events_snapshot_and_command_ids,
         a_purge_deletes_the_streams_positions,
         a_purge_deletes_a_snapshot_with_no_events,
         a_purged_stream_starts_again_from_nothing,
-        a_purge_never_lowers_the_commit_position,
-        fork_point_is_mains_first_sequence_after_a_commit_position,
         list_editions_derives_each_edition_from_its_fork_events,
         an_edition_deletion_is_recorded_like_any_event,
         a_deleted_stream_is_removed_with_every_row_of_it,
@@ -1418,7 +1353,6 @@ fn an_honest_broken_store_passes_every_check() {
         an_outbox_write_changes_the_change_token,
     );
     passes!(broken_pair;
-        the_commit_position_counts_every_handles_commits,
         two_writers_racing_on_one_stream_land_one,
         a_read_unit_sees_the_store_as_it_began,
         a_read_unit_keeps_a_stream_purged_after_it_began,

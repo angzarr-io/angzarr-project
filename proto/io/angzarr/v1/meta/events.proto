@@ -41,8 +41,7 @@ option ruby_package = "Angzarr::Meta";
 // that reaches a stream with no EditionCreated in X is the propagation: the
 // angzarr system layer (shared; called by the stream's coordinator, or by
 // annals' kernel) appends
-// EditionCreated at that stream's own head (or
-// at X's commit position, for a time-based edition), with propagated_from
+// EditionCreated at that stream's own head, with propagated_from
 // = the EditionCreated of the stream the policy reacted to and forked_by =
 // the arriving command's command_id, and then hands the command to the
 // router as an ordinary command in X. This is the system layer's: the router
@@ -57,12 +56,10 @@ message EditionCreated {
   // describes itself). Required, non-empty.
   string edition = 1;
   // The fork sequence: main's next sequence for this stream when it was
-  // created in X (or the first main sequence after the commit position,
-  // for a time-based edition), equal to this event's own EventPage.sequence.
+  // created in X, equal to this event's own EventPage.sequence.
   uint64 parent_sequence = 2;
-  // The time-based option's global commit position; 0 for a per-stream
-  // edition.
-  uint64 commit_position = 3;
+  reserved 3;
+  reserved "commit_position";
   // For a creation made by a policy command's arrival: the EditionCreated of
   // the stream the policy reacted to. Unset for an origin (ForkStream).
   io.angzarr.v1.EventRef propagated_from = 4;
@@ -104,10 +101,8 @@ message EditionCreated {
 message EditionDeleted {
   // The edition. Required, non-empty.
   string edition = 1;
-  // The edition's global commit position when DeleteEdition was called:
-  // the ordering point every stream's deletion shares (flagged: the
-  // stream's own sequence already orders it after its earlier work).
-  uint64 commit_position = 2;
+  reserved 2;
+  reserved "commit_position";
   // For a deletion carried by a policy command's arrival: the EditionDeleted
   // of the stream the policy reacted to. Unset at an origin.
   io.angzarr.v1.EventRef propagated_from = 3;

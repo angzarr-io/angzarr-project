@@ -222,20 +222,6 @@ pub fn created_page(sequence: u64, edition: &str) -> EventPage {
     )
 }
 
-/// A time-based origin fork into `edition` at `sequence`, made at global
-/// commit position `commit_position`.
-pub fn created_page_at(sequence: u64, edition: &str, commit_position: u64) -> EventPage {
-    forked(
-        sequence,
-        EditionCreated {
-            edition: edition.to_string(),
-            parent_sequence: sequence,
-            commit_position,
-            ..EditionCreated::default()
-        },
-    )
-}
-
 /// A fork made by a policy command's arrival: propagated from the fork
 /// `from`, by the command `by`.
 pub fn propagated_created_page(
@@ -251,7 +237,6 @@ pub fn propagated_created_page(
             parent_sequence: sequence,
             propagated_from: Some(from),
             forked_by: Some(by.into()),
-            ..EditionCreated::default()
         },
     )
 }
@@ -291,7 +276,6 @@ pub fn propagated_deleted_page(
             edition: edition.to_string(),
             propagated_from: Some(from),
             deleted_by: Some(by.into()),
-            ..EditionDeleted::default()
         },
     )
 }
@@ -389,7 +373,6 @@ pub async fn append_refuses_a_stale_first_sequence<S: Store>(store: S) {
 
 pub async fn an_empty_append_checks_and_creates_nothing<S: Store>(store: S) {
     let s = main_stream("account", 1);
-    let before = store.commit_position().await.unwrap();
     assert_eq!(append(&store, s, 0, &[]).await, Ok(0));
     assert_eq!(store.covers("account").await, Ok(vec![]), "no stream made");
     assert_eq!(append(&store, s, 1, &[]).await, Err(conflict(s, 1, 0)));
@@ -413,11 +396,6 @@ pub async fn an_empty_append_checks_and_creates_nothing<S: Store>(store: S) {
     );
     assert_eq!(store.position(k).await, Ok(1));
     assert_eq!(store.covers("account").await, Ok(vec![]));
-    assert_eq!(
-        store.commit_position().await,
-        Ok(before),
-        "nothing appended, nothing committed"
-    );
 }
 
 // ----------------------------------------------------------- base: reads
@@ -854,13 +832,12 @@ pub async fn a_refused_write_lands_nothing<S: Store>(store: S) {
 }
 
 /// A step that writes no stream (a policy's, a projector's): its positions
-/// alone, at once. It lands no event, so the commit position stands.
+/// alone, at once. It lands no event.
 pub async fn a_position_only_write_is_a_step_with_no_stream<S: Store>(store: S) {
     let (k1, k2) = (
         key("order-wallet", main_stream("order", 1)),
         key("order-wallet", main_stream("order", 2)),
     );
-    let before = store.commit_position().await.unwrap();
     let positions = [(k1, 3), (k2, 5)];
     assert_eq!(
         store.write(Write::positions(&positions)).await,
@@ -870,7 +847,6 @@ pub async fn a_position_only_write_is_a_step_with_no_stream<S: Store>(store: S) 
     );
     assert_eq!(store.position(k1).await, Ok(3));
     assert_eq!(store.position(k2).await, Ok(5));
-    assert_eq!(store.commit_position().await, Ok(before));
     assert_eq!(store.covers("order").await, Ok(vec![]), "no stream made");
 }
 
@@ -892,6 +868,11 @@ pub async fn a_store_keeps_the_newest_snapshot_per_stream<S: Store>(store: S) {
     assert_eq!(
         store.read_snapshot(main_stream("account", 2)).await,
         Ok(None)
+    );
+    assert_eq!(
+        store.head(s).await.map(|h| h.next_sequence),
+        Ok(0),
+        "a snapshot is no event"
     );
 }
 
@@ -934,74 +915,9 @@ pub async fn positions_are_per_handler_and_per_stream<S: Store>(store: S) {
     assert_eq!(store.position(key("a", s)).await, Ok(5));
 }
 
-// ------------------------------------------------- base: commit position
-
-pub async fn the_commit_position_rises_with_every_commit<S: Store>(store: S) {
-    let empty = store.commit_position().await.unwrap();
-    append(&store, main_stream("account", 1), 0, &[page(0, 1)])
-        .await
-        .unwrap();
-    let appended = store.commit_position().await.unwrap();
-    assert!(appended > empty, "an append: {empty}, then {appended}");
-    append(&store, main_stream("ledger", 1), 0, &[page(0, 2)])
-        .await
-        .unwrap();
-    let elsewhere = store.commit_position().await.unwrap();
-    assert!(
-        elsewhere > appended,
-        "another domain: {appended}, then {elsewhere}"
-    );
-    let positions = [(key("h", main_stream("order", 1)), 1)];
-    store
-        .write(Write {
-            positions: &positions,
-            ..Write::append(main_stream("account", 1), 1, &[page(1, 3), page(2, 3)])
-        })
-        .await
-        .unwrap();
-    let committed = store.commit_position().await.unwrap();
-    assert!(
-        committed > elsewhere,
-        "a write of two events and a position: {elsewhere}, then {committed}"
-    );
-    store
-        .write_snapshot(main_stream("account", 1), &snapshot(1, "v1"))
-        .await
-        .unwrap();
-    put(&store, key("h", main_stream("account", 1)), 2)
-        .await
-        .unwrap();
-    assert_eq!(
-        store.commit_position().await,
-        Ok(committed),
-        "a snapshot or a position alone is no event"
-    );
-}
-
 // ------------------------------------------------------ base: units of work
 
 // ----------------------------------------------------- pair (two handles)
-
-/// The commit position is the store's, not the handle's.
-pub async fn the_commit_position_counts_every_handles_commits<S: Store>((a, b): (S, S)) {
-    let empty = a.commit_position().await.unwrap();
-    append(&b, main_stream("account", 1), 0, &[page(0, 1)])
-        .await
-        .unwrap();
-    let created = a.commit_position().await.unwrap();
-    assert!(
-        created > empty,
-        "another handle's append: {empty}, then {created}"
-    );
-    append(&b, main_stream("account", 1), 1, &[page(1, 2)])
-        .await
-        .unwrap();
-    let grown = a.commit_position().await.unwrap();
-    assert!(
-        grown > created,
-        "another handle's second write: {created}, then {grown}"
-    );
-}
 
 /// Two writers race on ONE stream, both having read it at 0: the first
 /// lands; the other is refused as a conflict, and nothing of its write
@@ -1137,76 +1053,11 @@ where
     );
 }
 
-pub async fn a_purge_never_lowers_the_commit_position<S>(store: S)
-where
-    S: Store + Purge,
-{
-    let purged = main_stream("account", 1);
-    let kept = main_stream("account", 2);
-    append(&store, purged, 0, &[page(0, 1), page(1, 1)])
-        .await
-        .unwrap();
-    append(&store, kept, 0, &[page(0, 2)]).await.unwrap();
-    let before = store.commit_position().await.unwrap();
-    store.purge(purged).await.unwrap();
-    let after = store.commit_position().await.unwrap();
-    assert!(after >= before, "a purge: {before}, then {after}");
-    store.purge(kept).await.unwrap();
-    let emptied = store.commit_position().await.unwrap();
-    assert!(emptied >= after, "a second purge: {after}, then {emptied}");
-    append(&store, kept, 0, &[page(0, 3)]).await.unwrap();
-    let again = store.commit_position().await.unwrap();
-    assert!(
-        again > before,
-        "rises past every position before: {before}, then {again}"
-    );
-}
-
 // --------------------------------------------------------- editions (opt-in)
-
-/// The time-based option: a fork at global commit position `p` takes
-/// main's first sequence committed after `p` as its fork sequence, and the
-/// fork reads main's events committed at or before it.
-pub async fn fork_point_is_mains_first_sequence_after_a_commit_position<S>(store: S)
-where
-    S: Store + Editions,
-{
-    let main = main_stream("account", 1);
-    let start = store.commit_position().await.unwrap();
-    append(&store, main, 0, &[page(0, 1)]).await.unwrap();
-    let after_one = store.commit_position().await.unwrap();
-    append(&store, main, 1, &[page(1, 2), page(2, 2)])
-        .await
-        .unwrap();
-    let after_three = store.commit_position().await.unwrap();
-    append(&store, main_stream("ledger", 1), 0, &[page(0, 3)])
-        .await
-        .unwrap();
-    let later = store.commit_position().await.unwrap();
-    assert_eq!(store.fork_point(main, start).await, Ok(0));
-    assert_eq!(store.fork_point(main, after_one).await, Ok(1));
-    assert_eq!(store.fork_point(main, after_three).await, Ok(3));
-    assert_eq!(
-        store.fork_point(main, later).await,
-        Ok(3),
-        "another stream's commit"
-    );
-    let then = edition_stream("account", 1, "then");
-    let at = store.fork_point(main, after_one).await.unwrap();
-    assert_eq!(
-        append(&store, then, at, &[created_page_at(at, "then", after_one)]).await,
-        Ok(2),
-        "a fork below main's head"
-    );
-    assert_eq!(
-        store.read(then, 0, None).await.unwrap().pages,
-        [page(0, 1), created_page_at(1, "then", after_one)]
-    );
-}
 
 /// `ListEditions`: derived from the fork events on each call, one summary
 /// per edition, by name: its origin forks (no `propagated_from`), how many
-/// streams it forked, its time-based commit position.
+/// streams it forked.
 pub async fn list_editions_derives_each_edition_from_its_fork_events<S>(store: S)
 where
     S: Store + Editions,
@@ -1235,25 +1086,17 @@ where
     .unwrap();
     let b = edition_stream("wallet", 2, "b-test");
     fork(&store, b).await;
-    let p = store.commit_position().await.unwrap();
-    let then = edition_stream("order", 1, "then");
-    let at = store.fork_point(o1, p).await.unwrap();
-    append(&store, then, at, &[created_page_at(at, "then", p)])
-        .await
-        .unwrap();
-    let summary = |name: &str, origins: Vec<EventRef>, forked: u64, cp: u64| EditionSummary {
+    let summary = |name: &str, origins: Vec<EventRef>, forked: u64| EditionSummary {
         name: name.to_string(),
         origins,
         forked_streams: forked,
-        commit_position: cp,
     };
     let _ = o2;
     assert_eq!(
         store.list_editions().await,
         Ok(vec![
-            summary("b-test", vec![event_ref(b, 0)], 1, 0),
-            summary("then", vec![event_ref(then, 1)], 1, p),
-            summary("what-if", vec![event_ref(w1, 1)], 2, 0),
+            summary("b-test", vec![event_ref(b, 0)], 1),
+            summary("what-if", vec![event_ref(w1, 1)], 2),
         ])
     );
 }
@@ -2082,7 +1925,6 @@ where
     );
     assert_eq!(store.pending(10).await, Ok(vec![]), "refused: no entry");
     assert_eq!(store.position(k).await, Ok(0));
-    let before = store.commit_position().await.unwrap();
     store
         .write(Write {
             positions: &positions,
@@ -2098,7 +1940,6 @@ where
         2,
         "and its events"
     );
-    let after = store.commit_position().await.unwrap();
     // A policy's step: a position and its commands, no stream.
     let policy_positions = [(key("order-wallet", main_stream("order", 1)), 2)];
     let commands = [entry(3, "order-wallet", 3)];
@@ -2112,11 +1953,10 @@ where
         .unwrap();
     assert_eq!(store.pending(10).await.unwrap().len(), 3);
     assert_eq!(
-        store.commit_position().await,
-        Ok(after),
+        store.covers("order-wallet").await,
+        Ok(vec![]),
         "an entry is no event"
     );
-    assert!(after > before);
 }
 
 pub async fn the_outbox_drains_oldest_first_and_clears<S>(store: S)
@@ -2229,7 +2069,7 @@ where
 macro_rules! store_contract {
     (pair, $(#[$t:meta])+, $f:expr) => {
         $crate::store_contract!(@each [$(#[$t])+], $f;
-            the_commit_position_counts_every_handles_commits,
+            two_writers_racing_on_one_stream_land_one,
         );
     };
     (purge, $(#[$t:meta])+, $f:expr) => {
@@ -2238,12 +2078,10 @@ macro_rules! store_contract {
             a_purge_deletes_the_streams_positions,
             a_purge_deletes_a_snapshot_with_no_events,
             a_purged_stream_starts_again_from_nothing,
-            a_purge_never_lowers_the_commit_position,
         );
     };
     (editions, $(#[$t:meta])+, $f:expr) => {
         $crate::store_contract!(@each [$(#[$t])+], $f;
-            fork_point_is_mains_first_sequence_after_a_commit_position,
             list_editions_derives_each_edition_from_its_fork_events,
             an_edition_deletion_is_recorded_like_any_event,
             a_deleted_stream_is_removed_with_every_row_of_it,
@@ -2336,7 +2174,6 @@ macro_rules! store_contract {
             a_store_keeps_the_newest_snapshot_per_stream,
             a_position_is_zero_until_put_then_the_last_put,
             positions_are_per_handler_and_per_stream,
-            the_commit_position_rises_with_every_commit,
             a_write_lands_its_events_and_positions_together,
             a_refused_write_lands_nothing,
             a_position_only_write_is_a_step_with_no_stream,

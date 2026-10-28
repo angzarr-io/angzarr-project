@@ -259,7 +259,8 @@ event onwards, every removal reserves its number and name (see
     appends the `meta.EditionCreated` meta-event at main's next sequence; each stream reads main
     below its own fork, then the edition; the fork travels with the data
     (a saga command's arrival forks its target; outside inputs to an
-    unforked stream are refused), eventually consistent; a time-based fork is an option; no
+    unforked stream are refused), eventually consistent; every fork is per
+    stream, with no global position (14.35); no
     registry (`ForkStream`, `ListEditions`, `DeleteEdition`); deletion is
     the `meta.EditionDeleted` event, recorded in each stream it reaches,
     propagated onward through the same flows, and only then removed with
@@ -403,9 +404,9 @@ markers can go wrong.
   `meta.EditionCreated.forked_by`; deletion as the `meta.EditionDeleted`
   event, recorded per stream, propagated onward through the saga flows,
   then removed with the stream's rows (the owner's rulings, 2026-10-28). Known limitation: a stream whose forking saga is gone keeps
-  its fork, visible in `ListEditions`. (The whole-system
-  divergence point this item used to track is now the time-based
-  option.)
+  its fork, visible in `ListEditions`. (The whole-system divergence
+  point this item used to track is dropped: there is no global position,
+  14.35.)
 - **Per-event saga causation** (W3a, backlog OB-6); it now covers a
   saga's refusal facts too.
 - **The SIMPLE mode name** (W14): not renamed, with no decision recorded.

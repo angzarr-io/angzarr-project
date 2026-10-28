@@ -212,10 +212,7 @@ print(f"Balance at {yesterday}: {state.bankroll}")
 | **Saga coordination** | Reactions stay in their trigger's edition, and fork the streams they reach |
 | **Speculative execution** | Execute commands speculatively, merge or discard |
 
-**Two modes** (decision 14.32):
-
-1. **Per-stream forks (default)** — Forking an origin stream starts the edition; the fork travels with the data, each saga command forking the stream it reaches at that stream's head
-2. **Time-based** — Every stream diverges at one global commit position, for a consistent snapshot
+**Per-stream forks** (decisions 14.32 and 14.35): forking an origin stream starts the edition; the fork travels with the data, each saga command forking the stream it reaches at that stream's head. There is no global position, so there is no fork at one store-wide moment.
 
 ```python
 # Create a what-if branch by forking the player's stream

@@ -54,11 +54,7 @@ service EditionAdminService {
   //   INVALID_ARGUMENT     edition is empty or unset (main is unnamed and
   //                        cannot be forked into), or the cover names no
   //                        domain or root;
-  //   ALREADY_EXISTS       the stream is already forked in this edition;
-  //   FAILED_PRECONDITION  commit_position is set, but the deployment's
-  //                        stores keep no global commit position, or the
-  //                        edition's existing forks use another point (an
-  //                        edition is either per-stream or time-based).
+  //   ALREADY_EXISTS       the stream is already forked in this edition.
   rpc ForkStream(ForkStreamRequest) returns (EventRef) {
     option (google.api.http) = {
       post: "/v1/admin/editions/{stream.edition}/forks"
@@ -100,15 +96,12 @@ service EditionAdminService {
 message ForkStreamRequest {
   // The origin stream, named in the edition to create or extend: domain,
   // root, and edition (required, non-empty). Its main version is forked.
+  // The fork is per stream: at the origin stream's head, and each stream a
+  // policy command reaches at its own head when it arrives. There is no
+  // global position to fork at (decision 14.35).
   Cover stream = 1;
-  // The TIME-BASED OPTION (decision 14.32; EA-3's former whole-system
-  // behaviour and the 2026-10-27 commit-order ruling, kept as an option):
-  // fork at this global commit position, so every stream the edition
-  // forks, at the origin or on a policy command's arrival, diverges at the
-  // same moment, for a consistent snapshot. Unset (0), the default: a
-  // per-stream fork at the origin stream's head, and each stream a policy
-  // command reaches at its own head when it arrives.
-  uint64 commit_position = 2;
+  reserved 2;
+  reserved "commit_position";
 }
 
 message ListEditionsRequest {}
@@ -124,7 +117,8 @@ message EditionSummary {
   // The origin forks: the EditionCreated events with no propagated_from.
   repeated EventRef origins = 2;
   uint64 forked_streams = 3; // How many streams hold a fork event of it
-  uint64 commit_position = 4; // The time-based option's point; 0 if per-stream
+  reserved 4;
+  reserved "commit_position";
 }
 
 message DeleteEditionRequest {

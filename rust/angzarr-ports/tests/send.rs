@@ -32,13 +32,13 @@ async fn step<S: Store + 'static>(store: Arc<S>) -> Result<u64, StoreError> {
             1,
         )];
         let pages = [page(at, 1)];
-        store
+        let written = store
             .write(Write {
                 positions: &positions,
                 ..Write::append(s, at, &pages)
             })
             .await?;
-        store.commit_position().await
+        Ok(written.next_sequence.expect("an append's next sequence"))
     })
     .await
     .expect("the task ran")
@@ -47,8 +47,7 @@ async fn step<S: Store + 'static>(store: Arc<S>) -> Result<u64, StoreError> {
 #[tokio::test(flavor = "multi_thread")]
 async fn a_generic_step_spawns_on_a_multi_threaded_runtime() {
     let store = Arc::new(MemoryStore::new());
-    let position = step(Arc::clone(&store)).await.unwrap();
-    assert!(position > 0);
+    assert_eq!(step(Arc::clone(&store)).await, Ok(1));
     assert_eq!(
         store
             .head(main_stream("ledger", 1))

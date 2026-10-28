@@ -205,9 +205,6 @@ message Cover {
   //     directly.
   //   - A query or subscription of a stream not forked in X reads main's
   //     version (it is identical so far) and forks nothing.
-  //   - The time-based OPTION forks every stream of X at one global commit
-  //     position instead of each at its own head (EA-3's former default,
-  //     now an option; ForkStreamRequest.commit_position).
   //   - Unknown edition: an edition is known while any fork event of it
   //     exists (a query over X's own fork events, never main;
   //     cacheable). A command, query or subscription naming an edition
@@ -632,12 +629,6 @@ message FactOrigin {
 // from main's. Main's coordinators, projectors and readers behave exactly
 // as if no edition existed: creating and deleting an edition leaves main's
 // streams, outbox and positions byte-for-byte unchanged.
-//
-// The time-based option. With ForkStreamRequest.commit_position set, the
-// origin creation and every arrival creation of the edition fork at that
-// one global commit position, not at each stream's head: each stream reads
-// main's events committed at or before it. It needs the store contract's
-// global commit position.
 // endregion
 
 // region refusal_facts

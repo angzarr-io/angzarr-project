@@ -47,7 +47,6 @@ pub trait DynEventStore: MaybeSend + MaybeSync {
         command_id: Uuid,
     ) -> BoxFuture<'a, Result<Vec<EventPage>, StoreError>>;
     fn covers<'a>(&'a self, domain: &'a str) -> BoxFuture<'a, Result<Vec<Cover>, StoreError>>;
-    fn commit_position(&self) -> BoxFuture<'_, Result<u64, StoreError>>;
 }
 
 /// [`SnapshotStore`], object-safe.
@@ -70,11 +69,6 @@ pub trait DynPositionStore: MaybeSend + MaybeSync {
 
 /// [`Editions`], object-safe: core's edition admin.
 pub trait DynEditions: MaybeSend + MaybeSync {
-    fn fork_point<'a>(
-        &'a self,
-        stream: StreamRef<'a>,
-        commit_position: u64,
-    ) -> BoxFuture<'a, Result<u64, StoreError>>;
     fn list_editions(&self) -> BoxFuture<'_, Result<Vec<EditionSummary>, StoreError>>;
     fn remove_deleted<'a>(
         &'a self,
@@ -144,9 +138,6 @@ impl<T: EventStore> DynEventStore for T {
     fn covers<'a>(&'a self, domain: &'a str) -> BoxFuture<'a, Result<Vec<Cover>, StoreError>> {
         Box::pin(EventStore::covers(self, domain))
     }
-    fn commit_position(&self) -> BoxFuture<'_, Result<u64, StoreError>> {
-        Box::pin(EventStore::commit_position(self))
-    }
 }
 
 impl<T: SnapshotStore> DynSnapshotStore for T {
@@ -172,13 +163,6 @@ impl<T: PositionStore> DynPositionStore for T {
 }
 
 impl<T: Editions> DynEditions for T {
-    fn fork_point<'a>(
-        &'a self,
-        stream: StreamRef<'a>,
-        commit_position: u64,
-    ) -> BoxFuture<'a, Result<u64, StoreError>> {
-        Box::pin(Editions::fork_point(self, stream, commit_position))
-    }
     fn list_editions(&self) -> BoxFuture<'_, Result<Vec<EditionSummary>, StoreError>> {
         Box::pin(Editions::list_editions(self))
     }
@@ -257,9 +241,6 @@ impl EventStore for dyn DynStore + '_ {
     }
     async fn covers(&self, domain: &str) -> Result<Vec<Cover>, StoreError> {
         DynEventStore::covers(self, domain).await
-    }
-    async fn commit_position(&self) -> Result<u64, StoreError> {
-        DynEventStore::commit_position(self).await
     }
 }
 

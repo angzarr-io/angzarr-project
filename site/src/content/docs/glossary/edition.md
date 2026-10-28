@@ -12,7 +12,7 @@ An identifier for diverged timelines. Editions enable branching scenarios like s
 
 ## Forks
 
-Creating an edition forks an origin stream: an `EditionCreated` meta-event is appended to the stream's edition version at main's next sequence. That stream reads main's events below its fork sequence, then the edition's own. The fork travels with the data: a saga's command in the edition forks the stream it reaches, on arrival (eventually consistent); a command from outside to a stream the edition hasn't reached is refused until then. A time-based fork at one global commit position is an option. There is no edition registry: listing editions queries the fork events.
+Creating an edition forks an origin stream: an `EditionCreated` meta-event is appended to the stream's edition version at main's next sequence. That stream reads main's events below its fork sequence, then the edition's own. The fork travels with the data: a saga's command in the edition forks the stream it reaches, on arrival (eventually consistent); a command from outside to a stream the edition hasn't reached is refused until then. Every fork is per stream: there is no global position to fork at. There is no edition registry: listing editions queries the fork events.
 
 ## Use Cases
 

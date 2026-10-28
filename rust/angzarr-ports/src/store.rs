@@ -96,8 +96,8 @@ pub struct Written {
 ///   (D, R), and is not listed by [`covers`](EventStore::covers).
 /// - Its first own event must be its CREATION
 ///   ([`EDITION_CREATED_TYPE_URL`]), written with `expected` = its fork
-///   sequence: main's head, or (the time-based option) any sequence below
-///   it ([`Editions::fork_point`]). Any other first write is refused
+///   sequence, main's head (a fork above it is a
+///   [`StoreError::Conflict`]). Any other first write is refused
 ///   [`StoreError::EditionNotForked`], a second creation
 ///   [`StoreError::EditionAlreadyForked`], and a creation of main
 ///   [`StoreError::EditionNameRequired`].
@@ -160,10 +160,6 @@ pub trait EventStore: MaybeSend + MaybeSync {
         &self,
         domain: &str,
     ) -> impl Future<Output = Result<Vec<Cover>, StoreError>> + MaybeSend;
-
-    /// The store's commit position now: global, monotonic, rising with
-    /// every write that lands an event, through any handle, never falling.
-    fn commit_position(&self) -> impl Future<Output = Result<u64, StoreError>> + MaybeSend;
 }
 
 /// The newest snapshot per stream: whatever was written last. Whether it
@@ -222,18 +218,9 @@ pub const EDITION_DELETED_TYPE_URL: &str = "/io.angzarr.v1.meta.EditionDeleted";
 /// exists. Creation and deletion are writes (see [`EventStore`]); main is
 /// never written.
 pub trait Editions: MaybeSend + MaybeSync {
-    /// The time-based option's fork sequence for `stream`: main's first
-    /// sequence committed after global commit position `commit_position`.
-    fn fork_point(
-        &self,
-        stream: StreamRef<'_>,
-        commit_position: u64,
-    ) -> impl Future<Output = Result<u64, StoreError>> + MaybeSend;
-
     /// `ListEditions`: one summary per edition holding a creation event, by
     /// name, derived on each call: its origins (creations with no
-    /// `propagated_from`), how many streams it holds, its time-based commit
-    /// position (0 if per-stream). A stream that has recorded its deletion
+    /// `propagated_from`) and how many streams it holds. A stream that has recorded its deletion
     /// but is not yet removed still counts.
     fn list_editions(
         &self,
@@ -430,9 +417,6 @@ impl<T: EventStore + ?Sized> EventStore for Arc<T> {
         domain: &str,
     ) -> impl Future<Output = Result<Vec<Cover>, StoreError>> + MaybeSend {
         (**self).covers(domain)
-    }
-    fn commit_position(&self) -> impl Future<Output = Result<u64, StoreError>> + MaybeSend {
-        (**self).commit_position()
     }
 }
 
