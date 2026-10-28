@@ -95,10 +95,14 @@ option ruby_package = "Angzarr";
 // region of types.proto). A command to a PM stream that holds no events is
 // delivered like any other, with an empty process_state.
 //
-// No outbox. A PM's whole output is its process_events, appended to its
-// own stream, so its stream is the record of what it did and there is no
-// transient outbox (SagaResponse) for a PM. Its coordinator appends the
-// process events, then advances its position past the trigger.
+// No outbox needed. A PM's whole output is its process_events, appended
+// to its own stream, so its stream is the record of what it did. Its
+// coordinator commits the process events and its position past the
+// trigger atomically, in one unit of work, so a PM needs no outbox today.
+// The outbox is not saga-only: it is one capability for any component
+// whose output leaves its own stream (see SagaResponse in saga.proto,
+// Transient outbox), and a PM would use that same outbox if it ever
+// emitted such output.
 //
 // Process events and deduplication. Deduplication is the coordinator's job,
 // never the handler's: it looks the cause up on the PM's stream, BEFORE the

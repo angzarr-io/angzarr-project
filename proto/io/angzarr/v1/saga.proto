@@ -72,15 +72,22 @@ service SagaCoordinatorService {
 
 // Response from saga - commands for other aggregates.
 //
-// Transient outbox. A saga's commands go through a transient outbox. (A
-// process manager has none: its only output is its own events, and its
-// stream is their record; see ProcessManagerService, No outbox.)
-// The coordinator stores the output atomically with the reactor's source
-// checkpoint (its position past the triggering event), then dispatches it,
-// then clears it. A crash before dispatch completes re-sends the stored
-// output verbatim; the reactor is never re-run for a trigger whose output
-// is stored, so the command ids re-sent are the ones first stamped and the
-// destinations deduplicate them. Reactors therefore carry NO purity or
+// Transient outbox. A saga's commands go through the transient outbox
+// (decision 5.6, as amended by 14.31). The outbox is not a saga mechanism:
+// it is ONE transactional outbox, a capability that names no component
+// kind. Any component whose output leaves its own stream (output that is
+// not an append to a stream the component owns) uses it, under the same
+// rules. Today the saga is the only such kind, so it is the only user; a
+// process manager needs none today, because its only output is its own
+// events (see ProcessManagerService, No outbox needed). A kind that later
+// emits output leaving its stream uses this outbox, with no new design.
+// The rules, for whichever component uses it: the coordinator stores the
+// output atomically with the component's source checkpoint (its position
+// past the triggering event), then dispatches it, then clears it. A crash
+// before dispatch completes re-sends the stored output verbatim; the
+// component is never re-run for a trigger whose output is stored, so the
+// command ids re-sent are the ones first stamped and the destinations
+// deduplicate them. Components using it therefore carry NO purity or
 // determinism requirement: one run's output is recorded once and re-sent
 // as recorded.
 message SagaResponse {

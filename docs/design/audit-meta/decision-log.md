@@ -275,7 +275,7 @@ unless overridden.
 
 **5.5 `request_id` is required for `HandleAsync` and DLQ replay.**
 
-> **Amended by 14.31 (pass 14):** a process manager has no outbox: its only output is its own events, and its stream is their record. The outbox is the saga's.
+> **Amended by 14.31 (pass 14):** the outbox is one component-kind-agnostic capability: any component whose output leaves its own stream uses it, and today that is the saga. A process manager needs none today: its only output is its own events, committed atomically with its position past the trigger.
 
 **5.6 A transient outbox for all reactors.** Output is stored atomically with
 the source checkpoint, dispatched, then cleared, so that only keys remain.
@@ -1849,9 +1849,22 @@ protos had never carried. Amends 13.1 and 13.2, 5.6 and 14.24.
   (2) is deleted, unreserved (6.6). A PM sends no commands. To act on
   another domain it records an event carrying that command's data, and the
   saga for (the PM's domain, that domain) builds the command (14.23,
-  14.24). With nothing but its own events to emit, a PM has no transient
-  outbox (5.6); its stream is the record. `ComponentOptions.output_domains`
+  14.24). With nothing but its own events to emit, a PM needs no outbox
+  today: its coordinator commits the process events and its position past
+  the trigger atomically, so its stream is the record. (The outbox itself
+  is not the saga's; see the next item.) `ComponentOptions.output_domains`
   (6) is deleted, unreserved, and `output_domain` is SAGA only.
+- **The outbox is polymorphic.** Owner's ruling, 2026-10-28, on the
+  draft's choice that a PM has no outbox: "leave it; if we need an outbox
+  it should be polymorphic". 5.6's transient outbox is one transactional
+  outbox, a capability of the framework that names no component kind: any
+  component whose output leaves its own stream (output that is not an
+  append to a stream the component owns) stores that output atomically
+  with its source checkpoint, dispatches it, then clears it, and redelivery
+  re-sends it verbatim. Today the saga is the only kind with such output,
+  so it is the only user. A PM, or another kind, that later emits output
+  leaving its stream uses the same outbox under the same rules, with no new
+  design; nothing in the outbox's contract is saga-specific.
 - **One handler context.** `ProcessManagerHandleRequest` carries
   `oneof cause { EventBook trigger = 1; CommandBook command = 4; }` beside
   `process_state` (2). Field 4, not 3, so bytes from the deleted

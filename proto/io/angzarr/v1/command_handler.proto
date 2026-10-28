@@ -135,7 +135,7 @@ message CommandHandlerResponse {
 // when the caller supplied the command_id and reuses it.
 //
 // Status codes. One set, used by every coordinator and by every framework
-// retry loop (reaction delivery, the saga outbox, asynchronous
+// retry loop (reaction delivery, the transient outbox, asynchronous
 // commands, projector retries):
 //   Retryable:  UNAVAILABLE, DEADLINE_EXCEEDED, RESOURCE_EXHAUSTED, ABORTED.
 //   Terminal:   every other code, notably INVALID_ARGUMENT (malformed),
