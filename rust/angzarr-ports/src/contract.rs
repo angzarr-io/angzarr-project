@@ -15,7 +15,11 @@
 //! - Every check is proven able to fail: `tests/meta.rs` runs it on a store
 //!   broken on purpose and requires it to catch the bug.
 //!
-//! **Sections** (a backend runs those whose capabilities it has):
+//! **Sections** (a backend runs those whose capabilities it has). The
+//! `editions` and `read_editions` sections pin the registry-and-divergence
+//! model, and will be reworked to the owner's per-stream fork rule
+//! (2026-10-28; spec/editions-forks, in draft): see OPEN(C) in
+//! `tests/contract.rs`.
 //!
 //! | Section | Needs | Takes |
 //! |---|---|---|

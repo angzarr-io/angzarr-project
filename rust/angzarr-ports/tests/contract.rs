@@ -99,6 +99,18 @@
 //!   history"), however it is recorded; `Editions` returns the wire
 //!   `Edition`, and the store-side `EditionRecord` is withdrawn. Where the
 //!   creation event lives (which stream, which message) is not designed yet.
+//!
+//!   **To be reworked (owner, 2026-10-28):** editions become PER-STREAM
+//!   FORKS. Creating edition X appends a fork event to (D, X, R) at that
+//!   stream's next sequence; (D, X, R) reads main's events below ITS OWN
+//!   fork sequence, then X's; forks reach downstream streams through
+//!   angzarr's data flow (eventually consistent); a time-based fork (one
+//!   commit position for all streams) stays an option; there is no
+//!   administrative registry. The spec draft (spec/editions-forks) is being
+//!   written; until it lands the ports are unchanged, and then C, the
+//!   `Editions` trait, and the `editions` and `read_editions` sections (and
+//!   the read units' edition refusal) are reworked to the per-stream fork
+//!   rule.
 
 #![cfg(not(target_arch = "wasm32"))]
 
