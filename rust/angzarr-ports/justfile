@@ -2,8 +2,24 @@
 # Needs protoc on PATH (or PROTOC set, for angzarr-proto) and the
 # wasm32-unknown-unknown target.
 
-# Format check, build, lint and test natively, then the wasm32 builds
-check: fmt-check build lint test wasm
+# Format check, build, lint and test natively, then the wasm32 builds and
+# the wasm32 run of the suite on a store that is not Send
+check: fmt-check build lint test wasm wasm-test
+
+# The wasm test runner, pinned to the wasm-bindgen in Cargo.lock (the CLI
+# and the library must match exactly). Installs into ~/.cargo/bin.
+WASM_BINDGEN := "0.2.129"
+
+# Install the tools `check` needs beyond rustup's: wasm-bindgen-test-runner
+tools:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    have="$(wasm-bindgen-test-runner --version 2>/dev/null | awk '{print $2}' || true)"
+    if [ "$have" != "{{WASM_BINDGEN}}" ]; then
+        cargo install --locked wasm-bindgen-cli --version {{WASM_BINDGEN}}
+    fi
+    locked="$(grep -A1 '^name = "wasm-bindgen"$' Cargo.lock | sed -n 's/^version = "\(.*\)"/\1/p')"
+    [ "$locked" = "{{WASM_BINDGEN}}" ] || { echo "Cargo.lock has wasm-bindgen $locked; WASM_BINDGEN is {{WASM_BINDGEN}}: bump them together" >&2; exit 1; }
 
 fmt:
     cargo fmt
@@ -29,6 +45,7 @@ wasm:
     cargo build --locked --target wasm32-unknown-unknown --all-features
     cargo test --locked --target wasm32-unknown-unknown --all-features --no-run
 
-# Run the wasm tests (needs wasm-bindgen-test-runner on PATH)
+# Run the wasm tests: the suite on a store that is not Send (`just tools`
+# installs the runner). Needs node on PATH.
 wasm-test:
     CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUNNER=wasm-bindgen-test-runner cargo test --locked --target wasm32-unknown-unknown --all-features --test wasm

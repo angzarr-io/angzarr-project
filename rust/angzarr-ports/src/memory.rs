@@ -15,14 +15,14 @@
 use std::sync::{Arc, Mutex};
 
 use angzarr_proto::uuid::Uuid;
-use angzarr_proto::v1::{Cover, CreateEditionRequest, EventBook, EventPage, Snapshot};
+use angzarr_proto::v1::{Cover, CreateEditionRequest, Edition, EventBook, EventPage, Snapshot};
 use prost_types::Timestamp;
 
 use crate::error::StoreError;
 use crate::store::{
-    ChangeToken, EditionRecord, Editions, EventStore, ListStreams, Outbox, OutboxEntry,
-    PositionStore, Purge, ReadByCorrelation, ReadStore, ReadUnit, ReadUntilTime, SnapshotStore,
-    Unit, UnitOfWork, UnitOutbox, UnitPurge, Watch,
+    ChangeToken, Editions, EventStore, ListStreams, Outbox, OutboxEntry, PositionStore, Purge,
+    ReadByCorrelation, ReadStore, ReadUnit, ReadUntilTime, SnapshotStore, Unit, UnitOfWork,
+    UnitOutbox, UnitPurge, Watch,
 };
 use crate::stream::{PositionKey, Slice, StreamRef};
 
@@ -201,7 +201,7 @@ impl Editions for MemoryStore {
         &self,
         request: &CreateEditionRequest,
         now: Timestamp,
-    ) -> Result<EditionRecord, StoreError> {
+    ) -> Result<Edition, StoreError> {
         let _ = (request, now);
         todo!("{STUB}")
     }
@@ -209,7 +209,7 @@ impl Editions for MemoryStore {
         let _ = name;
         todo!("{STUB}")
     }
-    async fn edition(&self, name: &str) -> Result<Option<EditionRecord>, StoreError> {
+    async fn edition(&self, name: &str) -> Result<Option<Edition>, StoreError> {
         let _ = name;
         todo!("{STUB}")
     }

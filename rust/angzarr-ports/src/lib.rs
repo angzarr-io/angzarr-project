@@ -60,9 +60,9 @@ pub use dyn_store::{
 pub use error::{Arg, Cause, Recovery, StoreError};
 pub use send::{MaybeSend, MaybeSync};
 pub use store::{
-    ChangeToken, EditionRecord, Editions, EventStore, ListStreams, Outbox, OutboxEntry,
-    PositionStore, Purge, ReadByCorrelation, ReadStore, ReadUnit, ReadUntilTime, SnapshotStore,
-    Store, Unit, UnitOfWork, UnitOutbox, UnitPurge, Watch, DEFAULT_EDITION_STORE,
+    ChangeToken, Editions, EventStore, ListStreams, Outbox, OutboxEntry, PositionStore, Purge,
+    ReadByCorrelation, ReadStore, ReadUnit, ReadUntilTime, SnapshotStore, Store, Unit, UnitOfWork,
+    UnitOutbox, UnitPurge, Watch, DEFAULT_EDITION_STORE,
 };
 pub use stream::{Head, PositionKey, Slice, StreamRef};
 

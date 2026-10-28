@@ -85,7 +85,7 @@ pub trait EventStore: MaybeSend + MaybeSync {
 
     /// The store's commit position now: global, monotonic, rising with
     /// every commit that appends an event, through any handle, never
-    /// falling. What an edition's create records as its divergence.
+    /// falling. An edition diverges at the commit position of its create.
     fn commit_position(&self) -> impl Future<Output = Result<u64, StoreError>> + MaybeSend;
 }
 
@@ -227,25 +227,20 @@ pub trait UnitPurge: Unit {
 /// The store an edition created with none named is placed in.
 pub const DEFAULT_EDITION_STORE: &str = "default";
 
-/// An edition as the store keeps it: the wire record, and the commit
-/// position it diverged at (main's events below it are its history).
-#[derive(Clone, PartialEq, Debug)]
-pub struct EditionRecord {
-    pub edition: Edition,
-    pub divergence: u64,
-}
-
 /// Opt-in: the edition registry (EA-1), and with it EA-3's fall-through
 /// on every read of [`EventStore`].
 pub trait Editions: MaybeSend + MaybeSync {
-    /// Create the edition `request` names at `now`: its divergence is the
-    /// store's commit position at the create. Refused: an empty name, a
+    /// Create the edition `request` names at `now`. It diverges at the
+    /// store's commit position at the create: main's events committed
+    /// before it are its history. HOW that position is recorded is pending
+    /// the human (edition creation is to be the edition's first event;
+    /// where that event lives is OPEN(C)). Refused: an empty name, a
     /// `diverge_at` after `now`, a name already created, an unknown store.
     fn create_edition(
         &self,
         request: &CreateEditionRequest,
         now: Timestamp,
-    ) -> impl Future<Output = Result<EditionRecord, StoreError>> + MaybeSend;
+    ) -> impl Future<Output = Result<Edition, StoreError>> + MaybeSend;
 
     /// Delete the edition, its record and everything stored under it in
     /// every domain. Main is never touched.
@@ -257,7 +252,7 @@ pub trait Editions: MaybeSend + MaybeSync {
     fn edition(
         &self,
         name: &str,
-    ) -> impl Future<Output = Result<Option<EditionRecord>, StoreError>> + MaybeSend;
+    ) -> impl Future<Output = Result<Option<Edition>, StoreError>> + MaybeSend;
 }
 
 // ========================================================== one-moment reads

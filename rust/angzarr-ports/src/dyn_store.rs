@@ -16,14 +16,14 @@ use std::future::Future;
 use std::pin::Pin;
 
 use angzarr_proto::uuid::Uuid;
-use angzarr_proto::v1::{Cover, CreateEditionRequest, EventBook, EventPage, Snapshot};
+use angzarr_proto::v1::{Cover, CreateEditionRequest, Edition, EventBook, EventPage, Snapshot};
 use prost_types::Timestamp;
 
 use crate::error::StoreError;
 use crate::send::{MaybeSend, MaybeSync};
 use crate::store::{
-    EditionRecord, Editions, EventStore, ListStreams, Outbox, OutboxEntry, PositionStore,
-    ReadByCorrelation, ReadUntilTime, SnapshotStore, Unit, UnitOfWork, UnitOutbox,
+    Editions, EventStore, ListStreams, Outbox, OutboxEntry, PositionStore, ReadByCorrelation,
+    ReadUntilTime, SnapshotStore, Unit, UnitOfWork, UnitOutbox,
 };
 use crate::stream::{Head, PositionKey, Slice, StreamRef};
 
@@ -89,12 +89,9 @@ pub trait DynEditions: MaybeSend + MaybeSync {
         &'a self,
         request: &'a CreateEditionRequest,
         now: Timestamp,
-    ) -> BoxFuture<'a, Result<EditionRecord, StoreError>>;
+    ) -> BoxFuture<'a, Result<Edition, StoreError>>;
     fn delete_edition<'a>(&'a self, name: &'a str) -> BoxFuture<'a, Result<(), StoreError>>;
-    fn edition<'a>(
-        &'a self,
-        name: &'a str,
-    ) -> BoxFuture<'a, Result<Option<EditionRecord>, StoreError>>;
+    fn edition<'a>(&'a self, name: &'a str) -> BoxFuture<'a, Result<Option<Edition>, StoreError>>;
 }
 
 /// [`ReadUntilTime`], object-safe.
@@ -271,7 +268,7 @@ impl<T: Editions> DynEditions for T {
         &'a self,
         request: &'a CreateEditionRequest,
         now: Timestamp,
-    ) -> BoxFuture<'a, Result<EditionRecord, StoreError>> {
+    ) -> BoxFuture<'a, Result<Edition, StoreError>> {
         let _ = (request, now);
         todo!("{DYN}")
     }
@@ -279,10 +276,7 @@ impl<T: Editions> DynEditions for T {
         let _ = name;
         todo!("{DYN}")
     }
-    fn edition<'a>(
-        &'a self,
-        name: &'a str,
-    ) -> BoxFuture<'a, Result<Option<EditionRecord>, StoreError>> {
+    fn edition<'a>(&'a self, name: &'a str) -> BoxFuture<'a, Result<Option<Edition>, StoreError>> {
         let _ = name;
         todo!("{DYN}")
     }

@@ -32,6 +32,7 @@
 //! | `correlation` | [`ReadByCorrelation`] | a store |
 //! | `list_streams` | [`ListStreams`] | a store |
 //! | `outbox` | [`Outbox`], [`UnitOutbox`] on its unit | a store |
+//! | `outbox_watch` | [`Outbox`], [`UnitOutbox`], [`Watch`] | a store |
 
 use std::future::Future;
 
@@ -738,10 +739,11 @@ pub async fn a_unit_of_work_puts_positions_with_its_appends<S: Store>(store: S) 
     assert_eq!(store.head(out).await.unwrap().next_sequence, 1);
 }
 
-/// Ruling 8: two units may be open on one handle. A backend that cannot
-/// serve the second refuses it as [`StoreError::UnitBusy`] at once; it
-/// never waits, since the unit it would wait on may be the caller's own.
-/// Once the first has ended, a begin serves.
+/// Ruling 8 and A: two units may be open on one handle. A backend that
+/// cannot serve the second holds a try-lock: while a unit is open it
+/// refuses ANY begin on the handle as [`StoreError::UnitBusy`], at once;
+/// it never waits, since the unit it would wait on may be the caller's
+/// own. Once the first has ended, a begin serves.
 pub async fn a_second_begin_on_a_handle_serves_or_refuses_never_waits<S: Store>(store: S) {
     let (s, other) = (main_stream("account", 1), main_stream("account", 2));
     let mut first = store.begin().await.unwrap();
@@ -752,7 +754,14 @@ pub async fn a_second_begin_on_a_handle_serves_or_refuses_never_waits<S: Store>(
             second.commit().await.unwrap();
             assert_eq!(store.head(other).await.unwrap().next_sequence, 1);
         }
-        Err(StoreError::UnitBusy) => {}
+        Err(StoreError::UnitBusy) => {
+            let third = within("a third begin while a unit is open", store.begin()).await;
+            assert!(
+                matches!(third, Err(StoreError::UnitBusy)),
+                "a busy handle refuses every begin while the unit is open, not {:?}",
+                third.as_ref().err()
+            );
+        }
         Err(refused) => panic!("a busy handle refuses as UnitBusy, not {refused:?}"),
     }
     first.commit().await.unwrap();
@@ -1042,23 +1051,21 @@ where
         .append(main_stream("account", 1), 0, &[page(0, 1)])
         .await
         .unwrap();
-    let head = store.commit_position().await.unwrap();
     let made = store
         .create_edition(&create("what-if"), at(10))
         .await
         .unwrap();
-    assert_eq!(made.edition.name, "what-if");
+    assert_eq!(made.name, "what-if");
     assert_eq!(
-        made.edition.diverged_at,
+        made.diverged_at,
         Some(at(10)),
         "unset: the create's instant"
     );
     assert_eq!(
-        made.edition.store, DEFAULT_EDITION_STORE,
+        made.store, DEFAULT_EDITION_STORE,
         "unnamed: the default store"
     );
-    assert_eq!(made.edition.created_at, Some(at(10)));
-    assert_eq!(made.divergence, head, "the commit position at the create");
+    assert_eq!(made.created_at, Some(at(10)));
     assert_eq!(store.edition("what-if").await, Ok(Some(made)));
     let earlier = CreateEditionRequest {
         diverge_at: Some(at(3)),
@@ -1066,7 +1073,7 @@ where
     };
     let then = store.create_edition(&earlier, at(10)).await.unwrap();
     assert_eq!(
-        then.edition.diverged_at,
+        then.diverged_at,
         Some(at(3)),
         "the requested instant, recorded"
     );
@@ -1653,6 +1660,45 @@ where
     assert_eq!(store.pending(10).await, Ok(vec![entry(1, "a", 1)]));
 }
 
+/// O2: once cleared, an id is free: put again, it is a new pending entry,
+/// with its new message. Dedup across a clear is the receiver's.
+pub async fn a_cleared_id_put_again_is_a_new_pending_entry<S>(store: S)
+where
+    S: Store + Outbox,
+    for<'s> S::Unit<'s>: UnitOutbox,
+{
+    let mut unit = store.begin().await.unwrap();
+    unit.put_outbox(&[entry(1, "a", 1)]).await.unwrap();
+    unit.commit().await.unwrap();
+    assert_eq!(store.clear(&[command(1)]).await, Ok(1));
+    let mut unit = store.begin().await.unwrap();
+    unit.put_outbox(&[entry(1, "a", 2)]).await.unwrap();
+    unit.commit().await.unwrap();
+    assert_eq!(
+        store.pending(10).await,
+        Ok(vec![entry(1, "a", 2)]),
+        "a new entry, its new message"
+    );
+}
+
+/// O6: an outbox write is a commit, so it changes the change token: a
+/// relay waits on the token instead of polling `pending`.
+pub async fn an_outbox_write_changes_the_change_token<S>(store: S)
+where
+    S: Store + Outbox + Watch,
+    for<'s> S::Unit<'s>: UnitOutbox,
+{
+    let before = steady(&store, "nothing").await;
+    let mut unit = store.begin().await.unwrap();
+    unit.put_outbox(&[entry(1, "a", 1)]).await.unwrap();
+    unit.commit().await.unwrap();
+    let after = steady(&store, "an outbox write").await;
+    assert_ne!(
+        after, before,
+        "an outbox write, with no event, changes the token"
+    );
+}
+
 // ------------------------------------------------------------------- macro
 
 /// One test per check of a section, under the caller's test attribute (its
@@ -1737,6 +1783,12 @@ macro_rules! store_contract {
             the_outbox_drains_oldest_first_and_clears,
             a_pending_entry_is_redelivered_until_cleared,
             an_entry_put_again_while_pending_keeps_its_first_message,
+            a_cleared_id_put_again_is_a_new_pending_entry,
+        );
+    };
+    (outbox_watch, #[$t:meta], $f:expr) => {
+        $crate::store_contract!(@each #[$t], $f;
+            an_outbox_write_changes_the_change_token,
         );
     };
     (#[$t:meta], $f:expr) => {

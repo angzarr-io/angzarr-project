@@ -22,15 +22,14 @@ use std::sync::atomic::{AtomicI64, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 use angzarr_ports::angzarr_proto::v1::{
-    Cover, CreateEditionRequest, EventBook, EventPage, Snapshot,
+    Cover, CreateEditionRequest, Edition, EventBook, EventPage, Snapshot,
 };
 use angzarr_ports::contract;
 use angzarr_ports::memory::{MemoryRead, MemoryStore, MemoryUnit};
 use angzarr_ports::{
-    ChangeToken, EditionRecord, Editions, EventStore, Head, ListStreams, Outbox, OutboxEntry,
-    PositionKey, PositionStore, Purge, ReadByCorrelation, ReadStore, ReadUnit, ReadUntilTime,
-    Slice, SnapshotStore, StoreError, StreamRef, Unit, UnitOfWork, UnitOutbox, UnitPurge, Uuid,
-    Watch,
+    ChangeToken, Editions, EventStore, Head, ListStreams, Outbox, OutboxEntry, PositionKey,
+    PositionStore, Purge, ReadByCorrelation, ReadStore, ReadUnit, ReadUntilTime, Slice,
+    SnapshotStore, StoreError, StreamRef, Unit, UnitOfWork, UnitOutbox, UnitPurge, Uuid, Watch,
 };
 use prost_types::Timestamp;
 
@@ -99,6 +98,8 @@ enum Bug {
     BeginWaits,
     /// A second begin on a busy handle is refused, but not as `UnitBusy`.
     BusyAsUnavailable,
+    /// A busy handle refuses the second begin, then serves the third.
+    RefusesOnlyOnce,
     /// A unit that lost a race still lands its other writes.
     LandsAroundAConflict,
     // ---- purge
@@ -159,6 +160,10 @@ enum Bug {
     PendingClears,
     /// An entry put again replaces the first.
     OutboxKeepsLast,
+    /// An id once cleared is never accepted again.
+    ClearedIdsRemembered,
+    /// Its change token counts events only, not outbox writes.
+    OutboxUnwatched,
 }
 
 /// One handle's own bookkeeping (a pair's two handles have one each).
@@ -170,6 +175,8 @@ struct Local {
     open: AtomicU64,
     /// Reads of the change token.
     token_reads: AtomicU64,
+    /// Begins refused as busy.
+    refusals: AtomicU64,
 }
 
 /// What every handle on one broken store shares.
@@ -181,6 +188,8 @@ struct Shared {
     created: Mutex<Vec<Owned>>,
     /// Every position ever put: (handler, stream).
     positions: Mutex<Vec<(String, Owned)>>,
+    /// Every outbox id ever cleared.
+    cleared: Mutex<Vec<Uuid>>,
 }
 
 /// A stream key that owns its strings.
@@ -468,6 +477,9 @@ impl UnitOfWork for Broken {
         if self.local.open.load(Ordering::SeqCst) > 0 {
             match self.bug {
                 Bug::BeginWaits => std::future::pending::<()>().await,
+                Bug::RefusesOnlyOnce if self.local.refusals.fetch_add(1, Ordering::SeqCst) == 0 => {
+                    return Err(StoreError::UnitBusy)
+                }
                 Bug::BusyAsUnavailable => {
                     return Err(StoreError::Unavailable(angzarr_ports::Cause::new(
                         "broken-busy",
@@ -656,7 +668,7 @@ impl Editions for Broken {
         &self,
         request: &CreateEditionRequest,
         now: Timestamp,
-    ) -> Result<EditionRecord, StoreError> {
+    ) -> Result<Edition, StoreError> {
         if self.is(Bug::EditionNameless) && request.name.is_empty() {
             let named = CreateEditionRequest {
                 name: "nameless".to_string(),
@@ -689,7 +701,7 @@ impl Editions for Broken {
         deleted
     }
 
-    async fn edition(&self, name: &str) -> Result<Option<EditionRecord>, StoreError> {
+    async fn edition(&self, name: &str) -> Result<Option<Edition>, StoreError> {
         self.inner.edition(name).await
     }
 }
@@ -744,6 +756,10 @@ impl Watch for Broken {
             Bug::TokenStandsStill => Ok(ChangeToken::new([0, 0])),
             Bug::TokenChangesOnRead => Ok(ChangeToken::new([
                 self.local.token_reads.fetch_add(1, Ordering::SeqCst),
+                0,
+            ])),
+            Bug::OutboxUnwatched => Ok(ChangeToken::new([
+                self.local.commits.load(Ordering::SeqCst),
                 0,
             ])),
             Bug::TokenPerHandle => Ok(ChangeToken::new([
@@ -817,12 +833,22 @@ impl Outbox for Broken {
     }
 
     async fn clear(&self, ids: &[Uuid]) -> Result<u64, StoreError> {
+        self.shared.cleared.lock().unwrap().extend_from_slice(ids);
         self.inner.clear(ids).await
     }
 }
 
 impl UnitOutbox for BrokenUnit {
     async fn put_outbox(&mut self, entries: &[OutboxEntry]) -> Result<(), StoreError> {
+        if self.store.is(Bug::ClearedIdsRemembered) {
+            let cleared = self.store.shared.cleared.lock().unwrap().clone();
+            let fresh: Vec<OutboxEntry> = entries
+                .iter()
+                .filter(|e| !cleared.contains(&e.id))
+                .cloned()
+                .collect();
+            return self.inner.put_outbox(&fresh).await;
+        }
         if self.store.is(Bug::OutboxWritesThrough) {
             let mut now = self.store.inner.begin().await?;
             now.put_outbox(entries).await?;
@@ -1039,6 +1065,7 @@ fn the_second_begin_check_catches_a_wait_and_a_wrong_refusal() {
         broken,
         BeginWaits,
         BusyAsUnavailable,
+        RefusesOnlyOnce,
     );
 }
 
@@ -1207,6 +1234,16 @@ fn the_outbox_checks_catch_early_lost_reordered_or_replaced_entries() {
         broken,
         OutboxKeepsLast
     );
+    catches!(
+        a_cleared_id_put_again_is_a_new_pending_entry,
+        broken,
+        ClearedIdsRemembered
+    );
+    catches!(
+        an_outbox_write_changes_the_change_token,
+        broken,
+        OutboxUnwatched
+    );
 }
 
 // -------------------- and with no bug, every check passes the same wrapper
@@ -1257,6 +1294,8 @@ fn an_honest_broken_store_passes_every_check() {
         the_outbox_drains_oldest_first_and_clears,
         a_pending_entry_is_redelivered_until_cleared,
         an_entry_put_again_while_pending_keeps_its_first_message,
+        a_cleared_id_put_again_is_a_new_pending_entry,
+        an_outbox_write_changes_the_change_token,
     );
     passes!(broken_pair;
         the_commit_position_counts_every_handles_commits,

@@ -45,55 +45,47 @@
 //!   outbox, each an opt-in trait with its own section.
 //! - **RULED(17)** `find_command`, `Uuid` by value.
 //!
-//! # Still open (each with a proposal)
+//! - **RULED(A) `UnitBusy` is a try-lock.** A backend that cannot serve
+//!   two units refuses ANY begin on the handle while one is open, at once,
+//!   as `UnitBusy` (`Recovery::Retry`, `angzarr-ports-store-unit-busy`)
+//!   (`a_second_begin_on_a_handle_serves_or_refuses_never_waits`).
+//! - **RULED(B) EA-3's edges.** The history is main's events below the
+//!   divergence commit position; an edition stream is listed once it holds
+//!   an event of its own; `find_command` and units see the history. A past
+//!   `diverge_at` diverges at the commit position just above main's last
+//!   event recorded at or before it; snapshots and positions never fall
+//!   through; a stream in an edition never created is a plain stream
+//!   outside read units.
+//! - **RULED(E) `read_until_time`** answers a `Slice`.
+//! - **RULED(F) `read_by_correlation`'s books** carry `next_sequence` = the
+//!   stream's head and no snapshot; an edition timeline reads as `read`
+//!   does, history included.
+//! - **RULED(O1-O6) The outbox.** O1 the entry `{ id, origin, message }`;
+//!   O2 an id put again while pending keeps its first message, and once
+//!   cleared is a NEW entry (`a_cleared_id_put_again_is_a_new_pending_entry`);
+//!   O3 oldest commit first, then put order; O4 one relay per store; O5 no
+//!   origin filter; O6 an entry is no event (no commit position) but an
+//!   outbox write CHANGES the `Watch` token, so a relay waits rather than
+//!   polls (`an_outbox_write_changes_the_change_token`).
+//! - **RULED(H) The wasm suite runs:** `just tools` installs
+//!   wasm-bindgen-test-runner (pinned to Cargo.lock's wasm-bindgen) and
+//!   `just check` runs `just wasm-test`.
 //!
-//! - **OPEN(A) `UnitBusy`.** "Detect a second begin from the holder" is not
-//!   portable (async code has no task identity), so PROPOSED: a backend that
-//!   cannot serve two units refuses ANY begin while one is open on the
-//!   handle (a try-lock), and `UnitBusy` is `Recovery::Retry`, code
-//!   `angzarr-ports-store-unit-busy`. TRADE-OFF: another task's begin is
-//!   refused too, rather than queued.
-//! - **OPEN(B) EA-3's edges.** Pinned: the history is main's below the
-//!   divergence; an edition stream is listed once it holds an event of its
-//!   own; `find_command` sees the history; a unit reads it. PROPOSED, not
-//!   pinned: a requested past `diverge_at` diverges at the commit position
-//!   just above main's last event recorded at or before it; snapshots and
-//!   positions never fall through; a stream in an edition never created is
-//!   a plain stream outside read units (base appends take any edition).
-//! - **OPEN(C) The divergence's home.** PROPOSED: `EditionRecord {
-//!   edition: Edition, divergence: u64 }`, since meta.proto's `Edition` has
-//!   only `diverged_at` (a time). ALTERNATIVE: a `divergence` field on the
-//!   wire `Edition`.
+//! # Still open
+//!
+//! - **OPEN(C) Edition creation is an event; its home is pending the
+//!   human.** The edition's divergence commit position is pinned only as
+//!   behaviour ("main's events committed before the create are its
+//!   history"), however it is recorded; `Editions` returns the wire
+//!   `Edition`, and the store-side `EditionRecord` is withdrawn. Where the
+//!   creation event lives (which stream, which message) is not designed yet.
 //! - **OPEN(D) Read units** carry annals' `covers` and `read` only; no
 //!   `head`, dedup lookups or snapshots.
-//! - **OPEN(E) `read_until_time`** answers a `Slice` (the head as read)
-//!   rather than core's bare `Vec<EventPage>`.
-//! - **OPEN(F) `read_by_correlation`'s books** carry `next_sequence` = the
-//!   stream's head (core computed the last page's + 1), no snapshot; an
-//!   edition timeline reads as `read` does, history included.
 //! - **OPEN(G) `list_streams`** stays its own trait: `covers` needs a
 //!   domain, and the base contract has no list of domains. Pinned equal to
 //!   `covers` over every domain, in domain order.
-//! - **OPEN(O1) The outbox entry** is `{ id: Uuid, origin: String, message:
-//!   Any }`: `id` the receiver's dedup key (a command id), `origin` the
-//!   writer's handler name, `message` opaque. Kind-agnostic: no field names
-//!   a component kind.
-//! - **OPEN(O2) Outbox dedup.** Pinned: an id put again while pending keeps
-//!   its first message, verbatim. PROPOSED, not pinned: once cleared, the
-//!   same id may be put again (dedup across that is the receiver's).
-//! - **OPEN(O3) Outbox order:** oldest commit first, then put order; never
-//!   by id (pinned).
-//! - **OPEN(O4) One relay per store.** `pending` claims nothing, so two
-//!   relays would both deliver (still at-least-once). ALTERNATIVE: a leased
-//!   `claim(limit, lease)` for several relays; deferred until needed.
-//! - **OPEN(O5) No origin filter** on `pending`: one relay drains every
-//!   writer's entries.
-//! - **OPEN(O6) An outbox entry is no event:** it does not raise the commit
-//!   position (pinned). Whether it changes a `Watch` token is not pinned.
 //! - **OPEN(O7) The dyn outbox:** a dyn unit writes the outbox only when
 //!   opened through `DynOutboxStore::begin_outbox`, beside `DynStore`.
-//! - **OPEN(H) The wasm suite** (tests/wasm.rs) is built by `just wasm` but
-//!   not run here: no `wasm-bindgen-test-runner` is installed.
 
 #![cfg(not(target_arch = "wasm32"))]
 
@@ -170,4 +162,9 @@ mod list_streams {
 mod outbox {
     use super::*;
     angzarr_ports::store_contract!(outbox, #[tokio::test], MemoryStore::new());
+}
+
+mod outbox_watch {
+    use super::*;
+    angzarr_ports::store_contract!(outbox_watch, #[tokio::test], MemoryStore::new());
 }

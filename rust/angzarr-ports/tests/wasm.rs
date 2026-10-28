@@ -4,9 +4,9 @@
 //!
 //! `RcStore` stands for such a backend: it holds an `Rc`, so neither it nor
 //! its futures are `Send`; it delegates to `MemoryStore`. This file is
-//! compiled only for `wasm32` (`just wasm` builds it); running it needs
-//! `wasm-bindgen-test-runner` (OPEN(H)). Red, when run, because
-//! `MemoryStore` is stubbed.
+//! compiled only for `wasm32`; `just wasm-test` runs it under node with
+//! wasm-bindgen-test-runner (RULED(H); `just tools` installs it). Red
+//! because `MemoryStore` is stubbed.
 
 #![cfg(target_arch = "wasm32")]
 
