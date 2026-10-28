@@ -470,7 +470,7 @@ domains. `Query.correlation_id` stays within one domain.
 - Backend indexes (a correlation index per backend) are backlog CQ-1.
 - Aligns with: KurrentDB's `$by_correlation_id` system projection.
 
-> **Superseded by 14.32 (pass 14):** editions are per-stream forks: creating one appends a fork event to an origin stream (`ForkStream`), and the fork travels with the data, each saga command in the edition forking the stream it reaches; there is no registry, no `CreateEdition` and no `Edition` record. An unknown edition is one with no stream forked and not yet deleted. `DeleteEdition` stays, appending tombstones that travel the edition's streams in order; main knows nothing of any of it.
+> **Superseded by 14.32 (pass 14):** editions are per-stream forks: creating one appends a fork event to an origin stream (`ForkStream`), and the fork travels with the data, each saga command in the edition forking the stream it reaches; there is no registry, no `CreateEdition` and no `Edition` record. An unknown edition is one with no stream forked and not yet deleted. `DeleteEdition` stays: sequenced after the edition's in-flight work, it removes every row tagged with the edition; main knows nothing of any of it.
 
 **6.5 Editions need an explicit, administrative create (D5).** A new
 `EditionAdminService` in `meta.proto` has `CreateEdition` and
@@ -2208,19 +2208,19 @@ option below.
   `CreateEditionRequest` and `CreateEdition`. `EditionAdminService`
   (`meta.proto`) is `ForkStream` (append an origin fork; the first creates
   the edition; an already-forked stream is `ALREADY_EXISTS`),
-  `ListEditions` (a query over X's own fork and deletion events, answered
-  as derived `EditionSummary` rows) and `DeleteEdition` (below). An
-  edition is known while any stream of it is forked and not yet deleted,
-  which is a query over the edition stores, cacheable; one never created,
+  `ListEditions` (a query over X's own fork events, answered as derived
+  `EditionSummary` rows) and `DeleteEdition` (below). An edition is known
+  while any fork event of it exists, which is a query over the edition
+  stores, cacheable; one never created,
   or deleted, is refused `NOT_FOUND`. Where an edition's rows live is
   configuration. (Store placement, `EditionSummary`, `ALREADY_EXISTS` and
   existence as a cacheable query were accepted by the owner.)
 - **Main knows nothing of an edition (the owner's invariant).** "All
   data/messages for the edition should exist in the EDITION's
   stream/data store. The main timeline should have no knowledge of
-  edition create or delete." `EditionForked` and `EditionDeleted` live
-  only in the edition's streams (D, X, R), in the edition's configured
-  store. Nothing is appended to, recorded in, indexed against or read
+  edition create or delete." `EditionForked` lives only in the edition's
+  streams (D, X, R), in the edition's configured store, and every row of
+  X carries X in its key. Nothing is appended to, recorded in, indexed against or read
   from main's streams for an edition's lifecycle, except that a fork reads
   main's head (its fork sequence) and a stream in X reads main's events
   below it. `propagated_from` names a stream in X, never in main;
@@ -2229,49 +2229,32 @@ option below.
   main's. Main's coordinators, projectors and readers behave as if no
   edition existed: creating and deleting an edition leaves main's
   streams, outbox and positions byte-for-byte unchanged.
-- **Deletion is sequenced, and uses only existing mechanisms (the owner's
+- **Deletion: sequenced, then every row tagged X removed (the owner's
   rulings).** In the owner's words: "deletion will have a seq number that
-  needs to be after the work in flight"; "the retries on the timer will
-  already be handled by sequencing"; "...and the existing systems for data
-  propagation"; and, firmly, "don't create new stuff for it". So deletion
-  is event sequencing, the bus, outbox and saga propagation that carried
-  the forks, and the existing dead letter and alert, and nothing else (no
-  new table, service, sweep, timer, retry, edge record or fallback):
-  - `DeleteEdition` appends an `EditionDeleted { edition,
-    propagated_from }` tombstone to each ORIGIN fork stream of X, in X, at
-    that stream's next sequence: a position after everything already
-    committed there.
-  - The tombstone travels as the fork did, in sequence. The saga
-    coordinators reading the stream reach it after every earlier event,
-    and deliver it after the commands those events produced, which are
-    already in their outbox ahead of it: the work in flight before the
-    delete completes first, by ordering alone, with nothing polling or
-    retrying. Each saga coordinator carries the tombstone to the streams
-    in X its own commands forked from that stream, through the existing
-    command path as a framework fact; each appends its own tombstone, in
-    its own sequence, and carries it on. Which streams those are is read
-    from X's fork events (their `propagated_from`), by the same query
-    `ListEditions` makes (the drafter's reading of "the existing systems",
-    FLAGGED for confirmation).
-  - A stream holding a tombstone is deleted in X: its coordinator removes
-    the stream's X rows below the tombstone and keeps the tombstone as its
-    last X event, so a later fork is plainly after it; reads of it in X
-    answer `NOT_FOUND` (the drafter's choice, FLAGGED). An edition is
-    unknown once every stream of it ends in a tombstone.
-  - A saga command arriving after a stream's tombstone forks it again: the
-    arrival fork does not re-check the delete (the owner's ruling). X is
-    then recreated, visibly (in `ListEditions`), for the user to remediate
-    by deleting again.
-  - A delete that genuinely FAILS (a tombstone that cannot be appended,
-    rows that cannot be removed) is dead-lettered and alerted, like any
-    failed delivery. Work in flight is not a failure; it is ordering.
-  - **Known limitation, documented rather than mended (the owner: no
-    fallback).** A tombstone reaches a forked stream only through the
-    saga that forked it. If that saga is undeployed, or its coordinator
-    has lost its place, the stream keeps its fork and stays visible in
-    `ListEditions` (counted in `EditionSummary.forked_streams`), where the
-    user can act on it, for example by forking it as an origin with
-    `ForkStream` and deleting again.
+  needs to be after the work in flight", "the retries on the timer will
+  already be handled by sequencing", "don't create new stuff for it", and
+  finally: every row of X carries X in its key, so `DeleteEdition(X)` is
+  sequenced after X's in-flight work, then removes every row tagged X
+  from X's store(s), its own sequencing included. Nothing remains: no
+  tombstone, no per-stream deleted state, no `NOT_FOUND`-after-delete
+  state beyond X being unknown again, nothing travelling to forked
+  streams, no coordinator querying fork events.
+  - **The sequence point needs no marker (the drafter's choice,
+    FLAGGED).** `DeleteEdition` takes X's commit position at the call; the
+    removal runs once all of X's work below it has completed (X's outbox
+    holds no entry below it, and X's deliveries and subscriptions have
+    passed it). That is ordering, not polling; nothing retries. So no
+    `EditionDeleted` event is written (and the message is deleted): the
+    position the call takes is the sequence. The removal takes every row
+    tagged X, including any written after the point.
+  - A later saga command in X re-forks its target like any arrival, so X
+    reappears in `ListEditions` for the user to delete again.
+  - A delete that genuinely fails (rows that cannot be removed) is
+    dead-lettered and alerted, like any failed delivery.
+  - **Known limitation:** X's work that never completes (for example
+    commands of X held in an undeployed saga's outbox) holds the delete
+    back; the edition stays visible in `ListEditions` while it waits, and
+    the user can act on it there.
 - **The time-based option.** `ForkStreamRequest.commit_position` forks at
   one global commit position: every stream the edition forks, at its
   origin or on a saga command's arrival, diverges at the same moment, for
@@ -2282,14 +2265,14 @@ option below.
   the origin along recorded reaction edges, the saga coordinators' edge
   table, the hop limit (8) and fan-out alert (1,000), the 13.3 amendment
   for the edge rows (13.3 stands as it was), on-demand forks for any input,
-  `EditionForked.on_demand` (replaced by `forked_by`), the row sweep of
-  every store, and the arrival fork's re-check of a delete with its
-  `NOT_FOUND` (and any retry timer for a delete).
-- **Still for the owner to confirm:** `EditionForked.forked_by`; the
-  tombstone carried by each saga coordinator to the streams its commands
-  forked, found by querying X's fork events (`propagated_from`); a deleted
-  stream keeping its tombstone as its last X event, its rows below it
-  removed, and answering `NOT_FOUND`; `EditionDeleted`'s shape.
+  `EditionForked.on_demand` (replaced by `forked_by`), the arrival fork's
+  re-check of a delete with its `NOT_FOUND`, any retry timer for a
+  delete, and the `EditionDeleted` tombstone that travelled the saga
+  flows (with its per-stream deleted state and its `propagated_from`).
+- **Accepted by the owner:** the shapes, `EditionForked` with `forked_by`,
+  and the fork event's own framework-derived command id.
+- **Still for the owner to confirm:** the delete's sequence point as X's
+  commit position at the call, with no marker event.
 - Why: an edition forks only what its activity touches, when the data
   reaches it, at that stream's own point, with no second source of truth
   beside the events, and nothing to bound but the data flow itself.
@@ -2297,8 +2280,8 @@ option below.
   (eventually consistent) unless the time-based option is used; a caller
   that wants to address a stream the edition has not reached must fork it
   first; existence checks query the edition stores; a deletion completes
-  eventually, in order, and can leave a stream whose forking saga is gone
-  (visible in `ListEditions`).
+  eventually, in order, and waits on any of X's work that never
+  completes.
 - Aligns with: copy-on-write branching of event streams (a fork is the
   stream's first event in the branch), and with angzarr's own rule that a
   reaction stays in its trigger's edition.

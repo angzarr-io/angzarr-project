@@ -4,8 +4,8 @@
 
 use angzarr_proto::protos::FILES;
 use angzarr_proto::v1::{
-    Cover, DeleteEditionRequest, EditionDeleted, EditionForked, EditionSummary, EventRef,
-    ForkStreamRequest, ListEditionsResponse, Uuid,
+    Cover, DeleteEditionRequest, EditionForked, EditionSummary, EventRef, ForkStreamRequest,
+    ListEditionsResponse, Uuid,
 };
 use prost::{Message, Name};
 
@@ -150,34 +150,4 @@ fn meta_proto_and_its_google_api_imports_are_embedded() {
     ] {
         assert!(paths.contains(&path), "{path} not embedded");
     }
-}
-
-#[test]
-fn the_deletion_tombstone_round_trips_with_its_field_numbers() {
-    // Decision 14.32: EditionDeleted lives only in the edition's streams.
-    let tombstone = EditionDeleted {
-        edition: "what-if".into(),
-        propagated_from: Some(EventRef {
-            stream: Some(stream("what-if")),
-            sequence: 9,
-        }),
-    };
-    assert_eq!(
-        EditionDeleted::decode(&*tombstone.encode_to_vec()).unwrap(),
-        tombstone
-    );
-    assert_eq!(
-        first_tag(&EditionDeleted {
-            edition: "e".into(),
-            ..Default::default()
-        }),
-        (1 << 3) | 2
-    );
-    assert_eq!(
-        first_tag(&EditionDeleted {
-            propagated_from: Some(EventRef::default()),
-            ..Default::default()
-        }),
-        (2 << 3) | 2
-    );
 }
