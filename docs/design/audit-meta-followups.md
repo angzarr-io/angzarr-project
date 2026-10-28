@@ -260,7 +260,9 @@ event onwards, every removal reserves its number and name (see
     below its own fork, then the edition; the fork travels with the data
     (a saga command's arrival forks its target; outside inputs to an
     unforked stream are refused), eventually consistent; a time-based fork is an option; no
-    registry (`ForkStream`, `ListEditions`, `DeleteEdition`).
+    registry (`ForkStream`, `ListEditions`, `DeleteEdition`); deletion is
+    a tombstone sequenced after the work in flight, travelling the same
+    flows; main knows nothing of an edition.
 
 ### Worked example: hatpick's `ListState`
 
@@ -329,8 +331,9 @@ markers can go wrong.
   The published `AngzarrDeadLetter` stays immutable.
 - **The review's D1–D11** (pass 6): all decided. See
   [critical-review.md](audit-meta/critical-review.md) and decisions 6.1–6.11.
-- **What `DeleteEdition` clears** (pass 6; since 14.32 there is no
-  record): every row of the edition in every store.
+- **What `DeleteEdition` clears** (pass 6; revised by 14.32): each
+  stream's edition rows below the tombstone that reaches it, in sequence;
+  there is no record, and main is untouched.
 - **Unknown editions** (pass 6, revised by 14.32): refused `NOT_FOUND`; an
   edition is known while any fork event of it exists.
 - **The main timeline's name** (pass 7): it has none. Main is the unset
@@ -396,9 +399,11 @@ markers can go wrong.
     14.32 there is no registry: an edition whose fork events are all
     evicted becomes unknown).
 - **Editions as per-stream forks** (14.32, the drafter's proposals, open):
-  the `EDITION_NOT_FORKED` code for an outside input to an unforked stream;
-  a saga command racing `DeleteEdition` refused `NOT_FOUND` and discarded;
-  `EditionForked.forked_by`. (The whole-system
+  `EditionForked.forked_by`; the tombstone carried by each saga
+  coordinator to the streams its commands forked (read from X's fork
+  events); a deleted stream keeping its tombstone and answering
+  `NOT_FOUND`. Known limitation: a stream whose forking saga is gone keeps
+  its fork, visible in `ListEditions`. (The whole-system
   divergence point this item used to track is now the time-based
   option.)
 - **Per-event saga causation** (W3a, backlog OB-6); it now covers a

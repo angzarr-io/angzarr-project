@@ -67,7 +67,9 @@ A command you send yourself to a stream the edition hasn't reached is refused (`
 admin.delete_edition("pricing-experiment")
 ```
 
-Every row of the edition, in every store, is removed. The main timeline is unaffected. An edition with no fork event left is unknown, and commands or queries naming it are refused `NOT_FOUND`.
+Deleting is ordered, like everything else: an `EditionDeleted` tombstone is appended to the edition's origin streams and travels the same saga flows the forks did, so it takes effect in each stream after the work already in flight there; each stream then drops its edition rows below the tombstone. Nothing polls or retries; a delete that genuinely fails is dead-lettered and alerted. If a saga command in the edition arrives afterwards, it forks the stream again, and the edition shows up in `ListEditions` again for you to delete. An edition is unknown once every stream of it is deleted, and commands or queries naming it are refused `NOT_FOUND`.
+
+Everything about an edition lives in the edition's own streams and store. The main timeline knows nothing of its creation or deletion: main's streams, outbox, positions and projections are unchanged.
 
 ---
 
