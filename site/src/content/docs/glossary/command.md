@@ -31,7 +31,7 @@ Commands are wrapped in a [CommandBook](/glossary/command-book) containing exact
 
 Reaction commands come from sagas only. A process manager sends no commands: it records an event carrying the data a command needs, and a saga from its domain builds the command. A target that must refuse a reaction command records the refusal as a domain event; there is no channel that routes a rejection back.
 
-A command addressed to a process manager is the one kind of command that **cannot be rejected**: the PM records it as a fact, so it carries no `Handling`, and its sender is answered `APPLIED` or `DUPLICATE` (or `PARKED` if the PM's handler fails).
+A process manager takes **no commands** at all: a command addressed to one is refused `INVALID_ARGUMENT`. Its only input is facts, which it records and never refuses; a saga whose destination is a process manager's domain emits facts, not commands.
 
 ## Commands vs Facts
 

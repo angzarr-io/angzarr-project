@@ -202,26 +202,26 @@ Dead letters require manual review. Common actions:
 
 ## Process Manager Failures
 
-A process manager never refuses an input, so none of its failures is a business rejection. Each is either a bug or not a failure at all:
+A process manager takes facts only and never refuses one, so none of its failures is a business rejection. Each is either a bug or not a failure at all:
 
 | What happened | What the coordinator does | What the sender sees |
 |---------------|---------------------------|----------------------|
-| The handler failed on a **trigger** (an error status, or output the coordinator refuses) | Dead-letters the trigger and raises an alert; appends nothing | Nothing: a trigger has no caller |
-| The handler failed on a **command** addressed to the PM | Dead-letters the command and raises an alert; appends nothing | `OK` with delivery `PARKED` and no events |
-| A command to the PM is malformed (it sets `Handling`, or a `correlation_id` other than its cover's root) | Refuses it before the handler runs | A client gets `INVALID_ARGUMENT`; a saga's command is dead-lettered and alerted |
-| A non-starting trigger arrived for a correlation the PM has no instance for | Skips it and advances its position; nothing is dead-lettered or alerted | Nothing: a skip is not a failure |
-| A trigger or command the PM already recorded arrived again | Answers from the PM's stream; the handler does not run | `DUPLICATE` for a command |
+| The handler failed on a fact (an error status, or output the coordinator refuses) | Dead-letters the fact and raises an alert; appends nothing | `OK` with delivery `PARKED` and no events, if it waits; a saga's fact has no caller |
+| A command was addressed to the PM | Refuses it before the handler runs | A client gets `INVALID_ARGUMENT`; a saga's command is dead-lettered and alerted |
+| A fact is malformed (it sets `Handling`, has no `fact_origin`, or a `correlation_id` other than its cover's root) | Refuses it before the handler runs | A client gets `INVALID_ARGUMENT`; a saga's fact is dead-lettered and alerted |
+| A non-starting fact arrived for a correlation the PM has no instance for | Skips it; nothing is recorded, dead-lettered or alerted | `APPLIED` with no events: a skip is not a failure |
+| A fact the PM already recorded arrived again (a redelivery, or a saga re-run) | Answers from the PM's stream; the handler does not run | `DUPLICATE` |
 
-A PM sends no commands, so a rejected step is the saga's: the saga's command is retried when the error is retryable and otherwise dead-lettered, and a target that refuses for a business reason records the refusal as an event, which reaches the PM as a trigger.
+A PM sends no commands, so a rejected step is the saga's: the saga's command is retried when the error is retryable and otherwise dead-lettered, and a target that refuses for a business reason records the refusal as an event, which a saga turns into a fact for the PM.
 
-To recover a dead-lettered PM input, fix the PM and replay the dead letter: deduplication on the PM's stream keeps the replay from recording anything twice.
+To recover a dead-lettered fact, fix the PM and replay the dead letter: deduplication on the PM's stream keeps the replay from recording anything twice.
 
 ---
 
 ## Saga Compensation
 
 :::caution[Removed from the contract]
-The compensation and notification path below is deleted from the current contract (backlog RM-2). A target that must refuse records the refusal as a domain event, and the sagas and process managers subscribed to its domain handle it as an ordinary event. This section describes the prior implementation until the page is rewritten (backlog DOC-2).
+The compensation and notification path below is deleted from the current contract (backlog RM-2). A target that must refuse records the refusal as a domain event, which the sagas subscribed to its domain handle as an ordinary event (turning it into commands, or into a fact for a process manager). This section describes the prior implementation until the page is rewritten (backlog DOC-2).
 :::
 
 When a saga-issued command is rejected, angzarr notifies the original aggregate so it can emit compensation events.
