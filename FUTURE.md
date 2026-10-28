@@ -3,8 +3,8 @@
 What angzarr doesn't have yet, why each one matters, and the shape we expect it to take. Each entry ends
 with what would settle it.
 
-Order: **timers come first, then forgetting personal data.** Set-based validation and outbound side
-effects are not yet scheduled.
+Order: **timers come first, then forgetting personal data.** Set-based validation (reservation domains)
+and outbound side effects are not yet scheduled.
 
 ## Why there is no saga primitive
 
@@ -66,20 +66,17 @@ the same component.
 
 *"Usernames are unique." "A player holds at most one active seat."*
 
-The rule spans many streams, but an aggregate enforces rules within one stream only. Two approaches:
+The rule spans many streams, but an aggregate enforces rules within one stream only.
 
-- **A reservation domain:** a domain whose streams are the constrained values (for example, one stream per
-  username). Claiming a value is a command to it, and a duplicate claim is refused. This can be built today
-  with no new mechanism.
-- **Dynamic Consistency Boundaries** (Sara Pellegrini and others): events carry tags, and a write's
-  consistency check is a query over tags instead of one stream's expected version. This removes the
-  reservation domains, but it changes the storage contract.
+Decided approach: **a reservation domain**, a domain whose streams are the constrained values (for
+example, one stream per username). Claiming a value is a command to it, and a duplicate claim is refused.
+It needs no new mechanism.
 
-The storage contract (`angzarr-ports`) is now shared by both runtimes and every adapter, so this is
-cheapest to decide while it is young, even if the answer is "reservation domains, no DCB".
+**Dynamic Consistency Boundaries are rejected.** DCB (Sara Pellegrini and others) checks a write's
+consistency with a query over tagged events after a position in one globally ordered log. angzarr has no
+global position, by design and permanently: ordering is per stream. So DCB cannot be built on it.
 
-Settled by: a decision recorded in the decision log; if it's DCB, a ports amendment proved by the store
-suite.
+Settled by: a guide page and an example of a reservation domain enforcing a uniqueness rule.
 
 ## Outbound side effects
 
