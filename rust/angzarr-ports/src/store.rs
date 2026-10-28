@@ -3,8 +3,16 @@
 //! Every method returns `impl Future + MaybeSend`: `Send` on every target
 //! but `wasm32` ([`crate::send`]). A backend writes each as a plain
 //! `async fn`. Stores take `&self`, so one handle is shared (`Arc`) and a
-//! store does its own locking; a [`Unit`] takes `&mut self`, because a
-//! transaction is exclusive.
+//! store does its own locking.
+//!
+//! **There is no unit of work** (the owner's ruling, 2026-10-28: a
+//! cross-stream unit was cascade, and a step-scoped one is "just write").
+//! A handling step makes ONE atomic [`EventStore::write`]: optionally one
+//! stream's events at an expected length, with the step's positions and
+//! outbox entries, landing together or not at all. No transaction is held
+//! open; a race is caught by the expected length ([`StoreError::Conflict`]).
+//! A step's dedup lookups ([`EventStore::find_command`]) come before its
+//! write; its snapshot is its own call ([`SnapshotStore::write_snapshot`]).
 //!
 //! The base ports ([`Store`]) are every backend's. The rest are opt-in, one
 //! trait per capability, so a store that lacks one is honest by type.
@@ -20,43 +28,99 @@ use crate::error::StoreError;
 use crate::send::{MaybeSend, MaybeSync};
 use crate::stream::{Head, PositionKey, Slice, StreamRef};
 
+// =================================================================== write
+
+/// One handling step's write: ONE atomic call, all of it landing or none.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct Write<'a> {
+    /// The step's events: ONE stream's pages at an expected length. `None`
+    /// for a step that writes no stream (a saga's, or a projector's:
+    /// positions and outbox entries only).
+    pub events: Option<Append<'a>>,
+    /// The step's positions: each a handler's next sequence on a stream it
+    /// consumes (any stream, in any edition).
+    pub positions: &'a [(PositionKey<'a>, u64)],
+    /// The step's outbox entries. A store that keeps no outbox (no
+    /// [`Outbox`]) is never given any.
+    pub outbox: &'a [OutboxEntry],
+}
+
+/// One stream's pages at the length the writer expects it to have.
+#[derive(Clone, Copy, Debug)]
+pub struct Append<'a> {
+    pub stream: StreamRef<'a>,
+    pub expected: u64,
+    pub pages: &'a [EventPage],
+}
+
+impl<'a> Write<'a> {
+    /// A write of `pages` to `stream` at `expected`, and nothing else.
+    pub fn append(stream: StreamRef<'a>, expected: u64, pages: &'a [EventPage]) -> Write<'a> {
+        Write {
+            events: Some(Append {
+                stream,
+                expected,
+                pages,
+            }),
+            ..Write::default()
+        }
+    }
+
+    /// A write of positions alone: a saga's or a projector's step.
+    pub fn positions(positions: &'a [(PositionKey<'a>, u64)]) -> Write<'a> {
+        Write {
+            positions,
+            ..Write::default()
+        }
+    }
+}
+
+/// What a write answers.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub struct Written {
+    /// The written stream's new length; `None` when the write named none.
+    pub next_sequence: Option<u64>,
+}
+
 // =================================================================== base
 
 /// Where streams are kept: one append-only log of opaque pages per stream.
 ///
 /// **Opaque.** A store keeps each [`EventPage`] as written and copies what
-/// it indexes into columns. It never decodes a payload, never assigns or
-/// rewrites a sequence; upcasting is the reader's, on every read.
+/// it indexes into columns. It never decodes a business payload, never
+/// assigns or rewrites a sequence; upcasting is the reader's.
 ///
-/// **Editions are per-stream forks (14.32).** Every store keeps this rule;
-/// [`Editions`] adds only the administration.
+/// **Editions are per-stream forks (14.32), their lifecycle framework
+/// meta-events** (`io.angzarr.v1.meta`), which a store recognises by type:
 /// - An edition stream (D, X, R) with no event of its own reads as main's
 ///   (D, R), and is not listed by [`covers`](EventStore::covers).
-/// - Its first own event must be its FORK: a page whose payload is an
-///   `EditionForked` ([`EDITION_FORKED_TYPE_URL`]), appended with
-///   `expected` = the fork sequence: main's head, or (the time-based
-///   option) any sequence below it ([`Editions::fork_point`]). Any other
-///   first write is refused [`StoreError::EditionNotForked`], a second
-///   fork [`StoreError::EditionAlreadyForked`], and a fork of main
+/// - Its first own event must be its CREATION
+///   ([`EDITION_CREATED_TYPE_URL`]), written with `expected` = its fork
+///   sequence: main's head, or (the time-based option) any sequence below
+///   it ([`Editions::fork_point`]). Any other first write is refused
+///   [`StoreError::EditionNotForked`], a second creation
+///   [`StoreError::EditionAlreadyForked`], and a creation of main
 ///   [`StoreError::EditionNameRequired`].
-/// - A forked stream reads main's events below its own fork sequence, then
-///   its own, numbered on; main's later events never reach it. Every read,
-///   lookup, append and unit sees that history. Snapshots and positions
+/// - A created stream reads main's events below its own fork sequence,
+///   then its own, numbered on; main's later events never reach it. Every
+///   read, lookup and write sees that history. Snapshots and positions
 ///   never fall through.
+/// - Its DELETION ([`EDITION_DELETED_TYPE_URL`]) is recorded like any
+///   event; the stream's rows of the edition are removed later, by
+///   [`Editions::remove_deleted`], once the deletion has propagated onward.
+///   A deletion written to a stream with no event in the edition writes
+///   nothing (there is nothing to delete).
 /// - Main is never written by any of it.
 pub trait EventStore: MaybeSend + MaybeSync {
-    /// Append `pages` to `stream` as one autocommitted write, creating the
-    /// stream when `expected` is its length and it holds nothing. Refused,
-    /// appending nothing: a stream not at `expected`
-    /// ([`StoreError::Conflict`]); pages whose sequences do not run on from
-    /// `expected` ([`StoreError::Discontinuous`]). No pages checks
-    /// `expected` and writes nothing. Returns the stream's new length.
-    fn append(
+    /// Land `write` at once, or none of it. Refused, writing nothing: its
+    /// stream not at `expected` ([`StoreError::Conflict`]); pages whose
+    /// sequences do not run on from `expected`
+    /// ([`StoreError::Discontinuous`]); the edition refusals above. An
+    /// empty page list checks `expected` and writes no event.
+    fn write(
         &self,
-        stream: StreamRef<'_>,
-        expected: u64,
-        pages: &[EventPage],
-    ) -> impl Future<Output = Result<u64, StoreError>> + MaybeSend;
+        write: Write<'_>,
+    ) -> impl Future<Output = Result<Written, StoreError>> + MaybeSend;
 
     /// The pages with `from <= sequence < to` (`to` `None`: to the end), in
     /// sequence order, with the stream's head as read. An absent stream is
@@ -76,11 +140,9 @@ pub trait EventStore: MaybeSend + MaybeSync {
         async move { Ok(self.read(stream, u64::MAX, None).await?.head()) }
     }
 
-    /// The pages of `stream` caused by the command `command_id`, in
-    /// sequence order: the dedup lookup, for commands and facts alike. A
-    /// fact's events carry its derived command id
-    /// (`fact_command_id(external_id)`) as their cause, so a process
-    /// manager, which takes facts only, deduplicates here by the fact's id.
+    /// The pages of `stream` caused by the command `command_id` (or the
+    /// fact, whose derived id it is), in sequence order: the dedup lookup,
+    /// made before the step's write.
     fn find_command(
         &self,
         stream: StreamRef<'_>,
@@ -95,13 +157,13 @@ pub trait EventStore: MaybeSend + MaybeSync {
     ) -> impl Future<Output = Result<Vec<Cover>, StoreError>> + MaybeSend;
 
     /// The store's commit position now: global, monotonic, rising with
-    /// every commit that appends an event, through any handle, never
-    /// falling. An edition diverges at the commit position of its create.
+    /// every write that lands an event, through any handle, never falling.
     fn commit_position(&self) -> impl Future<Output = Result<u64, StoreError>> + MaybeSend;
 }
 
 /// The newest snapshot per stream: whatever was written last. Whether it
-/// may be used is the caller's to judge, never the store's.
+/// may be used is the caller's to judge. Written by its own call, never in
+/// a [`Write`] (ruling 5).
 pub trait SnapshotStore: MaybeSend + MaybeSync {
     fn read_snapshot(
         &self,
@@ -116,123 +178,23 @@ pub trait SnapshotStore: MaybeSend + MaybeSync {
 }
 
 /// Where each handler is on each stream: the next sequence it has yet to
-/// handle, 0 until put. A plain upsert, which may lower it.
+/// handle, 0 until written. Positions are written only in a [`Write`].
 pub trait PositionStore: MaybeSend + MaybeSync {
     fn position(
         &self,
         key: PositionKey<'_>,
     ) -> impl Future<Output = Result<u64, StoreError>> + MaybeSend;
-
-    fn put_position(
-        &self,
-        key: PositionKey<'_>,
-        next: u64,
-    ) -> impl Future<Output = Result<(), StoreError>> + MaybeSend;
-}
-
-/// A store that opens units of work.
-///
-/// Two units may be open on one handle. A backend that cannot serve a
-/// second at once (one SQLite connection) refuses the second begin with
-/// [`StoreError::UnitBusy`] and never waits for it: a begin either serves
-/// or refuses.
-pub trait UnitOfWork: MaybeSend + MaybeSync {
-    type Unit<'s>: Unit + 's
-    where
-        Self: 's;
-
-    fn begin(&self) -> impl Future<Output = Result<Self::Unit<'_>, StoreError>> + MaybeSend;
-}
-
-/// One open unit of work: ONE handling step's atomic write (plan ruling 2;
-/// no cross-stream unit). It writes ONE stream: its appends, and that
-/// stream's snapshot, with the step's positions and outbox entries, all
-/// landing together at [`commit`](Unit::commit) or not at all (dropped or
-/// aborted). The unit's first write to a stream (an append, a snapshot, a
-/// purge) BINDS it to that stream; a write to another is refused
-/// [`StoreError::UnitStreamBound`]. A step that writes no stream (a saga's:
-/// positions and outbox only) is bound to none. Positions may name any
-/// stream: they are the step's place in what it consumes. Reads are of any
-/// stream, and see the unit's writes. A race lost to another writer of the
-/// stream is [`StoreError::Conflict`], at the unit's append or at its
-/// commit, and then nothing of the unit lands.
-pub trait Unit: MaybeSend {
-    fn append(
-        &mut self,
-        stream: StreamRef<'_>,
-        expected: u64,
-        pages: &[EventPage],
-    ) -> impl Future<Output = Result<u64, StoreError>> + MaybeSend;
-
-    fn read(
-        &mut self,
-        stream: StreamRef<'_>,
-        from: u64,
-        to: Option<u64>,
-    ) -> impl Future<Output = Result<Slice, StoreError>> + MaybeSend;
-
-    fn head(
-        &mut self,
-        stream: StreamRef<'_>,
-    ) -> impl Future<Output = Result<Head, StoreError>> + MaybeSend {
-        async move { Ok(self.read(stream, u64::MAX, None).await?.head()) }
-    }
-
-    fn find_command(
-        &mut self,
-        stream: StreamRef<'_>,
-        command_id: Uuid,
-    ) -> impl Future<Output = Result<Vec<EventPage>, StoreError>> + MaybeSend;
-
-    fn covers(
-        &mut self,
-        domain: &str,
-    ) -> impl Future<Output = Result<Vec<Cover>, StoreError>> + MaybeSend;
-
-    /// The stream's snapshot as the unit sees it: its own, once written.
-    fn read_snapshot(
-        &mut self,
-        stream: StreamRef<'_>,
-    ) -> impl Future<Output = Result<Option<Snapshot>, StoreError>> + MaybeSend;
-
-    /// Keep `snapshot` as the unit's stream's newest, landing at commit with
-    /// its appends. Binds the unit to `stream` like an append.
-    fn write_snapshot(
-        &mut self,
-        stream: StreamRef<'_>,
-        snapshot: &Snapshot,
-    ) -> impl Future<Output = Result<(), StoreError>> + MaybeSend;
-
-    fn position(
-        &mut self,
-        key: PositionKey<'_>,
-    ) -> impl Future<Output = Result<u64, StoreError>> + MaybeSend;
-
-    /// Lands at commit with the unit's appends: 5.6's checkpoint.
-    fn put_position(
-        &mut self,
-        key: PositionKey<'_>,
-        next: u64,
-    ) -> impl Future<Output = Result<(), StoreError>> + MaybeSend;
-
-    fn commit(self) -> impl Future<Output = Result<(), StoreError>> + MaybeSend
-    where
-        Self: Sized;
-
-    fn abort(self) -> impl Future<Output = Result<(), StoreError>> + MaybeSend
-    where
-        Self: Sized;
 }
 
 /// Every base port at once.
-pub trait Store: EventStore + SnapshotStore + PositionStore + UnitOfWork {}
+pub trait Store: EventStore + SnapshotStore + PositionStore {}
 
-impl<T: EventStore + SnapshotStore + PositionStore + UnitOfWork + ?Sized> Store for T {}
+impl<T: EventStore + SnapshotStore + PositionStore + ?Sized> Store for T {}
 
 // ================================================================== purge
 
 /// Opt-in: delete a stream, its snapshot, its command ids and every
-/// handler's position on it. It restarts at 0.
+/// handler's position on it. It restarts at 0. Its own call.
 pub trait Purge: MaybeSend + MaybeSync {
     fn purge(
         &self,
@@ -240,52 +202,52 @@ pub trait Purge: MaybeSend + MaybeSync {
     ) -> impl Future<Output = Result<u64, StoreError>> + MaybeSend;
 }
 
-/// [`Purge`] in a unit: lands at commit, seen by the unit at once. Binds
-/// the unit to `stream` like an append.
-pub trait UnitPurge: Unit {
-    fn purge(
-        &mut self,
-        stream: StreamRef<'_>,
-    ) -> impl Future<Output = Result<u64, StoreError>> + MaybeSend;
-}
-
 // =============================================================== editions
 
-/// The type URL of an `EditionForked` payload: what marks a page as a fork.
-pub const EDITION_FORKED_TYPE_URL: &str = "/io.angzarr.v1.EditionForked";
+/// The type URL of an `io.angzarr.v1.meta.EditionCreated`: what marks a
+/// page as a stream's creation in its edition.
+pub const EDITION_CREATED_TYPE_URL: &str = "/io.angzarr.v1.meta.EditionCreated";
 
-/// Opt-in: the administration of editions as per-stream forks (14.32;
-/// `EditionAdminService`). There is no registry: an edition is known while
-/// a fork event of it exists, and everything here is derived from, or
-/// removes, the edition's own rows. Forking itself is an append (see
-/// [`EventStore`]); main is never written.
+/// The type URL of an `io.angzarr.v1.meta.EditionDeleted`: what marks a
+/// page as a stream's deletion from its edition.
+pub const EDITION_DELETED_TYPE_URL: &str = "/io.angzarr.v1.meta.EditionDeleted";
+
+/// Opt-in: the administration of editions as per-stream forks (14.32).
+/// There is no registry: an edition is known while a creation event of it
+/// exists. Creation and deletion are writes (see [`EventStore`]); main is
+/// never written.
 pub trait Editions: MaybeSend + MaybeSync {
     /// The time-based option's fork sequence for `stream`: main's first
-    /// sequence committed after global commit position `commit_position`
-    /// (main's events committed at or before it are the fork's history).
+    /// sequence committed after global commit position `commit_position`.
     fn fork_point(
         &self,
         stream: StreamRef<'_>,
         commit_position: u64,
     ) -> impl Future<Output = Result<u64, StoreError>> + MaybeSend;
 
-    /// `ListEditions`: one summary per edition holding a fork event, by
-    /// name, derived from its fork events on each call: its origin forks
-    /// (those with no `propagated_from`), how many streams it has forked,
-    /// and its time-based commit position (0 if per-stream).
+    /// `ListEditions`: one summary per edition holding a creation event, by
+    /// name, derived on each call: its origins (creations with no
+    /// `propagated_from`), how many streams it holds, its time-based commit
+    /// position (0 if per-stream). A stream that has recorded its deletion
+    /// but is not yet removed still counts.
     fn list_editions(
         &self,
     ) -> impl Future<Output = Result<Vec<EditionSummary>, StoreError>> + MaybeSend;
 
-    /// `DeleteEdition`'s removal: every row tagged with edition `name`
-    /// (events and forks, snapshots, positions on its streams), at once.
-    /// The caller sequences it after the edition's in-flight work. Nothing
-    /// of main is touched, and the edition is unknown afterwards. Refused:
-    /// an empty name, an edition that does not exist.
-    fn delete_edition(
+    /// The third step of a stream's deletion (14.32: recorded, propagated,
+    /// then removed): remove every row of edition stream `stream` (its
+    /// events, the creation and deletion included, its snapshot, the
+    /// positions on it). Refused, removing nothing: a stream whose last
+    /// event is not its deletion ([`StoreError::EditionNotDeleted`]); one
+    /// whose deletion has not propagated onward, an outbox entry of its
+    /// edition written with the stream or a position on it still pending
+    /// ([`StoreError::EditionNotPropagated`]); main
+    /// ([`StoreError::EditionNameRequired`]). A stream with no row left
+    /// answers 0. Returns how many events it removed.
+    fn remove_deleted(
         &self,
-        name: &str,
-    ) -> impl Future<Output = Result<(), StoreError>> + MaybeSend;
+        stream: StreamRef<'_>,
+    ) -> impl Future<Output = Result<u64, StoreError>> + MaybeSend;
 }
 
 // ========================================================== one-moment reads
@@ -395,7 +357,8 @@ pub trait ListStreams: MaybeSend + MaybeSync {
 
 /// One message a component sends beyond its own stream (a saga's command,
 /// today), kept until the relay has delivered it. Kind-agnostic: the store
-/// never decodes `message`, and `origin` is just the writer's name.
+/// never decodes `message`, and `origin` is just the writer's name. Written
+/// only in a [`Write`], with the step's events and positions.
 #[derive(Clone, PartialEq, Debug)]
 pub struct OutboxEntry {
     /// The receiver's dedup key (a command's id): delivery is at least
@@ -405,12 +368,15 @@ pub struct OutboxEntry {
     pub origin: String,
     /// The message, opaque: a `CommandBook` today.
     pub message: Any,
+    /// The edition whose processing wrote it (`None`: main's). An edition's
+    /// entries are its rows: its deletion waits for them (14.32).
+    pub edition: Option<String>,
 }
 
 /// Opt-in: the transactional outbox (5.6, OB-1, 14.31), the relay's side.
-/// Entries are written only through a unit ([`UnitOutbox`]), atomically
-/// with its appends and positions; the relay reads what is pending,
-/// delivers it, then clears it.
+/// Entries are written only in a [`Write`], atomically with the step's
+/// events and positions; the relay reads what is pending, delivers it,
+/// then clears it.
 pub trait Outbox: MaybeSend + MaybeSync {
     /// Up to `limit` pending entries, oldest commit first. Reading clears
     /// nothing: an entry is pending until cleared.
@@ -424,26 +390,14 @@ pub trait Outbox: MaybeSend + MaybeSync {
     fn clear(&self, ids: &[Uuid]) -> impl Future<Output = Result<u64, StoreError>> + MaybeSend;
 }
 
-/// [`Outbox`] in a unit: the writer's side.
-pub trait UnitOutbox: Unit {
-    /// Keep `entries`, landing at commit. An id already pending keeps its
-    /// first message, verbatim.
-    fn put_outbox(
-        &mut self,
-        entries: &[OutboxEntry],
-    ) -> impl Future<Output = Result<(), StoreError>> + MaybeSend;
-}
-
 // ========================================== shared handles: Arc<T> (base)
 
 impl<T: EventStore + ?Sized> EventStore for Arc<T> {
-    fn append(
+    fn write(
         &self,
-        stream: StreamRef<'_>,
-        expected: u64,
-        pages: &[EventPage],
-    ) -> impl Future<Output = Result<u64, StoreError>> + MaybeSend {
-        (**self).append(stream, expected, pages)
+        write: Write<'_>,
+    ) -> impl Future<Output = Result<Written, StoreError>> + MaybeSend {
+        (**self).write(write)
     }
     fn read(
         &self,
@@ -499,22 +453,5 @@ impl<T: PositionStore + ?Sized> PositionStore for Arc<T> {
         key: PositionKey<'_>,
     ) -> impl Future<Output = Result<u64, StoreError>> + MaybeSend {
         (**self).position(key)
-    }
-    fn put_position(
-        &self,
-        key: PositionKey<'_>,
-        next: u64,
-    ) -> impl Future<Output = Result<(), StoreError>> + MaybeSend {
-        (**self).put_position(key, next)
-    }
-}
-
-impl<T: UnitOfWork + ?Sized> UnitOfWork for Arc<T> {
-    type Unit<'s>
-        = T::Unit<'s>
-    where
-        Self: 's;
-    fn begin(&self) -> impl Future<Output = Result<Self::Unit<'_>, StoreError>> + MaybeSend {
-        (**self).begin()
     }
 }

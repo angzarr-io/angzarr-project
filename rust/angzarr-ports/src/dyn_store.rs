@@ -6,8 +6,7 @@
 //! blanket impl here. [`DynStore`] gathers the base ports, and
 //! `dyn DynStore` implements them again, so `Arc<dyn DynStore>` is a
 //! [`Store`](crate::Store) and generic code (the suite included) runs on it
-//! unchanged. A unit that writes the outbox is opened through
-//! [`DynOutboxStore`]. The cost is one allocation and one indirect call per
+//! unchanged. The cost is one allocation and one indirect call per
 //! operation; annals stays generic and pays nothing.
 
 use std::future::Future;
@@ -21,9 +20,11 @@ use crate::error::StoreError;
 use crate::send::{MaybeSend, MaybeSync};
 use crate::store::{
     Editions, EventStore, ListStreams, Outbox, OutboxEntry, PositionStore, ReadByCorrelation,
-    ReadUntilTime, SnapshotStore, Unit, UnitOfWork, UnitOutbox,
+    ReadUntilTime, SnapshotStore, Write, Written,
 };
 use crate::stream::{Head, PositionKey, Slice, StreamRef};
+
+const PROPOSED: &str = "proposed for review: the dyn adapter's new method";
 
 /// A boxed future: `Send` on every target but `wasm32`.
 #[cfg(not(target_arch = "wasm32"))]
@@ -34,12 +35,7 @@ pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + 'a>>;
 
 /// [`EventStore`], object-safe.
 pub trait DynEventStore: MaybeSend + MaybeSync {
-    fn append<'a>(
-        &'a self,
-        stream: StreamRef<'a>,
-        expected: u64,
-        pages: &'a [EventPage],
-    ) -> BoxFuture<'a, Result<u64, StoreError>>;
+    fn write<'a>(&'a self, write: Write<'a>) -> BoxFuture<'a, Result<Written, StoreError>>;
     fn read<'a>(
         &'a self,
         stream: StreamRef<'a>,
@@ -53,7 +49,7 @@ pub trait DynEventStore: MaybeSend + MaybeSync {
         command_id: Uuid,
     ) -> BoxFuture<'a, Result<Vec<EventPage>, StoreError>>;
     fn covers<'a>(&'a self, domain: &'a str) -> BoxFuture<'a, Result<Vec<Cover>, StoreError>>;
-    fn commit_position<'a>(&'a self) -> BoxFuture<'a, Result<u64, StoreError>>;
+    fn commit_position(&self) -> BoxFuture<'_, Result<u64, StoreError>>;
 }
 
 /// [`SnapshotStore`], object-safe.
@@ -72,11 +68,6 @@ pub trait DynSnapshotStore: MaybeSend + MaybeSync {
 /// [`PositionStore`], object-safe.
 pub trait DynPositionStore: MaybeSend + MaybeSync {
     fn position<'a>(&'a self, key: PositionKey<'a>) -> BoxFuture<'a, Result<u64, StoreError>>;
-    fn put_position<'a>(
-        &'a self,
-        key: PositionKey<'a>,
-        next: u64,
-    ) -> BoxFuture<'a, Result<(), StoreError>>;
 }
 
 /// [`Editions`], object-safe: core's edition admin.
@@ -87,7 +78,10 @@ pub trait DynEditions: MaybeSend + MaybeSync {
         commit_position: u64,
     ) -> BoxFuture<'a, Result<u64, StoreError>>;
     fn list_editions(&self) -> BoxFuture<'_, Result<Vec<EditionSummary>, StoreError>>;
-    fn delete_edition<'a>(&'a self, name: &'a str) -> BoxFuture<'a, Result<(), StoreError>>;
+    fn remove_deleted<'a>(
+        &'a self,
+        stream: StreamRef<'a>,
+    ) -> BoxFuture<'a, Result<u64, StoreError>>;
 }
 
 /// [`ReadUntilTime`], object-safe.
@@ -111,7 +105,7 @@ pub trait DynReadByCorrelation: MaybeSend + MaybeSync {
 
 /// [`ListStreams`], object-safe.
 pub trait DynListStreams: MaybeSend + MaybeSync {
-    fn list_streams<'a>(&'a self) -> BoxFuture<'a, Result<Vec<Cover>, StoreError>>;
+    fn list_streams(&self) -> BoxFuture<'_, Result<Vec<Cover>, StoreError>>;
 }
 
 /// [`Outbox`], object-safe: core's relay.
@@ -120,85 +114,17 @@ pub trait DynOutbox: MaybeSend + MaybeSync {
     fn clear<'a>(&'a self, ids: &'a [Uuid]) -> BoxFuture<'a, Result<u64, StoreError>>;
 }
 
-/// [`UnitOfWork`], object-safe: the unit comes back boxed.
-pub trait DynUnitOfWork: MaybeSend + MaybeSync {
-    #[allow(clippy::type_complexity)]
-    fn begin(&self) -> BoxFuture<'_, Result<Box<dyn DynUnit<'_> + '_>, StoreError>>;
-}
-
-/// [`Unit`], object-safe. `'s` is how long the unit may borrow its store.
-pub trait DynUnit<'s>: MaybeSend + 's {
-    fn append<'a>(
-        &'a mut self,
-        stream: StreamRef<'a>,
-        expected: u64,
-        pages: &'a [EventPage],
-    ) -> BoxFuture<'a, Result<u64, StoreError>>;
-    fn read<'a>(
-        &'a mut self,
-        stream: StreamRef<'a>,
-        from: u64,
-        to: Option<u64>,
-    ) -> BoxFuture<'a, Result<Slice, StoreError>>;
-    fn head<'a>(&'a mut self, stream: StreamRef<'a>) -> BoxFuture<'a, Result<Head, StoreError>>;
-    fn find_command<'a>(
-        &'a mut self,
-        stream: StreamRef<'a>,
-        command_id: Uuid,
-    ) -> BoxFuture<'a, Result<Vec<EventPage>, StoreError>>;
-    fn covers<'a>(&'a mut self, domain: &'a str) -> BoxFuture<'a, Result<Vec<Cover>, StoreError>>;
-    fn read_snapshot<'a>(
-        &'a mut self,
-        stream: StreamRef<'a>,
-    ) -> BoxFuture<'a, Result<Option<Snapshot>, StoreError>>;
-    fn write_snapshot<'a>(
-        &'a mut self,
-        stream: StreamRef<'a>,
-        snapshot: &'a Snapshot,
-    ) -> BoxFuture<'a, Result<(), StoreError>>;
-    fn position<'a>(&'a mut self, key: PositionKey<'a>) -> BoxFuture<'a, Result<u64, StoreError>>;
-    fn put_position<'a>(
-        &'a mut self,
-        key: PositionKey<'a>,
-        next: u64,
-    ) -> BoxFuture<'a, Result<(), StoreError>>;
-    fn commit(self: Box<Self>) -> BoxFuture<'s, Result<(), StoreError>>;
-    fn abort(self: Box<Self>) -> BoxFuture<'s, Result<(), StoreError>>;
-}
-
-/// [`UnitOutbox`], object-safe: a dyn unit that also writes the outbox.
-pub trait DynOutboxUnit<'s>: DynUnit<'s> {
-    fn put_outbox<'a>(
-        &'a mut self,
-        entries: &'a [OutboxEntry],
-    ) -> BoxFuture<'a, Result<(), StoreError>>;
-}
-
-/// A store whose units write the outbox, opened as dyn units: core's saga
-/// coordinator, through `Arc<dyn DynStore>` beside it.
-pub trait DynOutboxStore: MaybeSend + MaybeSync {
-    #[allow(clippy::type_complexity)]
-    fn begin_outbox(&self) -> BoxFuture<'_, Result<Box<dyn DynOutboxUnit<'_> + '_>, StoreError>>;
-}
-
 /// Every base port, object-safe: what core holds as `Arc<dyn DynStore>`.
-pub trait DynStore: DynEventStore + DynSnapshotStore + DynPositionStore + DynUnitOfWork {}
+pub trait DynStore: DynEventStore + DynSnapshotStore + DynPositionStore {}
 
-impl<T: DynEventStore + DynSnapshotStore + DynPositionStore + DynUnitOfWork + ?Sized> DynStore
-    for T
-{
-}
+impl<T: DynEventStore + DynSnapshotStore + DynPositionStore + ?Sized> DynStore for T {}
 
 // ------------------------------------------- every backend boxes itself
 
 impl<T: EventStore> DynEventStore for T {
-    fn append<'a>(
-        &'a self,
-        stream: StreamRef<'a>,
-        expected: u64,
-        pages: &'a [EventPage],
-    ) -> BoxFuture<'a, Result<u64, StoreError>> {
-        Box::pin(EventStore::append(self, stream, expected, pages))
+    fn write<'a>(&'a self, write: Write<'a>) -> BoxFuture<'a, Result<Written, StoreError>> {
+        let _ = write;
+        todo!("{PROPOSED}")
     }
     fn read<'a>(
         &'a self,
@@ -221,7 +147,7 @@ impl<T: EventStore> DynEventStore for T {
     fn covers<'a>(&'a self, domain: &'a str) -> BoxFuture<'a, Result<Vec<Cover>, StoreError>> {
         Box::pin(EventStore::covers(self, domain))
     }
-    fn commit_position<'a>(&'a self) -> BoxFuture<'a, Result<u64, StoreError>> {
+    fn commit_position(&self) -> BoxFuture<'_, Result<u64, StoreError>> {
         Box::pin(EventStore::commit_position(self))
     }
 }
@@ -246,13 +172,6 @@ impl<T: PositionStore> DynPositionStore for T {
     fn position<'a>(&'a self, key: PositionKey<'a>) -> BoxFuture<'a, Result<u64, StoreError>> {
         Box::pin(PositionStore::position(self, key))
     }
-    fn put_position<'a>(
-        &'a self,
-        key: PositionKey<'a>,
-        next: u64,
-    ) -> BoxFuture<'a, Result<(), StoreError>> {
-        Box::pin(PositionStore::put_position(self, key, next))
-    }
 }
 
 impl<T: Editions> DynEditions for T {
@@ -262,13 +181,17 @@ impl<T: Editions> DynEditions for T {
         commit_position: u64,
     ) -> BoxFuture<'a, Result<u64, StoreError>> {
         let _ = (stream, commit_position);
-        todo!("proposed: the dyn adapter's fork_point")
+        todo!("{PROPOSED}")
     }
     fn list_editions(&self) -> BoxFuture<'_, Result<Vec<EditionSummary>, StoreError>> {
-        todo!("proposed: the dyn adapter's list_editions")
+        todo!("{PROPOSED}")
     }
-    fn delete_edition<'a>(&'a self, name: &'a str) -> BoxFuture<'a, Result<(), StoreError>> {
-        Box::pin(Editions::delete_edition(self, name))
+    fn remove_deleted<'a>(
+        &'a self,
+        stream: StreamRef<'a>,
+    ) -> BoxFuture<'a, Result<u64, StoreError>> {
+        let _ = stream;
+        todo!("{PROPOSED}")
     }
 }
 
@@ -299,7 +222,7 @@ impl<T: ReadByCorrelation> DynReadByCorrelation for T {
 }
 
 impl<T: ListStreams> DynListStreams for T {
-    fn list_streams<'a>(&'a self) -> BoxFuture<'a, Result<Vec<Cover>, StoreError>> {
+    fn list_streams(&self) -> BoxFuture<'_, Result<Vec<Cover>, StoreError>> {
         Box::pin(ListStreams::list_streams(self))
     }
 }
@@ -313,108 +236,11 @@ impl<T: Outbox> DynOutbox for T {
     }
 }
 
-impl<T: UnitOfWork> DynUnitOfWork for T {
-    fn begin(&self) -> BoxFuture<'_, Result<Box<dyn DynUnit<'_> + '_>, StoreError>> {
-        Box::pin(async move {
-            let unit = UnitOfWork::begin(self).await?;
-            Ok(Box::new(unit) as Box<dyn DynUnit<'_> + '_>)
-        })
-    }
-}
-
-impl<'s, U: Unit + 's> DynUnit<'s> for U {
-    fn append<'a>(
-        &'a mut self,
-        stream: StreamRef<'a>,
-        expected: u64,
-        pages: &'a [EventPage],
-    ) -> BoxFuture<'a, Result<u64, StoreError>> {
-        Box::pin(Unit::append(self, stream, expected, pages))
-    }
-    fn read<'a>(
-        &'a mut self,
-        stream: StreamRef<'a>,
-        from: u64,
-        to: Option<u64>,
-    ) -> BoxFuture<'a, Result<Slice, StoreError>> {
-        Box::pin(Unit::read(self, stream, from, to))
-    }
-    fn head<'a>(&'a mut self, stream: StreamRef<'a>) -> BoxFuture<'a, Result<Head, StoreError>> {
-        Box::pin(Unit::head(self, stream))
-    }
-    fn find_command<'a>(
-        &'a mut self,
-        stream: StreamRef<'a>,
-        command_id: Uuid,
-    ) -> BoxFuture<'a, Result<Vec<EventPage>, StoreError>> {
-        Box::pin(Unit::find_command(self, stream, command_id))
-    }
-    fn covers<'a>(&'a mut self, domain: &'a str) -> BoxFuture<'a, Result<Vec<Cover>, StoreError>> {
-        Box::pin(Unit::covers(self, domain))
-    }
-    fn read_snapshot<'a>(
-        &'a mut self,
-        stream: StreamRef<'a>,
-    ) -> BoxFuture<'a, Result<Option<Snapshot>, StoreError>> {
-        Box::pin(Unit::read_snapshot(self, stream))
-    }
-    fn write_snapshot<'a>(
-        &'a mut self,
-        stream: StreamRef<'a>,
-        snapshot: &'a Snapshot,
-    ) -> BoxFuture<'a, Result<(), StoreError>> {
-        let _ = (stream, snapshot);
-        todo!("proposed: the dyn adapter's unit write_snapshot")
-    }
-    fn position<'a>(&'a mut self, key: PositionKey<'a>) -> BoxFuture<'a, Result<u64, StoreError>> {
-        Box::pin(Unit::position(self, key))
-    }
-    fn put_position<'a>(
-        &'a mut self,
-        key: PositionKey<'a>,
-        next: u64,
-    ) -> BoxFuture<'a, Result<(), StoreError>> {
-        Box::pin(Unit::put_position(self, key, next))
-    }
-    fn commit(self: Box<Self>) -> BoxFuture<'s, Result<(), StoreError>> {
-        Box::pin(Unit::commit(*self))
-    }
-    fn abort(self: Box<Self>) -> BoxFuture<'s, Result<(), StoreError>> {
-        Box::pin(Unit::abort(*self))
-    }
-}
-
-impl<'s, U: UnitOutbox + 's> DynOutboxUnit<'s> for U {
-    fn put_outbox<'a>(
-        &'a mut self,
-        entries: &'a [OutboxEntry],
-    ) -> BoxFuture<'a, Result<(), StoreError>> {
-        Box::pin(UnitOutbox::put_outbox(self, entries))
-    }
-}
-
-impl<T> DynOutboxStore for T
-where
-    T: UnitOfWork,
-    for<'s> T::Unit<'s>: UnitOutbox,
-{
-    fn begin_outbox(&self) -> BoxFuture<'_, Result<Box<dyn DynOutboxUnit<'_> + '_>, StoreError>> {
-        Box::pin(async move {
-            let unit = UnitOfWork::begin(self).await?;
-            Ok(Box::new(unit) as Box<dyn DynOutboxUnit<'_> + '_>)
-        })
-    }
-}
 // ------------------------------------- and dyn DynStore is a port again
 
 impl EventStore for dyn DynStore + '_ {
-    async fn append(
-        &self,
-        stream: StreamRef<'_>,
-        expected: u64,
-        pages: &[EventPage],
-    ) -> Result<u64, StoreError> {
-        DynEventStore::append(self, stream, expected, pages).await
+    async fn write(&self, write: Write<'_>) -> Result<Written, StoreError> {
+        DynEventStore::write(self, write).await
     }
     async fn read(
         &self,
@@ -458,75 +284,5 @@ impl SnapshotStore for dyn DynStore + '_ {
 impl PositionStore for dyn DynStore + '_ {
     async fn position(&self, key: PositionKey<'_>) -> Result<u64, StoreError> {
         DynPositionStore::position(self, key).await
-    }
-    async fn put_position(&self, key: PositionKey<'_>, next: u64) -> Result<(), StoreError> {
-        DynPositionStore::put_position(self, key, next).await
-    }
-}
-
-impl<'d> UnitOfWork for dyn DynStore + 'd {
-    type Unit<'s>
-        = Box<dyn DynUnit<'s> + 's>
-    where
-        Self: 's;
-    async fn begin(&self) -> Result<Self::Unit<'_>, StoreError> {
-        DynUnitOfWork::begin(self).await
-    }
-}
-
-impl<'s> Unit for Box<dyn DynUnit<'s> + 's> {
-    async fn append(
-        &mut self,
-        stream: StreamRef<'_>,
-        expected: u64,
-        pages: &[EventPage],
-    ) -> Result<u64, StoreError> {
-        (**self).append(stream, expected, pages).await
-    }
-    async fn read(
-        &mut self,
-        stream: StreamRef<'_>,
-        from: u64,
-        to: Option<u64>,
-    ) -> Result<Slice, StoreError> {
-        (**self).read(stream, from, to).await
-    }
-    async fn head(&mut self, stream: StreamRef<'_>) -> Result<Head, StoreError> {
-        (**self).head(stream).await
-    }
-    async fn find_command(
-        &mut self,
-        stream: StreamRef<'_>,
-        command_id: Uuid,
-    ) -> Result<Vec<EventPage>, StoreError> {
-        (**self).find_command(stream, command_id).await
-    }
-    async fn covers(&mut self, domain: &str) -> Result<Vec<Cover>, StoreError> {
-        (**self).covers(domain).await
-    }
-    async fn read_snapshot(
-        &mut self,
-        stream: StreamRef<'_>,
-    ) -> Result<Option<Snapshot>, StoreError> {
-        (**self).read_snapshot(stream).await
-    }
-    async fn write_snapshot(
-        &mut self,
-        stream: StreamRef<'_>,
-        snapshot: &Snapshot,
-    ) -> Result<(), StoreError> {
-        (**self).write_snapshot(stream, snapshot).await
-    }
-    async fn position(&mut self, key: PositionKey<'_>) -> Result<u64, StoreError> {
-        (**self).position(key).await
-    }
-    async fn put_position(&mut self, key: PositionKey<'_>, next: u64) -> Result<(), StoreError> {
-        (**self).put_position(key, next).await
-    }
-    async fn commit(self) -> Result<(), StoreError> {
-        DynUnit::commit(self).await
-    }
-    async fn abort(self) -> Result<(), StoreError> {
-        DynUnit::abort(self).await
     }
 }

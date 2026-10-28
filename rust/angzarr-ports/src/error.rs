@@ -54,17 +54,6 @@ pub enum StoreError {
         sequence: u64,
         reason: Cause,
     },
-    /// A second unit of work was begun on a handle that cannot serve two
-    /// at once (one SQLite connection, already in a unit). Refused at once,
-    /// never waited on: the unit already open may belong to the caller.
-    UnitBusy,
-    /// A unit of work is ONE handling step's write to ONE stream (plan
-    /// ruling 2): its first write bound it to `bound`, and a write to
-    /// `refused` is refused. A caller bug; nothing of it was written.
-    UnitStreamBound {
-        bound: Box<Cover>,
-        refused: Box<Cover>,
-    },
     /// A read unit was given a stream in an edition that does not exist (no
     /// fork event of it anywhere; 14.32: NOT_FOUND). Nothing was read.
     UnknownEdition { stream: Box<Cover> },
@@ -77,6 +66,15 @@ pub enum StoreError {
     /// ALREADY_EXISTS), or of main, which is never forked into. Nothing
     /// was written.
     EditionAlreadyForked { stream: Box<Cover> },
+    /// A removal of an edition stream whose last event is not its deletion
+    /// (14.32: a stream is removed only after recording its deletion).
+    /// Nothing was removed.
+    EditionNotDeleted { stream: Box<Cover> },
+    /// A removal of an edition stream whose deletion has not yet propagated
+    /// onward: an outbox entry of the edition, written with the stream or a
+    /// position on it, is still pending (14.32). Nothing was removed; remove
+    /// it once the entry is delivered.
+    EditionNotPropagated { stream: Box<Cover> },
     /// An edition operation with no edition: main is unnamed, and is
     /// neither forked into nor deleted (INVALID_ARGUMENT).
     EditionNameRequired,
@@ -121,10 +119,15 @@ impl StoreError {
         }
     }
 
-    pub fn unit_stream_bound(bound: impl Into<Cover>, refused: impl Into<Cover>) -> StoreError {
-        StoreError::UnitStreamBound {
-            bound: Box::new(bound.into()),
-            refused: Box::new(refused.into()),
+    pub fn edition_not_deleted(stream: impl Into<Cover>) -> StoreError {
+        StoreError::EditionNotDeleted {
+            stream: Box::new(stream.into()),
+        }
+    }
+
+    pub fn edition_not_propagated(stream: impl Into<Cover>) -> StoreError {
+        StoreError::EditionNotPropagated {
+            stream: Box::new(stream.into()),
         }
     }
 
@@ -146,8 +149,7 @@ impl StoreError {
         }
     }
 
-    /// The stream the error is about, if it names one (for
-    /// [`UnitStreamBound`](StoreError::UnitStreamBound), the refused one).
+    /// The stream the error is about, if it names one.
     pub fn stream(&self) -> Option<&Cover> {
         match self {
             StoreError::Conflict { stream, .. }
@@ -156,10 +158,10 @@ impl StoreError {
             | StoreError::Unreadable { stream, .. }
             | StoreError::UnknownEdition { stream }
             | StoreError::EditionNotForked { stream }
-            | StoreError::EditionAlreadyForked { stream } => Some(stream),
-            StoreError::UnitStreamBound { refused, .. } => Some(refused),
+            | StoreError::EditionAlreadyForked { stream }
+            | StoreError::EditionNotDeleted { stream }
+            | StoreError::EditionNotPropagated { stream } => Some(stream),
             StoreError::Unavailable(_)
-            | StoreError::UnitBusy
             | StoreError::EditionNameRequired
             | StoreError::EditionNotFound { .. } => None,
         }
@@ -170,7 +172,7 @@ impl StoreError {
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Recovery {
     /// Run again from the dedup lookup, in a fresh unit: a conflict, the
-    /// store unavailable, a busy handle.
+    /// store unavailable.
     Retry,
     /// The request was malformed or names what does not exist. Fix it.
     Invalid,
@@ -236,13 +238,13 @@ impl StoreError {
             StoreError::MalformedStream { .. } => "angzarr-ports-store-malformed-stream",
             StoreError::Unavailable(_) => "angzarr-ports-store-unavailable",
             StoreError::Unreadable { .. } => "angzarr-ports-store-unreadable",
-            StoreError::UnitBusy => "angzarr-ports-store-unit-busy",
             StoreError::UnknownEdition { .. } => "angzarr-ports-store-unknown-edition",
             StoreError::EditionNameRequired => "angzarr-ports-edition-name-required",
             StoreError::EditionNotFound { .. } => "angzarr-ports-edition-not-found",
-            StoreError::UnitStreamBound { .. }
-            | StoreError::EditionNotForked { .. }
-            | StoreError::EditionAlreadyForked { .. } => todo!("proposed: its code"),
+            StoreError::EditionNotForked { .. }
+            | StoreError::EditionAlreadyForked { .. }
+            | StoreError::EditionNotDeleted { .. }
+            | StoreError::EditionNotPropagated { .. } => todo!("proposed: its code"),
         }
     }
 
@@ -281,28 +283,28 @@ impl StoreError {
                 ("sequence", Arg::Uint(*sequence)),
                 ("cause", Arg::Cause(reason.clone())),
             ],
-            StoreError::UnitBusy | StoreError::EditionNameRequired => Vec::new(),
+            StoreError::EditionNameRequired => Vec::new(),
             StoreError::EditionNotFound { name } => vec![("name", Arg::Str(name.clone()))],
-            StoreError::UnitStreamBound { .. }
-            | StoreError::EditionNotForked { .. }
-            | StoreError::EditionAlreadyForked { .. } => todo!("proposed: its args"),
+            StoreError::EditionNotForked { .. }
+            | StoreError::EditionAlreadyForked { .. }
+            | StoreError::EditionNotDeleted { .. }
+            | StoreError::EditionNotPropagated { .. } => todo!("proposed: its args"),
         }
     }
 
     /// What the caller does about it.
     pub fn recovery(&self) -> Recovery {
         match self {
-            StoreError::Conflict { .. } | StoreError::Unavailable(_) | StoreError::UnitBusy => {
-                Recovery::Retry
-            }
+            StoreError::Conflict { .. } | StoreError::Unavailable(_) => Recovery::Retry,
             StoreError::Discontinuous { .. } | StoreError::Unreadable { .. } => Recovery::Bug,
             StoreError::MalformedStream { .. }
             | StoreError::UnknownEdition { .. }
             | StoreError::EditionNameRequired
             | StoreError::EditionNotFound { .. } => Recovery::Invalid,
-            StoreError::UnitStreamBound { .. }
-            | StoreError::EditionNotForked { .. }
-            | StoreError::EditionAlreadyForked { .. } => todo!("proposed: its recovery"),
+            StoreError::EditionNotForked { .. }
+            | StoreError::EditionAlreadyForked { .. }
+            | StoreError::EditionNotDeleted { .. }
+            | StoreError::EditionNotPropagated { .. } => todo!("proposed: its recovery"),
         }
     }
 }
@@ -345,9 +347,6 @@ impl fmt::Display for StoreError {
                 stream_text(stream),
                 reason.message
             ),
-            StoreError::UnitBusy => f.write_str(
-                "a unit of work is already open on this handle, which serves one at a time",
-            ),
             StoreError::UnknownEdition { stream } => write!(
                 f,
                 "stream {} names an edition that does not exist",
@@ -359,9 +358,10 @@ impl fmt::Display for StoreError {
             StoreError::EditionNotFound { name } => {
                 write!(f, "edition {name} does not exist: no stream is forked in it")
             }
-            StoreError::UnitStreamBound { .. }
-            | StoreError::EditionNotForked { .. }
-            | StoreError::EditionAlreadyForked { .. } => todo!("proposed: its English"),
+            StoreError::EditionNotForked { .. }
+            | StoreError::EditionAlreadyForked { .. }
+            | StoreError::EditionNotDeleted { .. }
+            | StoreError::EditionNotPropagated { .. } => todo!("proposed: its English"),
         }
     }
 }

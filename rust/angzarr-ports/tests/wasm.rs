@@ -12,27 +12,19 @@
 use std::rc::Rc;
 
 use angzarr_ports::angzarr_proto::v1::{Cover, EventPage, Snapshot};
-use angzarr_ports::memory::{MemoryStore, MemoryUnit};
+use angzarr_ports::memory::MemoryStore;
 use angzarr_ports::{
-    EventStore, PositionKey, PositionStore, Slice, SnapshotStore, StoreError, StreamRef, Unit,
-    UnitOfWork, Uuid,
+    EventStore, PositionKey, PositionStore, Slice, SnapshotStore, StoreError, StreamRef, Uuid,
+    Write, Written,
 };
 use wasm_bindgen_test::wasm_bindgen_test;
 
 /// A store that is not `Send`, by its `Rc`.
 struct RcStore(Rc<MemoryStore>);
 
-/// Its unit, not `Send` either.
-struct RcUnit(MemoryUnit, #[allow(dead_code)] Rc<()>);
-
 impl EventStore for RcStore {
-    async fn append(
-        &self,
-        stream: StreamRef<'_>,
-        expected: u64,
-        pages: &[EventPage],
-    ) -> Result<u64, StoreError> {
-        self.0.append(stream, expected, pages).await
+    async fn write(&self, write: Write<'_>) -> Result<Written, StoreError> {
+        self.0.write(write).await
     }
     async fn read(
         &self,
@@ -73,70 +65,6 @@ impl SnapshotStore for RcStore {
 impl PositionStore for RcStore {
     async fn position(&self, key: PositionKey<'_>) -> Result<u64, StoreError> {
         self.0.position(key).await
-    }
-    async fn put_position(&self, key: PositionKey<'_>, next: u64) -> Result<(), StoreError> {
-        self.0.put_position(key, next).await
-    }
-}
-
-impl UnitOfWork for RcStore {
-    type Unit<'s> = RcUnit;
-    async fn begin(&self) -> Result<RcUnit, StoreError> {
-        Ok(RcUnit(self.0.begin().await?, Rc::new(())))
-    }
-}
-
-impl Unit for RcUnit {
-    async fn append(
-        &mut self,
-        stream: StreamRef<'_>,
-        expected: u64,
-        pages: &[EventPage],
-    ) -> Result<u64, StoreError> {
-        self.0.append(stream, expected, pages).await
-    }
-    async fn read(
-        &mut self,
-        stream: StreamRef<'_>,
-        from: u64,
-        to: Option<u64>,
-    ) -> Result<Slice, StoreError> {
-        self.0.read(stream, from, to).await
-    }
-    async fn find_command(
-        &mut self,
-        stream: StreamRef<'_>,
-        command_id: Uuid,
-    ) -> Result<Vec<EventPage>, StoreError> {
-        self.0.find_command(stream, command_id).await
-    }
-    async fn covers(&mut self, domain: &str) -> Result<Vec<Cover>, StoreError> {
-        self.0.covers(domain).await
-    }
-    async fn read_snapshot(
-        &mut self,
-        stream: StreamRef<'_>,
-    ) -> Result<Option<Snapshot>, StoreError> {
-        self.0.read_snapshot(stream).await
-    }
-    async fn write_snapshot(
-        &mut self,
-        stream: StreamRef<'_>,
-        snapshot: &Snapshot,
-    ) -> Result<(), StoreError> {
-        self.0.write_snapshot(stream, snapshot).await
-    }
-    async fn position(&mut self, key: PositionKey<'_>) -> Result<u64, StoreError> {
-        self.0.position(key).await
-    }
-    async fn put_position(&mut self, key: PositionKey<'_>, next: u64) -> Result<(), StoreError> {
-        self.0.put_position(key, next).await
-    }
-    async fn commit(self) -> Result<(), StoreError> {
-        self.0.commit().await
-    }
-    async fn abort(self) -> Result<(), StoreError> {
-        self.0.abort().await
     }
 }
 

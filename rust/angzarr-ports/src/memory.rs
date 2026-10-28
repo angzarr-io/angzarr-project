@@ -7,24 +7,21 @@
 //! two clones), and every operation is atomic under one lock, held only
 //! for the operation itself (never across an `.await`).
 //!
-//! - **Units of work** are optimistic and step-scoped: a unit writes one
-//!   stream, holds its writes, reads the store with its own writes laid
-//!   over it, and checks at its append and again at its commit that no
-//!   other writer moved its stream.
-//!   It serves any number of units at once, so it never answers
-//!   [`StoreError::UnitBusy`].
+//! - **A write** lands under the lock at once: its stream's pages checked
+//!   against the expected length, its positions and its outbox entries,
+//!   all or none.
 //! - **Read units** read one moment: the store's data is copy-on-write
 //!   behind an `Arc`, so a read unit keeps the moment it began, and a
 //!   writer copies the data only while a read unit still holds it.
 //! - **Editions** are per-stream forks (14.32), and this is their
 //!   reference backend: for what-if and AI experimentation, in games and
-//!   elsewhere, fork a stream into an edition, run commands there, read
-//!   both timelines side by side, delete the edition, and main is
-//!   unchanged byte for byte.
+//!   elsewhere, create a stream in an edition, run steps there, read both
+//!   timelines side by side, delete the edition, and main is unchanged
+//!   byte for byte.
 //!
-//! **A proposal in part (red).** The fork rule, [`Editions`] and the
-//! step-scoped unit (one stream per unit, its snapshot written in it) are
-//! pinned by the suite and not yet implemented here.
+//! **A proposal in part (red).** [`EventStore::write`] (with the editions'
+//! meta-events) and [`Editions`] are pinned by the suite and not yet
+//! implemented here.
 
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex, MutexGuard};
@@ -37,13 +34,12 @@ use prost_types::Timestamp;
 use crate::error::StoreError;
 use crate::store::{
     ChangeToken, Editions, EventStore, ListStreams, Outbox, OutboxEntry, PositionStore, Purge,
-    ReadByCorrelation, ReadStore, ReadUnit, ReadUntilTime, SnapshotStore, Unit, UnitOfWork,
-    UnitOutbox, UnitPurge, Watch,
+    ReadByCorrelation, ReadStore, ReadUnit, ReadUntilTime, SnapshotStore, Watch, Write, Written,
 };
 use crate::stream::{PositionKey, Slice, StreamRef};
 
 const PROPOSED: &str =
-    "proposed for review: MemoryStore's per-stream editions and step-scoped units";
+    "proposed for review: MemoryStore's one-call write and its editions' meta-events";
 
 /// A stream's place: its fields, ordered as [`StreamRef`] orders them
 /// (domain, then main before each edition by name, then root as bytes).
@@ -98,6 +94,7 @@ impl Data {
         self.streams.remove(k).map_or(0, |pages| pages.len() as u64)
     }
 
+    #[allow(dead_code)] // the write's, once implemented
     fn put_outbox(&mut self, entries: &[OutboxEntry]) {
         for entry in entries {
             if !self.outbox.iter().any(|kept| kept.id == entry.id) {
@@ -109,6 +106,7 @@ impl Data {
 
 /// Refuse an append to a stream of `length` that does not expect that
 /// length, or whose pages do not run on from it.
+#[allow(dead_code)] // the write's, once implemented
 fn check_append(
     stream: StreamRef<'_>,
     length: u64,
@@ -193,24 +191,9 @@ impl MemoryStore {
 }
 
 impl EventStore for MemoryStore {
-    async fn append(
-        &self,
-        stream: StreamRef<'_>,
-        expected: u64,
-        pages: &[EventPage],
-    ) -> Result<u64, StoreError> {
-        let k = key(stream);
-        let mut guard = self.lock();
-        let length = guard.pages(&k).len() as u64;
-        check_append(stream, length, expected, pages)?;
-        if pages.is_empty() {
-            return Ok(length);
-        }
-        let data = Arc::make_mut(&mut guard);
-        data.streams.entry(k).or_default().extend_from_slice(pages);
-        data.commit_position += 1;
-        data.commits += 1;
-        Ok(length + pages.len() as u64)
+    async fn write(&self, write: Write<'_>) -> Result<Written, StoreError> {
+        let _ = write;
+        todo!("{PROPOSED}")
     }
 
     async fn read(
@@ -267,216 +250,6 @@ impl PositionStore for MemoryStore {
     async fn position(&self, key: PositionKey<'_>) -> Result<u64, StoreError> {
         Ok(self.data().positions.get(&place(key)).copied().unwrap_or(0))
     }
-
-    async fn put_position(&self, key: PositionKey<'_>, next: u64) -> Result<(), StoreError> {
-        let mut guard = self.lock();
-        let data = Arc::make_mut(&mut guard);
-        data.positions.insert(place(key), next);
-        data.commits += 1;
-        Ok(())
-    }
-}
-
-/// What a unit has written to one stream.
-#[derive(Default)]
-struct Pending {
-    /// The stream's length in the store when the unit first wrote it (0
-    /// after the unit purged it): what the store must still hold at commit.
-    base: u64,
-    /// Whether the unit purged the stream (before any `pages`).
-    purged: bool,
-    pages: Vec<EventPage>,
-}
-
-/// A unit of work on a [`MemoryStore`]: its pending writes, checked and
-/// applied at commit. Owns a handle, so it borrows nothing.
-pub struct MemoryUnit {
-    store: MemoryStore,
-    streams: BTreeMap<Key, Pending>,
-    positions: BTreeMap<PositionPlace, u64>,
-    outbox: Vec<OutboxEntry>,
-}
-
-impl MemoryUnit {
-    /// The stream as this unit sees it: the store's (unless it purged it),
-    /// then its own pending pages.
-    fn view(&self, data: &Data, k: &Key) -> Vec<EventPage> {
-        match self.streams.get(k) {
-            Some(p) => {
-                let mut pages = if p.purged {
-                    Vec::new()
-                } else {
-                    data.pages(k).to_vec()
-                };
-                pages.extend_from_slice(&p.pages);
-                pages
-            }
-            None => data.pages(k).to_vec(),
-        }
-    }
-
-    fn purged(&self, k: &Key) -> bool {
-        self.streams.get(k).is_some_and(|p| p.purged)
-    }
-
-    /// Whether the unit wrote anything at all.
-    fn writes(&self) -> bool {
-        !self.positions.is_empty()
-            || !self.outbox.is_empty()
-            || self
-                .streams
-                .values()
-                .any(|p| p.purged || !p.pages.is_empty())
-    }
-}
-
-impl UnitOfWork for MemoryStore {
-    type Unit<'s> = MemoryUnit;
-
-    async fn begin(&self) -> Result<MemoryUnit, StoreError> {
-        Ok(MemoryUnit {
-            store: self.clone(),
-            streams: BTreeMap::new(),
-            positions: BTreeMap::new(),
-            outbox: Vec::new(),
-        })
-    }
-}
-
-impl Unit for MemoryUnit {
-    async fn append(
-        &mut self,
-        stream: StreamRef<'_>,
-        expected: u64,
-        pages: &[EventPage],
-    ) -> Result<u64, StoreError> {
-        let k = key(stream);
-        let data = self.store.data();
-        let length = self.view(&data, &k).len() as u64;
-        check_append(stream, length, expected, pages)?;
-        if !pages.is_empty() {
-            let stored = data.pages(&k).len() as u64;
-            let pending = self.streams.entry(k).or_insert_with(|| Pending {
-                base: stored,
-                ..Pending::default()
-            });
-            pending.pages.extend_from_slice(pages);
-        }
-        Ok(length + pages.len() as u64)
-    }
-
-    async fn read(
-        &mut self,
-        stream: StreamRef<'_>,
-        from: u64,
-        to: Option<u64>,
-    ) -> Result<Slice, StoreError> {
-        let data = self.store.data();
-        Ok(slice(&self.view(&data, &key(stream)), from, to))
-    }
-
-    async fn find_command(
-        &mut self,
-        stream: StreamRef<'_>,
-        command_id: Uuid,
-    ) -> Result<Vec<EventPage>, StoreError> {
-        let data = self.store.data();
-        let mut pages = self.view(&data, &key(stream));
-        pages.retain(|p| caused_by(p, command_id));
-        Ok(pages)
-    }
-
-    async fn covers(&mut self, domain: &str) -> Result<Vec<Cover>, StoreError> {
-        let data = self.store.data();
-        let mut keys: Vec<&Key> = data
-            .streams
-            .keys()
-            .chain(self.streams.keys())
-            .filter(|k| k.0 == domain)
-            .collect();
-        keys.sort();
-        keys.dedup();
-        Ok(keys
-            .into_iter()
-            .filter(|k| !self.view(&data, k).is_empty())
-            .map(cover)
-            .collect())
-    }
-
-    async fn read_snapshot(
-        &mut self,
-        stream: StreamRef<'_>,
-    ) -> Result<Option<Snapshot>, StoreError> {
-        let k = key(stream);
-        if self.purged(&k) {
-            return Ok(None);
-        }
-        Ok(self.store.data().snapshots.get(&k).cloned())
-    }
-
-    async fn write_snapshot(
-        &mut self,
-        stream: StreamRef<'_>,
-        snapshot: &Snapshot,
-    ) -> Result<(), StoreError> {
-        let _ = (stream, snapshot);
-        todo!("{PROPOSED}")
-    }
-
-    async fn position(&mut self, key: PositionKey<'_>) -> Result<u64, StoreError> {
-        let p = place(key);
-        if let Some(next) = self.positions.get(&p) {
-            return Ok(*next);
-        }
-        if self.purged(&p.0) {
-            return Ok(0);
-        }
-        Ok(self.store.data().positions.get(&p).copied().unwrap_or(0))
-    }
-
-    async fn put_position(&mut self, key: PositionKey<'_>, next: u64) -> Result<(), StoreError> {
-        self.positions.insert(place(key), next);
-        Ok(())
-    }
-
-    async fn commit(self) -> Result<(), StoreError> {
-        if !self.writes() {
-            return Ok(());
-        }
-        let mut guard = self.store.lock();
-        // Check every stream first: a conflict lands nothing.
-        for (k, pending) in &self.streams {
-            if pending.purged || pending.pages.is_empty() {
-                continue;
-            }
-            let actual = guard.pages(k).len() as u64;
-            if actual != pending.base {
-                return Err(StoreError::conflict(cover(k), pending.base, actual));
-            }
-        }
-        let data = Arc::make_mut(&mut guard);
-        let mut appended = false;
-        for (k, pending) in self.streams {
-            if pending.purged {
-                data.purge(&k);
-            }
-            if !pending.pages.is_empty() {
-                appended = true;
-                data.streams.entry(k).or_default().extend(pending.pages);
-            }
-        }
-        data.positions.extend(self.positions);
-        data.put_outbox(&self.outbox);
-        if appended {
-            data.commit_position += 1;
-        }
-        data.commits += 1;
-        Ok(())
-    }
-
-    async fn abort(self) -> Result<(), StoreError> {
-        Ok(())
-    }
 }
 
 impl Purge for MemoryStore {
@@ -485,24 +258,6 @@ impl Purge for MemoryStore {
         let data = Arc::make_mut(&mut guard);
         let deleted = data.purge(&key(stream));
         data.commits += 1;
-        Ok(deleted)
-    }
-}
-
-impl UnitPurge for MemoryUnit {
-    async fn purge(&mut self, stream: StreamRef<'_>) -> Result<u64, StoreError> {
-        let k = key(stream);
-        let data = self.store.data();
-        let deleted = self.view(&data, &k).len() as u64;
-        self.positions.retain(|(s, _), _| *s != k);
-        self.streams.insert(
-            k,
-            Pending {
-                base: 0,
-                purged: true,
-                pages: Vec::new(),
-            },
-        );
         Ok(deleted)
     }
 }
@@ -521,8 +276,8 @@ impl Editions for MemoryStore {
         todo!("{PROPOSED}")
     }
 
-    async fn delete_edition(&self, name: &str) -> Result<(), StoreError> {
-        let _ = name;
+    async fn remove_deleted(&self, stream: StreamRef<'_>) -> Result<u64, StoreError> {
+        let _ = stream;
         todo!("{PROPOSED}")
     }
 }
@@ -662,12 +417,5 @@ impl Outbox for MemoryStore {
         data.outbox.retain(|e| !ids.contains(&e.id));
         data.commits += 1;
         Ok((before - data.outbox.len()) as u64)
-    }
-}
-
-impl UnitOutbox for MemoryUnit {
-    async fn put_outbox(&mut self, entries: &[OutboxEntry]) -> Result<(), StoreError> {
-        self.outbox.extend_from_slice(entries);
-        Ok(())
     }
 }

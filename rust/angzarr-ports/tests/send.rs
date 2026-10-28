@@ -1,7 +1,8 @@
 //! On a native target the ports' futures are `Send` (RULED(12): `MaybeSend`
-//! is `Send` there): a server spawns a whole unit of work, generic over the
-//! store, onto a multi-threaded runtime. The spawning compiling is half the
-//! test; running it on `MemoryStore` is the other.
+//! is `Send` there): a server spawns a step, generic over the store, onto
+//! a multi-threaded runtime: its dedup lookup, then its one write. The
+//! spawning compiling is half the test; running it on `MemoryStore` is the
+//! other.
 
 #![cfg(not(target_arch = "wasm32"))]
 
@@ -10,25 +11,33 @@ compile_error!("run `just test` (every feature)");
 
 use std::sync::Arc;
 
-use angzarr_ports::contract::{main_stream, page};
+use angzarr_ports::contract::{command, main_stream, page};
 use angzarr_ports::memory::MemoryStore;
-use angzarr_ports::{EventStore, PositionKey, Store, StoreError, Unit, UnitOfWork};
+use angzarr_ports::{EventStore, PositionKey, PositionStore, Store, StoreError, Write};
 
-/// annals' chain, generic: a unit over two streams and a position, every
-/// await inside one spawned task. Compiles only if every port future is
-/// `Send` for any `Send` store.
-async fn chain<S: Store + 'static>(store: Arc<S>) -> Result<u64, StoreError> {
+/// A step, generic: the dedup lookup, then one write of its events and its
+/// position, every await inside one spawned task. Compiles only if every
+/// port future is `Send` for any `Send` store.
+async fn step<S: Store + 'static>(store: Arc<S>) -> Result<u64, StoreError> {
     tokio::spawn(async move {
-        let (a, b) = (main_stream("account", 1), main_stream("ledger", 1));
-        let mut unit = store.begin().await?;
-        unit.append(a, 0, &[page(0, 1)]).await?;
-        unit.append(b, 0, &[page(0, 1)]).await?;
-        let key = PositionKey {
-            handler: "account-ledger",
-            stream: a,
-        };
-        unit.put_position(key, 1).await?;
-        unit.commit().await?;
+        let s = main_stream("ledger", 1);
+        let source = main_stream("account", 1);
+        assert!(store.find_command(s, command(1)).await?.is_empty());
+        let at = store.head(s).await?.next_sequence;
+        let positions = [(
+            PositionKey {
+                handler: "account-ledger",
+                stream: source,
+            },
+            1,
+        )];
+        let pages = [page(at, 1)];
+        store
+            .write(Write {
+                positions: &positions,
+                ..Write::append(s, at, &pages)
+            })
+            .await?;
         store.commit_position().await
     })
     .await
@@ -36,9 +45,9 @@ async fn chain<S: Store + 'static>(store: Arc<S>) -> Result<u64, StoreError> {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn a_generic_unit_of_work_spawns_on_a_multi_threaded_runtime() {
+async fn a_generic_step_spawns_on_a_multi_threaded_runtime() {
     let store = Arc::new(MemoryStore::new());
-    let position = chain(Arc::clone(&store)).await.unwrap();
+    let position = step(Arc::clone(&store)).await.unwrap();
     assert!(position > 0);
     assert_eq!(
         store
@@ -47,5 +56,15 @@ async fn a_generic_unit_of_work_spawns_on_a_multi_threaded_runtime() {
             .unwrap()
             .next_sequence,
         1
+    );
+    let source = main_stream("account", 1);
+    assert_eq!(
+        store
+            .position(PositionKey {
+                handler: "account-ledger",
+                stream: source,
+            })
+            .await,
+        Ok(1)
     );
 }

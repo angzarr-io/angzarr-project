@@ -1,5 +1,5 @@
-//! One error, stable codes (RULED(14); `UnitBusy` is RULED(A) in
-//! contract.rs). The codes, args, recovery and English, and its size.
+//! One error, stable codes (RULED(14) in contract.rs). The codes, args,
+//! recovery and English, and its size.
 
 use std::collections::BTreeSet;
 
@@ -62,7 +62,6 @@ fn every() -> Vec<(StoreError, &'static str, Recovery)> {
             "angzarr-ports-store-unreadable",
             Bug,
         ),
-        (StoreError::UnitBusy, "angzarr-ports-store-unit-busy", Retry),
         (
             StoreError::unknown_edition(stream()),
             "angzarr-ports-store-unknown-edition",
@@ -79,9 +78,14 @@ fn every() -> Vec<(StoreError, &'static str, Recovery)> {
             Invalid,
         ),
         (
-            StoreError::unit_stream_bound(stream(), other()),
-            "angzarr-ports-store-unit-stream-bound",
+            StoreError::edition_not_deleted(stream_in("what-if")),
+            "angzarr-ports-store-edition-not-deleted",
             Bug,
+        ),
+        (
+            StoreError::edition_not_propagated(stream_in("what-if")),
+            "angzarr-ports-store-edition-not-propagated",
+            Retry,
         ),
         (
             StoreError::edition_not_forked(stream_in("what-if")),
@@ -142,7 +146,6 @@ fn args_carry_the_data_by_name() {
         vec![("cause", Arg::Cause(io()))]
     );
     assert_eq!(StoreError::EditionNameRequired.args(), vec![]);
-    assert_eq!(StoreError::UnitBusy.args(), vec![]);
 }
 
 /// The English fallback names what the args name, for logs.
@@ -154,8 +157,8 @@ fn the_english_names_the_stream_and_the_numbers() {
     }
 }
 
-/// The step-scoped unit's and the forks' refusals carry their streams, as
-/// args and in the English.
+/// The editions' refusals carry their streams, as args and in the
+/// English.
 #[test]
 fn the_new_refusals_name_their_streams() {
     let root = |n: u8| format!("{n:02x}").repeat(4);
@@ -171,20 +174,12 @@ fn the_new_refusals_name_their_streams() {
         )
     };
     let s = format!("account/{}", text(7));
-    let o = format!("account/{}", text(8));
-    let bound = StoreError::unit_stream_bound(stream(), other());
-    assert_eq!(
-        bound.args(),
-        vec![
-            ("bound", Arg::Str(s.clone())),
-            ("refused", Arg::Str(o.clone()))
-        ]
-    );
-    assert!(bound.to_string().contains(&s) && bound.to_string().contains(&o));
     let e = format!("{s}@what-if");
     for refusal in [
         StoreError::edition_not_forked(stream_in("what-if")),
         StoreError::edition_already_forked(stream_in("what-if")),
+        StoreError::edition_not_deleted(stream_in("what-if")),
+        StoreError::edition_not_propagated(stream_in("what-if")),
     ] {
         assert_eq!(refusal.args(), vec![("stream", Arg::Str(e.clone()))]);
         assert!(refusal.to_string().contains(&e), "{refusal}");
@@ -214,9 +209,8 @@ fn the_stream_is_read_without_the_box() {
         Some(&stream())
     );
     assert_eq!(
-        StoreError::unit_stream_bound(stream(), other()).stream(),
-        Some(&other()),
-        "the refused stream"
+        StoreError::edition_not_propagated(other()).stream(),
+        Some(&other())
     );
-    assert_eq!(StoreError::UnitBusy.stream(), None);
+    assert_eq!(StoreError::EditionNameRequired.stream(), None);
 }

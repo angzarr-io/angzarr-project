@@ -26,12 +26,12 @@ use angzarr_ports::angzarr_proto::v1::{
     Cover, EditionSummary, EventBook, EventPage, EventRef, Snapshot,
 };
 use angzarr_ports::contract;
-use angzarr_ports::memory::{MemoryRead, MemoryStore, MemoryUnit};
+use angzarr_ports::memory::{MemoryRead, MemoryStore};
 use angzarr_ports::{
-    ChangeToken, Editions, EventStore, Head, ListStreams, Outbox, OutboxEntry, PositionKey,
+    Append, ChangeToken, Editions, EventStore, Head, ListStreams, Outbox, OutboxEntry, PositionKey,
     PositionStore, Purge, ReadByCorrelation, ReadStore, ReadUnit, ReadUntilTime, Slice,
-    SnapshotStore, StoreError, StreamRef, Unit, UnitOfWork, UnitOutbox, UnitPurge, Uuid, Watch,
-    EDITION_FORKED_TYPE_URL,
+    SnapshotStore, StoreError, StreamRef, Uuid, Watch, Write, Written, EDITION_CREATED_TYPE_URL,
+    EDITION_DELETED_TYPE_URL,
 };
 use prost_types::Timestamp;
 
@@ -75,8 +75,6 @@ enum Bug {
     // ---- snapshots and positions
     /// It keeps the snapshot of the highest sequence, not the last written.
     KeepsHighestSnapshot,
-    /// Its units read no snapshot.
-    UnitSeesNoSnapshot,
     /// A position never falls.
     PositionNeverLowers,
     /// A position is keyed by stream alone.
@@ -88,30 +86,16 @@ enum Bug {
     SnapshotIsAnEvent,
     /// Its commit position counts this handle's commits only.
     PositionPerHandle,
-    // ---- units
-    /// Its units append straight to the store.
-    UnitWritesThrough,
-    /// Its units' commit lands nothing.
-    CommitLandsNothing,
-    /// Its units' abort commits.
-    AbortCommits,
-    /// Its units read the store alone, blind to their own writes.
-    UnitIsBlind,
-    /// Its units put positions straight to the store.
-    UnitPositionWritesThrough,
-    /// A second begin on a busy handle waits for the first unit to end.
-    BeginWaits,
-    /// A second begin on a busy handle is refused, but not as `UnitBusy`.
-    BusyAsUnavailable,
-    /// A busy handle refuses the second begin, then serves the third.
-    RefusesOnlyOnce,
-    /// A unit that lost a race still lands its other writes.
-    LandsAroundAConflict,
-    /// Its units write a second stream (straight to the store).
-    UnitTakesSecondStream,
-    /// Its units write their snapshot straight to the store.
-    UnitSnapshotWritesThrough,
-    /// A unit that lost a race at commit lands its pages after the winner's.
+    // ---- the write
+    /// A refused write still lands its positions.
+    ConflictLandsPositions,
+    /// A refused write still lands its outbox entries.
+    ConflictLandsOutbox,
+    /// A write of events and positions lands the events alone.
+    PositionsDropped,
+    /// A write with no stream (positions alone) writes nothing.
+    PositionOnlyDropped,
+    /// A writer that lost a race lands its pages after the winner's.
     LastWriterWins,
     // ---- purge
     /// A purge keeps the snapshot.
@@ -120,10 +104,6 @@ enum Bug {
     PurgeKeepsPositions,
     /// A purge deletes nothing, and says it did.
     PurgeIsANoOp,
-    /// A unit's purge deletes at once, not at commit.
-    UnitPurgeWritesThrough,
-    /// A unit's purge counts the stored events, not its pending ones.
-    UnitPurgeMissesPending,
     /// A purge lowers the commit position.
     PurgeLowersPosition,
     // ---- editions' forks (every store)
@@ -142,12 +122,21 @@ enum Bug {
     ForkPointIsTheHead,
     /// `ListEditions` counts propagated forks among the origins.
     OriginsIncludePropagated,
-    /// `DeleteEdition` keeps the edition's snapshots.
-    DeleteKeepsSnapshots,
-    /// `DeleteEdition` deletes main's streams too.
-    DeleteTakesMain,
-    /// `DeleteEdition` of an unknown edition succeeds.
-    DeleteUnknownOk,
+    /// A recorded deletion removes the stream at once.
+    RemovedOnRecording,
+    /// The removal ignores a pending onward step: removed before it
+    /// propagated.
+    RemovesBeforePropagation,
+    /// The removal keeps the stream's snapshot.
+    RemoveKeepsSnapshot,
+    /// The removal deletes main's stream too.
+    RemoveTakesMain,
+    /// The removal of one stream removes every stream of the edition.
+    RemoveSpreads,
+    /// The removal of a stream not deleted goes ahead.
+    RemovesUndeleted,
+    /// A deletion reaching an uncreated stream is refused.
+    DeletionToUncreatedRefused,
     // ---- read units
     /// Its read units read the live store.
     ReadUnitIsLive,
@@ -176,8 +165,8 @@ enum Bug {
     /// `list_streams` orders by root first.
     ListStreamsByRoot,
     // ---- outbox
-    /// A unit's outbox entries land at once.
-    OutboxWritesThrough,
+    /// An outbox entry loses its edition.
+    OutboxDropsEdition,
     /// `pending` answers the newest first.
     OutboxNewestFirst,
     /// Reading `pending` clears it.
@@ -195,12 +184,8 @@ enum Bug {
 struct Local {
     /// Commits through this handle.
     commits: AtomicU64,
-    /// Units open on this handle.
-    open: AtomicU64,
     /// Reads of the change token.
     token_reads: AtomicU64,
-    /// Begins refused as busy.
-    refusals: AtomicU64,
 }
 
 /// What every handle on one broken store shares.
@@ -262,7 +247,13 @@ fn broken_pair(bug: Bug) -> (Broken, Broken) {
 fn is_fork(page: &EventPage) -> bool {
     page.payload
         .as_ref()
-        .is_some_and(|p| p.type_url == EDITION_FORKED_TYPE_URL)
+        .is_some_and(|p| p.type_url == EDITION_CREATED_TYPE_URL)
+}
+
+fn is_deletion(page: &EventPage) -> bool {
+    page.payload
+        .as_ref()
+        .is_some_and(|p| p.type_url == EDITION_DELETED_TYPE_URL)
 }
 
 fn main_of(s: StreamRef<'_>) -> StreamRef<'_> {
@@ -309,48 +300,176 @@ impl Broken {
 }
 
 impl EventStore for Broken {
-    async fn append(
-        &self,
-        stream: StreamRef<'_>,
-        expected: u64,
-        pages: &[EventPage],
-    ) -> Result<u64, StoreError> {
-        let stream = self.keyed(stream);
-        if pages.is_empty() {
-            match self.bug {
-                Bug::EmptyAppendUnchecked => return Ok(expected),
-                Bug::EmptyAppendCreates => {
-                    self.shared.created.lock().unwrap().push(Owned::of(stream))
+    async fn write(&self, write: Write<'_>) -> Result<Written, StoreError> {
+        // The stream's part, as the bug bends it.
+        let mut pages: Vec<EventPage> = Vec::new();
+        let mut events: Option<(StreamRef<'_>, u64)> = None;
+        if let Some(Append {
+            stream,
+            expected,
+            pages: given,
+        }) = write.events
+        {
+            let stream = self.keyed(stream);
+            if given.is_empty() {
+                match self.bug {
+                    Bug::EmptyAppendUnchecked => {
+                        return Ok(Written {
+                            next_sequence: Some(expected),
+                        })
+                    }
+                    Bug::EmptyAppendCreates => {
+                        self.shared.created.lock().unwrap().push(Owned::of(stream))
+                    }
+                    Bug::EmptyAppendCommits => {
+                        self.shared.offset.fetch_add(1, Ordering::SeqCst);
+                    }
+                    _ => {}
                 }
-                Bug::EmptyAppendCommits => {
-                    self.shared.offset.fetch_add(1, Ordering::SeqCst);
+            }
+            let mut expected = expected;
+            if self.is(Bug::IgnoresExpected) {
+                expected = self.inner.head(stream).await?.next_sequence;
+            }
+            pages = given.to_vec();
+            if self.is(Bug::AcceptsAGap) {
+                for (due, page) in (expected..).zip(&mut pages) {
+                    page.sequence = due;
                 }
-                _ => {}
+            }
+            if self.is(Bug::DeletionToUncreatedRefused)
+                && pages.iter().any(is_deletion)
+                && !self
+                    .inner
+                    .read(stream, 0, None)
+                    .await?
+                    .pages
+                    .iter()
+                    .any(is_fork)
+            {
+                return Err(StoreError::edition_not_forked(stream));
+            }
+            events = Some((stream, expected));
+        } else if self.is(Bug::PositionOnlyDropped) {
+            return Ok(Written::default());
+        }
+        // The positions, as the bug bends them.
+        let mut positions: Vec<(PositionKey<'_>, u64)> = Vec::new();
+        for (key, next) in write.positions {
+            let key = if self.is(Bug::PositionIgnoresHandler) {
+                PositionKey {
+                    handler: "",
+                    ..*key
+                }
+            } else {
+                *key
+            };
+            let mut next = *next;
+            if self.is(Bug::PositionNeverLowers) {
+                next = next.max(self.inner.position(key).await?);
+            }
+            positions.push((key, next));
+        }
+        if self.is(Bug::PositionsDropped) && events.is_some() {
+            positions.clear();
+        }
+        // The outbox, as the bug bends it.
+        let mut outbox = write.outbox.to_vec();
+        if self.is(Bug::ClearedIdsRemembered) {
+            let cleared = self.shared.cleared.lock().unwrap().clone();
+            outbox.retain(|e| !cleared.contains(&e.id));
+        }
+        if self.is(Bug::OutboxKeepsLast) {
+            let mut last: Vec<OutboxEntry> = Vec::new();
+            for e in outbox {
+                last.retain(|kept| kept.id != e.id);
+                last.push(e);
+            }
+            let ids: Vec<Uuid> = last.iter().map(|e| e.id).collect();
+            self.inner.clear(&ids).await?;
+            outbox = last;
+        }
+        if self.is(Bug::OutboxDropsEdition) {
+            for e in &mut outbox {
+                e.edition = None;
             }
         }
-        let mut expected = expected;
-        if self.is(Bug::IgnoresExpected) {
-            expected = self.inner.head(stream).await?.next_sequence;
-        }
-        let mut pages = pages.to_vec();
-        if self.is(Bug::AcceptsAGap) {
-            for (due, page) in (expected..).zip(&mut pages) {
-                page.sequence = due;
+        let bent = Write {
+            events: events.map(|(stream, expected)| Append {
+                stream,
+                expected,
+                pages: &pages,
+            }),
+            positions: &positions,
+            outbox: &outbox,
+        };
+        let written = match self.inner.write(bent).await {
+            Err(StoreError::Conflict { actual, .. }) if self.is(Bug::LastWriterWins) => {
+                let (stream, _) = events.unwrap();
+                for (due, page) in (actual..).zip(&mut pages) {
+                    page.sequence = due;
+                }
+                self.inner
+                    .write(Write {
+                        events: Some(Append {
+                            stream,
+                            expected: actual,
+                            pages: &pages,
+                        }),
+                        positions: &positions,
+                        outbox: &outbox,
+                    })
+                    .await?
             }
-        }
-        let length = match self.inner.append(stream, expected, &pages).await {
+            Err(refused @ StoreError::Conflict { .. })
+                if self.is(Bug::ConflictLandsPositions) || self.is(Bug::ConflictLandsOutbox) =>
+            {
+                let landed = Write {
+                    positions: if self.is(Bug::ConflictLandsPositions) {
+                        &positions
+                    } else {
+                        &[]
+                    },
+                    outbox: if self.is(Bug::ConflictLandsOutbox) {
+                        &outbox
+                    } else {
+                        &[]
+                    },
+                    ..Write::default()
+                };
+                self.inner.write(landed).await?;
+                return Err(refused);
+            }
             Err(StoreError::EditionNotForked { .. }) if self.is(Bug::AcceptsUnforkedInput) => {
-                return Ok(expected + pages.len() as u64)
+                let (_, expected) = events.unwrap();
+                return Ok(Written {
+                    next_sequence: Some(expected + pages.len() as u64),
+                });
             }
             Err(StoreError::EditionAlreadyForked { .. }) if self.is(Bug::SecondForkAccepted) => {
-                return Ok(expected + pages.len() as u64)
+                let (_, expected) = events.unwrap();
+                return Ok(Written {
+                    next_sequence: Some(expected + pages.len() as u64),
+                });
             }
             landed => landed?,
         };
-        if !pages.is_empty() {
-            self.local.commits.fetch_add(1, Ordering::SeqCst);
+        for (key, _) in &positions {
+            self.shared
+                .positions
+                .lock()
+                .unwrap()
+                .push((key.handler.to_string(), Owned::of(key.stream)));
         }
-        Ok(length)
+        if let Some((stream, _)) = events {
+            if !pages.is_empty() {
+                self.local.commits.fetch_add(1, Ordering::SeqCst);
+            }
+            if self.is(Bug::RemovedOnRecording) && pages.iter().any(is_deletion) {
+                let _ = self.inner.remove_deleted(stream).await;
+            }
+        }
+        Ok(written)
     }
 
     async fn read(
@@ -496,250 +615,6 @@ impl PositionStore for Broken {
         };
         self.inner.position(key).await
     }
-
-    async fn put_position(&self, key: PositionKey<'_>, next: u64) -> Result<(), StoreError> {
-        let key = if self.is(Bug::PositionIgnoresHandler) {
-            PositionKey { handler: "", ..key }
-        } else {
-            key
-        };
-        let mut next = next;
-        if self.is(Bug::PositionNeverLowers) {
-            next = next.max(self.inner.position(key).await?);
-        }
-        self.shared
-            .positions
-            .lock()
-            .unwrap()
-            .push((key.handler.to_string(), Owned::of(key.stream)));
-        self.inner.put_position(key, next).await
-    }
-}
-
-/// A unit on a [`Broken`] store.
-struct BrokenUnit {
-    inner: MemoryUnit,
-    store: Broken,
-    /// What it appended, to land around a conflict.
-    appended: Vec<(Owned, u64, Vec<EventPage>)>,
-    /// The positions it put.
-    puts: Vec<(String, Owned, u64)>,
-}
-
-impl Drop for BrokenUnit {
-    fn drop(&mut self) {
-        self.store.local.open.fetch_sub(1, Ordering::SeqCst);
-    }
-}
-
-impl UnitOfWork for Broken {
-    type Unit<'s> = BrokenUnit;
-
-    async fn begin(&self) -> Result<BrokenUnit, StoreError> {
-        if self.local.open.load(Ordering::SeqCst) > 0 {
-            match self.bug {
-                Bug::BeginWaits => std::future::pending::<()>().await,
-                Bug::RefusesOnlyOnce if self.local.refusals.fetch_add(1, Ordering::SeqCst) == 0 => {
-                    return Err(StoreError::UnitBusy)
-                }
-                Bug::BusyAsUnavailable => {
-                    return Err(StoreError::Unavailable(angzarr_ports::Cause::new(
-                        "broken-busy",
-                        "busy",
-                    )))
-                }
-                _ => {}
-            }
-        }
-        let inner = self.inner.begin().await?;
-        self.local.open.fetch_add(1, Ordering::SeqCst);
-        Ok(BrokenUnit {
-            inner,
-            store: self.clone(),
-            appended: Vec::new(),
-            puts: Vec::new(),
-        })
-    }
-}
-
-impl BrokenUnit {
-    /// Land this unit's appends and positions straight in the store, all
-    /// but `lost`'s: what [`Bug::LandsAroundAConflict`] does.
-    async fn land_around(&self, lost: &Cover) {
-        let store = &self.store.inner;
-        for (s, expected, pages) in &self.appended {
-            if s.get().to_cover() != *lost {
-                let _ = store.append(s.get(), *expected, pages).await;
-            }
-        }
-        for (handler, s, next) in &self.puts {
-            let key = PositionKey {
-                handler,
-                stream: s.get(),
-            };
-            let _ = store.put_position(key, *next).await;
-        }
-    }
-}
-
-impl Unit for BrokenUnit {
-    async fn append(
-        &mut self,
-        stream: StreamRef<'_>,
-        expected: u64,
-        pages: &[EventPage],
-    ) -> Result<u64, StoreError> {
-        if self.store.is(Bug::UnitWritesThrough) {
-            return self.store.append(stream, expected, pages).await;
-        }
-        let length = match self.inner.append(stream, expected, pages).await {
-            Err(StoreError::Conflict {
-                stream: lost,
-                expected,
-                actual,
-            }) if self.store.is(Bug::LandsAroundAConflict) => {
-                // A race lost at the append: land the unit's other writes.
-                self.land_around(&lost).await;
-                return Err(StoreError::Conflict {
-                    stream: lost,
-                    expected,
-                    actual,
-                });
-            }
-            Err(StoreError::UnitStreamBound { .. })
-                if self.store.is(Bug::UnitTakesSecondStream) =>
-            {
-                return self.store.inner.append(stream, expected, pages).await;
-            }
-            landed => landed?,
-        };
-        self.appended
-            .push((Owned::of(stream), expected, pages.to_vec()));
-        Ok(length)
-    }
-
-    async fn read(
-        &mut self,
-        stream: StreamRef<'_>,
-        from: u64,
-        to: Option<u64>,
-    ) -> Result<Slice, StoreError> {
-        if self.store.is(Bug::UnitIsBlind) {
-            return self.store.read(stream, from, to).await;
-        }
-        self.inner.read(stream, from, to).await
-    }
-
-    async fn find_command(
-        &mut self,
-        stream: StreamRef<'_>,
-        command_id: Uuid,
-    ) -> Result<Vec<EventPage>, StoreError> {
-        if self.store.is(Bug::UnitIsBlind) {
-            return self.store.find_command(stream, command_id).await;
-        }
-        self.inner.find_command(stream, command_id).await
-    }
-
-    async fn covers(&mut self, domain: &str) -> Result<Vec<Cover>, StoreError> {
-        if self.store.is(Bug::UnitIsBlind) {
-            return self.store.covers(domain).await;
-        }
-        self.inner.covers(domain).await
-    }
-
-    async fn read_snapshot(
-        &mut self,
-        stream: StreamRef<'_>,
-    ) -> Result<Option<Snapshot>, StoreError> {
-        if self.store.is(Bug::UnitSeesNoSnapshot) {
-            return Ok(None);
-        }
-        self.inner.read_snapshot(stream).await
-    }
-
-    async fn write_snapshot(
-        &mut self,
-        stream: StreamRef<'_>,
-        snapshot: &Snapshot,
-    ) -> Result<(), StoreError> {
-        if self.store.is(Bug::UnitSnapshotWritesThrough) {
-            return self.store.write_snapshot(stream, snapshot).await;
-        }
-        match self.inner.write_snapshot(stream, snapshot).await {
-            Err(StoreError::UnitStreamBound { .. })
-                if self.store.is(Bug::UnitTakesSecondStream) =>
-            {
-                self.store.inner.write_snapshot(stream, snapshot).await
-            }
-            written => written,
-        }
-    }
-
-    async fn position(&mut self, key: PositionKey<'_>) -> Result<u64, StoreError> {
-        self.inner.position(key).await
-    }
-
-    async fn put_position(&mut self, key: PositionKey<'_>, next: u64) -> Result<(), StoreError> {
-        if self.store.is(Bug::UnitPositionWritesThrough) {
-            return self.store.put_position(key, next).await;
-        }
-        self.puts
-            .push((key.handler.to_string(), Owned::of(key.stream), next));
-        self.inner.put_position(key, next).await
-    }
-
-    async fn commit(mut self) -> Result<(), StoreError> {
-        let store = self.store.clone();
-        let appended = std::mem::take(&mut self.appended);
-        let puts = std::mem::take(&mut self.puts);
-        let inner = std::mem::replace(&mut self.inner, store.inner.begin().await?);
-        if store.is(Bug::CommitLandsNothing) {
-            return inner.abort().await;
-        }
-        let landed = inner.commit().await;
-        if let Err(StoreError::Conflict { stream, actual, .. }) = &landed {
-            if store.is(Bug::LastWriterWins) {
-                // Land its pages after the winner's, renumbered.
-                for (s, _, pages) in &appended {
-                    let mut pages = pages.clone();
-                    for (due, page) in (*actual..).zip(&mut pages) {
-                        page.sequence = due;
-                    }
-                    store.inner.append(s.get(), *actual, &pages).await?;
-                }
-                return Ok(());
-            }
-            if store.is(Bug::LandsAroundAConflict) {
-                for (s, expected, pages) in &appended {
-                    if s.get().to_cover() != **stream {
-                        let _ = store.inner.append(s.get(), *expected, pages).await;
-                    }
-                }
-                for (handler, s, next) in &puts {
-                    let key = PositionKey {
-                        handler,
-                        stream: s.get(),
-                    };
-                    let _ = store.inner.put_position(key, *next).await;
-                }
-            }
-        }
-        if landed.is_ok() && !appended.is_empty() {
-            store.local.commits.fetch_add(1, Ordering::SeqCst);
-        }
-        landed
-    }
-
-    async fn abort(self) -> Result<(), StoreError> {
-        if self.store.is(Bug::AbortCommits) {
-            return self.commit().await;
-        }
-        let mut this = self;
-        let store = this.store.clone();
-        let inner = std::mem::replace(&mut this.inner, store.inner.begin().await?);
-        inner.abort().await
-    }
 }
 
 impl Purge for Broken {
@@ -771,24 +646,10 @@ impl Purge for Broken {
                 handler: &handler,
                 stream,
             };
-            self.inner.put_position(key, next).await?;
+            self.inner.write(Write::positions(&[(key, next)])).await?;
         }
         if self.is(Bug::PurgeLowersPosition) {
             self.shared.offset.fetch_sub(100, Ordering::SeqCst);
-        }
-        Ok(deleted)
-    }
-}
-
-impl UnitPurge for BrokenUnit {
-    async fn purge(&mut self, stream: StreamRef<'_>) -> Result<u64, StoreError> {
-        if self.store.is(Bug::UnitPurgeWritesThrough) {
-            return self.store.purge(stream).await;
-        }
-        let stored = self.store.inner.head(stream).await?.next_sequence;
-        let deleted = self.inner.purge(stream).await?;
-        if self.store.is(Bug::UnitPurgeMissesPending) {
-            return Ok(stored);
         }
         Ok(deleted)
     }
@@ -823,31 +684,63 @@ impl Editions for Broken {
         Ok(listed)
     }
 
-    async fn delete_edition(&self, name: &str) -> Result<(), StoreError> {
-        let streams = self.edition_streams(name).await;
-        let mut snapshots = Vec::new();
-        for (s, _) in &streams {
-            if let Some(kept) = self.inner.read_snapshot(s.get()).await? {
-                snapshots.push((s.clone(), kept));
+    async fn remove_deleted(&self, stream: StreamRef<'_>) -> Result<u64, StoreError> {
+        let snapshot = self.inner.read_snapshot(stream).await?;
+        let edition = stream.edition.unwrap_or_default().to_string();
+        let others = self.edition_streams(&edition).await;
+        let removed = match self.inner.remove_deleted(stream).await {
+            Err(StoreError::EditionNotPropagated { .. })
+                if self.is(Bug::RemovesBeforePropagation) =>
+            {
+                // Clear the edition's pending entries, undelivered, and go.
+                let ids: Vec<Uuid> = self
+                    .inner
+                    .pending(usize::MAX)
+                    .await?
+                    .iter()
+                    .filter(|e| e.edition.as_deref() == Some(edition.as_str()))
+                    .map(|e| e.id)
+                    .collect();
+                self.inner.clear(&ids).await?;
+                self.inner.remove_deleted(stream).await?
+            }
+            Err(StoreError::EditionNotDeleted { .. }) if self.is(Bug::RemovesUndeleted) => {
+                let at = self.inner.head(stream).await?.next_sequence;
+                self.inner
+                    .write(Write::append(
+                        stream,
+                        at,
+                        &[contract::deleted_page(at, &edition)],
+                    ))
+                    .await?;
+                self.inner.remove_deleted(stream).await?
+            }
+            removed => removed?,
+        };
+        if let (Bug::RemoveKeepsSnapshot, Some(kept)) = (self.bug, snapshot) {
+            self.inner.write_snapshot(stream, &kept).await?;
+        }
+        if self.is(Bug::RemoveTakesMain) {
+            self.inner.purge(main_of(stream)).await?;
+        }
+        if self.is(Bug::RemoveSpreads) {
+            for (other, _) in others {
+                let other = other.get();
+                if other != stream {
+                    let at = self.inner.head(other).await?.next_sequence;
+                    let _ = self
+                        .inner
+                        .write(Write::append(
+                            other,
+                            at,
+                            &[contract::deleted_page(at, &edition)],
+                        ))
+                        .await;
+                    let _ = self.inner.remove_deleted(other).await;
+                }
             }
         }
-        match self.inner.delete_edition(name).await {
-            Err(StoreError::EditionNotFound { .. }) if self.is(Bug::DeleteUnknownOk) => {
-                return Ok(())
-            }
-            deleted => deleted?,
-        }
-        if self.is(Bug::DeleteKeepsSnapshots) {
-            for (s, kept) in snapshots {
-                self.inner.write_snapshot(s.get(), &kept).await?;
-            }
-        }
-        if self.is(Bug::DeleteTakesMain) {
-            for (s, _) in &streams {
-                self.inner.purge(main_of(s.get())).await?;
-            }
-        }
-        Ok(())
+        Ok(removed)
     }
 }
 
@@ -1002,36 +895,6 @@ impl Outbox for Broken {
     }
 }
 
-impl UnitOutbox for BrokenUnit {
-    async fn put_outbox(&mut self, entries: &[OutboxEntry]) -> Result<(), StoreError> {
-        if self.store.is(Bug::ClearedIdsRemembered) {
-            let cleared = self.store.shared.cleared.lock().unwrap().clone();
-            let fresh: Vec<OutboxEntry> = entries
-                .iter()
-                .filter(|e| !cleared.contains(&e.id))
-                .cloned()
-                .collect();
-            return self.inner.put_outbox(&fresh).await;
-        }
-        if self.store.is(Bug::OutboxWritesThrough) {
-            let mut now = self.store.inner.begin().await?;
-            now.put_outbox(entries).await?;
-            return now.commit().await;
-        }
-        if self.store.is(Bug::OutboxKeepsLast) {
-            let mut last: Vec<OutboxEntry> = Vec::new();
-            for e in entries {
-                last.retain(|kept| kept.id != e.id);
-                last.push(e.clone());
-            }
-            let ids: Vec<Uuid> = last.iter().map(|e| e.id).collect();
-            self.store.inner.clear(&ids).await?;
-            return self.inner.put_outbox(&last).await;
-        }
-        self.inner.put_outbox(entries).await
-    }
-}
-
 // ------------------------------------------------------------------ harness
 
 /// Run `check` to its end on a fresh current-thread runtime: `Ok` if it
@@ -1120,6 +983,7 @@ fn the_empty_append_check_catches_one_that_checks_creates_or_commits() {
         EmptyAppendUnchecked,
         EmptyAppendCreates,
         EmptyAppendCommits,
+        PositionsDropped,
     );
 }
 
@@ -1181,8 +1045,7 @@ fn the_snapshot_and_position_checks_catch_a_store_that_judges_or_merges() {
     catches!(
         a_store_keeps_the_newest_snapshot_per_stream,
         broken,
-        KeepsHighestSnapshot,
-        UnitSeesNoSnapshot,
+        KeepsHighestSnapshot
     );
     catches!(
         a_position_is_zero_until_put_then_the_last_put,
@@ -1207,58 +1070,36 @@ fn the_commit_position_check_catches_one_that_stands_still_or_counts_snapshots()
 }
 
 #[test]
-fn the_unit_checks_catch_writes_through_lost_commits_and_blindness() {
+fn the_write_checks_catch_a_split_or_lost_write() {
     catches!(
-        a_unit_of_work_lands_at_commit_or_not_at_all,
+        a_write_lands_its_events_and_positions_together,
         broken,
-        UnitWritesThrough,
-        CommitLandsNothing,
-    );
-    catches!(an_aborted_unit_of_work_lands_nothing, broken, AbortCommits);
-    catches!(
-        a_unit_of_work_checks_and_reads_its_pending_appends,
-        broken,
-        UnitIsBlind
+        PositionsDropped
     );
     catches!(
-        a_unit_of_work_lists_its_pending_streams,
+        a_refused_write_lands_nothing,
         broken,
-        UnitIsBlind
+        ConflictLandsPositions
     );
     catches!(
-        a_unit_of_work_finds_its_pending_commands_and_facts,
+        a_position_only_write_is_a_step_with_no_stream,
         broken,
-        UnitIsBlind
-    );
-    catches!(
-        a_unit_of_work_puts_positions_with_its_appends,
-        broken,
-        UnitPositionWritesThrough
+        PositionOnlyDropped
     );
 }
 
 #[test]
-fn the_second_begin_check_catches_a_wait_and_a_wrong_refusal() {
-    catches!(
-        a_second_begin_on_a_handle_serves_or_refuses_never_waits,
-        broken,
-        BeginWaits,
-        BusyAsUnavailable,
-        RefusesOnlyOnce,
-    );
-}
-
-#[test]
-fn the_pair_checks_catch_a_handles_own_count_and_a_partial_landing() {
+fn the_pair_checks_catch_a_handles_own_count_and_a_lost_race_landing() {
     catches!(
         the_commit_position_counts_every_handles_commits,
         broken_pair,
         PositionPerHandle
     );
     catches!(
-        a_unit_that_lost_a_race_lands_nothing,
+        two_writers_racing_on_one_stream_land_one,
         broken_pair,
-        LandsAroundAConflict
+        LastWriterWins,
+        ConflictLandsPositions,
     );
 }
 
@@ -1284,16 +1125,6 @@ fn the_purge_checks_catch_what_a_purge_leaves_or_lowers() {
         a_purged_stream_starts_again_from_nothing,
         broken,
         PurgeIsANoOp
-    );
-    catches!(
-        a_purge_in_a_unit_of_work_lands_at_commit_or_not_at_all,
-        broken,
-        UnitPurgeWritesThrough
-    );
-    catches!(
-        a_unit_of_work_purges_its_own_appends_and_appends_after,
-        broken,
-        UnitPurgeMissesPending
     );
     catches!(
         a_purge_never_lowers_the_commit_position,
@@ -1356,26 +1187,7 @@ fn the_fork_checks_catch_a_store_that_breaks_the_fork_rule() {
 }
 
 #[test]
-fn the_step_unit_checks_catch_a_second_stream_an_early_snapshot_and_a_lost_race() {
-    catches!(
-        a_unit_of_work_writes_one_stream_and_refuses_a_second,
-        broken,
-        UnitTakesSecondStream
-    );
-    catches!(
-        a_unit_of_work_lands_its_snapshot_with_its_appends,
-        broken,
-        UnitSnapshotWritesThrough
-    );
-    catches!(
-        two_steps_racing_on_one_stream_land_one,
-        broken_pair,
-        LastWriterWins
-    );
-}
-
-#[test]
-fn the_edition_checks_catch_a_wrong_fork_point_list_or_delete() {
+fn the_edition_checks_catch_a_wrong_fork_point_list_or_removal() {
     catches!(
         fork_point_is_mains_first_sequence_after_a_commit_position,
         broken,
@@ -1387,21 +1199,44 @@ fn the_edition_checks_catch_a_wrong_fork_point_list_or_delete() {
         OriginsIncludePropagated
     );
     catches!(
-        deleting_an_edition_removes_every_row_tagged_with_it,
+        an_edition_deletion_is_recorded_like_any_event,
         broken,
-        DeleteKeepsSnapshots,
-        DeleteTakesMain,
+        RemovedOnRecording
     );
     catches!(
-        deleting_an_edition_refuses_an_empty_or_unknown_name,
+        a_deleted_stream_is_removed_with_every_row_of_it,
         broken,
-        DeleteUnknownOk
+        RemoveKeepsSnapshot,
+        RemoveTakesMain,
+        RemovesUndeleted,
+    );
+    catches!(
+        a_deletion_reaching_an_uncreated_stream_writes_nothing,
+        broken,
+        DeletionToUncreatedRefused
+    );
+    catches!(
+        a_deletion_is_recorded_and_removed_stream_by_stream,
+        broken,
+        RemoveSpreads
     );
     catches!(
         a_what_if_edition_runs_beside_main_and_leaves_main_untouched,
         broken,
-        DeleteTakesMain,
+        RemoveTakesMain,
         ForkSeesMainsLater,
+    );
+}
+
+/// A removal before its deletion has propagated onward is a bug the suite
+/// catches (the owner's ruling).
+#[test]
+fn the_propagation_check_catches_a_removal_before_propagation() {
+    catches!(
+        a_deleted_stream_is_removed_only_after_its_deletion_has_propagated,
+        broken,
+        RemovesBeforePropagation,
+        RemovedOnRecording,
     );
 }
 
@@ -1457,9 +1292,9 @@ fn the_core_read_checks_catch_a_wrong_bound_filter_or_order() {
 #[test]
 fn the_outbox_checks_catch_early_lost_reordered_or_replaced_entries() {
     catches!(
-        an_outbox_entry_lands_with_its_unit_or_not_at_all,
+        an_outbox_entry_lands_with_its_write_or_not_at_all,
         broken,
-        OutboxWritesThrough
+        ConflictLandsOutbox
     );
     catches!(
         the_outbox_drains_oldest_first_and_clears,
@@ -1480,6 +1315,11 @@ fn the_outbox_checks_catch_early_lost_reordered_or_replaced_entries() {
         a_cleared_id_put_again_is_a_new_pending_entry,
         broken,
         ClearedIdsRemembered
+    );
+    catches!(
+        an_outbox_entry_keeps_its_edition,
+        broken,
+        OutboxDropsEdition
     );
     catches!(
         an_outbox_write_changes_the_change_token,
@@ -1508,52 +1348,47 @@ fn an_honest_broken_store_passes_every_check() {
         find_command_finds_a_commands_events_on_its_stream,
         find_command_finds_a_retried_facts_events_by_its_id,
         find_command_finds_a_refusal_fact_on_the_trigger_stream_by_the_refused_id,
+        a_write_lands_its_events_and_positions_together,
+        a_refused_write_lands_nothing,
+        a_position_only_write_is_a_step_with_no_stream,
         a_store_keeps_the_newest_snapshot_per_stream,
         a_position_is_zero_until_put_then_the_last_put,
         positions_are_per_handler_and_per_stream,
         the_commit_position_rises_with_every_commit,
-        a_unit_of_work_lands_at_commit_or_not_at_all,
-        an_aborted_unit_of_work_lands_nothing,
-        a_unit_of_work_checks_and_reads_its_pending_appends,
-        a_unit_of_work_lists_its_pending_streams,
-        a_unit_of_work_finds_its_pending_commands_and_facts,
-        a_unit_of_work_writes_one_stream_and_refuses_a_second,
-        a_unit_of_work_lands_its_snapshot_with_its_appends,
-        a_unit_of_work_puts_positions_with_its_appends,
-        a_second_begin_on_a_handle_serves_or_refuses_never_waits,
         a_purge_deletes_a_streams_events_snapshot_and_command_ids,
         a_purge_deletes_the_streams_positions,
         a_purge_deletes_a_snapshot_with_no_events,
         a_purged_stream_starts_again_from_nothing,
-        a_purge_in_a_unit_of_work_lands_at_commit_or_not_at_all,
-        a_unit_of_work_purges_its_own_appends_and_appends_after,
         a_purge_never_lowers_the_commit_position,
         fork_point_is_mains_first_sequence_after_a_commit_position,
         list_editions_derives_each_edition_from_its_fork_events,
-        deleting_an_edition_removes_every_row_tagged_with_it,
-        deleting_an_edition_refuses_an_empty_or_unknown_name,
+        an_edition_deletion_is_recorded_like_any_event,
+        a_deleted_stream_is_removed_with_every_row_of_it,
+        a_deletion_reaching_an_uncreated_stream_writes_nothing,
+        a_deletion_is_recorded_and_removed_stream_by_stream,
         a_what_if_edition_runs_beside_main_and_leaves_main_untouched,
+        a_deleted_stream_is_removed_only_after_its_deletion_has_propagated,
         a_read_unit_reads_a_forked_stream_through_to_main,
         a_change_token_changes_when_its_own_store_commits,
         read_until_time_is_the_prefix_recorded_by_then,
         read_by_correlation_gives_one_book_per_stream,
         list_streams_is_every_domains_covers_in_order,
-        an_outbox_entry_lands_with_its_unit_or_not_at_all,
+        an_outbox_entry_lands_with_its_write_or_not_at_all,
         the_outbox_drains_oldest_first_and_clears,
         a_pending_entry_is_redelivered_until_cleared,
         an_entry_put_again_while_pending_keeps_its_first_message,
         a_cleared_id_put_again_is_a_new_pending_entry,
+        an_outbox_entry_keeps_its_edition,
         an_outbox_write_changes_the_change_token,
     );
     passes!(broken_pair;
         the_commit_position_counts_every_handles_commits,
-        a_unit_that_lost_a_race_lands_nothing,
-        two_steps_racing_on_one_stream_land_one,
-        a_read_unit_refuses_an_unknown_edition_and_reads_an_unforked_stream_as_main,
+        two_writers_racing_on_one_stream_land_one,
         a_read_unit_sees_the_store_as_it_began,
         a_read_unit_keeps_a_stream_purged_after_it_began,
         a_read_unit_heads_and_snapshots_as_it_began,
         a_read_unit_keeps_the_head_and_snapshot_of_a_stream_purged_after_it_began,
+        a_read_unit_refuses_an_unknown_edition_and_reads_an_unforked_stream_as_main,
         a_change_token_changes_when_another_handle_commits,
     );
 }
