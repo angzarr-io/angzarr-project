@@ -24,9 +24,10 @@ option ruby_package = "Angzarr";
 // travels with the data: each policy command in X that reaches a stream with
 // no fork in X forks it on arrival (meta.EditionCreated). Listing
 // editions is a query over X's own creation events. Deleting one is an
-// event too: EditionDeleted is recorded in X's origin streams, travels
-// onward through the policy flows like any event, and each stream's rows of
-// X are removed only after its EditionDeleted has propagated onward.
+// event too: EditionDeleted is recorded in X's origin streams, and the
+// runtime (never the router, which sees no meta-event) propagates it along
+// the streams X's policies reached; each stream's rows of X are removed
+// only after its EditionDeleted has propagated onward.
 // Everything of an edition's lifecycle lives in the edition's own streams
 // and store: main knows nothing of it.
 //
@@ -71,10 +72,11 @@ service EditionAdminService {
   // Delete an edition (meta.EditionDeleted, the owner's rulings of
   // 2026-10-28): append EditionDeleted to each of X's origin streams, in
   // sequence after their earlier work. From there, per stream: the event
-  // is RECORDED in the stream's own domain; it PROPAGATES onward through
-  // that domain's policy flows to the streams of X it reaches, each of which
-  // records its own; and only once it has propagated onward (its outgoing
-  // policy steps and outbox entries have completed) are that stream's rows
+  // is RECORDED in the stream's own domain; the runtime PROPAGATES it
+  // onward along the streams that domain's policies reached in X, each of
+  // which records its own (never as a policy's command: the router sees no
+  // meta-event); and only once it has propagated onward (the runtime's
+  // onward writes and outbox entries have completed) are that stream's rows
   // of X removed: events, the creation and deletion events included,
   // snapshots, projector output, outbox entries and positions. Nothing
   // remains. A stream of X the deletion cannot reach through the policy

@@ -219,3 +219,55 @@ Feature: Editions are per-stream forks, and the fork travels with the data
     Then the rows of "player" "p-1" in edition "what-if" are removed
     And "table" "t-9" in edition "what-if" keeps its rows
     And ListEditions still lists edition "what-if", for the user to act on
+
+  @editions
+  @C-0652
+  Scenario: The runtime creates a stream in the edition when a policy's command arrives, then hands the command to the router
+    Given "player" "p-1" is forked into edition "what-if"
+    And "table" "t-1" has no row in edition "what-if"
+    When a policy's command in edition "what-if" arrives at "table" "t-1"
+    Then the runtime first writes an EditionCreated event to "table" "t-1" in edition "what-if"
+    And only then hands the command to the router as an ordinary command in edition "what-if"
+    And the router is given no EditionCreated
+
+  @editions
+  @C-0653
+  Scenario: The runtime propagates a deletion along the streams the policies reached, skipping a stream with nothing left
+    Given "player" "p-1" is forked into edition "what-if"
+    And the policy "PlayerToTable" reached "table" "t-1" in edition "what-if"
+    And "table" "t-3" holds no row of edition "what-if"
+    When DeleteEdition deletes "what-if"
+    Then the runtime records an EditionDeleted event in "player" "p-1" in edition "what-if"
+    And the runtime writes "table" "t-1"'s own EditionDeleted event in edition "what-if", not as a policy's command
+    And each stream's rows of edition "what-if" are removed only after its EditionDeleted has propagated onward
+    And a deletion reaching "table" "t-3" is skipped, creating and forking nothing
+
+  @editions
+  @C-0654
+  Scenario Outline: The runtime refuses, before calling the router
+    Given "player" "p-1" is forked into edition "what-if"
+    When <input>
+    Then it is answered <status> with reason <reason>
+    And nothing is written
+    And the router is never called
+
+    Examples:
+      | input                                                                                               | status              | reason                  |
+      | a client sends a command to "table" "t-9" in edition "what-if", which has no row there               | FAILED_PRECONDITION | EDITION_NOT_FORKED      |
+      | a policy's command arrives at "table" "t-1" in edition "gone", which has been deleted               | NOT_FOUND           | EDITION_NOT_FOUND       |
+      | a client sends a command whose payload is an io.angzarr.v1.meta.EditionDeleted to "player" "p-1"     | INVALID_ARGUMENT    | META_EVENT_FROM_OUTSIDE |
+      | a client sends a command whose payload is an io.angzarr.v1.meta.EditionCreated to "player" "p-1"     | INVALID_ARGUMENT    | META_EVENT_FROM_OUTSIDE |
+
+  @editions
+  @C-0655
+  Scenario Outline: Policies and handlers never see a meta-event
+    Given a policy "PlayerToTable" with a handler for every "player" event
+    And a projector with a handler for every "player" event
+    When "player" "p-1" in edition "what-if" records an <meta-event> event
+    Then the runtime delivers it to no policy, process manager, aggregate or projector handler
+    And the router is never given it
+
+    Examples:
+      | meta-event     |
+      | EditionCreated |
+      | EditionDeleted |
