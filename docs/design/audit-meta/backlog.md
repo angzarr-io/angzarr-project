@@ -952,47 +952,62 @@ and of `EventMeta`'s `causation` oneof, `correlation_id` and `fact`.
 - Settled when: a saga chain across three domains comes back in one call,
   and the helper rebuilds the PM edges and the per-command groups.
 
-## EA: edition administration (pass 6, D5)
+## EA: editions as per-stream forks (pass 6, D5; reworked by 14.32)
 
-**EA-1** [core] **The edition registry and its admin RPCs.**
-- What: store `Edition` records (name, `diverged_at`, store, created_at;
-  no creator: that goes to the security log, CI-6) and serve `EditionAdminService.CreateEdition` and
-  `DeleteEdition` with the documented codes. `DeleteEdition` removes the
-  record and the edition's events, snapshots and projector output in
-  every domain. Administrative only: nothing is written to any stream.
+**EA-1** [core] **Fork streams, list and delete editions (no registry).**
+- What: serve the reshaped `EditionAdminService` (decision 14.32):
+  `ForkStream` appends `EditionForked` to (D, X, R) at main's next
+  sequence for that stream (refusing an already-forked stream
+  `ALREADY_EXISTS`, and a time-based fork the stores cannot place
+  `FAILED_PRECONDITION`); `ListEditions` answers `EditionSummary` rows
+  derived from the fork events of every event store; `DeleteEdition`
+  removes every row of the edition in every store (events, fork events,
+  snapshots, projector output, the saga coordinators' outbox entries and
+  reaction edges), idempotently. Delete the edition registry and its
+  `Edition` records; map edition names to stores in configuration.
   Retire core's `DeleteEditionEvents` storage method.
-- Why: `meta.proto`.
-- Settled when: create, delete, the empty-name refusal (`INVALID_ARGUMENT`:
-  a name is required, and main has none) and the unknown-name refusal are
-  tested.
+- Why: `meta.proto`; decision 14.32.
+- Settled when: scenarios C-0410, C-0628, C-0636 and C-0637 pass.
 
-**EA-2** [core] **Refuse never-created editions everywhere.**
-- What: every command, query and subscription naming a non-main edition
-  checks the registry and answers `NOT_FOUND` for an unknown name. Remove the
-  "unknown edition falls back to the default store" path.
-- Why: D5: a misspelt edition must never get storage.
-- Settled when: a command to a misspelt edition writes nothing and is
-  refused.
+**EA-2** [core] **The per-stream read rule, and refusing unknown editions.**
+- What: load (D, X, R) as main's events below its fork sequence, then
+  X's own events; read a stream not yet forked in a known X as main, and
+  fork it ON DEMAND (at main's head, or the time-based option's commit
+  position) before the first command or fact addressed to it in X
+  (PROPOSED). Refuse a command, query or subscription naming an edition
+  with no fork event anywhere (`NOT_FOUND`); cache positive existence
+  answers. Remove the "unknown edition falls back to the default store"
+  path.
+- Why: decision 14.32 (and D5: a misspelt edition must never get
+  storage).
+- Settled when: scenarios C-0629, C-0633, C-0634 and C-0635 pass.
 
-**EA-3** [core] **Divergence records drive the main fall-through.**
-- What: an edition read falls through to main's events with `recorded_at`
-  at or before the edition's `diverged_at`, in every stream. Make the
-  default point exact: a time stamped at create can tie with a main event
-  appended concurrently (equal `recorded_at`), and clocks differ across
-  coordinator instances. Settle on one rule (for example, stamp
-  `diverged_at` through the same non-decreasing clock as appends, or record
-  per-stream heads lazily on the edition's first access to a stream) and
-  document it.
-- Why: the divergence point is now recorded, so it must be exact.
-- Settled when: a what-if created at main's head never sees a main event
-  appended after the create returned.
+**EA-3** [core, router] **Automated fork propagation; the time-based
+option.**
+- What: saga coordinators keep reaction edges, one row per (saga, source
+  stream, target stream), beside the outbox (PROPOSED); on `EditionForked`
+  for (D, X, R) they fork in X every target with an edge from (D, main, R),
+  at its head, with `propagated_from` set, idempotently (derived step ids;
+  an already-forked stream is skipped), bounded by a hop limit (default 8)
+  and alerting past a fan-out limit (default 1,000), and only while the
+  upstream fork still exists. The client library never hands
+  `EditionForked` to business code. The time-based option forks every
+  stream at the origin fork's commit position, which needs the store
+  contract's global commit position (the 2026-10-27 ruling, now this
+  option). Supersedes this item's earlier "make the whole-system
+  divergence point exact" (decision 14.32).
+- Why: decision 14.32, the `editions` region of `types.proto`.
+- Settled when: scenarios C-0630 to C-0632, C-0638 and C-0639 pass, and
+  a fork reaches every stream its recorded edges lead to within the hop
+  bound.
 
-**EA-4** [clients, site, project] **What-if callers create editions first.**
-- What: client helpers for `CreateEdition`/`DeleteEdition`, the what-if
-  examples and feature specs updated to create the edition, and the site's
-  edition pages rewritten.
-- Why: D5.
-- Settled when: no example or spec uses an edition it did not create.
+**EA-4** [clients, site, project] **What-if callers fork a stream first.**
+- What: client helpers for `ForkStream`, `ListEditions` and
+  `DeleteEdition`; the what-if examples and feature specs fork a stream to
+  create their edition; the site's edition pages (done in this pass:
+  `features/editions.mdx`, the glossary) kept current.
+- Why: decision 14.32.
+- Settled when: no example or spec uses an edition it did not fork.
 
 ## NC: the conflict nonce (pass 6, D7)
 

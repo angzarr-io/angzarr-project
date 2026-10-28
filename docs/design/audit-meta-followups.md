@@ -198,7 +198,7 @@ event onwards, every removal reserves its number and name (see
     version, so re-runs dedupe; checkpoint resets are for recovery; repairs
     are new commands; standard re-drive commands are backlog RD-1.
   - **No reacting-component field**: source control says what makes what.
-- **Pass 14** (this change): decisions 14.1–14.31, by the owner.
+- **Pass 14** (this change): decisions 14.1–14.32, by the owner.
   - **One coordinator, one component, one business process** (14.19):
     `Describe` returns one descriptor; each PM has its own coordinator; a
     query is judged by its coordinator's own registration; an upcaster is
@@ -255,6 +255,11 @@ event onwards, every removal reserves its number and name (see
     dead letter. A context object was considered and deferred. The
     outbox is one kind-agnostic capability, used today by sagas; a PM
     needs none.
+  - **Editions are per-stream forks** (14.32): forking an origin stream
+    appends `EditionForked` at main's next sequence; each stream reads main
+    below its own fork, then the edition; angzarr propagates forks
+    downstream, eventually consistent; a time-based fork is an option; no
+    registry (`ForkStream`, `ListEditions`, `DeleteEdition`).
 
 ### Worked example: hatpick's `ListState`
 
@@ -323,10 +328,10 @@ markers can go wrong.
   The published `AngzarrDeadLetter` stays immutable.
 - **The review's D1–D11** (pass 6): all decided. See
   [critical-review.md](audit-meta/critical-review.md) and decisions 6.1–6.11.
-- **What `DeleteEdition` clears** (pass 6): the edition's record and its
-  events, snapshots, projector output and claims, in every domain.
-- **Unknown editions** (pass 6): refused `NOT_FOUND`; only created editions
-  get storage.
+- **What `DeleteEdition` clears** (pass 6; since 14.32 there is no
+  record): every row of the edition in every store.
+- **Unknown editions** (pass 6, revised by 14.32): refused `NOT_FOUND`; an
+  edition is known while any fork event of it exists.
 - **The main timeline's name** (pass 7): it has none. Main is the unset
   edition; a set `""` is malformed (`INVALID_ARGUMENT`).
 - **COMMUTATIVE field granularity** (pass 8): declared conflict units,
@@ -386,11 +391,15 @@ markers can go wrong.
 - **Edition lifetime per backend.** Memory lasts as long as the process, redis
   as long as its TTL, and a database persists. Open:
   - whether a TTL or GC policy is configured per edition;
-  - what happens to an edition whose backend evicts it mid-use (its record
-    survives in the registry while its events are gone).
-- **The exact default divergence point** (backlog EA-3): a create-time stamp
-  can tie with a concurrent main append, and clocks differ across
-  instances.
+  - what happens to an edition whose backend evicts it mid-use (since
+    14.32 there is no registry: an edition whose fork events are all
+    evicted becomes unknown).
+- **Editions as per-stream forks** (14.32, the drafter's proposals, open):
+  propagation along recorded reaction edges and its bounds; on-demand forks
+  for streams no propagation reached; deletion not propagated; existence
+  checked by querying every store's fork events. (The whole-system
+  divergence point this item used to track is now the time-based
+  option.)
 - **Per-event saga causation** (W3a, backlog OB-6); it now covers a
   saga's refusal facts too.
 - **The SIMPLE mode name** (W14): not renamed, with no decision recorded.
