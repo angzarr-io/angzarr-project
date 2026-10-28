@@ -115,7 +115,8 @@ message CommandHandlerResponse {
 //
 // No mode waits for reactions. Sagas and process managers always run
 // asynchronously, after the command's events are persisted; the commands
-// they emit are separate commands with their own outcomes. Every mode
+// sagas emit are separate commands with their own outcomes, and a process
+// manager emits none (decision 14.31). Every mode
 // publishes the persisted events downstream: there is no mode that writes
 // silently, so replay, migration and recovery tooling either lets reactions
 // run or rebuilds projections afterwards.
@@ -134,7 +135,7 @@ message CommandHandlerResponse {
 // when the caller supplied the command_id and reuses it.
 //
 // Status codes. One set, used by every coordinator and by every framework
-// retry loop (reaction delivery, the PM and saga outbox, asynchronous
+// retry loop (reaction delivery, the saga outbox, asynchronous
 // commands, projector retries):
 //   Retryable:  UNAVAILABLE, DEADLINE_EXCEEDED, RESOURCE_EXHAUSTED, ABORTED.
 //   Terminal:   every other code, notably INVALID_ARGUMENT (malformed),
@@ -149,10 +150,16 @@ message CommandHandlerResponse {
 // expected_sequence that is ABORTED is dead-lettered with
 // SequenceMismatchDetails, since resending it verbatim cannot succeed.
 //
-// Reaction commands (saga and process-manager output) and process-manager
-// outbox deliveries are delivered by framework components through these
-// same RPCs; the delivering component's configuration chooses the mode,
-// never the message.
+// Reaction commands (saga output) are delivered by framework components
+// through these same RPCs; the delivering component's configuration
+// chooses the mode, never the message.
+//
+// A process manager's coordinator serves these RPCs for the PM's own
+// domain: a command addressed to a PM (from a client or a saga) arrives
+// here like any other, and is recorded by the PM as a fact, never
+// rejected: no Handling, the answer APPLIED, DUPLICATE or PARKED (see
+// ProcessManagerService, Delivery of commands, in process_manager.proto;
+// decision 14.31).
 //
 // Client libraries may expose a single handle(book, mode) call as API sugar
 // over these three RPCs; the mode still selects the RPC, and is never sent
@@ -225,15 +232,16 @@ service CommandHandlerCoordinatorService {
 // Framework components and clients use the SAME RPCs. What differs is what
 // a caller may send, decided by who the caller is, never by the message.
 //
-// A framework component (a saga or process-manager coordinator delivering
-// reaction commands, the outbox dispatcher, the DLQ replayer, a coordinator
+// A framework component (a saga coordinator delivering reaction
+// commands, the outbox dispatcher, the DLQ replayer, a coordinator
 // delivering triggers) authenticates with its mTLS identity, issued to
 // framework components only. Only such a caller may send:
 //   - CommandPage.causation_id (with the derived command_id of a reaction
 //     command; the receiving coordinator trusts both from this caller);
 //   - a caller-supplied trigger EventBook to SagaCoordinatorService.Execute
 //     or ProcessManagerCoordinatorService.Handle (whose stamping copies the
-//     trigger's correlation and EventRef onto reaction commands).
+//     trigger's correlation and EventRef onto reaction commands, or onto a
+//     PM's process events).
 // Any other caller is a client. A client that sends a causation_id is
 // refused PERMISSION_DENIED, as is a client call to a trigger entry point:
 // the request is well formed, but the caller is not allowed to make it

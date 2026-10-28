@@ -22,10 +22,27 @@ option ruby_package = "Angzarr";
 // - You need to query workflow status independently ("show all pending fulfillments")
 // - Timeout/scheduling logic is complex enough to merit its own aggregate
 // - You must react to events from MULTIPLE domains (saga recommends single domain)
-// - You must handle the replies to the commands you issue (see below)
+// - You must track the replies to the steps you start (see below)
 //
 // Process Manager IS an aggregate with its own domain, events, and state.
 // It reuses all aggregate infrastructure (EventStore, SnapshotStore, AggregateCoordinator).
+//
+// Facts in, facts out (decision 14.31). A PM takes in two kinds of input,
+// and every input is something that already happened:
+//   - trigger events from the domains it subscribes to ((event) entries
+//     with a domain; ProcessManagerHandleRequest.trigger), and
+//   - commands addressed to its own domain (CommandOptions.component naming
+//     the PM's state message; ProcessManagerHandleRequest.command), from a
+//     client or a saga.
+// A command to a PM is accepted and recorded as a fact: the PM cannot
+// refuse it, so its handler, like every PM handler, is infallible. A PM's
+// only output is its own events, on its own stream. A PM sends NO commands
+// (ruling P1): to act on another domain it records an event carrying the
+// data that domain's command needs, and a saga from the PM's domain to
+// that domain (SagaService, input_domain = the PM's domain) builds the
+// command from it. The PM's events are ordinary stored events, published
+// like an aggregate's, so the sagas, projectors and other PMs subscribed
+// to the PM's domain see them.
 //
 // Stream. A PM instance's stream is (the PM's domain, the trigger's
 // edition, the trigger's correlation_id): domain is the one the PM owns
@@ -36,52 +53,95 @@ option ruby_package = "Angzarr";
 // (decision 9.1), so it is a valid root as it stands. The PM's
 // process_state is that stream, and every process_events book's cover is
 // that stream. Decision 14.30, carrying over prior angzarr core's D-11
-// (CorrelationRootExt::correlation_root) without its text branch.
+// (CorrelationRootExt::correlation_root) without its text branch. A command
+// to a PM names the instance in its cover (domain = the PM's, root = the
+// instance's correlation_id), so its events keep 14.30's rule: a command
+// whose correlation_id is unset is given its cover's root, and one whose
+// correlation_id is set and differs from its cover's root is malformed
+// (INVALID_ARGUMENT to a client; a reaction command is dead-lettered and
+// alerted as a reactor bug).
 //
-// Replies. A PM handles the replies to its own commands: a target's
-// answer, including a refusal recorded as a domain event, reaches the PM as
-// a trigger, and the PM decides the next step in its own workflow state.
-// Replies route to the PM instance by correlation: a PM's commands carry the
-// trigger's correlation_id (stamped by the coordinator; see the
-// command_identity region of types.proto), so the target's events carry it
-// too, and the PM subscribed to that domain receives them under the same
-// correlation. A PM command's causation_id is the trigger it reacted to,
-// never one of the PM's own process events; a reply event's causation is
-// the PM's command that produced it (EventMeta.causation.command_id), and
-// the trigger edge behind that command is in the traces (see the
-// command_identity region of types.proto). There is no compensation or
-// notification channel. A hard rejection of a PM's command is retried when
-// retryable and otherwise dead-lettered.
+// Replies. A PM tracks the replies to the steps it starts: its event
+// carries the trigger's correlation_id, so the saga's command built from
+// it carries that correlation (stamped by the saga's coordinator; see the
+// command_identity region of types.proto), so the target's events carry
+// it too, and the PM subscribed to that domain receives them under the
+// same correlation. A target's answer, including a refusal recorded as a
+// domain event, reaches the PM as a trigger, and the PM decides the next
+// step in its own workflow state. There is no compensation or notification
+// channel. A hard rejection of the saga's command is retried when
+// retryable and otherwise dead-lettered, as for any saga command.
 //
-// Transient outbox. Everything a PM returns (process_events and commands)
-// goes through the transient outbox described on SagaResponse: stored
-// atomically with the PM's source checkpoint (here, with the append of its
-// process_events), dispatched, then cleared. Redelivery re-sends the stored
-// commands verbatim, so the PM is never re-run for a trigger whose output is
-// stored and need not be pure or deterministic. The destination
-// deduplicates on each command's derived command_id (UUIDv5 of the
-// trigger, the PM's registered name and the command's index), and the PM's
-// own stream deduplicates its process events on their triggering_event.
+// Delivery of commands. A command to a PM arrives through
+// CommandHandlerCoordinatorService (command_handler.proto), in any command
+// mode, addressed to the PM's domain; the PM's own coordinator serves those
+// RPCs for that domain (one coordinator, one component: decision 14.19)
+// and calls ProcessManagerService.Handle with the command arm, never
+// CommandHandlerService. The pipeline is the aggregate's (types.proto,
+// Handling), with what infallibility implies, exactly as for a Fact:
+//   - no Handling: the coordinator always stamps the head, and a command
+//     to a PM that sets any Handling field is malformed (INVALID_ARGUMENT;
+//     a reaction command is dead-lettered and alerted);
+//   - deduplicated by command_id on the PM's stream before the handler
+//     runs (DUPLICATE, with the stored events), as any command is;
+//   - never rejected: the answer is APPLIED with the PM's events (possibly
+//     none), or DUPLICATE. A failing PM command handler is a bug, not a
+//     refusal: the command is dead-lettered and alerted and the sender is
+//     answered OK with Outcome.delivery PARKED and no events, as for a
+//     failing fact handler.
+// The body arm does not choose the pipeline on a PM's stream: a Command and
+// a Fact alike are recorded infallibly. A Fact keeps its own rules
+// (fact_origin required, its derived command_id; see the command_identity
+// region of types.proto). A command to a PM stream that holds no events is
+// delivered like any other, with an empty process_state.
 //
-// Process events. The PM's own events have no producing command. Its
-// coordinator stamps their EventMeta from the trigger: causation =
-// triggering_event (the trigger's EventRef), correlation_id = the
-// trigger's, recorded_at, and the reported rules_version; never a
-// command_id or a fact. "Already applied?" for a trigger means the PM's
-// stream holds events whose causation.triggering_event is that trigger;
-// on a hit they are not appended again (see the command_identity region of
-// types.proto, Process events).
+// No outbox. A PM's whole output is its process_events, appended to its
+// own stream, so its stream is the record of what it did and there is no
+// transient outbox (SagaResponse) for a PM. Its coordinator appends the
+// process events, then advances its position past the trigger.
+//
+// Process events and deduplication. Deduplication is the coordinator's job,
+// never the handler's: it looks the cause up on the PM's stream, BEFORE the
+// handler runs, and on a hit does not run the handler and appends nothing.
+//   - Trigger-caused process events have no producing command: they carry
+//     no command_id. The coordinator stamps their EventMeta from the
+//     trigger: causation = triggering_event (the trigger's EventRef),
+//     correlation_id = the trigger's, recorded_at, and the reported
+//     rules_version; never a command_id or a fact (decision 13.2). "Already
+//     applied?" for a trigger means the PM's stream holds events whose
+//     causation.triggering_event is that trigger (the find_triggered
+//     lookup; see the command_identity region of types.proto, Process
+//     events).
+//   - Command-caused process events carry the command's id: causation =
+//     command_id, the command's correlation_id (its cover's root, above),
+//     recorded_at and the reported rules_version, and fact when the
+//     command was a Fact. "Already applied?" is the ordinary command_id
+//     lookup.
+// A redelivery, or a re-run after a checkpoint reset, of an input that
+// wrote process events is therefore never handled twice; one that wrote
+// none is handled again (the accepted cost of decision 12.2).
 service ProcessManagerService {
-  // Handle with trigger + process state. Returns commands for other
-  // aggregates and events for the PM's own domain.
+  // Handle one input (a trigger or a command addressed to the PM) with the
+  // PM's process state. Returns events for the PM's own domain only.
   //
-  // PMs do not rebuild destination aggregate state — they translate
-  // events into commands. Emitted commands are Commands (never Facts) whose
-  // causation_id names the trigger, stamped exactly as saga commands are
-  // (see the command_identity region of types.proto). The PM's own state
-  // arrives as process_state; the coordinator offers a snapshot in it only
-  // if it passes the same validity checks as an aggregate's (Snapshot in
-  // types.proto).
+  // Infallible. Whatever the cause, the handler records what happened as
+  // the PM's events and never refuses: there is no business rejection of a
+  // PM's input. A PM that fails (an error status, or output the coordinator
+  // refuses) has a bug: a trigger is dead-lettered and alerted; a command is
+  // dead-lettered and alerted and its sender answered PARKED (above).
+  //
+  // One handler context. The client library gives every PM handler, for a
+  // trigger and for a command alike, one context type, carrying the input's
+  // cause in the shape of EventMeta.causation (decision 13.1): the
+  // trigger's EventRef, or the command's command_id; with the cause's
+  // correlation_id (the PM's root) and the PM's own stream. The cause the
+  // context carries is exactly the cause the coordinator stamps on the
+  // process events the handler writes. The context offers no deduplication:
+  // the coordinator has already done it (above).
+  //
+  // The PM's own state arrives as process_state; the coordinator offers a
+  // snapshot in it only if it passes the same validity checks as an
+  // aggregate's (Snapshot in types.proto).
   //
   // The business process is one PM (see ComponentService in
   // component.proto), and so is its coordinator: when several PMs react to
@@ -92,10 +152,11 @@ service ProcessManagerService {
 
 // ProcessManagerCoordinatorService: orchestrates PM execution
 service ProcessManagerCoordinatorService {
-  // Full orchestration: persist process events, then deliver commands
-  // through the outbox.
-  // The request is the triggering EventBook; the PM's configuration, not
-  // the request, sets how its commands are delivered. A trigger entry
+  // Full orchestration of one trigger: deduplicate it on the PM's stream,
+  // call ProcessManagerService.Handle, and persist the process events.
+  // The request is the triggering EventBook. Commands addressed to the PM
+  // do not come here: they arrive through CommandHandlerCoordinatorService
+  // (see ProcessManagerService, Delivery of commands). A trigger entry
   // point: callers authenticated as framework components only; a client is
   // refused PERMISSION_DENIED (see the entry_points region of
   // command_handler.proto).
@@ -107,50 +168,54 @@ service ProcessManagerCoordinatorService {
   }
 }
 
-// PM handle request: full context for PM decision. It carries no destination
-// state or sequences; the destination stamps the head of every emitted
-// command.
+// PM handle request: one input and the PM's state. It carries no
+// destination state or sequences: a PM addresses no other stream.
 message ProcessManagerHandleRequest {
-  // Full state of triggering domain.
-  EventBook trigger = 1;
+  // The input, which is also the cause the coordinator stamps on the
+  // process events (see ProcessManagerService, Process events and
+  // deduplication). Exactly one is set.
+  oneof cause {
+    // A trigger: full state of triggering domain. Process events written
+    // for it carry causation.triggering_event.
+    EventBook trigger = 1;
+    // A command addressed to the PM's own stream, after the coordinator's
+    // pipeline: ids assigned and correlation_id set (its cover's root), no
+    // Handling. Process events written for it carry causation.command_id.
+    CommandBook command = 4;
+  }
   // Current process manager state (event-sourced): the PM's own stream.
   EventBook process_state = 2;
 }
 
-// PM handle response: local events, then remote commands.
-// Execution order: process_events persisted first, then commands sent.
+// PM handle response: the PM's own events and state. A PM sends no
+// commands (decision 14.31).
 message ProcessManagerHandleResponse {
-  // Local: Events for the process manager's own domain (non-duplicative workflow state).
-  // These are persisted via AggregateCoordinator to the PM's own stream: every book's cover is that stream (or empty, meaning it).
+  // Events for the process manager's own domain (non-duplicative workflow
+  // state), including those that carry the data a saga needs to build a
+  // command for another domain. These are persisted via
+  // AggregateCoordinator to the PM's own stream: every book's cover is
+  // that stream (or empty, meaning it).
   // Business output only: payloads. The PM's state goes in process_state,
   // never in these books. A snapshot, page meta, sequences or a cover
   // other than the PM's own stream are refused, as for an aggregate (see
-  // CommandHandlerService.Handle). The coordinator
-  // stamps each page's meta: causation.triggering_event = the trigger's
-  // EventRef, the trigger's correlation_id, recorded_at and this
-  // response's rules_version (see ProcessManagerService, Process events).
-  // They are deduplicated on triggering_event within the PM's stream.
+  // CommandHandlerService.Handle). The coordinator stamps each page's meta
+  // from the request's cause: for a trigger, causation.triggering_event =
+  // the trigger's EventRef and the trigger's correlation_id; for a
+  // command, causation.command_id = its command_id and its correlation_id;
+  // and recorded_at and this response's rules_version (see
+  // ProcessManagerService, Process events and deduplication).
   repeated EventBook process_events = 1;
-  // Remote: Commands to issue to other aggregates, delivered through the
-  // outbox (see ProcessManagerService) under the PM's configured delivery
-  // mode (which coordinator RPC delivers it); the command never chooses it.
-  // Each carries NO Handling: handling is left unset (or empty). A command
-  // that sets any Handling field (expected_sequence or conflict_resolution)
-  // is a PM bug, refused loudly: dead-lettered and alerted, never
-  // delivered, never silently stripped (see Handling). command_id,
-  // causation_id and correlation_id are left unset for the coordinator to
-  // stamp from the trigger; a differing value is refused the same way.
-  repeated CommandBook commands = 2;
   // The full version of the PM's business binary, as
   // CommandHandlerResponse.rules_version: stamped in full onto the process
   // events (and any snapshot). A response reporting a version other than
-  // the PM's registered one is refused as a PM bug: nothing is persisted or
-  // sent, and the trigger is dead-lettered and alerted.
+  // the PM's registered one is refused as a PM bug: nothing is persisted,
+  // and the input is dead-lettered and alerted (a command's sender is
+  // answered PARKED).
   string rules_version = 3;
-  // The PM's process state after this reaction, with its process_events
+  // The PM's process state after this input, with its process_events
   // folded in (the counterpart of the request's process_state). The client
   // library sets process_state.state on EVERY response, whether or not the
-  // reaction wrote process events; business code never decides when. The
+  // input wrote process events; business code never decides when. The
   // coordinator persists it per the PM domain's storage policy, setting
   // sequence and rules_version, as for an aggregate (see Snapshot).
   Snapshot process_state = 5;

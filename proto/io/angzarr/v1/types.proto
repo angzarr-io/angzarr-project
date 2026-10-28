@@ -82,8 +82,9 @@ message UUID {
 //     = cfe936c0-2912-5ca9-96e6-f37c0b441759
 //
 // Reaction command ids (see the command_identity region). The command a
-// saga or process manager emits as the index-th command (0-based, in
-// emission order) of its reaction to the trigger event T has
+// saga emits as the index-th command (0-based, in emission order) of its
+// reaction to the trigger event T has (a process manager emits no
+// commands; decision 14.31)
 //   command_id = UUIDv5(ANGZARR_COMMAND_NAMESPACE, name)
 //   ANGZARR_COMMAND_NAMESPACE = e2c9f744-9fe1-4b4b-bfee-ae514dde293b
 // where name is six netstrings, concatenated:
@@ -160,7 +161,7 @@ message Cover {
   // compute_root (UUIDv5; see the derived_ids region) or minted (UUIDv7).
   // A process manager's stream is the exception: its root is its trigger's
   // correlation_id, unchanged (ProcessManagerService, Stream; decision
-  // 14.30).
+  // 14.30), and a command addressed to it names that root.
   UUID root = 1;
   // Edition: the NAME of the timeline the stream belongs to.
   //
@@ -398,8 +399,8 @@ message EventRef {
 // Marten and Wolverine): one message id, a correlation id, and a causation
 // id naming the message's DIRECT cause. A command's direct cause is its
 // trigger (causation_id); an event's direct cause is the command that
-// produced it, or, for a process manager's own process events, the trigger
-// it reacted to (EventMeta.causation). Each event records only its own
+// produced it, or, for a process manager's trigger-caused process events,
+// the trigger it reacted to (EventMeta.causation). Each event records only its own
 // direct cause, never its command's causation (decision 13.3).
 //
 // command_id: one per command, a UUID, assigned before deduplication:
@@ -429,8 +430,12 @@ message EventRef {
 // or minted), so every retry of a client-keyed command lands in one
 // correlation; a Fact's is its derived command_id. A reaction command's is
 // its trigger's correlation, stamped by the coordinator; a reactor that sets
-// a different one is a reactor bug. A process manager's process events
-// carry their trigger's correlation too (see Process events, below).
+// a different one is a reactor bug. A command (or Fact) addressed to a
+// process manager's stream is the exception to all of these: its
+// correlation is its cover's root (the PM instance's correlation; decision
+// 14.30), set when absent, and a set correlation_id that differs from the
+// root is malformed. A process manager's process events carry their
+// cause's correlation (see Process events, below).
 // Correlation is never unset on a persisted event, and the framework never
 // mints one of its own. It groups a workflow and is not an identity: two
 // sources' external ids can coincide, and a sender that must keep them
@@ -439,10 +444,9 @@ message EventRef {
 // EventStreamFilter select by it.
 //
 // causation_id: the command message's own causation, as the standard
-// defines it: the EventRef of the event a saga or process manager reacted
-// to, always the triggering event (never the reactor's own earlier event; a
-// process manager's command names the trigger it is answering, like a
-// saga's). Set on reaction commands only, by the reactor's coordinator, and
+// defines it: the EventRef of the event a saga reacted to, always the
+// triggering event (a process manager emits no commands, so it stamps no
+// causation_id; decision 14.31). Set on reaction commands only, by the reactor's coordinator, and
 // the input the reaction command_id is derived from (derived_ids region).
 // It is transport and trace metadata, NOT persisted on the events the
 // command produces: their causation is the command itself
@@ -462,6 +466,8 @@ message EventRef {
 //             causation_id; never any Handling field; a set command_id
 //             must equal the derivation.
 //   Command   never fact_origin.
+//   either, addressed to a process manager's stream: never any Handling
+//             field; a set correlation_id must equal the cover's root.
 // A client's malformed command is answered INVALID_ARGUMENT; a reaction
 // command has no caller to answer, so it is dead-lettered and alerted as a
 // reactor bug.
@@ -485,25 +491,32 @@ message EventRef {
 // lookup, which now finds the winner's events and answers DUPLICATE (or,
 // if the winner produced no events, decides again; see the costs below).
 //
-// Process events. The events a process manager writes to its own stream in
-// reaction to a trigger (ProcessManagerHandleResponse.process_events) have
-// no producing command, so they carry no command_id. The PM's coordinator
-// stamps their meta: causation.triggering_event = the trigger's EventRef
-// (the same event its commands' causation_id names), the trigger's
-// correlation_id, recorded_at, and the PM's reported rules_version; never
-// a fact. They are deduplicated the same way, on triggering_event within
-// the PM's own stream: "already applied?" means the PM stream holds events
-// whose causation.triggering_event is this trigger. Every backend keeps an
-// index on (stream, triggering_event), not unique. On a hit the coordinator
-// does not append them again. A PM writes at most one process write per
-// trigger, so that is the whole key. The same costs apply: a reaction that
-// wrote no process events leaves nothing to find.
+// Process events. The events a process manager writes to its own stream
+// (ProcessManagerHandleResponse.process_events) have one of two causes
+// (decision 14.31; ProcessManagerService):
+//   - A trigger. Trigger-caused process events have no producing command,
+//     so they carry no command_id. The PM's coordinator stamps their meta:
+//     causation.triggering_event = the trigger's EventRef, the trigger's
+//     correlation_id, recorded_at, and the PM's reported rules_version;
+//     never a fact. They are deduplicated on triggering_event within the
+//     PM's own stream (the find_triggered lookup): "already applied?" means
+//     the PM stream holds events whose causation.triggering_event is this
+//     trigger. Every backend keeps an index on (stream, triggering_event),
+//     not unique. A PM writes at most one process write per trigger, so
+//     that is the whole key.
+//   - A command addressed to the PM. Its process events carry
+//     causation.command_id like any command's events (and fact, for a
+//     Fact), and are deduplicated by command_id like any command's.
+// Either lookup is the coordinator's, made before the PM's handler runs; on
+// a hit the handler does not run and nothing is appended. The same costs
+// apply: an input that wrote no process events leaves nothing to find.
 //
 // Reactor re-runs. A reaction command_id depends only on (trigger,
 // component, index), never on the reactor's rules_version or code, so a
 // reactor run again over a trigger it already handled (a checkpoint reset)
 // emits the same ids, which every destination answers DUPLICATE, and a
-// PM's process events for that trigger dedupe on triggering_event. A re-run
+// PM finds its process events for that trigger (triggering_event) and is
+// not run again. A re-run
 // never changes history: it adds nothing where the first run applied, even
 // if the reactor's code has changed since. Checkpoint resets are for
 // recovery only (output that was lost before it reached the outbox).
@@ -570,8 +583,9 @@ message FactOrigin {
 //
 // causation, correlation_id and recorded_at are always recorded. causation
 // is the event's DIRECT cause (see the command_identity region):
-// command_id for an event a command produced (client, reaction or fact),
-// triggering_event for a process manager's own process event. fact is set
+// command_id for an event a command produced (client, reaction or fact,
+// including one addressed to a process manager), triggering_event for a
+// process manager's trigger-caused process event. fact is set
 // iff the producing command was a Fact. rules_version is always recorded
 // from the business logic's report (empty only if the business logic
 // reports none). A reaction command's causation_id (its trigger) is NOT
@@ -581,10 +595,11 @@ message FactOrigin {
 // The event's own identity is the EventRef of its page (its stream plus
 // EventPage.sequence); EventMeta does not repeat it.
 //
-// One write is the events one command (or one process manager reaction)
-// produced. All pages of one write share one EventMeta, so the events of
-// one command are exactly the pages with its command_id, and a PM's process
-// events for one trigger exactly the pages with that triggering_event; the
+// One write is the events one command (or one process manager reaction to
+// a trigger) produced. All pages of one write share one EventMeta, so the
+// events of one command are exactly the pages with its command_id, and a
+// PM's process events for one trigger exactly the pages with that
+// triggering_event; the
 // deduplication indexes (command_identity region) are on those fields. The
 // head the decision saw is not recorded: it is the sequence of the write's
 // first event (decision 12.4).
@@ -593,19 +608,21 @@ message EventMeta {
   oneof causation {
     // The producing command's command_id (see the command_identity
     // region): every event a client Command, reaction command or Fact
-    // produced. The deduplication key on the stream.
+    // produced, a process manager's events for a command addressed to it
+    // included. The deduplication key on the stream.
     UUID command_id = 17;
     // The trigger a process manager reacted to when it wrote this event to
     // its own stream (ProcessManagerHandleResponse.process_events), stamped
-    // by the PM's coordinator. Set only on process events, which have no
-    // producing command. The deduplication key within the PM's stream.
+    // by the PM's coordinator. Set only on trigger-caused process events,
+    // which have no producing command. The deduplication key within the
+    // PM's stream.
     EventRef triggering_event = 18;
   }
   // The producing Fact's source: the command's fact_origin, copied. Unset
-  // for Commands and process events.
+  // for Commands and trigger-caused process events.
   FactOrigin fact = 16;
-  // The producing command's correlation, or for a process event its
-  // trigger's (see the command_identity region). Never unset on a persisted
+  // The producing command's correlation, or for a trigger-caused process
+  // event its trigger's (see the command_identity region). Never unset on a persisted
   // event.
   UUID correlation_id = 14;
   // When the event was durably recorded, stamped by the server that persisted
@@ -757,7 +774,8 @@ message Projection {
 // AngzarrDeadLetter).
 //
 // Defaults come from configuration. The conflict resolution is configured
-// per command type and per component (the aggregate or process manager).
+// per command type and per component (the aggregate; a command to a process
+// manager carries no Handling, below).
 // Precedence, highest first:
 //   1. Handling, when the field is set and configuration allows the override
 //   2. configuration for the command type (its payload's type URL)
@@ -782,7 +800,10 @@ message Projection {
 //   5. business code CommandHandlerService.Handle (the client library
 //                    upcasts the payload, dispatches to decide or ingest,
 //                    and resolves AGGREGATE_HANDLES / COMMUTATIVE), then
-//                    the append.
+//                    the append. For a command addressed to a process
+//                    manager, ProcessManagerService.Handle (its command
+//                    arm), which records it infallibly; step 4 only
+//                    stamps the head.
 // The load comes before the lookup: under READ COMMITTED, a lookup first
 // could miss an original delivery that commits before the load, and the
 // retry would append after the original's events with no conflict (applied
@@ -799,6 +820,9 @@ message Projection {
 //   - a conflict_resolution the component's state does not support;
 //   - any Handling field on a Fact (see below);
 //   - any Handling field on a reaction command (see below);
+//   - any Handling field on a command addressed to a process manager, and
+//     a set correlation_id that differs from its cover's root (see
+//     ProcessManagerService, Delivery of commands);
 //   - a Fact without fact_origin, or with an empty external_id, or with a
 //     command_id other than its derivation; a Command with fact_origin
 //     (see the command_identity region);
@@ -811,8 +835,8 @@ message Projection {
 // caller to answer, so it is dead-lettered as a reactor bug (and alerted),
 // never delivered.
 //
-// Reaction commands (emitted by sagas and process managers) carry NO
-// Handling at all: expected_sequence and conflict_resolution are both
+// Reaction commands (emitted by sagas; a process manager emits none) carry
+// NO Handling at all: expected_sequence and conflict_resolution are both
 // forbidden. A reactor never knows the destination's state, so the
 // destination always stamps expected_sequence, and with a stamped sequence
 // conflict resolution can never apply. How a reaction command is delivered
@@ -821,6 +845,10 @@ message Projection {
 // Facts (CommandPage.body = Fact) cannot be refused, so no sequence check
 // or conflict resolution applies: a Fact that sets any Handling field is
 // malformed and refused as above. The coordinator always stamps a Fact.
+//
+// Commands addressed to a process manager cannot be refused either (the PM
+// records them as facts; decision 14.31), so the same holds: any Handling
+// field on one is malformed, and the coordinator always stamps the head.
 message Handling {
   // The stream state the command was issued against: the expected
   // next_sequence of the target stream.
@@ -865,7 +893,10 @@ message Handling {
 // the wire the arm is the fact marker; in code, the handler registration (a
 // fact handler, e.g. #[handles_fact] / ingest, versus a command handler) is
 // the declaration, and the router refuses an arm that does not match the
-// registered handler's kind. There is no proto flag for facts.
+// registered handler's kind. There is no proto flag for facts. On a
+// process manager's stream the arm does not choose the pipeline: a Command
+// and a Fact alike are recorded infallibly (ProcessManagerService, Delivery
+// of commands; decision 14.31).
 //
 // The arm says what kind of payload this is; fact_origin says where a fact
 // came from. They must agree: a Fact requires fact_origin, and a Command
@@ -993,10 +1024,11 @@ message ProjectorFailure {
 //   DUPLICATE  the addressed stream already held events with this
 //              command_id: business code did not run, and the events are
 //              those, re-read from the stream.
-//   PARKED     a Fact whose ingest handler failed: the fact was accepted and
-//              dead-lettered for an operator, with no events. Ingest failure
-//              is a bug, never a rejection, so the sender is answered OK and
-//              must not treat it as a refusal.
+//   PARKED     a Fact whose ingest handler failed, or a command addressed
+//              to a process manager whose handler failed: it was accepted
+//              and dead-lettered for an operator, with no events. Such a
+//              failure is a bug, never a rejection, so the sender is
+//              answered OK and must not treat it as a refusal.
 //
 // A rejection is never an outcome: it is a gRPC error status, and it writes
 // nothing, so the same command_id may be retried.
@@ -1004,7 +1036,7 @@ enum DeliveryOutcome {
   DELIVERY_OUTCOME_UNSPECIFIED = 0; // Not reported
   DELIVERY_OUTCOME_APPLIED = 1; // Business code ran for this delivery; the events are new
   DELIVERY_OUTCOME_DUPLICATE = 2; // The stream already held this command_id's events; they are re-read
-  DELIVERY_OUTCOME_PARKED = 3; // Fact accepted but its ingest failed; dead-lettered, no events
+  DELIVERY_OUTCOME_PARKED = 3; // Fact (or command to a PM) accepted but its handler failed; dead-lettered, no events
 }
 // endregion
 
@@ -1118,15 +1150,15 @@ message Query {
 // trigger's correlation (see the command_identity region), so everything
 // event E led to is in the result. How exactly each edge is known depends
 // on the kind of event (decision 13.3):
-//   - Process events are linked EXACTLY: the process events a process
-//     manager wrote in reaction to E are the result pages whose
+//   - Trigger-caused process events are linked EXACTLY: the process
+//     events a process manager wrote in reaction to E are the result pages whose
 //     EventMeta.causation.triggering_event equals E's EventRef (E's book
 //     cover plus its EventPage.sequence).
 //   - Events of reaction commands are linked only COARSELY, by
 //     correlation: the pages of one command share its
 //     causation.command_id, but the command's trigger (its causation_id)
 //     is not on its events. The exact trigger edge (E -> the commands a
-//     saga or PM emitted for it -> their events) is in the traces and
+//     saga emitted for it -> their events) is in the traces and
 //     logs the coordinators write (OpenTelemetry), not in the store.
 // Accepted cost: the event store alone answers "what belongs to this
 // workflow" and "what did this PM do about E", but not "which events did

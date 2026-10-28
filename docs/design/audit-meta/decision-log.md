@@ -275,6 +275,8 @@ unless overridden.
 
 **5.5 `request_id` is required for `HandleAsync` and DLQ replay.**
 
+> **Amended by 14.31 (pass 14):** a process manager has no outbox: its only output is its own events, and its stream is their record. The outbox is the saga's.
+
 **5.6 A transient outbox for all reactors.** Output is stored atomically with
 the source checkpoint, dispatched, then cleared, so that only keys remain.
 Redelivery re-sends verbatim. There is no purity contract and no
@@ -1301,6 +1303,8 @@ lines, a number and a name each). The new fields take fresh numbers (17,
 pass-12 bytes for 13 and 15 to an empty `EventMeta`. Because `command_id`
 keeps its name, its JSON (`commandId`) is unchanged.
 
+> **Amended by 14.31 (pass 14):** a process manager also takes commands addressed to its own domain; its events for one carry `command_id`. `triggering_event` is set only on a PM's trigger-caused events.
+
 **13.1 `EventMeta.causation` is a oneof of the event's direct cause.**
 `oneof causation { UUID command_id = 17; EventRef triggering_event = 18; }`.
 `command_id` is set on every event a command produced (client, reaction or
@@ -1314,6 +1318,8 @@ on every persisted event. Field 13 is deleted, unreserved.
   never coexist.
 - Cost: readers switch on the arm; the dedup index reads one arm.
 - Supersedes: 12.4's field list (with 13.3).
+
+> **Amended by 14.31 (pass 14):** a PM sends no commands, so no command's `causation_id` names the trigger. The trigger lookup runs before the PM's handler, and a hit skips the handler. It applies to trigger-caused events only; a PM's events for a command addressed to it deduplicate on `command_id`.
 
 **13.2 PM process events name their trigger, carry its correlation, and
 deduplicate on it.** The PM's coordinator stamps each process event with
@@ -1706,6 +1712,8 @@ order, `RecordRoundResult` then `AwardLoyaltyPoints`. Owner ruling, 2026-10-20.
   version per translation, and no two sagas racing over the same event
   for the same destination.
 
+> **Amended by 14.31 (pass 14):** a process manager sends no commands; `output_domains` (6) is deleted and `output_domain` is SAGA only.
+
 **14.24 A saga has exactly one source and one destination domain.**
 Amends 14.23. A saga is a translator between two domains:
 `ComponentOptions.input_domain` is its one source and `output_domain` its
@@ -1818,6 +1826,93 @@ correlation is a 16-byte `UUID` since 9.1. Owner ruling, 2026-10-27.
   instance";
   <https://masstransit.massient.com/documentation/patterns/saga>, where
   masstransit.io's saga documentation now redirects).
+
+**14.31 Process managers: facts in, facts out.** Owner ruling,
+2026-10-27 (ruling 7 of the angzarr/annals common plan). It also writes
+into the spec the owner's ruling **P1** of 2026-10-26 ("a pm would
+calculate the data needed for cross-domain commands, emit events with that
+data, then sagas for those domains would fire the events"), which the
+protos had never carried. Amends 13.1 and 13.2, 5.6 and 14.24.
+- **Inputs are facts.** A PM receives trigger events, and commands
+  addressed to its own domain (a `(command)` entry whose `component` is the
+  PM's state message), from a client or a saga. A command to a PM is
+  accepted and recorded as a fact: the PM cannot refuse it, so its handler,
+  like every PM handler, is infallible. It arrives through
+  `CommandHandlerCoordinatorService`, which the PM's own coordinator serves
+  for the PM's domain, in any command mode, and is handed to
+  `ProcessManagerService.Handle`. Infallibility brings a Fact's rules: no
+  `Handling` (the head is always stamped; any `Handling` field is
+  malformed), and a failing handler is a bug, so the command is
+  dead-lettered and its sender answered `PARKED`. The answer is `APPLIED`
+  or `DUPLICATE`, never a rejection.
+- **Outputs are the PM's own events.** `ProcessManagerHandleResponse.commands`
+  (2) is deleted, unreserved (6.6). A PM sends no commands. To act on
+  another domain it records an event carrying that command's data, and the
+  saga for (the PM's domain, that domain) builds the command (14.23,
+  14.24). With nothing but its own events to emit, a PM has no transient
+  outbox (5.6); its stream is the record. `ComponentOptions.output_domains`
+  (6) is deleted, unreserved, and `output_domain` is SAGA only.
+- **One handler context.** `ProcessManagerHandleRequest` carries
+  `oneof cause { EventBook trigger = 1; CommandBook command = 4; }` beside
+  `process_state` (2). Field 4, not 3, so bytes from the deleted
+  `component` (3, a string; 14.20) can never decode into a message. The
+  client library gives every PM handler one context type, carrying the
+  cause in 13.1's shape (the trigger's `EventRef`, or the command's
+  `command_id`), and that is exactly the cause the coordinator stamps on the
+  events the handler writes.
+- **Trigger-caused events carry no command (13.2).** They carry
+  `causation.triggering_event` and the trigger's correlation, and are
+  deduplicated by trigger (the `find_triggered` lookup on the PM's stream).
+  Command-caused events carry `causation.command_id` and are deduplicated
+  by `command_id` like any command's. No command id is derived for a
+  trigger; the component-shapes proposal's reaction-origin fact with a
+  derived command id is rejected, for 13.2's reason.
+- **Deduplication is the dispatcher's job.** The PM's coordinator looks the
+  cause up on the PM's stream before the handler runs; on a hit the handler
+  does not run and nothing is appended. The handler's context offers no
+  deduplication.
+- **What a PM author can no longer do:** refuse a command (there is no
+  business rejection of any PM input); send a command to any domain, or
+  declare `output_domain` or `output_domains` on a PM; set `Handling` on a
+  command to a PM; deduplicate in the handler.
+- **What sagas now do:** carry every PM decision that touches another
+  domain. A saga with `input_domain` = the PM's domain turns the PM's
+  events into commands, with the usual reaction stamping (derived
+  `command_id`, `causation_id` = the PM event, the PM event's correlation,
+  so the target's replies reach the PM instance under that correlation).
+  The blackjack example gains `BuyInPlayerSaga` (buy-in -> player:
+  `HoldFunds`, `CaptureFunds`) and `BuyInTableSaga` (buy-in -> table:
+  `ConfirmSeat`); `BuyInFundsHeld` gains `table_root` (2) and
+  `BuyInSeated` gains `player_root` (3), because a saga takes its target
+  roots from the event and never looks one up.
+- **Drafter's choices, for the owner to confirm** (none of these is in the
+  ruling):
+  - the field and oneof names (`cause`, `command`) and field number 4;
+  - commands reach a PM through `CommandHandlerCoordinatorService`, served
+    by the PM's coordinator, not through a new RPC on
+    `ProcessManagerCoordinatorService`;
+  - a Fact may also address a PM, keeping its `fact_origin` rules;
+  - a command to a PM must name the instance: its `correlation_id`, when
+    unset, is given its cover's root, and a different set value is
+    malformed, so 14.30 holds for every event on a PM stream;
+  - a command to a PM stream that holds no events is delivered like any
+    other, with an empty `process_state` (no "start" gate);
+  - a failing PM handler for a trigger is dead-lettered and alerted;
+  - deleting `output_domains` rather than leaving it unused;
+  - the saga names and placing them in `buy_in.proto`.
+- Why: a PM's state is a record of what happened, so every input it takes
+  is a fact and every output is its own event. Keeping commands to other
+  domains in sagas leaves one kind of component that sends commands, one
+  outbox and one stamping rule, and the PM's stream holds the whole
+  workflow.
+- Cost: every cross-domain step is two hops (a PM event, then a saga
+  command) and one more component to deploy per destination domain; a PM
+  author who wanted to refuse a command must model it as an aggregate, or
+  record the refusal as an event.
+- Aligns with: the event-carried-state idiom the owner adopted in P1, which
+  surveyed frameworks support but do not default to (Axon, NServiceBus and
+  MassTransit sagas send commands directly). Diverges from them knowingly,
+  as P1 recorded.
 
 ## Corrections
 

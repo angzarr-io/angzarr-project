@@ -36,8 +36,8 @@ option ruby_package = "Angzarr::Examples";
 // base STRICT and AGGREGATE_HANDLES, and STRICT is its default. The earlier
 // spec's commutative deposit and manually reviewed withdrawal wait on the
 // merge-strategy ruling.
-// Saga and process-manager commands (HoldFunds, CaptureFunds, ReleaseHold,
-// RecordRoundResult, AwardLoyaltyPoints) are reaction commands: they carry
+// Saga commands (HoldFunds, CaptureFunds, ReleaseHold, RecordRoundResult,
+// AwardLoyaltyPoints) are reaction commands: they carry
 // no Handling, the wallet stamps its own head, and redelivery is
 // deduplicated on their derived command id.
 
@@ -85,7 +85,7 @@ message EnrollLoyalty {
 }
 
 // -----------------------------------------------------------------------------
-// Commands — pmg-buy-in (reaction commands)
+// Commands — the buy-in (reaction commands from saga-buy-in-player)
 // -----------------------------------------------------------------------------
 
 // Earmark funds for a buy-in. hold_id is the buy_in_id. How a hold the

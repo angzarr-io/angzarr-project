@@ -52,8 +52,9 @@ option ruby_package = "Angzarr::Examples";
 //                         from the same view exactly one lands; the other is
 //                         refused ABORTED (retryable) and is re-decided
 //                         against the new state.
-// ConfirmSeat and ReleaseSeat are reaction commands from pmg-buy-in: they
-// carry no Handling, the table stamps its own head, and redelivery is
+// ConfirmSeat and ReleaseSeat are reaction commands from saga-buy-in-table,
+// built from pmg-buy-in's events (a PM sends no commands): they carry no
+// Handling, the table stamps its own head, and redelivery is
 // deduplicated on their derived command id.
 
 // -----------------------------------------------------------------------------
@@ -129,7 +130,7 @@ message DoubleDown {
 }
 
 // -----------------------------------------------------------------------------
-// Commands — pmg-buy-in (reaction commands)
+// Commands — the buy-in (reaction commands from saga-buy-in-table)
 // -----------------------------------------------------------------------------
 
 // Seat the player on a held seat with the buy-in as stack (PlayerSeated).

@@ -20,6 +20,11 @@ option ruby_package = "Angzarr";
 // destinations is a process manager (see ComponentOptions in
 // options.proto).
 //
+// Sagas are also how a process manager's decisions reach other domains: a
+// PM sends no commands (decision 14.31), so it records events carrying the
+// data each command needs, and the saga for (the PM's domain, the target
+// domain) builds the commands from those events, like any other saga.
+//
 // Every emitted command is a Command (never a Fact). Its coordinator stamps
 // CommandPage.causation_id (the event being reacted to), the derived
 // command_id and the trigger's correlation_id (types.proto, the
@@ -67,8 +72,9 @@ service SagaCoordinatorService {
 
 // Response from saga - commands for other aggregates.
 //
-// Transient outbox. ALL reactor output (a saga's commands here, and a
-// process manager's events and commands) goes through a transient outbox.
+// Transient outbox. A saga's commands go through a transient outbox. (A
+// process manager has none: its only output is its own events, and its
+// stream is their record; see ProcessManagerService, No outbox.)
 // The coordinator stores the output atomically with the reactor's source
 // checkpoint (its position past the triggering event), then dispatches it,
 // then clears it. A crash before dispatch completes re-sends the stored
