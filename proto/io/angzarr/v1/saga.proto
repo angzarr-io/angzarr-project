@@ -37,74 +37,92 @@ option ruby_package = "Angzarr";
 // conflict resolution never applies, and delivery mode (which coordinator
 // RPC delivers it) comes from the saga's configuration.
 //
-// Refusals (decision 2.2, as amended by 14.31; the owner's ruling of
-// 2026-10-28: "saga calls foreign command handler directly with a callback
-// for on refusal. On refusal, callback, it gets the event, the command
-// sent, and the response and can craft its rejection fact"). A target, an
-// aggregate or a process manager alike, refuses a saga's command the way
-// it refuses any command: a business rejection (FAILED_PRECONDITION), and
-// it records NOTHING. The refusal then goes to the saga's ON-REFUSED CALLBACK:
-//   - The callback is the saga's own handler, declared in proto by an
-//     (on_refused) option (options.proto) on the fact message it returns,
-//     naming the saga and the refused command type. The generator gives
-//     the saga one handler per declaration, taking ONE struct,
-//       on_refused_<Command>(Refusal { event, command, response }) -> <Fact>
-//     so that a field can be added to Refusal later without breaking saga
-//     code; and the saga's descriptor advertises the command types that
-//     have one (ComponentDescriptor.refusal_types).
-//   - On the refusal, the saga's coordinator calls SagaService.OnRefused
-//     with a Refusal: the triggering event, the command as sent and the
-//     target's refusal response (its status message and details). The
-//     callback returns
-//     the rejection FACT, addressed to the saga's OWN source domain
-//     (input_domain), normally the stream of the triggering event. That
-//     domain's fact handler, infallible, decides what the refusal means
-//     (release a hold, fail a process) and records its own events. The
-//     saga stays stateless: the callback's inputs carry everything.
-//   - The coordinator stamps the fact as it stamps a command: causation_id
-//     (the refused command's, the triggering event), the trigger's
-//     correlation_id and edition, and fact_origin.external_id =
-//     "angzarr-refusal:" + the refused command's reaction name, with the
-//     fact's id derived from it (types.proto, derived_ids region, Refusal
-//     facts). The callback leaves them unset; a fact for any domain but the
-//     saga's input_domain, or one that sets Handling, is a saga bug.
-//   - Distributed: the coordinator invokes the callback when the outbox
-//     relay receives the refusal, and writes the crafted fact as a new
-//     outbox entry in the same transaction that clears the command's entry.
-//     A crash before that commit retries the whole step (the command, or
-//     the callback); deduplication is by the command's derived id at the
-//     target and by the fact's id at the source, so a retry records
+// Refusals (decision 2.2, as amended by 14.31; plan ruling 7, "REFUSAL
+// WIRING", 2026-10-28). A target, an aggregate or a process manager alike,
+// refuses a saga's command the way it refuses any command: a business
+// rejection (FAILED_PRECONDITION), and it records NOTHING. The saga then
+// delivers ONE unrefusable fact of the refusal to its OWN source domain
+// (input_domain), in one of two modes, chosen per command when the saga's
+// code is GENERATED (never at run time):
+//   - PASS-THROUGH (the default). The saga's generated code, with no user
+//     code, forwards the standard fact CommandRefused { command, response,
+//     trigger } (types.proto, the refusal_facts region) to the stream of
+//     the triggering event. The source domain's command handler gets a
+//     generated dispatch by the refused (foreign) command's type,
+//       on_refused_<Command>(refusal, state) -> events,
+//     where its author writes the reaction; it is an ordinary,
+//     infallible fact handler. In this mode the source domain imports the
+//     foreign command's protos.
+//   - TRANSLATE (opt-in, per command). The saga's own callback,
+//       on_refused_<Command>(Refusal { event, command, response })
+//         -> <a fact type of the source domain>,
+//     translates the refusal into a DOMESTIC fact, so the source domain
+//     never refers to the foreign protos (the saga already does); the
+//     source handles it as an ordinary fact. Refusal is one struct, so a
+//     field can be added later without breaking saga code; no context
+//     object rides with the command (considered and deferred, decision
+//     14.31: a stateless saga's event, command and response carry
+//     everything it used, and data it used but left out belongs in the
+//     command).
+// Declarations (options.proto, the refusals region): the saga lists the
+// commands it may send (ComponentOptions.sends), each with an optional
+// domestic fact to translate its refusal into; the source domain lists the
+// foreign commands whose standard refusals it handles
+// (ComponentOptions.refusals). The mode is the generator's choice: a
+// command with a translation fact is translated unless angzarr-cli's
+// refusal switch selects pass-through for it, and a command without one
+// is passed through. The generator checks that every command a saga may
+// send has exactly one refusal path; a missing one is a lint warning,
+// since such a refusal would be dead-lettered at run time.
+// Mechanics, the same in both modes:
+//   - The saga's coordinator calls SagaService.OnRefused with a Refusal;
+//     the saga's generated code answers the fact (built by the generated
+//     pass-through, or by the user's callback). The coordinator neither
+//     knows nor sees which mode produced it; only the fact type differs.
+//   - The fact's identity is the REFUSED COMMAND'S: its command_id is the
+//     refused command's command_id (no prefix, no derivation), and the
+//     coordinator stamps causation_id (the refused command's, the
+//     triggering event), the trigger's correlation_id and edition, and
+//     fact_origin.external_id = that command_id's canonical text. One id
+//     therefore appears in two streams by design: never applied in the
+//     foreign (target) stream, which recorded nothing, and recorded as the
+//     refusal fact in the domestic (source) stream. The saga leaves these
+//     unset; a fact for any domain but the saga's input_domain, or one
+//     that sets Handling, is a saga bug.
+//   - Distributed: the coordinator calls OnRefused when the outbox relay
+//     receives the refusal, and writes the fact as a new outbox entry in
+//     the same transaction that clears the command's entry. A crash before
+//     that commit retries the step; deduplication is by the command's id
+//     at the target and by the same id at the source, so a retry records
 //     nothing twice. annals makes the same calls directly, in the chain.
 //   - The fact is unrefusable, so compensation cannot loop.
-//   - Only a business rejection (FAILED_PRECONDITION) reaches the
-//     callback. A retryable failure is retried; any other terminal failure
+//   - Only a business rejection (FAILED_PRECONDITION) reaches OnRefused. A
+//     retryable failure is retried; any other terminal failure
 //     (INVALID_ARGUMENT, PERMISSION_DENIED, NOT_FOUND, INTERNAL, ...) is a
 //     bug, dead-lettered and alerted.
-//   - Owner's ruling (decision 14.31): a refused command whose type has NO callback is
-//     dead-lettered for a human (with the refusal) and
-//     alerted; nothing is recorded anywhere. A callback that FAILS (an
-//     error status, or a fact refused as malformed) is a saga bug: the
-//     refusal is dead-lettered and alerted, as for any handler failure. A
-//     rejection fact the source cannot ingest (NO_FACT_HANDLER, or its
-//     fact handler failing) is dead-lettered and alerted at the source.
-//   - No context object rides with the command (considered and deferred,
-//     decision 14.31): a stateless saga's event, command and response
-//     already carry everything it used, and data the saga used but left
-//     out of the command belongs in the command.
+//   - Owner's rulings (decision 14.31): a refusal with NO path (a
+//     pass-through fact the source declares no handler for, answered
+//     NO_FACT_HANDLER) is dead-lettered for a human and alerted; a
+//     translating callback that FAILS (an error status, or a malformed
+//     fact) is a saga bug, dead-lettered and alerted; a fact whose handler
+//     fails at the source is dead-lettered and alerted there.
 //   - This is the one exception to "a saga never delivers a fact": a
-//     saga's business code emits Commands only, and its callbacks return
-//     the one fact each refusal yields, only for its own source domain.
+//     saga's business code emits Commands only, and the one fact each
+//     refusal yields goes only to its own source domain.
 service SagaService {
   // Translate source events into commands for the destination domain (an
   // aggregate's or a process manager's).
   rpc Handle(EventBook) returns (SagaResponse);
 
-  // The on-refused callback (Refusals, above): craft the rejection fact
-  // for one refused command. Called by the saga's coordinator only, for a
-  // command type the saga's descriptor lists in refusal_types. Answers the
-  // fact; an error status, or a fact the coordinator refuses as malformed,
-  // is a saga bug (dead-lettered and alerted).
-  rpc OnRefused(Refusal) returns (RefusalFact);
+  // One refusal of the saga's command (Refusals, above): answer the fact
+  // for the saga's own source domain. Called by the saga's coordinator
+  // only, for every business rejection of one of its commands, in both
+  // modes: the saga's generated code builds the pass-through
+  // CommandRefused or calls the user's translating callback. Needed in
+  // both modes because the ruling puts the pass-through in the saga's
+  // generated code. An error status, or a fact the coordinator refuses as
+  // malformed, is a saga bug (dead-lettered and alerted).
+  rpc OnRefused(Refusal) returns (OnRefusedResponse);
 }
 
 // SagaCoordinatorService: orchestrates saga execution.
@@ -112,13 +130,12 @@ service SagaService {
 // event's EventRef), command_id (UUIDv5 of the trigger, the saga's
 // registered name and the command's index in the output; derived_ids
 // region) and correlation_id (the trigger's). Records them in the
-// transient outbox (see SagaResponse), delivers
-// them through the destination's coordinator
-// (CommandHandlerCoordinatorService) as a framework component, and
-// retries retryable failures. On a business rejection it calls the saga's
-// on-refused callback (SagaService.OnRefused) and delivers the fact it
-// returns, through the outbox, to the saga's own source domain (SagaService,
-// Refusals).
+// transient outbox (see SagaResponse), delivers them through the
+// destination's coordinator (CommandHandlerCoordinatorService) as a
+// framework component, and retries retryable failures. On a business
+// rejection it calls SagaService.OnRefused and delivers the refusal fact
+// it answers, through the outbox, to the saga's own source domain
+// (SagaService, Refusals).
 service SagaCoordinatorService {
   // Execute saga: translate source events → commands, deliver to targets.
   // The request is the source EventBook; the saga's configuration, not the
@@ -139,7 +156,7 @@ service SagaCoordinatorService {
 
 // Response from saga - commands for other aggregates.
 //
-// Transient outbox. A saga's commands, and its rejection facts, go through
+// Transient outbox. A saga's commands, and its refusal facts, go through
 // the transient outbox
 // (decision 5.6, as amended by 14.31). The outbox is not a saga mechanism:
 // it is ONE transactional outbox, a capability that names no component
@@ -158,7 +175,7 @@ service SagaCoordinatorService {
 // deduplicate them. Components using it therefore carry NO purity or
 // determinism requirement: one run's output is recorded once and re-sent
 // as recorded. A
-// rejection fact is put into the outbox, as a new entry, in the same
+// refusal fact is put into the outbox, as a new entry, in the same
 // transaction that clears its refused command's entry (SagaService,
 // Refusals), and dispatched and retried the same way.
 message SagaResponse {
@@ -170,8 +187,9 @@ message SagaResponse {
   // command_id, causation_id and correlation_id are likewise left unset for
   // the coordinator to stamp; a value that differs from the stamp is
   // refused the same way, as is a Fact or a fact_origin (a saga's business
-  // code never emits a Fact; its rejection facts come from its on-refused
-  // callbacks; SagaService, Refusals). A command for a process manager
+  // code never emits a Fact; its refusal facts come from OnRefused;
+  // SagaService, Refusals). A command of a type the saga does not list in
+  // ComponentOptions.sends is refused the same way, when it lists any. A command for a process manager
   // names the instance its trigger's correlation names (cover root = the
   // trigger's correlation_id; types.proto, the command_identity region);
   // any other root is refused the same way. A command whose cover names a
@@ -184,32 +202,26 @@ message SagaResponse {
   repeated CommandBook commands = 1;
 }
 
-// The on-refused callback's one argument (SagaService, Refusals): the
-// three things a stateless saga needs to craft its rejection fact. One
-// struct, so a field (a context object, say; considered and deferred by
-// decision 14.31) can be added later without breaking saga code.
+// The input to SagaService.OnRefused, and the one argument of a
+// translating callback (SagaService, Refusals): the three things a
+// stateless saga needs. One struct, so a field (a context object, say;
+// considered and deferred by decision 14.31) can be added later without
+// breaking saga code.
 message Refusal {
   // The triggering event: a book of the source stream holding the one
   // event the saga reacted to (the refused command's causation_id).
   EventBook event = 1;
   // The refused command, as it was delivered (identity stamped).
   CommandBook command = 2;
-  // The target's refusal response.
+  // The target's refusal response (types.proto).
   RefusalResponse response = 3;
 }
 
-// A target's refusal of a command: the status message of its
-// FAILED_PRECONDITION and its status details, verbatim (typically a
-// google.rpc.ErrorInfo naming the business reason).
-message RefusalResponse {
-  string message = 1;
-  repeated google.protobuf.Any details = 2;
-}
-
-// The on-refused callback's answer: the rejection fact.
-message RefusalFact {
-  // A CommandBook whose page body is a Fact, addressed to the saga's own
-  // source domain (input_domain): payloads only, as for a command; the
+// OnRefused's answer: the refusal fact for the saga's own source domain.
+message OnRefusedResponse {
+  // A CommandBook whose page body is a Fact (a CommandRefused in
+  // pass-through mode, the domestic fact in translate mode), addressed to
+  // the saga's input_domain: payloads only, as for a command; the
   // coordinator stamps its identity (SagaService, Refusals).
   CommandBook fact = 1;
 }

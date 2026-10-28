@@ -38,9 +38,11 @@ option ruby_package = "Angzarr";
 //     that domain's events into commands to the PM. A client may also
 //     command it (an operator's cancel, say).
 //   - FACTS, which it never refuses: timeouts, webhooks, other external
-//     inputs, and the rejection facts that the sagas whose source is the
-//     PM's domain craft when their commands are refused (SagaService in
-//     saga.proto, Refusals).
+//     inputs, and the refusal facts that the sagas whose source is the
+//     PM's domain deliver when their commands are refused (SagaService in
+//     saga.proto, Refusals): the standard CommandRefused, handled by a
+//     generated on_refused_<Command> (ComponentOptions.refusals), or a
+//     domestic fact a saga translates the refusal into.
 // Its (command) entries name both (options.proto); the handler
 // registration says which is a command and which a fact, as for an
 // aggregate.
@@ -96,8 +98,8 @@ option ruby_package = "Angzarr";
 // too, and the saga from the target's domain to the PM's domain turns the
 // replies the PM needs into commands to the instance that correlation
 // names. A target that REFUSES the saga's command records nothing; the
-// saga's on-refused callback crafts a rejection fact for the PM (the
-// saga's source domain), and the PM's fact handler decides the next step
+// saga delivers a refusal fact to the PM (the saga's source domain), and
+// the PM's fact handler decides the next step
 // (decision 2.2, as amended by 14.31; SagaService in saga.proto,
 // Refusals). There is no compensation or notification channel.
 //

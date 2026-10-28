@@ -69,11 +69,11 @@ option ruby_package = "Angzarr";
 //
 // There are no compensation declarations. A refusal in a choreographed flow
 // is a rejection plus a fact: the target refuses a saga's command and
-// records nothing, the saga's on-refused callback crafts a rejection fact
-// for the saga's own source domain, and that domain's fact handler decides
-// what it means (decision 2.2, as amended by 14.31; SagaService in
-// saga.proto, Refusals). The callback is declared by (on_refused), below,
-// on the fact message it returns. A
+// records nothing, the saga delivers one refusal fact to its own source
+// domain, and that domain's fact handler decides what it means (decision
+// 2.2, as amended by 14.31; SagaService in saga.proto, Refusals). Refusal
+// paths are declared by sends and refusals, below (the refusals region).
+// A
 // process manager's inputs are declared like an aggregate's, as (command)
 // entries whose component is the PM's state message; they say which inputs
 // may start an instance (CommandOptions.starts).
@@ -101,6 +101,17 @@ message ComponentOptions {
   // angzarr.io/domain label and a process manager's angzarr.io/pm label
   // carry this value.
   string domain = 7;
+  // AGGREGATE and PROCESS_MANAGER only: the fully-qualified types of the
+  // FOREIGN commands whose standard refusal fact (CommandRefused,
+  // types.proto) this domain handles: the commands that sagas from this
+  // domain send in pass-through mode. Each generates an infallible handler
+  // on_refused_<Command>(refusal, state) -> events (the refusals region).
+  // The domain imports the foreign commands' protos.
+  repeated string refusals = 8;
+  // SAGA only: the commands this saga may send, each with its refusal
+  // path (the refusals region). When the list is non-empty, a command of
+  // any other type is a saga bug, refused by the client library.
+  repeated SagaSend sends = 9;
 }
 
 // Marks a message as a COMMAND or FACT payload. Generates one strict
@@ -402,40 +413,72 @@ extend google.protobuf.FieldOptions {
 }
 // endregion
 
-// region on_refused
-// Declares a saga's ON-REFUSED CALLBACK (decision 14.31, amending 2.2;
-// SagaService in saga.proto, Refusals). Carried by the FACT message the
-// callback returns, which is a fact of the saga's own source domain (its
-// (command) entry names that domain's aggregate or process manager). The
-// generator gives the saga one handler per entry,
-//   on_refused_<Command>(Refusal { event, command, response })
-//     -> <this fact>
-// (Refusal in saga.proto)
-// and advertises the command type in the saga's descriptor
-// (ComponentDescriptor.refusal_types). Generation fails when the saga is
-// not a SAGA, the command's component does not own the saga's
-// output_domain, this fact's (command) component does not own its
-// input_domain, or two entries name the same (saga, command).
+// region refusals
+// Refusal paths (decision 14.31, amending 2.2; plan ruling 7, "REFUSAL
+// WIRING"; SagaService in saga.proto, Refusals). When a saga's command is
+// refused, the saga delivers one fact of the refusal to its own source
+// domain (input_domain), by one of two paths:
+//   - PASS-THROUGH (the default): the saga's generated code forwards the
+//     standard CommandRefused fact; the source domain lists the command in
+//     its ComponentOptions.refusals, which generates
+//       on_refused_<Command>(refusal: CommandRefused, state) -> events
+//     on its command handler, where its author writes the reaction.
+//   - TRANSLATE (opt-in, per command): the saga's SagaSend for the command
+//     names refusal_fact, a fact type of the source domain; the generator
+//     gives the saga a callback
+//       on_refused_<Command>(Refusal { event, command, response })
+//         -> <refusal_fact>
+//     and the source handles that fact like any other, never referring to
+//     the foreign command's protos.
 //
-//   // In the source domain's protos:
-//   message HoldFundsRefused {
-//     option (io.angzarr.v1.command) = {component: "examples.v1.BuyInState"};
-//     option (io.angzarr.v1.on_refused) = {
-//       saga: "examples.v1.BuyInPlayerSaga"
-//       command: "examples.v1.HoldFunds"
+// The mode is chosen at CODE GENERATION, never at run time ("cli may have
+// to have that switch, as it's compile time": the owner, 2026-10-28).
+// angzarr-cli takes a refusal switch, as a flag and as a build-config
+// entry, per saga or per saga command: `translate` or `pass-through`. The
+// proto carries the default (PROPOSED, flagged): a SagaSend that names
+// refusal_fact defaults to translate, one that does not to pass-through;
+// the switch overrides it, and selecting translate for a command with no
+// refusal_fact fails generation. At run time nothing about the mode is
+// decided or visible, beyond which fact type arrives.
+//
+// Generator rules (generation fails on an error; lint warns otherwise):
+//   - every sends entry names a (command) of the component that owns the
+//     saga's output_domain (error otherwise);
+//   - a refusal_fact names a (command) entry of the component that owns
+//     the saga's input_domain (error otherwise);
+//   - every command a saga may send has EXACTLY ONE refusal path, in the
+//     mode the switch selects: translate (a refusal_fact), or pass-through
+//     with the command in the source domain's refusals. Both is an error;
+//     neither is a lint warning (such a refusal would be dead-lettered and
+//     alerted at run time);
+//   - a refusals entry that no saga from the domain sends in pass-through
+//     mode is a lint warning (an unused handler);
+//   - refusals on a SAGA or PROJECTOR, or sends on anything but a SAGA, is
+//     an error.
+// The names sends, SagaSend and refusal_fact are the drafter's (FLAGGED);
+// The owner confirmed on_refused (the handler prefix), Refusal,
+// RefusalResponse and OnRefused; refusals and CommandRefused are new (FLAGGED).
+//
+//   // The saga, in the source domain's protos:
+//   message BuyInPlayerSaga {
+//     option (io.angzarr.v1.component) = {
+//       kind: COMPONENT_KIND_SAGA input_domain: "buy-in" output_domain: "player"
+//       sends: {command: "examples.v1.HoldFunds"}  // pass-through
 //     };
-//     ...
 //   }
-message RefusalCallback {
-  // The anchor (marker) message of the saga whose callback this is.
-  string saga = 1;
-  // The fully-qualified type of the saga's command whose refusal this
-  // fact records.
-  string command = 2;
-}
-
-extend google.protobuf.MessageOptions {
-  // Repeated: one fact type may record the refusals of several commands.
-  repeated RefusalCallback on_refused = 50108;
+//   // The source domain handling the pass-through refusal:
+//   message BuyInState {
+//     option (io.angzarr.v1.component) = {
+//       kind: COMPONENT_KIND_PROCESS_MANAGER domain: "buy-in"
+//       refusals: "examples.v1.HoldFunds"
+//     };
+//   }
+message SagaSend {
+  // The fully-qualified type of a command the saga may send.
+  string command = 1;
+  // Optional: a fact type of the saga's source domain to translate this
+  // command's refusal into (TRANSLATE mode). Unset means PASS-THROUGH.
+  // angzarr-cli's refusal switch may override either default.
+  string refusal_fact = 2;
 }
 // endregion

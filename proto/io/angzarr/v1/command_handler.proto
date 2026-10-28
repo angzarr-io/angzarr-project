@@ -46,10 +46,10 @@ service CommandHandlerService {
   // types.proto), and the library folds whatever it is given.
   //
   // A rejection is answered as a gRPC error status, never as a response
-  // message. There is no compensation input: an aggregate that must refuse
-  // something in a choreographed flow records the refusal as a domain event
-  // (e.g. ReservationDeclined), which a saga translates into commands for
-  // whoever must respond.
+  // message, and the refusing domain records nothing. There is no
+  // compensation input: when a saga's command is refused, the saga delivers
+  // a refusal fact to its own source domain, which decides how to respond
+  // (decision 14.31; SagaService in saga.proto, Refusals).
   //
   // Business output is payloads, plus the post-command state, and nothing
   // else. The returned EventBook carries pages with only a payload set, and
@@ -237,7 +237,7 @@ service CommandHandlerCoordinatorService {
 // coordinator delivering triggers) authenticates with its mTLS identity,
 // issued to framework components only. Only such a caller may send:
 //   - CommandPage.causation_id (with the derived command_id of a reaction
-//     command, or the stamped refusal origin of a refusal fact; the
+//     command, or the refused command's id on a refusal fact; the
 //     receiving coordinator trusts them from this caller);
 //   - a caller-supplied trigger EventBook to SagaCoordinatorService.Execute
 //     (whose stamping copies the trigger's correlation and EventRef onto

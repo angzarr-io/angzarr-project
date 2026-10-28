@@ -4,10 +4,11 @@ use std::hash::Hash;
 use angzarr_proto::ids::{fact_command_id, reaction_command_id};
 use angzarr_proto::v1::{
     angzarr_dead_letter, command_page, event_meta, AngzarrDeadLetter, Command, CommandBook,
-    CommandPage, ComponentDescriptor, ComponentKind, ConflictResolution, ConflictUnit,
-    ContextualCommand, CorrelationQuery, Cover, DeliveryOutcome, EventBook, EventMeta, EventPage,
-    EventRef, Fact, FactOrigin, Handling, Outcome, Projection, ProjectorFailure, Snapshot,
-    StateDescriptor, StateOptions, Target, UpcastRequest, Uuid,
+    CommandPage, CommandRefused, ComponentDescriptor, ComponentKind, ConflictResolution,
+    ConflictUnit, ContextualCommand, CorrelationQuery, Cover, DeliveryOutcome, EventBook,
+    EventMeta, EventPage, EventRef, Fact, FactOrigin, Handling, Outcome, Projection,
+    ProjectorFailure, RefusalResponse, Snapshot, StateDescriptor, StateOptions, Target,
+    UpcastRequest, Uuid,
 };
 use prost::{Message, Name};
 
@@ -596,7 +597,6 @@ fn component_descriptor_carries_its_state_descriptor() {
         state: Some(state),
         rules_version: "1.4.2+build.7".into(),
         starting_types: vec![],
-        refusal_types: vec![],
     };
     let decoded = round_trip(&original);
     assert_eq!(decoded, original);
@@ -742,21 +742,22 @@ fn a_process_manager_descriptor_lists_its_starting_facts() {
 }
 
 #[test]
-fn a_saga_descriptor_lists_the_commands_it_has_a_refusal_callback_for() {
-    // Decision 14.31: the coordinator calls SagaService.OnRefused only for
-    // a refused command whose type the saga's descriptor lists.
-    let original = ComponentDescriptor {
-        name: "saga-buy-in-player".into(),
-        kind: ComponentKind::Saga as i32,
-        refusal_types: vec!["/io.angzarr.examples.v1.HoldFunds".into()],
-        rules_version: "1.0.0".into(),
-        ..Default::default()
+fn the_standard_refusal_fact_carries_the_refused_command_and_its_trigger() {
+    // Decision 14.31: CommandRefused { command, response, trigger }, the
+    // pass-through refusal fact; its id is the refused command's id.
+    let refused = book(Kind::Reaction, None);
+    let original = CommandRefused {
+        command: Some(refused.clone()),
+        response: Some(RefusalResponse {
+            message: "insufficient funds".into(),
+            details: vec![],
+        }),
+        trigger: Some(cause()),
     };
-    assert_eq!(round_trip(&original), original);
-    // refusal_types is ComponentDescriptor's field 8: 8 << 3 | 2 = 0x42.
-    let descriptor = ComponentDescriptor {
-        refusal_types: vec!["/a".into()],
-        ..Default::default()
-    };
-    assert_eq!(descriptor.encode_to_vec(), [0x42, 2, b'/', b'a']);
+    let decoded = round_trip(&original);
+    assert_eq!(decoded, original);
+    assert_eq!(
+        decoded.command.unwrap().page.unwrap().command_id,
+        refused.page.unwrap().command_id
+    );
 }

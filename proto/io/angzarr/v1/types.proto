@@ -119,21 +119,10 @@ message UUID {
 // value, so pass-9 fact correlations are unchanged. Example: external_id
 // "pi_1234" = 917f26ae-ea2e-58af-86de-77013a69617e.
 //
-// Refusal facts. When a saga's command is refused (a business rejection),
-// the saga's on-refused callback crafts a rejection fact for the saga's
-// own source domain, and the saga's coordinator delivers it (decision
-// 14.31, amending 2.2; SagaService in saga.proto, Refusals). For the
-// refused command with reaction name `name` (the six netstrings above) the
-// coordinator stamps
-//   fact_origin.external_id = "angzarr-refusal:" + name
-// and the fact's command_id follows the ordinary fact rule,
-// UUIDv5(ANGZARR_FACT_CORRELATION_NAMESPACE, external_id). So a refusal
-// fact is deduplicated like any fact, and a re-run refused again
-// reproduces its id. The "angzarr-refusal:" prefix keeps it apart from any
-// external system's id. Worked example: the refused command of the
-// reaction example above (index 0) gives the 86-byte external_id
-//   angzarr-refusal:4:list,0:,36:01920c8e-7b3a-7cc2-9f4e-5a1b2c3d4e5f,1:7,9:reminders,1:0,
-// and the fact id 48e00cac-f635-5467-a9da-76c63487d1a6.
+// Refusal facts take no derivation (decision 14.31): a refusal fact's
+// command_id IS the refused command's command_id, which is already a
+// reaction command id derived above (SagaService in saga.proto, Refusals;
+// the command_identity region).
 //
 // Three namespaces, not one: "{domain}:{key}" is also a valid external_id,
 // so under one namespace a fact's command id could equal a stream's root;
@@ -472,7 +461,7 @@ message EventRef {
 // coordinator only: on reaction commands, where it is the input the
 // reaction command_id is derived from, and on refusal facts, where it is
 // the refused command's own causation_id, so it names a stream of the
-// domain the fact is addressed to (derived_ids region, Refusal facts).
+// domain the fact is addressed to (SagaService in saga.proto, Refusals).
 // It is transport and trace metadata, NOT persisted on the events the
 // command produces: their causation is the command itself
 // (EventMeta.causation.command_id). The coordinators record the trigger
@@ -489,10 +478,15 @@ message EventRef {
 // Validation (refused before deduplication; see Handling for the full list):
 //   Fact      requires fact_origin with a non-empty external_id; never
 //             any Handling field; a set command_id must equal the
-//             derivation; never causation_id, except a refusal fact
-//             (decision 14.31): a Fact with causation_id is accepted only
-//             if its cover's domain is the domain of the stream
-//             causation_id names (the saga's own source domain).
+//             derivation; never causation_id. The one exception is a
+//             refusal fact (decision 14.31), the only Fact with a
+//             causation_id: it is accepted only if its cover's domain is
+//             the domain of the stream causation_id names (the saga's own
+//             source domain); its command_id is the refused command's,
+//             not a derivation, and its fact_origin.external_id is that
+//             command_id's canonical text. The same id is thus in two
+//             streams by design: never applied in the refusing (target)
+//             stream, and recorded as the refusal in the source stream.
 //   Command   never fact_origin.
 //   either, addressed to a process manager's stream: a set
 //             correlation_id must equal the cover's root.
@@ -528,8 +522,8 @@ message EventRef {
 // component, index), never on the reactor's rules_version or code, so a
 // reactor run again over a trigger it already handled (a checkpoint reset)
 // emits the same ids, which every destination answers DUPLICATE, a
-// process manager included (and a command refused again yields the same
-// refusal fact id, which its source answers DUPLICATE). A re-run
+// process manager included (and a command refused again yields a refusal
+// fact with the same id, which its source answers DUPLICATE). A re-run
 // never changes history: it adds nothing where the first run applied, even
 // if the reactor's code has changed since. Checkpoint resets are for
 // recovery only (output that was lost before it reached the outbox).
@@ -587,6 +581,37 @@ message FactOrigin {
   string external_id = 1;
   string description = 2; // Human-readable origin (e.g. "Stripe webhook"); audit only, not part of the derivation
 }
+
+// region refusal_facts
+// The standard refusal fact (decision 14.31; SagaService in saga.proto,
+// Refusals). In PASS-THROUGH mode, the default, a saga's generated code
+// forwards it to the saga's own source domain when the saga's command is
+// refused. The source domain handles it by a generated dispatch on the
+// refused command's type, on_refused_<Command>(refusal, state) -> events,
+// declared by ComponentOptions.refusals (options.proto); with none
+// declared for that type it answers NO_FACT_HANDLER, and the fact is
+// dead-lettered and alerted. Its identity is the refused command's: its
+// command_id is the refused command's command_id (the command_identity
+// region, Validation). The name CommandRefused is the drafter's (FLAGGED).
+message CommandRefused {
+  // The refused command, as it was delivered (identity stamped): its
+  // cover (the target domain and root) and its payload, whose type URL
+  // picks the source domain's on_refused_<Command> handler.
+  CommandBook command = 1;
+  // The target's refusal response.
+  RefusalResponse response = 2;
+  // The saga's triggering event (the refused command's causation_id).
+  EventRef trigger = 3;
+}
+
+// A target's refusal of a command: the status message of its
+// FAILED_PRECONDITION and its status details, verbatim (typically a
+// google.rpc.ErrorInfo naming the business reason).
+message RefusalResponse {
+  string message = 1;
+  repeated google.protobuf.Any details = 2;
+}
+// endregion
 
 // region event_meta
 // Provenance of one persisted event, stamped by the framework. Every
@@ -834,7 +859,8 @@ message Projection {
 //     causation_id's stream is in (a saga's refusal fact goes only to the
 //     saga's own source domain);
 //   - a Fact without fact_origin, or with an empty external_id, or with a
-//     command_id other than its derivation; a Command with fact_origin
+//     command_id other than its derivation (a refusal fact excepted: its
+//     command_id is the refused command's); a Command with fact_origin
 //     (see the command_identity region);
 //   - a set UUID that is not 16 bytes, or a set empty Cover.edition.
 // A client's malformed command is answered INVALID_ARGUMENT, by every
@@ -1165,9 +1191,9 @@ message Query {
 // How exactly each edge is known depends on the kind of event (decision
 // 13.3):
 //   - Events of a refusal fact are linked EXACTLY: their
-//     EventMeta.fact.external_id spells out the refused command's trigger,
-//     the saga and the command's index (derived_ids region, Refusal facts;
-//     decision 14.31).
+//     causation.command_id is the refused command's id, derived from E,
+//     the saga and the command's index (derived_ids region; decision
+//     14.31).
 //   - Events of reaction commands are linked only COARSELY, by
 //     correlation: the pages of one command share its
 //     causation.command_id, but the command's trigger (its causation_id)
@@ -1344,15 +1370,6 @@ message ComponentDescriptor {
   // kind: a descriptor of another kind that sets it is refused, as one
   // with an empty rules_version is (see ComponentService, Refusal).
   repeated string starting_types = 7;
-  // SAGA only: the type URLs of the commands the saga has an on-refused
-  // callback for, generated from the (on_refused) options naming it
-  // (options.proto). On a business rejection of one of these the
-  // coordinator calls SagaService.OnRefused; a refused command of any
-  // other type is dead-lettered and alerted, for a human (SagaService in
-  // saga.proto, Refusals). Empty for every other kind: a descriptor of
-  // another kind that sets it is refused, as one with an empty
-  // rules_version is.
-  repeated string refusal_types = 8;
 }
 
 // A component's state message, as the domain-blind coordinator needs it:
