@@ -202,12 +202,12 @@ Dead letters require manual review. Common actions:
 
 ## Saga Refusals
 
-A target that refuses a saga's command (a business rejection) records nothing. The saga's coordinator calls `OnRefused`; the saga's generated code answers one refusal fact for the saga's own source domain, either the standard `CommandRefused` passed through (the default) or a domestic fact its callback translates the refusal into (opt-in, chosen at code generation). The fact's id is the refused command's id. The coordinator writes it to the outbox in the same transaction that clears the command's entry. The source records the fact and decides what it means.
+A target that refuses a saga's command (a business rejection, optionally with a typed refusal object) records nothing. The saga's coordinator calls `OnRefused`, and the saga builds one refusal fact for its own source domain: the standard `CommandRefused` passed through with the refusal object packed (the default), or a domestic fact its callback translates the refusal into (where the CLI selects translate at code generation). The fact's id is the refused command's id. The coordinator writes it to the outbox in the same transaction that clears the command's entry. The source records the fact and decides what it means.
 
 | What happened | What happens |
 |---------------|--------------|
 | A business rejection | The refusal fact goes to the saga's source, retried, deduplicated by the refused command's id |
-| A pass-through refusal the source has no handler for | The fact is refused `NO_FACT_HANDLER`, dead-lettered for a human, and alerted (the generator warns about the missing path) |
+| A pass-through refusal the source has no handler for | The fact is refused `NO_FACT_HANDLER`, dead-lettered for a human, and alerted; found only at run time, since nothing declares what a saga sends |
 | The translating callback fails | The refusal is dead-lettered and alerted |
 | A retryable failure | The command is retried |
 | Any other terminal failure | The command is dead-lettered and alerted: a bug |
