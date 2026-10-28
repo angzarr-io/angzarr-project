@@ -89,7 +89,7 @@ Feature: Edition propagation across cross-domain emissions
 
   @C-0608
   Scenario: A saga's refusal fact carries its trigger's edition
-    Given a saga "OrderToInventory" translating from "order" to "inventory" that sends ReserveStock in pass-through mode
+    Given a saga "OrderToInventory" translating from "order" to "inventory" generated with ReserveStock in pass-through mode
     And the source event has edition "speculative"
     And the inventory aggregate refuses ReserveStock
     When an OrderCreated event is dispatched to the saga
