@@ -2428,8 +2428,7 @@ order across streams.
   them and the suite's checks of them are deleted from angzarr-ports.
   `ForkStreamRequest.commit_position` (2), `EditionSummary.commit_position`
   (4), `meta.EditionCreated.commit_position` (3) and
-  `meta.EditionDeleted.commit_position` (2) are deleted, each number and
-  name reserved, and `ForkStream` loses its `FAILED_PRECONDITION` for a
+  `meta.EditionDeleted.commit_position` (2) are deleted, unreserved (6.6), and `ForkStream` loses its `FAILED_PRECONDITION` for a
   time-based fork.
 - **The time-based edition fork is dropped entirely.** An edition is
   per-stream forks only (14.32): the origin at its own head, each stream

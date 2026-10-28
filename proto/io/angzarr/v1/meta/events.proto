@@ -58,8 +58,6 @@ message EditionCreated {
   // The fork sequence: main's next sequence for this stream when it was
   // created in X, equal to this event's own EventPage.sequence.
   uint64 parent_sequence = 2;
-  reserved 3;
-  reserved "commit_position";
   // For a creation made by a policy command's arrival: the EditionCreated of
   // the stream the policy reacted to. Unset for an origin (ForkStream).
   io.angzarr.v1.EventRef propagated_from = 4;
@@ -101,8 +99,6 @@ message EditionCreated {
 message EditionDeleted {
   // The edition. Required, non-empty.
   string edition = 1;
-  reserved 2;
-  reserved "commit_position";
   // For a deletion carried by a policy command's arrival: the EditionDeleted
   // of the stream the policy reacted to. Unset at an origin.
   io.angzarr.v1.EventRef propagated_from = 3;

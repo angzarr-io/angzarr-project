@@ -100,8 +100,6 @@ message ForkStreamRequest {
   // policy command reaches at its own head when it arrives. There is no
   // global position to fork at (decision 14.35).
   Cover stream = 1;
-  reserved 2;
-  reserved "commit_position";
 }
 
 message ListEditionsRequest {}
@@ -117,8 +115,6 @@ message EditionSummary {
   // The origin forks: the EditionCreated events with no propagated_from.
   repeated EventRef origins = 2;
   uint64 forked_streams = 3; // How many streams hold a fork event of it
-  reserved 4;
-  reserved "commit_position";
 }
 
 message DeleteEditionRequest {
