@@ -35,7 +35,7 @@ Feature: Handling a delivered command - versions, upcasting and conflicts
   @C-0534
   Scenario: A process manager's answer reports its build version
     Given a "Fulfillment" process manager built as version "2.0.1"
-    When the process manager handles an OrderPlaced event
+    When the process manager handles an OrderPlacedReported fact
     Then the answer reports rules version "2.0.1"
 
   @rules_version
@@ -95,8 +95,8 @@ Feature: Handling a delivered command - versions, upcasting and conflicts
   @C-0571
   Scenario Outline: A process manager's answer always carries its process state
     Given a "Fulfillment" process manager built as version "2.0.1"
-    When the process manager handles an OrderPlaced event <writing>
-    Then the answer's process state is the process manager's state after the reaction
+    When the process manager handles an OrderPlacedReported fact <writing>
+    Then the answer's process state is the process manager's state after the fact
     And none of the answer's process events carry a state
 
     Examples:

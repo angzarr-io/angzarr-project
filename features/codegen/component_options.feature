@@ -43,12 +43,15 @@ Feature: Component declarations - lint warnings and errors
       | SAGA            |
 
   @C-0604
-  Scenario: A process manager triggering on a domain no aggregate produces is a lint warning
-    Given an aggregate "InventoryState" owning domain "inventory"
-    And a PROCESS_MANAGER component "Fulfillment" owning domain "fulfillment" triggered by domain "order"
+  Scenario: A process manager subscribing to another domain's events is a lint error
+    # A process manager has no triggers; other domains' events reach it as
+    # facts through sagas (decision 14.31).
+    Given an aggregate "OrderState" owning domain "order"
+    And a PROCESS_MANAGER component "Fulfillment" owning domain "fulfillment"
+    And an (event) entry for "order.OrderPlaced" naming "Fulfillment" with domain "order"
     When the protos are linted
-    Then lint reports warning ANZ102 naming "Fulfillment" and source domain "order"
-    And lint exits with status 0
+    Then lint reports an error naming "Fulfillment" and the (event) entry's domain
+    And lint exits with a non-zero status
 
   @C-0517
   Scenario Outline: A component declaring no commands or events is a lint warning
@@ -73,7 +76,7 @@ Feature: Component declarations - lint warnings and errors
     # A process manager sends no commands; its decisions reach other
     # domains through sagas from its domain (decision 14.31).
     Given aggregates owning domains "order" and "shipping"
-    And a PROCESS_MANAGER component "Fulfillment" owning domain "fulfillment" triggered by domain "order" with output_domain "shipping"
+    And a PROCESS_MANAGER component "Fulfillment" owning domain "fulfillment" with output_domain "shipping"
     When the protos are linted
     Then lint reports an error naming "Fulfillment" and its output_domain
     And lint exits with a non-zero status
@@ -87,27 +90,44 @@ Feature: Component declarations - lint warnings and errors
     And lint exits with a non-zero status
 
   @C-0606
-  Scenario Outline: Marking a non-trigger (event) entry as starting is a lint error
-    # Only a process manager's trigger entry may set starts (ruling B1,
-    # decision 14.31).
+  Scenario: Marking an aggregate's (command) entry as starting is a lint error
+    # Only a process manager's fact entry may set starts (ruling B1 as
+    # adapted to facts, decision 14.31).
     Given an aggregate "OrderState" owning domain "order"
-    And <entry> that sets starts
+    And a (command) entry for "order.PlaceOrder" naming "OrderState" that sets starts
     When the protos are linted
-    Then lint reports an error naming the (event) entry and starts
+    Then lint reports an error naming "order.PlaceOrder" and starts
     And lint exits with a non-zero status
 
-    Examples:
-      | entry                                                                      |
-      | an (event) entry for "order.OrderPlaced" naming aggregate "OrderState"     |
-      | an (event) entry for "order.OrderPlaced" naming a SAGA from "order"        |
-      | an (event) entry for "order.OrderPlaced" naming a PROJECTOR from "order"   |
-      | a process manager's own applier (event) entry, with applies set            |
-
   @C-0607
-  Scenario: A process manager's starting triggers are advertised in its descriptor
+  Scenario: A process manager's starting facts are advertised in its descriptor
     Given a PROCESS_MANAGER component "Fulfillment" owning domain "fulfillment"
-    And its (event) entry for "order.OrderPlaced" from domain "order" sets starts
-    And its (event) entry for "inventory.StockReserved" from domain "inventory" does not
+    And its (command) entry for "fulfillment.OrderPlacedReported" sets starts
+    And its (command) entry for "fulfillment.StockReservedReported" does not
     When the component's descriptor is generated
-    Then its input for domain "order" lists starting type "/order.OrderPlaced"
-    And its input for domain "inventory" lists no starting type
+    Then the descriptor lists starting type "/fulfillment.OrderPlacedReported"
+    And the descriptor lists no input domains
+
+  @C-0611
+  Scenario: A process manager with no starting fact is a lint warning
+    # It could never start an instance.
+    Given a PROCESS_MANAGER component "Fulfillment" owning domain "fulfillment"
+    And its (command) entry for "fulfillment.StockReservedReported" does not set starts
+    And no (command) entry naming "Fulfillment" sets starts
+    When the protos are linted
+    Then lint reports a warning naming "Fulfillment" and its missing starting fact
+    And lint exits with status 0
+
+  @C-0612
+  Scenario Outline: A saga's generated handler returns facts for a process manager and commands otherwise
+    # A saga emits Facts when a process manager owns its destination, and
+    # Commands otherwise (decision 14.31).
+    Given a <owner> owning domain "fulfillment"
+    And a SAGA component "OrderToFulfillment" triggered by domain "order" with output_domain "fulfillment"
+    When the saga's handler interface is generated
+    Then its handler returns <output>
+
+    Examples:
+      | owner                               | output   |
+      | PROCESS_MANAGER component "Fulfill" | facts    |
+      | aggregate "FulfillmentState"        | commands |

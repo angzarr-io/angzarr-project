@@ -11,13 +11,13 @@ implement it.
 |---|---|
 | `conflict_resolution.feature` | The default resolution from the registered state, unsupported resolutions refused, STRICT's ABORTED, AGGREGATE_HANDLES and COMMUTATIVE delivered with the window and a fresh nonce; reaction commands are never stale |
 | `component_discovery.feature` | The coordinator asks its business process to describe its one component on connect and on every reconnect; nothing is delivered before; readiness; a versionless description is refused; failed requests logged, alerted after the grace period |
-| `process_manager_delivery.feature` | Each process manager behind its own coordinator gets its own delivery, process state and stream; facts in, facts out (14.31): which triggers start an instance (B1), commands addressed to a PM recorded and never refused, PARKED and dead-lettered failures, deduplication before the handler, the trigger book's last page, decisions reaching other domains through sagas |
+| `process_manager_delivery.feature` | Each process manager behind its own coordinator gets its own delivery, process state and stream; facts only (14.31): which facts start an instance (B1), a command refused, facts recorded with their id as cause, deduplicated before the handler, malformed facts refused, a failing handler dead-lettered, other domains' events arriving only through sagas, and decisions leaving through sagas |
 | `upcasting.feature` | The owning coordinator upcasts on load, on query and wherever stored events reach a subscriber (live or stored history) through its own business process; the store is never rewritten |
 | `query_server.feature` | A standalone query server: queries with no component behind it, no commands, never a snapshot |
 | `rules_version.feature` | The reported build version stamped in full on events and snapshots; the state returned with every answer stored per policy and offered unchanged; which snapshot is offered (registered state type, the default major.minor rule, exact match for non-semantic versions, a domain's accept and reject patterns) |
-| `fact_flow.feature` | Fact injection from sagas, and a Fact addressed to a process manager: 0-based sequencing, `external_deferred.external_id` idempotency, failure handling |
+| `fact_flow.feature` | Fact injection into aggregates, a fact addressed to a process manager, a saga's facts (for a process manager only, with their reaction origin): 0-based sequencing, `external_deferred.external_id` idempotency, failure handling |
 | `state_building.feature` | Aggregate state reconstruction from snapshot + pages, `next_sequence` arithmetic |
-| `edition_propagation.feature` | Source/trigger edition stamped onto every saga emission and every PM process_events book; main-timeline aliases (`""`, unset, `"angzarr"`) |
+| `edition_propagation.feature` | Source/trigger edition stamped onto every saga emission, commands and facts; a PM's process_events in its fact's edition; main-timeline aliases (`""`, unset, `"angzarr"`) |
 | `temporal_query.feature` | `TemporalQuery` as_of_sequence / as_of_time and when a snapshot may start the result |
 | `sync_modes.feature` | ASYNC, DECISION, SIMPLE, CASCADE, ISOLATED and the per-command `PageHeader.sync_mode` (caller's mode is a floor) |
 | `dead_letter_queue.feature` | `angzarr.dlq.{domain}` routing and `AngzarrDeadLetter` contents per failure source |

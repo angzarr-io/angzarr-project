@@ -1,11 +1,15 @@
 Feature: Fact injection
 
-  A process manager emits no facts and no commands (decision 14.31): its
-  only output is its own events, and the sagas from its domain build what
-  other domains receive. A Fact may be addressed to a process manager,
-  which records it on its own stream like any command addressed to it.
+  A process manager takes facts only and emits no facts and no commands
+  (decision 14.31): its only output is its own events. The sagas into its
+  domain build the facts it receives; a client or an external system may
+  send it one too. A saga emits facts only for a process manager, never
+  for an aggregate.
 
-  Sagas can emit facts (events) that are injected
+  Retired with decision 14.31: C-0184, C-0188, C-0189 and C-0493, which had
+  a saga inject facts into an aggregate (C-0610 now refuses that).
+
+  Facts (events) are injected
   directly into target aggregates without going through command handling.
   Facts ARE sequenced and persisted to the event store - they differ from
   commands only in that they bypass validation and cannot be rejected.
@@ -36,15 +40,6 @@ Feature: Fact injection
   # Cross-domain reality: the receiving aggregate records, never rejects
   # ---------------------------------------------------------------------------
 
-  @C-0184
-  Scenario: Saga injects a ShipmentDispatched fact into the order aggregate
-    Given an order "order-1" awaiting shipment
-    And a saga "ShippingToOrder" translating from "shipping" to "order"
-    When the shipping aggregate emits ShipmentDispatched for order "order-1"
-    Then a ShipmentDispatched fact is injected into the "order" aggregate "order-1"
-    And the fact is appended at the order's next sequence
-    And the order records the shipment as dispatched
-
   @C-0185
   Scenario: Fact receives the next sequence number
     Given an "order" aggregate with 3 existing events
@@ -67,29 +62,28 @@ Feature: Fact injection
     And each of those events records the fact's command_id as its causation and the fact's origin
     And the sender is answered APPLIED
 
-  # ---------------------------------------------------------------------------
-  # Fact metadata requirements
-  # ---------------------------------------------------------------------------
+  @C-0609
+  Scenario: A saga's fact for a process manager carries its trigger and a reaction origin
+    Given a saga "OrderToFulfillment" translating from "order" to "fulfillment", a process manager's domain
+    And the saga handles OrderPlaced by emitting an OrderPlacedReported fact
+    When the OrderPlaced event at sequence 4 of order "order-1", with correlation "0192a6b0-0000-7000-8000-000000000002", is dispatched to the saga
+    Then the emitted fact is addressed to "fulfillment" root "0192a6b0-0000-7000-8000-000000000002"
+    And its causation_id names sequence 4 of order "order-1"
+    And its correlation_id is "0192a6b0-0000-7000-8000-000000000002"
+    And its fact_origin external_id is "angzarr-reaction:" followed by the reaction name for that event, "OrderToFulfillment" and index 0
+    And its command_id is derived from that external_id
 
-  @C-0188
-  Scenario: Fact carries required metadata
-    Given a saga that emits a fact
-    When the fact is constructed
-    Then the fact Cover has domain set to the target aggregate
-    And the fact Cover has root set to the target aggregate root
-    And the fact Cover has correlation_id for traceability
-    And every fact page header has external_deferred.external_id set for idempotency
+  @C-0610
+  Scenario: A saga's fact addressed to an aggregate is refused
+    Given a saga "ShippingToOrder" translating from "shipping" to "order", an aggregate's domain
+    And the saga's handler emits a ShipmentDispatched fact for order "order-1"
+    When the shipping aggregate emits ShipmentDispatched for order "order-1"
+    Then the fact is refused as malformed and dead-lettered, and an alert is raised
+    And no event is persisted to "order" aggregate "order-1"
 
   # ---------------------------------------------------------------------------
   # Error handling
   # ---------------------------------------------------------------------------
-
-  @C-0189
-  Scenario: Fact injection failure fails the saga
-    Given a saga that emits a fact to domain "nonexistent"
-    When the saga processes an event
-    Then the saga fails because the target domain does not exist
-    And no commands from that saga are executed
 
   @C-0492
   Scenario: A fact of a type the aggregate does not declare is refused and nothing is persisted
@@ -98,15 +92,6 @@ Feature: Fact injection
     Then the injection fails with INVALID_ARGUMENT and angzarr error code NO_FACT_HANDLER
     And the "order" aggregate still has 3 events
     And external_id "refund-R1" is not recorded as processed
-
-  @C-0493
-  Scenario: A saga's refused fact fails the saga without retries
-    Given a saga "ShippingToOrder" translating from "shipping" to "order" that emits an OrderRefunded fact
-    When the shipping aggregate emits ShipmentReturned for order "order-1"
-    Then the saga handler is attempted once
-    And a dead letter is published to "angzarr.dlq.shipping"
-    And the dead letter's event_processing_failed details have is_transient false and retry_count 0
-    And no event is persisted to "order" aggregate "order-1"
 
   @C-0190
   Scenario: Duplicate fact with same external_id is idempotent
