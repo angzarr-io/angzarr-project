@@ -36,19 +36,21 @@ option ruby_package = "Angzarr";
 // Three independent domain roles, never overloaded:
 //   domain            — the stream the component OWNS (writes its events to)
 //   input_domain      — a domain it SUBSCRIBES to (consumes events from)
-//   output_domain     — the domain it SENDS COMMANDS to
+//   output_domain     — the domain it SENDS COMMANDS (or facts) to
 //
 // Per kind (generation fails on a violation):
 //   kind             domain     input_domain               output_domain
 //   AGGREGATE        required   empty                      empty
-//   PROCESS_MANAGER  required   empty (per-event domains)  empty
+//   PROCESS_MANAGER  required   empty                      empty
 //   SAGA             forbidden  required                   required (its one
 //                                                          destination)
 //   PROJECTOR        forbidden  optional (per-event dom.)  empty
-// An aggregate owns its domain's stream and subscribes to nothing; a process
-// manager owns its own workflow stream (domain), takes its trigger
-// domains from (event).domain, and sends no commands (its decisions reach
-// other domains through sagas from its domain; decision 14.31); sagas and
+// An aggregate owns its domain's stream and subscribes to nothing. A
+// process manager owns its own workflow stream (domain) and also
+// subscribes to nothing: its only input is facts addressed to it, which
+// sagas from other domains send, and it sends no commands (its decisions
+// reach other domains through sagas from its domain; decision 14.31). An
+// (event) entry naming a PM with a domain set fails generation. Sagas and
 // projectors own no stream.
 //
 // Each declaration is one component, served by its own business process
@@ -56,33 +58,39 @@ option ruby_package = "Angzarr";
 // A saga is a translator between exactly two domains: one source
 // (input_domain) and one destination (output_domain). There is one saga per
 // (source domain, destination domain) pair: every reaction that translates
-// events of one domain into commands for another belongs to that pair's
-// one saga, however many event types it reacts to. Anything that needs
-// several destinations is a process manager, whose events the sagas for
-// (the PM's domain, each destination) translate. A saga declaring no
-// output_domain fails generation; at run time a
-// saga command addressed to any other domain is refused by the client
-// library before it answers (see SagaResponse in saga.proto).
+// events of one domain into commands (or facts) for another belongs to
+// that pair's one saga, however many event types it reacts to. Anything
+// that needs several destinations is a process manager, whose events the
+// sagas for (the PM's domain, each destination) translate. A saga's
+// output is Commands when its destination is an aggregate's domain and
+// Facts when it is a process manager's (decision 14.31): the generator
+// reads which kind owns output_domain in the proto tree and emits a
+// handler returning facts when a process manager owns it, and commands
+// otherwise (including when nothing in the tree owns it, which lint warns
+// about). A saga declaring no
+// output_domain fails generation; at run time a saga command addressed to
+// any other domain is refused by the client library before it answers (see
+// SagaResponse in saga.proto).
 //
 // There are no compensation declarations. A refusal in a choreographed flow
-// is a domain event that a saga translates into commands, and a process
-// manager handles the replies to the steps it starts as triggers; both are
-// ordinary (event) entries. A process manager also handles commands
-// addressed to its own domain: (command) entries whose component is the
-// PM's state message, each generating an infallible handler (it records
-// the command and never rejects it; decision 14.31). A PM's trigger entries
-// say which triggers may start an instance (EventConsumer.starts).
+// is a domain event that a saga translates into commands, or into facts
+// for a process manager, which handles the replies to the steps it starts
+// as facts. A process manager's inputs are declared as (command) entries
+// whose component is the PM's state message: each names a FACT type and
+// generates an infallible fact handler (it records the fact and never
+// rejects it; decision 14.31). Its (command) entries say which facts may
+// start an instance (CommandOptions.starts).
 message ComponentOptions {
   ComponentKind kind = 1;
   // Domain this component subscribes to: the saga's single source domain, or
   // a projector's input filter when all of its handlers share one domain
   // (otherwise each (event).domain names the source). Subscriptions only —
   // never the component's own domain. Empty for aggregates and process
-  // managers (process-manager trigger domains come from (event).domain).
+  // managers, which subscribe to nothing.
   string input_domain = 2;
-  // Domain this component issues commands to: a saga's one destination
-  // (required for SAGA). Must be empty for every other kind: a process
-  // manager sends no commands (decision 14.31).
+  // Domain this component issues commands (or facts) to: a saga's one
+  // destination (required for SAGA). Must be empty for every other kind: a
+  // process manager sends no commands (decision 14.31).
   string output_domain = 3;
   // Generated handler/dispatch base name. Optional; defaults to the anchor
   // message name (e.g. a "CounterState" anchor named "Counter" emits
@@ -98,11 +106,13 @@ message ComponentOptions {
   string domain = 7;
 }
 
-// Marks a message as a COMMAND. Generates one strict handler method on the
-// component that owns it, taking the typed command as input. A command is
-// owned by exactly one component: an aggregate, whose handler decides (and
-// may reject), or a process manager, whose handler records the command and
-// is infallible (decision 14.31).
+// Marks a message as a COMMAND or FACT payload. Generates one strict
+// handler method on the component that owns it, taking the typed message
+// as input. It is owned by exactly one component: an aggregate, whose
+// handler decides a command (and may reject it) or ingests a fact, or a
+// process manager, whose every entry is a FACT: its handler records the
+// fact and is infallible (decision 14.31). A process manager takes no
+// commands.
 message CommandOptions {
   // The anchor message of the component that handles this command. Resolved
   // against the compiled descriptor set; generation fails on an unknown or
@@ -118,38 +128,35 @@ message CommandOptions {
   // sequence or meta; output that sets any of them is refused (see
   // CommandHandlerService.Handle).
   repeated string emits = 2;
+  // PROCESS_MANAGER only: this fact type may START an instance. A fact for
+  // a correlation with no PM instance starts one only if its entry sets
+  // starts; any other fact for an unknown correlation is skipped, silently
+  // (ruling B1 of 2026-10-26, adapted to facts by the owner on 2026-10-28;
+  // decision 14.31; see ProcessManagerService, Starting an instance). The
+  // generator advertises the starting facts in the PM's descriptor
+  // (ComponentDescriptor.starting_types). Setting starts on an aggregate's
+  // entry fails generation. A PM that declares no starting fact can never
+  // start an instance, so the generator warns about it.
+  bool starts = 3;
 }
 
 // Marks a message as an EVENT consumed by ONE component. The extension is
 // repeated, so an event consumed by several components (e.g. folded into its
 // aggregate AND triggering a saga) carries one (event) entry per consumer. For
-// an AGGREGATE — or a PROCESS_MANAGER's own state — an entry generates a state
-// applier (folded during rebuild); for a SAGA / PROJECTOR / PROCESS_MANAGER
-// trigger it generates a reaction handler. The component's kind (and `applies`)
-// select which.
+// an AGGREGATE or a PROCESS_MANAGER an entry generates a state applier
+// (folded during rebuild): a PM consumes only its own events, never another
+// domain's (decision 14.31). For a SAGA / PROJECTOR it generates a reaction
+// handler. The component's kind selects which.
 message EventConsumer {
   // The anchor message of the component that consumes this event.
   string component = 1;
-  // Source domain: the saga / projector input filter, or the process-manager
-  // trigger source domain. Unset for an aggregate's own applied events.
+  // Source domain: the saga / projector input filter. Unset for an
+  // aggregate's or a process manager's own applied events; set on a PM's
+  // entry, it fails generation (a PM has no triggers).
   string domain = 2;
-  // PROCESS_MANAGER only: true marks this as a fold of the PM's OWN state
-  // (an applier); false (with a `domain`) marks it as a cross-domain trigger
-  // reaction. Aggregates always apply; saga/projector always react.
-  bool applies = 3;
-  // PROCESS_MANAGER trigger only (a `domain` set, applies false): this
-  // trigger may START an instance. A trigger for a correlation with no PM
-  // instance starts one only if its entry sets starts; any other trigger
-  // for an unknown correlation is skipped, and its source is not refused
-  // (ruling B1, 2026-10-26, for triggers only; decision 14.31; see
-  // ProcessManagerService, Starting an instance). A command addressed to
-  // the PM always starts an instance and needs no declaration. The
-  // generator advertises the starting triggers in the PM's descriptor
-  // (Target.starting_types). Setting starts on any other entry (an
-  // aggregate's, a saga's or a projector's, or a PM's own applier) fails
-  // generation. A PM may declare no starting trigger: only a command then
-  // starts it.
-  bool starts = 4;
+  // Field 3 (applies, which told a PM's own-state fold from a trigger) is
+  // deleted, unreserved (policy 6.6): a PM has no triggers (decision
+  // 14.31), so every entry naming a PM is a fold, as for an aggregate.
 }
 
 extend google.protobuf.MessageOptions {

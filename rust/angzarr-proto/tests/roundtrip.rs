@@ -108,19 +108,6 @@ fn meta(kind: Kind) -> EventMeta {
     }
 }
 
-/// The meta a process manager's coordinator stamps on its own process
-/// events: the trigger as causation, the trigger's correlation, no command
-/// id and no fact.
-fn process_meta() -> EventMeta {
-    EventMeta {
-        causation: Some(event_meta::Causation::TriggeringEvent(cause())),
-        fact: None,
-        correlation_id: Some(uuid(0xc0)),
-        recorded_at: recorded_at(),
-        rules_version: "v3".into(),
-    }
-}
-
 fn page(kind: Kind) -> EventPage {
     EventPage {
         // Above u32::MAX: the widened sequence survives the wire.
@@ -230,47 +217,40 @@ fn event_meta_records_the_command_as_causation_not_its_trigger() {
     }
     // The reaction page does carry a trigger; its event meta does not.
     assert!(command_page(Kind::Reaction).causation_id.is_some());
-    assert!(!matches!(
-        meta(Kind::Reaction).causation,
-        Some(event_meta::Causation::TriggeringEvent(_))
-    ));
 }
 
 #[test]
-fn process_event_meta_names_its_trigger_and_carries_its_correlation() {
-    let meta = round_trip(&process_meta());
-    assert_eq!(meta, process_meta());
-    match meta.causation {
-        Some(event_meta::Causation::TriggeringEvent(t)) => assert_eq!(t, cause()),
-        other => panic!("expected the trigger as causation, got {other:?}"),
-    }
-    assert_eq!(meta.correlation_id, Some(uuid(0xc0)));
-    assert_eq!(meta.fact, None);
+fn a_process_managers_events_name_their_fact() {
+    // Decision 14.31: a PM takes facts only, so its events are a fact's
+    // events: the fact's id as causation, its origin, its correlation.
+    let page = command_page(Kind::Fact);
+    let meta = round_trip(&meta(Kind::Fact));
+    assert_eq!(
+        meta.causation,
+        Some(event_meta::Causation::CommandId(
+            page.command_id.clone().expect("assigned")
+        ))
+    );
+    assert_eq!(meta.fact, page.fact_origin);
+    assert_eq!(meta.correlation_id, page.correlation_id);
 }
 
 #[test]
-fn event_meta_causation_is_one_or_the_other() {
-    // A oneof: the last arm on the wire wins, so a command id and a trigger
-    // can never both be recorded on one event.
-    let with_id = EventMeta {
-        causation: Some(event_meta::Causation::CommandId(uuid(1))),
-        ..Default::default()
-    };
-    let mut bytes = with_id.encode_to_vec();
-    bytes.extend(process_meta().encode_to_vec());
-    let decoded = EventMeta::decode(bytes.as_slice()).expect("decode");
-    assert_eq!(decoded.causation, process_meta().causation);
+fn deleted_triggering_event_bytes_decode_to_no_causation() {
+    // triggering_event (18) is deleted, unreserved (decision 14.31): its
+    // bytes are an unknown field, never read as a cause.
+    let old = [0x92, 0x01, 0];
+    assert_eq!(EventMeta::decode(&old[..]).expect("decode").causation, None);
 }
 
 #[test]
 fn event_meta_field_numbers() {
-    // causation: command_id 17 | triggering_event 18; correlation_id 14,
+    // causation: command_id 17 (triggering_event 18 is deleted); correlation_id 14,
     // fact 16, recorded_at 5, rules_version 7. No actor, no origin, no
     // base_sequence, and no causation_id: 13 and 15 are gone.
     let first_two = |meta: EventMeta| meta.encode_to_vec()[..2].to_vec();
     let id = Some(uuid(1));
-    // Fields 17 and 18 need two-byte tags: 17 << 3 | 2 = 138 = 0x8a 0x01,
-    // 18 << 3 | 2 = 146 = 0x92 0x01.
+    // Field 17 needs a two-byte tag: 17 << 3 | 2 = 138 = 0x8a 0x01.
     assert_eq!(
         EventMeta {
             causation: id.clone().map(event_meta::Causation::CommandId),
@@ -278,14 +258,6 @@ fn event_meta_field_numbers() {
         }
         .encode_to_vec()[..3],
         [0x8a, 0x01, 18]
-    );
-    assert_eq!(
-        EventMeta {
-            causation: Some(event_meta::Causation::TriggeringEvent(EventRef::default())),
-            ..Default::default()
-        }
-        .encode_to_vec(),
-        [0x92, 0x01, 0]
     );
     assert_eq!(
         first_two(EventMeta {
@@ -470,11 +442,6 @@ fn event_meta_round_trips_each_kind() {
         assert_eq!(decoded, original);
         assert_eq!(decoded.meta, Some(meta(kind)));
     }
-    let process = EventPage {
-        meta: Some(process_meta()),
-        ..page(Kind::Client)
-    };
-    assert_eq!(round_trip(&process), process);
 }
 
 #[test]
@@ -486,20 +453,13 @@ fn event_refs_nest_a_cover_with_its_edition() {
     assert_eq!(stream.root, Some(uuid(0xab)));
     assert_eq!(decoded.sequence, u64::MAX);
 
-    // Nested deeper: command page -> causation_id -> cover, and a process
-    // event's meta -> triggering_event -> cover.
+    // Nested deeper: command page -> causation_id -> cover.
     let page = round_trip(&book(Kind::Reaction, None)).page.unwrap();
     let causation = page.causation_id.unwrap();
     assert_eq!(
         causation.stream.unwrap().edition.as_deref(),
         Some("what-if")
     );
-    match round_trip(&process_meta()).causation {
-        Some(event_meta::Causation::TriggeringEvent(t)) => {
-            assert_eq!(t.stream.unwrap().edition.as_deref(), Some("what-if"))
-        }
-        other => panic!("expected a trigger, got {other:?}"),
-    }
 }
 
 /// Main is unset, not a magic name: an unset edition is absent from the wire
@@ -632,10 +592,10 @@ fn component_descriptor_carries_its_state_descriptor() {
         kind: ComponentKind::Aggregate as i32,
         inputs: vec![Target {
             domain: "lists".into(),
-            ..Default::default()
         }],
         state: Some(state),
         rules_version: "1.4.2+build.7".into(),
+        starting_types: vec![],
     };
     let decoded = round_trip(&original);
     assert_eq!(decoded, original);
@@ -754,36 +714,28 @@ fn type_names_are_io_angzarr_v1() {
 }
 
 #[test]
-fn a_process_manager_descriptor_lists_its_starting_triggers() {
-    // Ruling B1 (decision 14.31): a PM's descriptor names, per source
-    // domain, the event types that may start an instance.
+fn a_process_manager_descriptor_lists_its_starting_facts() {
+    // Ruling B1, adapted to facts (decision 14.31): a PM's descriptor names
+    // the fact types that may start an instance. A PM subscribes to
+    // nothing, so it has no inputs.
     let original = ComponentDescriptor {
         name: "buy-in".into(),
         kind: ComponentKind::ProcessManager as i32,
-        inputs: vec![
-            Target {
-                domain: "table".into(),
-                starting_types: vec!["/io.angzarr.examples.v1.SeatHeld".into()],
-            },
-            Target {
-                domain: "player".into(),
-                starting_types: vec![],
-            },
-        ],
+        starting_types: vec!["/io.angzarr.examples.v1.TableSeatHeld".into()],
         rules_version: "1.0.0".into(),
         ..Default::default()
     };
     let decoded = round_trip(&original);
     assert_eq!(decoded, original);
     assert_eq!(
-        decoded.inputs[0].starting_types,
-        ["/io.angzarr.examples.v1.SeatHeld"]
+        decoded.starting_types,
+        ["/io.angzarr.examples.v1.TableSeatHeld"]
     );
-    assert!(decoded.inputs[1].starting_types.is_empty());
-    // starting_types is Target's field 2.
-    let target = Target {
+    assert!(decoded.inputs.is_empty());
+    // starting_types is ComponentDescriptor's field 7: 7 << 3 | 2 = 0x3a.
+    let descriptor = ComponentDescriptor {
         starting_types: vec!["/a".into()],
         ..Default::default()
     };
-    assert_eq!(target.encode_to_vec(), [0x12, 2, b'/', b'a']);
+    assert_eq!(descriptor.encode_to_vec(), [0x3a, 2, b'/', b'a']);
 }

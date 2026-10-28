@@ -60,7 +60,6 @@ option ruby_package = "Angzarr::Examples";
 message BuyInStarted {
   option (io.angzarr.v1.event) = {
     component: "io.angzarr.examples.v1.BuyInState"
-    applies: true
   };
   option (io.angzarr.v1.event) = {
     component: "io.angzarr.examples.v1.BuyInPlayerSaga"
@@ -78,7 +77,6 @@ message BuyInStarted {
 message BuyInFundsHeld {
   option (io.angzarr.v1.event) = {
     component: "io.angzarr.examples.v1.BuyInState"
-    applies: true
   };
   option (io.angzarr.v1.event) = {
     component: "io.angzarr.examples.v1.BuyInTableSaga"
@@ -93,7 +91,6 @@ message BuyInFundsHeld {
 message BuyInSeated {
   option (io.angzarr.v1.event) = {
     component: "io.angzarr.examples.v1.BuyInState"
-    applies: true
   };
   option (io.angzarr.v1.event) = {
     component: "io.angzarr.examples.v1.BuyInPlayerSaga"
@@ -107,7 +104,6 @@ message BuyInSeated {
 message BuyInCompleted {
   option (io.angzarr.v1.event) = {
     component: "io.angzarr.examples.v1.BuyInState"
-    applies: true
   };
   bytes buy_in_id = 1;
 }

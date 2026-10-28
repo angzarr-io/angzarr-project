@@ -14,9 +14,9 @@ option ruby_package = "Angzarr";
 //
 // One coordinator, one component, one business process. A component is one
 // aggregate, one saga, one process manager or one projector, and a
-// business process hosts exactly one. (A process manager or projector may
-// react to several input domains, and a process manager may take commands
-// addressed to its own domain; that is still one component.) A
+// business process hosts exactly one. (A projector may react to several
+// input domains, and a process manager may take facts of several types,
+// sent by sagas from several domains; that is still one component.) A
 // component's upcasters are part of it, not components of their own (see
 // upcaster.proto).
 //
@@ -48,9 +48,10 @@ option ruby_package = "Angzarr";
 //     queued.
 //   - Refusal: a descriptor with an empty rules_version (see
 //     ComponentDescriptor), or one whose kind is not PROCESS_MANAGER and
-//     that lists starting triggers (Target.starting_types), is refused.
-//     The coordinator does not hold it, delivers nothing, logs an error
-//     naming the business process and the component, and raises an alert. It answers the business process
+//     that lists starting facts (ComponentDescriptor.starting_types), is
+//     refused. The coordinator does not hold it, delivers nothing, logs an
+//     error naming the business process and the component, and raises an
+//     alert. It answers the business process
 //     nothing (the coordinator is the caller): the refusal is visible as
 //     the coordinator's readiness.
 //   - Failure: a failed Describe call (the business process unreachable, or

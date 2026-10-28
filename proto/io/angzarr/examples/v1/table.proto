@@ -189,7 +189,6 @@ message SeatHeld {
   option (io.angzarr.v1.event) = {
     component: "io.angzarr.examples.v1.BuyInState"
     domain: "table"
-    starts: true
   };
   bytes buy_in_id = 1;
   bytes player_root = 2;

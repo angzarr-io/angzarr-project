@@ -5,7 +5,7 @@
 //! `command_id`, `correlation_id`, `causation_id`, `fact_origin`), covers,
 //! `Handling` (on `CommandBook`, with `ConflictResolution`),
 //! `ContextualCommand` (with the conflict nonce), `EventMeta` (with its
-//! `causation` oneof: `command_id`, or a process event's `triggering_event`),
+//! `causation` oneof, whose one arm is `command_id`),
 //! `EventRef`,
 //! `FactOrigin`, snapshots (with their `rules_version`), the response-only
 //! `Outcome`, `ComponentDescriptor` (the answer to
