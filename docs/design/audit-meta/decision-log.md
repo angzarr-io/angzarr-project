@@ -1915,31 +1915,40 @@ protos had never carried. Amends 13.1 and 13.2, 5.6 and 14.24.
   `ConfirmSeat`); `BuyInFundsHeld` gains `table_root` (2) and
   `BuyInSeated` gains `player_root` (3), because a saga takes its target
   roots from the event and never looks one up.
-- **Drafter's choices, for the owner to confirm** (none of these is in the
-  ruling):
-  - the field and oneof names (`cause`, `command`) and field number 4;
-  - commands reach a PM through `CommandHandlerCoordinatorService`, served
-    by the PM's coordinator, not through a new RPC on
-    `ProcessManagerCoordinatorService`;
-  - a Fact may also address a PM, keeping its `fact_origin` rules;
-  - a command to a PM must name the instance: its `correlation_id`, when
-    unset, is given its cover's root, and a different set value is
-    malformed, so 14.30 holds for every event on a PM stream;
-  - a command to a PM stream that holds no events is delivered like any
-    other, with an empty `process_state`: a command starts an instance
-    (B1's start gate is for triggers only, as the owner ruled);
-  - for B1: the names `EventConsumer.starts` and `Target.starting_types`
-    and their field numbers; advertising starting triggers per source
-    domain in `Target` rather than in a new descriptor field; a starting
-    trigger is matched by its type URL as delivered (after upcasting,
-    14.25); the check runs in the coordinator, before deduplication; a
-    skip is silent (no dead letter, no alert, no metric named); a PM may
-    declare no starting trigger, so that only commands start it, with no
-    generator warning; and a non-PM descriptor listing `starting_types`
-    is refused;
-  - a failing PM handler for a trigger is dead-lettered and alerted;
-  - deleting `output_domains` rather than leaving it unused;
-  - the saga names and placing them in `buy_in.proto`.
+- **Drafter's choices** (none of these was in ruling 7). The owner ruled
+  on them on 2026-10-28.
+  - Accepted by the owner:
+    - commands reach a PM through `CommandHandlerCoordinatorService`,
+      served by the PM's coordinator, not through a new RPC on
+      `ProcessManagerCoordinatorService`;
+    - a command to a PM carries no `Handling`: any `Handling` field on
+      one is malformed (refused `INVALID_ARGUMENT`; a reaction command is
+      dead-lettered and alerted);
+    - a failing PM handler for a command is a bug: the command is
+      dead-lettered and alerted and its sender answered `PARKED`;
+    - a failing PM handler for a trigger is dead-lettered and alerted;
+    - a command to a PM must name the instance: its `correlation_id`, when
+      unset, is given its cover's root, and a different set value is
+      malformed, so 14.30 holds for every event on a PM stream;
+    - a command to a PM stream that holds no events is delivered like any
+      other, with an empty `process_state`: a command starts an instance
+      (B1's start gate is for triggers only).
+  - Ruled otherwise: a PM has no outbox. The owner left the consequence
+    (a PM needs none today) but ruled the outbox polymorphic (above).
+  - Still for the owner to confirm:
+    - the field and oneof names (`cause`, `command`) and field number 4;
+    - a Fact may also address a PM, keeping its `fact_origin` rules;
+    - deleting `output_domains` rather than leaving it unused;
+    - the saga names and placing them in `buy_in.proto`;
+    - for B1: the names `EventConsumer.starts` and
+      `Target.starting_types` and their field numbers; advertising
+      starting triggers per source domain in `Target` rather than in a new
+      descriptor field; a starting trigger is matched by its type URL as
+      delivered (after upcasting, 14.25); the check runs in the
+      coordinator, before deduplication; a skip is silent (no dead letter,
+      no alert, no metric named); a PM may declare no starting trigger, so
+      that only commands start it, with no generator warning; and a
+      non-PM descriptor listing `starting_types` is refused.
 - Why: a PM's state is a record of what happened, so every input it takes
   is a fact and every output is its own event. Keeping commands to other
   domains in sagas leaves one kind of component that sends commands, one
