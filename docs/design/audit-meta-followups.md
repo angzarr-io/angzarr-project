@@ -242,8 +242,8 @@ event onwards, every removal reserves its number and name (see
     `EventMeta.triggering_event`, `ProcessManagerCoordinatorService` and
     `EventConsumer.applies` are deleted.
   - **Refusals (2.2 amended):** a saga's target refuses and records
-    nothing, returning an optional typed refusal object (a member of the
-    command's `<Command>Refusal` oneof, found by name);
+    nothing, returning an optional typed refusal object (one of the
+    command's `refuses` types, the annotation parallel to `emits`);
     the saga builds one refusal fact, with the refused command's id, for
     its own source domain, written to the outbox in the transaction that
     clears the command, on the exact stream of its trigger: by default the

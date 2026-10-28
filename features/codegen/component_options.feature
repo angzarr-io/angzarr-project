@@ -156,29 +156,27 @@ Feature: Component declarations - lint warnings and errors
       | and no on_refused_ReserveStock callback          | translate for saga "OrderToInventory"                      | generation fails naming "inventory.ReserveStock": translate needs its callback |
 
   @C-0625
-  Scenario: A command's <Command>Refusal oneof shapes its generated handler
-    # No annotation: the generator finds the refusal objects by name
-    # (decision 14.31; the convention is the drafter's proposal).
+  Scenario: A command's refuses annotation shapes its generated handler
+    # The parallel of emits (decision 14.31, the owner's ruling).
     Given an aggregate "PlayerState" owning domain "player" with command "player.HoldFunds"
-    And the message "player.HoldFundsRefusal" with oneof refusal holding "player.InsufficientFunds"
+    And a command "player.HoldFunds" for "PlayerState" whose (command).refuses lists "player.InsufficientFunds"
     When the handler interfaces are generated
-    Then the HoldFunds handler returns either its events or a HoldFundsRefusal
-    And the client library packs the chosen InsufficientFunds, not the HoldFundsRefusal, into the rejection
+    Then the HoldFunds handler returns either its events or an InsufficientFunds refusal
+    And the client library packs the InsufficientFunds returned into the rejection as an Any
 
   @C-0626
-  Scenario: A <Command>Refusal member from another domain is a lint error
+  Scenario: A refuses type from another domain fails generation
     Given an aggregate "PlayerState" owning domain "player" with command "player.HoldFunds"
     And an aggregate "TableState" owning domain "table" with message "table.SeatNotConfirmable"
-    And the message "player.HoldFundsRefusal" with oneof refusal holding "table.SeatNotConfirmable"
+    And a command "player.HoldFunds" for "PlayerState" whose (command).refuses lists "table.SeatNotConfirmable"
     When the protos are linted
-    Then lint reports an error naming "player.HoldFundsRefusal" and its member "table.SeatNotConfirmable"
+    Then lint reports an error naming "player.HoldFunds" and its refuses type "table.SeatNotConfirmable"
     And lint exits with a non-zero status
 
   @C-0627
-  Scenario: A <Command>Refusal with no matching command is a lint warning
+  Scenario: A refuses type that does not resolve fails generation
     Given an aggregate "PlayerState" owning domain "player" with command "player.HoldFunds"
-    And the message "player.WithdrawFundsRefusal" with oneof refusal holding "player.InsufficientFunds"
-    And no command "player.WithdrawFunds"
+    And a command "player.HoldFunds" for "PlayerState" whose (command).refuses lists "player.NoSuchRefusal"
     When the protos are linted
-    Then lint reports a warning naming "player.WithdrawFundsRefusal": no command WithdrawFunds
-    And lint exits with status 0
+    Then lint reports an error naming "player.HoldFunds" and the unresolved refuses type "player.NoSuchRefusal"
+    And lint exits with a non-zero status

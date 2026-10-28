@@ -136,7 +136,7 @@ Reactions always run asynchronously.
 - Aligns with: Axon, Marten/Wolverine and NServiceBus, where reactions are
   asynchronous messages.
 
-> **Amended by 14.31 (pass 14):** the side channel stays deleted, but a refusal is no longer a domain event of the refusing side. A saga's target (an aggregate or a process manager) refuses the saga's command with a business rejection, optionally carrying a typed refusal object of its own domain (a member of the command's `<Command>Refusal` oneof), and records nothing. The refusal goes back to the saga, which builds one unrefusable refusal fact for the exact stream of its triggering event: by default its generated code passes through the standard `CommandRefused { command, refusal, trigger }`, the typed object packed as an `Any`, which the source handles in its `on_refused_<Command>(refusal, state)`; or, where angzarr-cli selects translate at code generation, the saga's callback reads `Refusal { event, command, response }` and returns a domestic fact, which is why translate exists: a source that does not want to unpack a foreign object, or import foreign protos, gets a domestic fact instead. Either way the fact's id is the refused command's id, the source decides what the refusal means and records its own events, and both calls go through the outbox (the fact written in the transaction that clears the command's entry), retried and deduplicated by that one id. Process managers take the replies to their steps as commands from sagas, and the refusals of their own steps as these facts.
+> **Amended by 14.31 (pass 14):** the side channel stays deleted, but a refusal is no longer a domain event of the refusing side. A saga's target (an aggregate or a process manager) refuses the saga's command with a business rejection, optionally carrying a typed refusal object of its own domain (one of the command's `refuses` types), and records nothing. The refusal goes back to the saga, which builds one unrefusable refusal fact for the exact stream of its triggering event: by default its generated code passes through the standard `CommandRefused { command, refusal, trigger }`, the typed object packed as an `Any`, which the source handles in its `on_refused_<Command>(refusal, state)`; or, where angzarr-cli selects translate at code generation, the saga's callback reads `Refusal { event, command, response }` and returns a domestic fact, which is why translate exists: a source that does not want to unpack a foreign object, or import foreign protos, gets a domestic fact instead. Either way the fact's id is the refused command's id, the source decides what the refusal means and records its own events, and both calls go through the outbox (the fact written in the transaction that clears the command's entry), retried and deduplicated by that one id. Process managers take the replies to their steps as commands from sagas, and the refusals of their own steps as these facts.
 
 **2.2 The compensation and notification channel is deleted.** In its place,
 process managers handle replies, and refusals are domain events.
@@ -1880,22 +1880,22 @@ and 14.30.
     object into. The foreign refusal object is business-specific code. The
     refusal object is passed back to the saga by the command-refused
     return type." Which refusal objects a command's handler may return is
-    STRUCTURAL, with no annotation (owner's ruling: no `refused_with`; the
-    convention is the drafter's proposal, FLAGGED): beside each refusable
-    command `X`, its domain defines `message XRefusal { oneof refusal {
-    InsufficientFunds insufficient_funds = 1; ... } }`. The generator finds
-    `XRefusal` by name and types `X`'s handler result as "events or
-    `XRefusal`"; the client library packs the chosen member (the concrete
-    object, not the wrapper) into the status details as an `Any`; and the
-    refused saga receives `RefusalResponse { refusal, message }`
-    (`types.proto`: `refusal` the packed object; `message` the status
-    message, which the transport always carries, kept for the translating
-    callback and for a dead letter but never forwarded). Lints: an
-    `XRefusal` with no command `X` (a warning), and a member from another
-    domain (an error). No cleaner structural form was found: the spec
-    names a command's events by annotation (`emits`), not by a
-    convention, and a oneof is the one proto shape that says "exactly one
-    of these" and generates a typed choice in every language.
+    named by an ANNOTATION, like `emits` (the owner's ruling, for
+    consistency): `CommandOptions.refuses` (4), `repeated string`, the
+    fully-qualified refusal types, messages of the command's own domain,
+    in exactly `emits`' form (it names the types directly, as `emits` does,
+    not a wrapper message). When set, the generated handler returns its
+    events or one of those typed refusals; when empty, a raw refusal
+    payload (`Any`) or a message only. The client library packs the chosen
+    refusal object, the concrete message, into the status details as an
+    `Any`; and the refused saga receives `RefusalResponse { refusal,
+    message }` (`types.proto`: `refusal` the packed object; `message` the
+    status message, which the transport always carries, kept for the
+    translating callback and for a dead letter but never forwarded).
+    Generation fails, mirroring `emits`' references, on a `refuses` type
+    that does not resolve or is not a message of the command's own domain.
+    (The draft's `<Command>Refusal` naming convention and its orphan-name
+    lint are withdrawn.)
   - **The saga builds the fact, so the coordinator calls it in both
     modes.** `SagaService.OnRefused(Refusal { event, command, response })
     returns (OnRefusedResponse)`. Pass-through (the default): the saga's
@@ -1925,13 +1925,13 @@ and 14.30.
     send is a mistake, period." So there is no `sends`; and the source's
     `on_refused_<Command>` dispatch is inferred from the handlers it
     defines (the handler registration is the declaration, as for facts),
-    so there is no `refusals` either (the drafter's choice, FLAGGED; the
-    alternative was to keep `refusals` to drive generation). Consequence,
+    so there is no `refusals` either (the owner's ruling, accepting the
+    drafter's choice). Consequence,
     stated plainly: the generator can no longer check refusal coverage
     against what a saga sends. A refusal with no path, a pass-through
     `CommandRefused` whose command type the source defines no handler for,
     is caught only at RUN time: answered `NO_FACT_HANDLER`, dead-lettered
-    and alerted. What the generator can still check: the `XRefusal`
+    and alerted. What the generator can still check: the `refuses`
     diagnostics above, and that a command selected for translate has its
     callback.
   - **Identity: the refused command's id.** The refusal fact's
@@ -1953,7 +1953,10 @@ and 14.30.
     retryable failures are retried and any other terminal failure is a
     bug, dead-lettered and alerted. The fact is unrefusable, so
     compensation cannot loop.
-  - **Owner's rulings (2026-10-28, accepted):** a refusal with no path is
+  - **Owner's rulings (2026-10-28, accepted):** the `refuses` annotation
+    (above); `RefusalResponse { Any refusal; string message }`; the
+    source's `on_refused_<Command>` dispatch inferred from the handlers it
+    defines, with no `refusals` declaration. A refusal with no path is
     dead-lettered for a human and alerted; a failing translating callback
     is dead-lettered and alerted like any handler failure; a fact its
     source cannot ingest is dead-lettered and alerted at the source.
@@ -1983,14 +1986,13 @@ and 14.30.
   recording nothing (the drafter's proposal, accepted by the owner).
   Reasons: a
   command is refusable, and a silent `APPLIED` would tell the sender a
-  command took effect that did not; a saga's refused command goes to the
-  saga's on-refused callback, whose fact tells the saga's source, which
-  decides what an unstarted process means for it, by the same mechanism
-  as every other refusal (or, with no callback, it is dead-lettered for a
-  human). The alternative, a silent skip as for a fact, was not taken. A
+  command took effect that did not; a saga's refused command yields its
+  refusal fact for the saga's source, which decides what an unstarted
+  process means for it, by the same mechanism as every other refusal (or,
+  with no handler there, it is dead-lettered for a human). The alternative, a silent skip as for a fact, was not taken. A
   PM should declare as starting every input that can arrive first.
   `starts` on an aggregate's entry fails generation; a PM with no starting
-  input draws a generator warning; a non-PM descriptor listing
+  input draws a generator warning (the owner's ruling); a non-PM descriptor listing
   `starting_types` is refused like one with an empty `rules_version`.
 - **Deduplication and the handler context.** By `command_id` and by fact
   id (a fact's `command_id`, derived from its `fact_origin`), on the PM's
@@ -2075,28 +2077,26 @@ and 14.30.
       fact's id, and its canonical text as the `external_id`;
     - the names `CommandRefused`, `RefusalResponse` and
       `OnRefusedResponse`;
-    - (2026-10-28, later) no `refused_with` annotation: refusal objects are
-      found structurally; `CommandRefused` is only `{ command, refusal,
+    - (2026-10-28, later) `CommandRefused` is only `{ command, refusal,
       trigger }`, the reason translate exists; and a refusal fact is
-      accepted only by the exact trigger stream, root included.
+      accepted only by the exact trigger stream, root included;
+    - (2026-10-28, final) typed refusal objects named by the `refuses`
+      annotation, in `emits`' form, with `emits`-style generation errors
+      (an unresolved type, or one from another domain); `RefusalResponse
+      { Any refusal; string message }`; the source's `on_refused_<Command>`
+      dispatch inferred from its handlers, with no `refusals` declaration;
+      and PMs declaring their starting inputs (B1), with a lint warning
+      when a PM declares none.
   - Removed by the refusal-wiring rulings: the `(on_refused)` option and
     `RefusalCallback` on fact messages, `RefusalFact`,
     `ComponentDescriptor.refusal_types`, the `"angzarr-refusal:"` prefix
     and its derivation; then `ComponentOptions.sends`, `SagaSend`,
     `refusal_fact` and the exactly-one-path rule and lint; and
-    `ComponentOptions.refusals` (inferred instead; FLAGGED); then
-    `CommandOptions.refused_with` (4), and `CommandRefused`'s `reason` and
-    `message`.
+    `ComponentOptions.refusals` (inferred instead); then
+    `CommandOptions.refused_with`, and `CommandRefused`'s `reason` and
+    `message`; then the `<Command>Refusal` naming convention and its
+    orphan-name lint (replaced by `refuses`).
   - Still for the owner to confirm:
-    - inferring the source's `on_refused_<Command>` dispatch from its
-      handlers rather than keeping `refusals`;
-    - the `<Command>Refusal` naming convention with its `refusal` oneof
-      (the structural form of the typed refusal objects), its lints, and
-      packing the chosen member rather than the wrapper;
-    - `RefusalResponse` as `{ refusal, message }`: the status message
-      kept (the transport always has one), the ErrorInfo reason code and
-      other status details dropped;
-    - a PM with no starting input draws a generator warning;
     - in the example, the refusal objects `InsufficientFunds` and
       `SeatNotConfirmable`, the build config selecting translate for
       `ConfirmSeat`, the command names (`StartBuyIn`, `RecordFundsHeld`,

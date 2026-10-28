@@ -99,24 +99,19 @@ message EnrollLoyalty {
 // Whether HOLD_CONFLICT is a refusal or a bug is still the buy-in refusal
 // ruling (R2).
 message HoldFunds {
-  option (io.angzarr.v1.command) = {component: "io.angzarr.examples.v1.PlayerState"};
+  option (io.angzarr.v1.command) = {
+    component: "io.angzarr.examples.v1.PlayerState"
+    refuses: "io.angzarr.examples.v1.InsufficientFunds"
+  };
   bytes hold_id = 1;
   bytes table_root = 2;
   int64 amount = 3;
 }
 
-// HoldFunds' refusals: found by name (<Command>Refusal; decision 14.31),
-// so HoldFunds' generated handler returns its events or a
-// HoldFundsRefusal. The member chosen is packed, as an Any, into the
-// rejection and on into CommandRefused.refusal.
-message HoldFundsRefusal {
-  oneof refusal {
-    InsufficientFunds insufficient_funds = 1;
-  }
-}
-
 // The wallet's typed refusal of HoldFunds when available funds fall short
-// (INSUFFICIENT_AVAILABLE_FUNDS): a refusal object, never an event.
+// (INSUFFICIENT_AVAILABLE_FUNDS; HoldFunds' refuses): a refusal object,
+// never an event; packed as an Any into the rejection and on into
+// CommandRefused.refusal.
 message InsufficientFunds {
   int64 available = 1; // Funds available to hold
   int64 requested = 2; // The amount asked for

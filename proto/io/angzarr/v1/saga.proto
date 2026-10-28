@@ -42,9 +42,8 @@ option ruby_package = "Angzarr";
 // or a process manager alike, refuses a saga's command the way it refuses
 // any command: a business rejection (FAILED_PRECONDITION) carrying a
 // message and, optionally, a business-specific TYPED refusal object of its
-// own domain (a member of the command's <Command>Refusal oneof,
-// options.proto, the refusals region; e.g. InsufficientFunds { available,
-// requested }), and it records NOTHING. The refusal then comes back to the
+// own domain (one of the command's CommandOptions.refuses types,
+// options.proto; e.g. InsufficientFunds { available, requested }), and it records NOTHING. The refusal then comes back to the
 // SAGA, which builds the one unrefusable fact of it for its OWN source:
 // the exact stream of its triggering event. In the
 // owner's words: "the base CommandRefused fact is created by the saga. It

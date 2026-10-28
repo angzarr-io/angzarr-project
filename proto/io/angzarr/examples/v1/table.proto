@@ -143,20 +143,16 @@ message DoubleDown {
 // the refusal flows in buy_in.proto). Which of these refusals are
 // business refusals is still the buy-in refusal ruling (R2).
 message ConfirmSeat {
-  option (io.angzarr.v1.command) = {component: "io.angzarr.examples.v1.TableState"};
+  option (io.angzarr.v1.command) = {
+    component: "io.angzarr.examples.v1.TableState"
+    refuses: "io.angzarr.examples.v1.SeatNotConfirmable"
+  };
   bytes buy_in_id = 1;
 }
 
-// ConfirmSeat's refusals, found by name (<Command>Refusal; decision
-// 14.31): its generated handler returns its events or a ConfirmSeatRefusal.
-message ConfirmSeatRefusal {
-  oneof refusal {
-    SeatNotConfirmable seat_not_confirmable = 1;
-  }
-}
-
-// The table's typed refusal of ConfirmSeat: a refusal object, never an
-// event, returned with the rejection (decision 14.31).
+// The table's typed refusal of ConfirmSeat (ConfirmSeat's refuses): a
+// refusal object, never an event, returned with the rejection (decision
+// 14.31).
 message SeatNotConfirmable {
   string reason = 1; // SEAT_HOLD_NOT_FOUND or PLAYER_ALREADY_SEATED
 }

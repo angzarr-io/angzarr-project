@@ -51,9 +51,8 @@ option ruby_package = "Angzarr::Examples";
 //   1. BuyInStarted -> saga-buy-in-player sends HoldFunds to the wallet;
 //   2. the wallet refuses it (FAILED_PRECONDITION,
 //      INSUFFICIENT_AVAILABLE_FUNDS) with its typed refusal object
-//      InsufficientFunds{available, requested} (the member of
-//      HoldFundsRefusal, player.proto, that its handler chose), and records
-//      NOTHING;
+//      InsufficientFunds{available, requested} (HoldFunds' refuses,
+//      player.proto), and records NOTHING;
 //   3. saga-buy-in-player's coordinator calls OnRefused with Refusal{event
 //      = BuyInStarted, command = the HoldFunds sent, response =
 //      RefusalResponse{refusal = InsufficientFunds as an Any, message}};
@@ -80,8 +79,8 @@ option ruby_package = "Angzarr::Examples";
 // player took another seat meanwhile).
 //   1. BuyInFundsHeld -> saga-buy-in-table sends ConfirmSeat to the table;
 //   2. the table refuses it (FAILED_PRECONDITION) with its typed refusal
-//      object SeatNotConfirmable{reason} (the member of
-//      ConfirmSeatRefusal, table.proto), and records NOTHING;
+//      object SeatNotConfirmable{reason} (ConfirmSeat's refuses,
+//      table.proto), and records NOTHING;
 //   3. translate is selected for ConfirmSeat, so saga-buy-in-table's
 //      callback on_refused_ConfirmSeat(Refusal{event = BuyInFundsHeld,
 //      command = the ConfirmSeat sent, response}) reads

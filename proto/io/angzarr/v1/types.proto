@@ -610,9 +610,9 @@ message CommandRefused {
   // cover (the target domain and root) and its payload, whose type URL
   // picks the source domain's on_refused_<Command> handler.
   CommandBook command = 1;
-  // The foreign domain's TYPED refusal object, packed: the member set in
-  // the command's <Command>Refusal oneof (options.proto, the refusals
-  // region; e.g. InsufficientFunds { available, requested }),
+  // The foreign domain's TYPED refusal object, packed: one of the
+  // command's CommandOptions.refuses types (options.proto; e.g.
+  // InsufficientFunds { available, requested }),
   // business-specific, unpacked by the source's handler. Unset when the
   // target refused without one.
   google.protobuf.Any refusal = 2;
@@ -625,8 +625,8 @@ message CommandRefused {
 // (Refusal.response in saga.proto), built by the saga's coordinator from
 // the business rejection (FAILED_PRECONDITION) the target answered.
 message RefusalResponse {
-  // The typed refusal object the handler returned: the member set in the
-  // command's <Command>Refusal oneof, packed by the client library into the
+  // The typed refusal object the handler returned: one of the command's
+  // CommandOptions.refuses types, packed by the client library into the
   // rejection's status details and handed on here. Unset if it returned
   // none.
   google.protobuf.Any refusal = 1;

@@ -72,9 +72,9 @@ option ruby_package = "Angzarr";
 // records nothing, the saga delivers one refusal fact to its own source
 // domain, and that domain's fact handler decides what it means (decision
 // 2.2, as amended by 14.31; SagaService in saga.proto, Refusals). The
-// typed refusal objects a command's handler may return are found by
-// structure, not annotation: a <Command>Refusal oneof message beside the
-// command (the refusals region, below). A
+// typed refusal objects a command's handler may return are named by the
+// command's annotation, CommandOptions.refuses, as its events are by
+// emits (the refusals region, below). A
 // process manager's inputs are declared like an aggregate's, as (command)
 // entries whose component is the PM's state message; they say which inputs
 // may start an instance (CommandOptions.starts).
@@ -135,9 +135,20 @@ message CommandOptions {
   // starting input can never start an instance, so the generator warns
   // about it.
   bool starts = 3;
-  // Field 4 (refused_with, a draft annotation for typed refusal objects)
-  // is deleted, unreserved (policy 6.6): refusal objects are found by the
-  // <Command>Refusal naming convention instead (the refusals region).
+  // Fully-qualified type(s) of the typed REFUSAL objects this command's
+  // handler may refuse with: messages of the command's own domain (e.g.
+  // InsufficientFunds { available, requested }), business-specific, never
+  // events. The parallel of emits, in the same form (decision 14.31, the
+  // owner's ruling). When set, the generated handler returns its typed
+  // events or one of these typed refusals; when empty, it may refuse with a
+  // raw refusal payload (google.protobuf.Any), or with a message only.
+  // Either way the client library packs the chosen refusal object (the
+  // concrete message, e.g. InsufficientFunds) into the rejection's status
+  // details as a google.protobuf.Any, and the refused saga receives it as
+  // RefusalResponse.refusal (types.proto). Generation fails on a refuses
+  // type that does not resolve, or that is not a message of the command's
+  // own domain (the refusals region).
+  repeated string refuses = 4;
 }
 
 // Marks a message as an EVENT consumed by ONE component. The extension is
@@ -412,28 +423,24 @@ extend google.protobuf.FieldOptions {
 //
 // The refusing side. A command handler refuses with a business rejection
 // (FAILED_PRECONDITION) carrying a message and, optionally, a TYPED
-// refusal object of its own domain. Which refusal objects a command may
-// return is STRUCTURAL, with no annotation (the drafter's proposal,
-// FLAGGED): beside each refusable command X, in the same proto package,
-// the domain defines
-//   message XRefusal {
-//     oneof refusal {
-//       InsufficientFunds insufficient_funds = 1;
-//       ...
-//     }
+// refusal object of its own domain, named by the command's annotation,
+// exactly as emits names its events (the owner's ruling, for
+// consistency):
+//   message HoldFunds {
+//     option (io.angzarr.v1.command) = {
+//       component: "examples.v1.PlayerState"
+//       refuses: "examples.v1.InsufficientFunds"
+//     };
+//     ...
 //   }
-// The generator finds X's refusal message by that name and types X's
-// generated handler result as "events or XRefusal". The client library
-// packs the chosen oneof member (the concrete object, e.g.
-// InsufficientFunds, not the XRefusal wrapper) into the rejection's
-// status details as a google.protobuf.Any, and the coordinator hands it on
-// as RefusalResponse.refusal (types.proto). The refusing domain records
-// nothing. A command with no XRefusal refuses with a message only.
-// Generator diagnostics: an XRefusal whose X is no command of the package
-// is a lint warning (an orphan, or a name that only looks like one); a
-// oneof member that is not a message of the command's own domain is a
-// lint error; a XRefusal with no oneof named refusal, or with a member
-// that is not a message, is an error.
+// The generated handler returns its events or one of the refuses types
+// (a typed choice the generator builds in each language). The client
+// library packs the chosen refusal object, the concrete message, into the
+// rejection's status details as a google.protobuf.Any, and the coordinator
+// hands it on as RefusalResponse.refusal (types.proto). The refusing
+// domain records nothing. Generator diagnostics, mirroring emits': a
+// refuses type that does not resolve, or that is not a message of the
+// command's own domain, fails generation.
 //
 // The saga's side. When a saga's command is refused, the saga's
 // coordinator calls SagaService.OnRefused, and the saga's generated code
@@ -474,6 +481,6 @@ extend google.protobuf.FieldOptions {
 // no path (a pass-through CommandRefused whose command type the source has
 // no handler for) is caught at RUN time: the source answers
 // NO_FACT_HANDLER, and the fact is dead-lettered and alerted. What the
-// generator still checks: the XRefusal diagnostics above, and that a
+// generator still checks: the refuses diagnostics above, and that a
 // command selected for translate has its callback.
 // endregion
