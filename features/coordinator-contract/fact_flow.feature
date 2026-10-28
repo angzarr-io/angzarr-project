@@ -1,10 +1,10 @@
 Feature: Fact injection
 
-  A process manager takes facts only and emits no facts and no commands
-  (decision 14.31): its only output is its own events. The sagas into its
-  domain build the facts it receives; a client or an external system may
-  send it one too. A saga emits facts only for a process manager, never
-  for an aggregate.
+  A process manager is a domain (decision 14.31): facts reach it as they
+  reach an aggregate (timeouts, webhooks). A saga's business code never
+  emits a fact; the one fact a saga delivers is the rejection fact its
+  on-refused callback crafts, for its own source domain only
+  (saga_refusal.feature).
 
   Retired with decision 14.31: C-0184, C-0188, C-0189 and C-0493, which had
   a saga inject facts into an aggregate (C-0610 now refuses that).
@@ -63,22 +63,18 @@ Feature: Fact injection
     And the sender is answered APPLIED
 
   @C-0609
-  Scenario: A saga's fact for a process manager carries its trigger and a reaction origin
-    Given a saga "OrderToFulfillment" translating from "order" to "fulfillment", a process manager's domain
-    And the saga handles OrderPlaced by emitting an OrderPlacedReported fact
-    When the OrderPlaced event at sequence 4 of order "order-1", with correlation "0192a6b0-0000-7000-8000-000000000002", is dispatched to the saga
-    Then the emitted fact is addressed to "fulfillment" root "0192a6b0-0000-7000-8000-000000000002"
-    And its causation_id names sequence 4 of order "order-1"
-    And its correlation_id is "0192a6b0-0000-7000-8000-000000000002"
-    And its fact_origin external_id is "angzarr-reaction:" followed by the reaction name for that event, "OrderToFulfillment" and index 0
-    And its command_id is derived from that external_id
+  Scenario: A fact carrying a causation_id is accepted only by its trigger's domain
+    # The one fact with a causation_id is a saga's rejection fact, for the
+    # saga's own source domain (decision 14.31).
+    Given an "order" aggregate "order-1" that declares fact DeliveryRefused
+    When a framework component sends a DeliveryRefused fact to "order" root "order-1" whose causation_id names an event of "order" aggregate "order-1"
+    Then the fact is recorded at the order's next sequence
 
   @C-0610
-  Scenario: A saga's fact addressed to an aggregate is refused
-    Given a saga "ShippingToOrder" translating from "shipping" to "order", an aggregate's domain
-    And the saga's handler emits a ShipmentDispatched fact for order "order-1"
-    When the shipping aggregate emits ShipmentDispatched for order "order-1"
-    Then the fact is refused as malformed and dead-lettered, and an alert is raised
+  Scenario: A fact carrying a causation_id addressed to another domain is refused
+    Given an "order" aggregate "order-1" that declares fact ShipmentDispatched
+    When a framework component sends a ShipmentDispatched fact to "order" root "order-1" whose causation_id names an event of the "shipping" domain
+    Then the fact is refused INVALID_ARGUMENT, and dead-lettered and alerted as a saga bug
     And no event is persisted to "order" aggregate "order-1"
 
   # ---------------------------------------------------------------------------

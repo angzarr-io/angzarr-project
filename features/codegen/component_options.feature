@@ -100,34 +100,48 @@ Feature: Component declarations - lint warnings and errors
     And lint exits with a non-zero status
 
   @C-0607
-  Scenario: A process manager's starting facts are advertised in its descriptor
+  Scenario: A process manager's starting inputs are advertised in its descriptor
     Given a PROCESS_MANAGER component "Fulfillment" owning domain "fulfillment"
-    And its (command) entry for "fulfillment.OrderPlacedReported" sets starts
-    And its (command) entry for "fulfillment.StockReservedReported" does not
+    And its (command) entry for "fulfillment.StartFulfillment" sets starts
+    And its (command) entry for "fulfillment.RecordStockReserved" does not
     When the component's descriptor is generated
-    Then the descriptor lists starting type "/fulfillment.OrderPlacedReported"
+    Then the descriptor lists starting type "/fulfillment.StartFulfillment"
     And the descriptor lists no input domains
 
   @C-0611
-  Scenario: A process manager with no starting fact is a lint warning
+  Scenario: A process manager with no starting input is a lint warning
     # It could never start an instance.
     Given a PROCESS_MANAGER component "Fulfillment" owning domain "fulfillment"
-    And its (command) entry for "fulfillment.StockReservedReported" does not set starts
     And no (command) entry naming "Fulfillment" sets starts
     When the protos are linted
-    Then lint reports a warning naming "Fulfillment" and its missing starting fact
+    Then lint reports a warning naming "Fulfillment" and its missing starting input
     And lint exits with status 0
 
   @C-0612
-  Scenario Outline: A saga's generated handler returns facts for a process manager and commands otherwise
-    # A saga emits Facts when a process manager owns its destination, and
-    # Commands otherwise (decision 14.31).
-    Given a <owner> owning domain "fulfillment"
-    And a SAGA component "OrderToFulfillment" triggered by domain "order" with output_domain "fulfillment"
+  Scenario: An (on_refused) option generates the saga's callback and lists the command in its descriptor
+    # Decision 14.31: a saga's on-refused callback takes one Refusal
+    # { event, command, response } and returns the fact the option sits on.
+    Given an aggregate "InventoryState" owning domain "inventory" with command "inventory.ReserveStock"
+    And an aggregate "OrderState" owning domain "order" with fact "order.StockUnavailable"
+    And a SAGA component "OrderToInventory" triggered by domain "order" with output_domain "inventory"
+    And "order.StockUnavailable" carries (on_refused) naming saga "OrderToInventory" and command "inventory.ReserveStock"
     When the saga's handler interface is generated
-    Then its handler returns <output>
+    Then the saga has a handler on_refused_ReserveStock taking a Refusal and returning "order.StockUnavailable"
+    And the saga's descriptor lists refusal type "/inventory.ReserveStock"
+
+  @C-0620
+  Scenario Outline: A mismatched (on_refused) option is a lint error
+    Given an aggregate "InventoryState" owning domain "inventory" with command "inventory.ReserveStock"
+    And an aggregate "OrderState" owning domain "order" with fact "order.StockUnavailable"
+    And an aggregate "ShippingState" owning domain "shipping" with fact "shipping.Lost"
+    And a SAGA component "OrderToInventory" triggered by domain "order" with output_domain "inventory"
+    And <message> carries (on_refused) naming <saga> and command <command>
+    When the protos are linted
+    Then lint reports an error naming the (on_refused) option
+    And lint exits with a non-zero status
 
     Examples:
-      | owner                               | output   |
-      | PROCESS_MANAGER component "Fulfill" | facts    |
-      | aggregate "FulfillmentState"        | commands |
+      | message                  | saga                      | command                   |
+      | "shipping.Lost"          | saga "OrderToInventory"   | "inventory.ReserveStock"  |
+      | "order.StockUnavailable" | aggregate "InventoryState" | "inventory.ReserveStock" |
+      | "order.StockUnavailable" | saga "OrderToInventory"   | "order.PlaceOrder"        |

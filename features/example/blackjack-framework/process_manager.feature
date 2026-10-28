@@ -18,8 +18,11 @@ Feature: Buying in
   be spent, then completed. Every step it asks for is decided before it
   moves on.
 
-  A buy-in that fails, where a refusal by one side undoes the half the other
-  side already did, waits on the buy-in refusal ruling in
+  A refusal reaches the buy-in as a fact: the side that refuses records
+  nothing, and the buy-in hears of it from the saga that asked (decision
+  14.31). One failure is specified: the wallet cannot fund the buy-in, so
+  the buy-in fails and the held seat is released. The other failures (the
+  table refusing the seat) wait on the buy-in refusal ruling in
   docs/design/blackjack-latest-proto-rulings.md.
 
   # ==========================================================================
@@ -54,6 +57,19 @@ Feature: Buying in
     When the wallet of "Alice" spends 500 for buy-in "B1"
     Then buy-in "B1" is completed
     And nothing more is asked of the table or the wallet
+
+  # ==========================================================================
+  # A refusal
+  # ==========================================================================
+
+  @EU-1562
+  Scenario: A wallet that cannot fund the buy-in fails it and frees the seat
+    Given buy-in "B1" for "Alice" at seat 0 of table "Main" is waiting for funds
+    And the wallet of "Alice" has less than 500 available
+    When the wallet of "Alice" refuses to hold 500 for buy-in "B1"
+    Then the wallet of "Alice" records nothing for buy-in "B1"
+    And buy-in "B1" has failed because the funds were insufficient
+    And table "Main" is asked to release seat 0 for buy-in "B1"
 
   # ==========================================================================
   # Robustness

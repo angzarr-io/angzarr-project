@@ -6,11 +6,10 @@
 # Edition (name + divergences) propagates verbatim, and always overrides
 # whatever edition the handler set.
 #
-# A process manager subscribes to nothing and sends no commands (decision
-# 14.31): its input is facts, which a saga sends in its trigger's edition,
-# and its only output is process_events on its own stream, in the fact's
-# edition. The sagas from its domain carry that edition on to the commands
-# they build (the saga scenarios below).
+# A process manager is a domain (decision 14.31): its inputs are commands
+# (from sagas, in their trigger's edition) and facts, and its events land
+# in its input's edition, like any domain's. A saga's rejection fact keeps
+# its trigger's edition.
 #
 # Coverage in core: Rust unit tests in
 # src/orchestration/saga/local/tests.rs (C-0138..C-0142) and
@@ -66,35 +65,35 @@ Feature: Edition propagation across cross-domain emissions
     Then the emitted command's cover has edition "speculative" with divergence at "order"=5
 
   # ---------------------------------------------------------------
-  # Process Manager: fact → process_events
+  # Process Manager: input → its own events
   # ---------------------------------------------------------------
 
   @C-0144
-  Scenario: A PM's process_events land in the fact's edition
+  Scenario: A PM's events land in its input's edition
     Given a process manager "Fulfillment" owning domain "fulfillment"
-    And the PM records an OrderTracked process_event on an OrderPlacedReported fact
-    And the fact's cover has edition "speculative"
-    When the OrderPlacedReported fact is delivered to the PM
-    Then every emitted process_events book's cover has edition "speculative"
+    And the PM records an OrderTracked event on a StartFulfillment command
+    And the command's cover has edition "speculative"
+    When the StartFulfillment command is delivered to the PM
+    Then every events book the PM answers has edition "speculative"
 
   @C-0590
-  Scenario: A PM's process_events book naming another edition is refused
-    # A process_events book's cover is the PM's own stream (or empty); any
-    # other cover, another edition included, is a PM bug.
+  Scenario: A PM's events book naming another edition is refused
+    # A PM's answer, like an aggregate's, is payloads for its own stream;
+    # any other cover, another edition included, is a handler bug.
     Given a process manager "Fulfillment" owning domain "fulfillment"
-    And the fact's cover has edition "alpha"
-    And the PM handler sets the edition "beta" on its OrderTracked process_events book
-    When an OrderPlacedReported fact is delivered to the PM
-    Then no OrderTracked event is persisted
-    And the fact is dead-lettered and an alert is raised
+    And the command's cover has edition "alpha"
+    And the PM handler sets the edition "beta" on its answer's events book
+    When a StartFulfillment command is delivered to the PM
+    Then no event is persisted
+    And the command is refused INTERNAL
 
   @C-0608
-  Scenario: A saga's fact for a PM carries its trigger's edition
-    Given a saga "OrderToFulfillment" translating from "order" to "fulfillment", a process manager's domain
-    And the saga handles OrderPlaced by emitting an OrderPlacedReported fact
+  Scenario: A saga's rejection fact carries its trigger's edition
+    Given a saga "OrderToInventory" translating from "order" to "inventory" with an on-refused callback for ReserveStock
     And the source event has edition "speculative"
-    When an OrderPlaced event is dispatched to the saga
-    Then the emitted fact's cover has edition "speculative"
+    And the inventory aggregate refuses ReserveStock
+    When an OrderCreated event is dispatched to the saga
+    Then the rejection fact's cover has edition "speculative"
 
   # ---------------------------------------------------------------
   # Main timeline: "" , unset and "angzarr" are one timeline

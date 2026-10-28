@@ -58,7 +58,7 @@ Feature: Rules version - recording who decided, and choosing snapshots
   @C-0521
   Scenario: A process manager's own events record the version it reported
     Given a process manager "Fulfillment" registered with rules version "2.0.1"
-    When the process manager records an OrderPlacedReported fact with a FulfillmentStarted event, reporting rules version "2.0.1"
+    When the process manager handles a StartFulfillment command with a FulfillmentStarted event, reporting rules version "2.0.1"
     Then the FulfillmentStarted event records rules version "2.0.1"
 
   # ===========================================================================
@@ -283,9 +283,9 @@ Feature: Rules version - recording who decided, and choosing snapshots
   @C-0559
   Scenario: A process manager answer reporting another version is refused
     Given a process manager "Fulfillment" registered with rules version "2.0.1"
-    When the process manager records an OrderPlacedReported fact with a FulfillmentStarted event, reporting rules version "2.0.2"
+    When a saga's StartFulfillment command is answered by the process manager with a FulfillmentStarted event, reporting rules version "2.0.2"
     Then no FulfillmentStarted event is persisted
-    And the fact is dead-lettered and an alert is raised
+    And the command is dead-lettered and an alert is raised
 
   # ===========================================================================
   # Where snapshots come from
