@@ -960,14 +960,22 @@ and of `EventMeta`'s `causation` oneof, `correlation_id` and `fact`.
   sequence for that stream (refusing an already-forked stream
   `ALREADY_EXISTS`, and a time-based fork the stores cannot place
   `FAILED_PRECONDITION`); `ListEditions` answers `EditionSummary` rows
-  derived from the fork events of every event store; `DeleteEdition`
-  removes every row of the edition in every store (events, fork events,
-  snapshots, projector output and the saga coordinators' outbox entries),
-  idempotently. Delete the edition registry and its
-  `Edition` records; map edition names to stores in configuration.
-  Retire core's `DeleteEditionEvents` storage method.
+  derived from the edition stores' fork and deletion events; `DeleteEdition`
+  appends `EditionDeleted` to each origin fork stream in X. The tombstone
+  travels, with only existing mechanisms, the saga flows the forks did:
+  each saga coordinator, reaching it in its stream's sequence, carries it
+  after the commands already in its outbox to the streams its commands
+  forked (read from X's fork events' `propagated_from`; PROPOSED), through
+  the command path as a framework fact; a stream holding it removes its X
+  rows below it and keeps it (PROPOSED). No timer, retry, sweep or table;
+  a delete that genuinely fails is dead-lettered and alerted. Nothing of
+  an edition's lifecycle touches main: its events, outbox, positions and
+  deliveries are kept in the edition's store. Delete the edition registry
+  and its `Edition` records; map edition names to stores in
+  configuration. Retire core's `DeleteEditionEvents` storage method.
 - Why: `meta.proto`; decision 14.32.
-- Settled when: scenarios C-0410, C-0628, C-0636 and C-0637 pass.
+- Settled when: scenarios C-0410, C-0628, C-0636, C-0637 and C-0640 to
+  C-0643 pass.
 
 **EA-2** [core] **The per-stream read rule, and refusing unknown or
 unforked targets.**
@@ -990,18 +998,16 @@ option.**
   (or X's commit position), with `propagated_from` = the fork of the
   causation_id's stream in X and `forked_by` = the command's id, with a
   framework-derived `command_id` of its own, then handle the command; a
-  concurrent arrival that loses the append finds the stream forked. Before
-  forking, re-check that `propagated_from` still exists; if not, refuse
-  `NOT_FOUND`, and have the saga's coordinator discard (not dead-letter) a
-  `NOT_FOUND` for a deleted edition (PROPOSED). The client library never
+  concurrent arrival that loses the append finds the stream forked. The
+  arrival fork never re-checks a delete: an arrival after a stream's
+  tombstone forks it again, visibly. The client library never
   hands `EditionForked` to business code. The time-based option forks
   every stream at the origin fork's commit position, which needs the store
   contract's global commit position (the 2026-10-27 ruling, now this
   option). Supersedes this item's earlier "make the whole-system
   divergence point exact" (decision 14.32).
 - Why: decision 14.32, the `editions` region of `types.proto`.
-- Settled when: scenarios C-0630, C-0631, C-0638, C-0639 and C-0640
-  pass.
+- Settled when: scenarios C-0630, C-0631, C-0638 and C-0639 pass.
 
 **EA-4** [clients, site, project] **What-if callers fork a stream first.**
 - What: client helpers for `ForkStream`, `ListEditions` and

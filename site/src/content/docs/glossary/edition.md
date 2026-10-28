@@ -33,4 +33,4 @@ Editions are an Angzarr-specific concept not found in standard event sourcing. T
 
 ## Cleanup
 
-`EditionAdminService.DeleteEdition` removes every row of an edition in every store. Main cannot be deleted.
+`EditionAdminService.DeleteEdition` appends an `EditionDeleted` tombstone to the edition's origin streams; it travels the same saga flows the forks did, in order, so it takes effect after the work in flight before it, and each stream that receives it drops its edition rows below it. Main cannot be deleted, and knows nothing of an edition's creation or deletion.
