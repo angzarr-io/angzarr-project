@@ -229,6 +229,12 @@ pub const DEFAULT_EDITION_STORE: &str = "default";
 
 /// Opt-in: the edition registry (EA-1), and with it EA-3's fall-through
 /// on every read of [`EventStore`].
+///
+/// **PROVISIONAL, pending the per-stream editions spec (owner ruling
+/// 2026-10-28):** editions become per-stream forks (a fork event appended
+/// to the edition's stream; no administrative registry), so this trait and
+/// the `editions`/`read_editions`/`read_unknown_edition` sections will be
+/// reworked. Do not implement it against the current shape.
 pub trait Editions: MaybeSend + MaybeSync {
     /// Create the edition `request` names at `now`. It diverges at the
     /// store's commit position at the create: main's events committed

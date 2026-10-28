@@ -9,8 +9,6 @@
 //! unchanged. A unit that writes the outbox is opened through
 //! [`DynOutboxStore`]. The cost is one allocation and one indirect call per
 //! operation; annals stays generic and pays nothing.
-//!
-//! **A proposal.** The boxing bodies are `todo!()`.
 
 use std::future::Future;
 use std::pin::Pin;
@@ -26,8 +24,6 @@ use crate::store::{
     ReadUntilTime, SnapshotStore, Unit, UnitOfWork, UnitOutbox,
 };
 use crate::stream::{Head, PositionKey, Slice, StreamRef};
-
-const DYN: &str = "the dyn adapter is a proposal";
 
 /// A boxed future: `Send` on every target but `wasm32`.
 #[cfg(not(target_arch = "wasm32"))]
@@ -197,8 +193,7 @@ impl<T: EventStore> DynEventStore for T {
         expected: u64,
         pages: &'a [EventPage],
     ) -> BoxFuture<'a, Result<u64, StoreError>> {
-        let _ = (stream, expected, pages);
-        todo!("{DYN}")
+        Box::pin(EventStore::append(self, stream, expected, pages))
     }
     fn read<'a>(
         &'a self,
@@ -206,27 +201,23 @@ impl<T: EventStore> DynEventStore for T {
         from: u64,
         to: Option<u64>,
     ) -> BoxFuture<'a, Result<Slice, StoreError>> {
-        let _ = (stream, from, to);
-        todo!("{DYN}")
+        Box::pin(EventStore::read(self, stream, from, to))
     }
     fn head<'a>(&'a self, stream: StreamRef<'a>) -> BoxFuture<'a, Result<Head, StoreError>> {
-        let _ = stream;
-        todo!("{DYN}")
+        Box::pin(EventStore::head(self, stream))
     }
     fn find_command<'a>(
         &'a self,
         stream: StreamRef<'a>,
         command_id: Uuid,
     ) -> BoxFuture<'a, Result<Vec<EventPage>, StoreError>> {
-        let _ = (stream, command_id);
-        todo!("{DYN}")
+        Box::pin(EventStore::find_command(self, stream, command_id))
     }
     fn covers<'a>(&'a self, domain: &'a str) -> BoxFuture<'a, Result<Vec<Cover>, StoreError>> {
-        let _ = domain;
-        todo!("{DYN}")
+        Box::pin(EventStore::covers(self, domain))
     }
     fn commit_position<'a>(&'a self) -> BoxFuture<'a, Result<u64, StoreError>> {
-        todo!("{DYN}")
+        Box::pin(EventStore::commit_position(self))
     }
 }
 
@@ -235,31 +226,27 @@ impl<T: SnapshotStore> DynSnapshotStore for T {
         &'a self,
         stream: StreamRef<'a>,
     ) -> BoxFuture<'a, Result<Option<Snapshot>, StoreError>> {
-        let _ = stream;
-        todo!("{DYN}")
+        Box::pin(SnapshotStore::read_snapshot(self, stream))
     }
     fn write_snapshot<'a>(
         &'a self,
         stream: StreamRef<'a>,
         snapshot: &'a Snapshot,
     ) -> BoxFuture<'a, Result<(), StoreError>> {
-        let _ = (stream, snapshot);
-        todo!("{DYN}")
+        Box::pin(SnapshotStore::write_snapshot(self, stream, snapshot))
     }
 }
 
 impl<T: PositionStore> DynPositionStore for T {
     fn position<'a>(&'a self, key: PositionKey<'a>) -> BoxFuture<'a, Result<u64, StoreError>> {
-        let _ = key;
-        todo!("{DYN}")
+        Box::pin(PositionStore::position(self, key))
     }
     fn put_position<'a>(
         &'a self,
         key: PositionKey<'a>,
         next: u64,
     ) -> BoxFuture<'a, Result<(), StoreError>> {
-        let _ = (key, next);
-        todo!("{DYN}")
+        Box::pin(PositionStore::put_position(self, key, next))
     }
 }
 
@@ -269,16 +256,13 @@ impl<T: Editions> DynEditions for T {
         request: &'a CreateEditionRequest,
         now: Timestamp,
     ) -> BoxFuture<'a, Result<Edition, StoreError>> {
-        let _ = (request, now);
-        todo!("{DYN}")
+        Box::pin(Editions::create_edition(self, request, now))
     }
     fn delete_edition<'a>(&'a self, name: &'a str) -> BoxFuture<'a, Result<(), StoreError>> {
-        let _ = name;
-        todo!("{DYN}")
+        Box::pin(Editions::delete_edition(self, name))
     }
     fn edition<'a>(&'a self, name: &'a str) -> BoxFuture<'a, Result<Option<Edition>, StoreError>> {
-        let _ = name;
-        todo!("{DYN}")
+        Box::pin(Editions::edition(self, name))
     }
 }
 
@@ -288,8 +272,7 @@ impl<T: ReadUntilTime> DynReadUntilTime for T {
         stream: StreamRef<'a>,
         until: &'a Timestamp,
     ) -> BoxFuture<'a, Result<Slice, StoreError>> {
-        let _ = (stream, until);
-        todo!("{DYN}")
+        Box::pin(ReadUntilTime::read_until_time(self, stream, until))
     }
 }
 
@@ -300,31 +283,36 @@ impl<T: ReadByCorrelation> DynReadByCorrelation for T {
         edition: Option<&'a str>,
         correlation_id: Uuid,
     ) -> BoxFuture<'a, Result<Vec<EventBook>, StoreError>> {
-        let _ = (domain, edition, correlation_id);
-        todo!("{DYN}")
+        Box::pin(ReadByCorrelation::read_by_correlation(
+            self,
+            domain,
+            edition,
+            correlation_id,
+        ))
     }
 }
 
 impl<T: ListStreams> DynListStreams for T {
     fn list_streams<'a>(&'a self) -> BoxFuture<'a, Result<Vec<Cover>, StoreError>> {
-        todo!("{DYN}")
+        Box::pin(ListStreams::list_streams(self))
     }
 }
 
 impl<T: Outbox> DynOutbox for T {
     fn pending<'a>(&'a self, limit: usize) -> BoxFuture<'a, Result<Vec<OutboxEntry>, StoreError>> {
-        let _ = limit;
-        todo!("{DYN}")
+        Box::pin(Outbox::pending(self, limit))
     }
     fn clear<'a>(&'a self, ids: &'a [Uuid]) -> BoxFuture<'a, Result<u64, StoreError>> {
-        let _ = ids;
-        todo!("{DYN}")
+        Box::pin(Outbox::clear(self, ids))
     }
 }
 
 impl<T: UnitOfWork> DynUnitOfWork for T {
     fn begin(&self) -> BoxFuture<'_, Result<Box<dyn DynUnit<'_> + '_>, StoreError>> {
-        todo!("{DYN}")
+        Box::pin(async move {
+            let unit = UnitOfWork::begin(self).await?;
+            Ok(Box::new(unit) as Box<dyn DynUnit<'_> + '_>)
+        })
     }
 }
 
@@ -335,8 +323,7 @@ impl<'s, U: Unit + 's> DynUnit<'s> for U {
         expected: u64,
         pages: &'a [EventPage],
     ) -> BoxFuture<'a, Result<u64, StoreError>> {
-        let _ = (stream, expected, pages);
-        todo!("{DYN}")
+        Box::pin(Unit::append(self, stream, expected, pages))
     }
     fn read<'a>(
         &'a mut self,
@@ -344,49 +331,42 @@ impl<'s, U: Unit + 's> DynUnit<'s> for U {
         from: u64,
         to: Option<u64>,
     ) -> BoxFuture<'a, Result<Slice, StoreError>> {
-        let _ = (stream, from, to);
-        todo!("{DYN}")
+        Box::pin(Unit::read(self, stream, from, to))
     }
     fn head<'a>(&'a mut self, stream: StreamRef<'a>) -> BoxFuture<'a, Result<Head, StoreError>> {
-        let _ = stream;
-        todo!("{DYN}")
+        Box::pin(Unit::head(self, stream))
     }
     fn find_command<'a>(
         &'a mut self,
         stream: StreamRef<'a>,
         command_id: Uuid,
     ) -> BoxFuture<'a, Result<Vec<EventPage>, StoreError>> {
-        let _ = (stream, command_id);
-        todo!("{DYN}")
+        Box::pin(Unit::find_command(self, stream, command_id))
     }
     fn covers<'a>(&'a mut self, domain: &'a str) -> BoxFuture<'a, Result<Vec<Cover>, StoreError>> {
-        let _ = domain;
-        todo!("{DYN}")
+        Box::pin(Unit::covers(self, domain))
     }
     fn read_snapshot<'a>(
         &'a mut self,
         stream: StreamRef<'a>,
     ) -> BoxFuture<'a, Result<Option<Snapshot>, StoreError>> {
-        let _ = stream;
-        todo!("{DYN}")
+        Box::pin(Unit::read_snapshot(self, stream))
     }
     fn position<'a>(&'a mut self, key: PositionKey<'a>) -> BoxFuture<'a, Result<u64, StoreError>> {
-        let _ = key;
-        todo!("{DYN}")
+        Box::pin(Unit::position(self, key))
     }
     fn put_position<'a>(
         &'a mut self,
         key: PositionKey<'a>,
         next: u64,
     ) -> BoxFuture<'a, Result<(), StoreError>> {
-        let _ = (key, next);
-        todo!("{DYN}")
+        Box::pin(Unit::put_position(self, key, next))
     }
     fn commit(self: Box<Self>) -> BoxFuture<'s, Result<(), StoreError>> {
-        todo!("{DYN}")
+        Box::pin(Unit::commit(*self))
     }
     fn abort(self: Box<Self>) -> BoxFuture<'s, Result<(), StoreError>> {
-        todo!("{DYN}")
+        Box::pin(Unit::abort(*self))
     }
 }
 
@@ -395,8 +375,7 @@ impl<'s, U: UnitOutbox + 's> DynOutboxUnit<'s> for U {
         &'a mut self,
         entries: &'a [OutboxEntry],
     ) -> BoxFuture<'a, Result<(), StoreError>> {
-        let _ = entries;
-        todo!("{DYN}")
+        Box::pin(UnitOutbox::put_outbox(self, entries))
     }
 }
 
@@ -406,7 +385,10 @@ where
     for<'s> T::Unit<'s>: UnitOutbox,
 {
     fn begin_outbox(&self) -> BoxFuture<'_, Result<Box<dyn DynOutboxUnit<'_> + '_>, StoreError>> {
-        todo!("{DYN}")
+        Box::pin(async move {
+            let unit = UnitOfWork::begin(self).await?;
+            Ok(Box::new(unit) as Box<dyn DynOutboxUnit<'_> + '_>)
+        })
     }
 }
 // ------------------------------------- and dyn DynStore is a port again

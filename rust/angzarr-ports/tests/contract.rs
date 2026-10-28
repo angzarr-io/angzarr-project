@@ -1,9 +1,10 @@
 //! The conformance suite, every section, run against the shipped
 //! `MemoryStore` (ruling 13: it must pass all of it).
 //!
-//! Red for one reason: `MemoryStore` is stubbed, so each check panics with
-//! "MemoryStore is a proposal". The checks (src/contract.rs) are what is up
-//! for review; tests/meta.rs proves each one can fail.
+//! Every section passes but the editions ones, which are PENDING the
+//! per-stream editions spec (owner ruling 2026-10-28): kept, ignored, and
+//! outside the required-green set. tests/meta.rs proves each check can
+//! fail.
 //!
 //! # Rulings (the human, 2026-10-28)
 //!
@@ -139,9 +140,16 @@ mod purge {
     angzarr_ports::store_contract!(purge, #[tokio::test], MemoryStore::new());
 }
 
+/// PENDING the per-stream editions spec (owner ruling 2026-10-28): kept,
+/// not run, not required green.
 mod editions {
     use super::*;
-    angzarr_ports::store_contract!(editions, #[tokio::test], MemoryStore::new());
+    angzarr_ports::store_contract!(
+        editions,
+        #[tokio::test]
+        #[ignore = "pending the per-stream editions spec, owner ruling 2026-10-28"],
+        MemoryStore::new()
+    );
 }
 
 mod read {
@@ -154,9 +162,27 @@ mod read_purge {
     angzarr_ports::store_contract!(read_purge, #[tokio::test], pair());
 }
 
+/// PENDING the per-stream editions spec (owner ruling 2026-10-28).
 mod read_editions {
     use super::*;
-    angzarr_ports::store_contract!(read_editions, #[tokio::test], MemoryStore::new());
+    angzarr_ports::store_contract!(
+        read_editions,
+        #[tokio::test]
+        #[ignore = "pending the per-stream editions spec, owner ruling 2026-10-28"],
+        MemoryStore::new()
+    );
+}
+
+/// PENDING the per-stream editions spec (owner ruling 2026-10-28): a read
+/// unit's refusal of an edition "never created" is the registry's rule.
+mod read_unknown_edition {
+    use super::*;
+    angzarr_ports::store_contract!(
+        read_unknown_edition,
+        #[tokio::test]
+        #[ignore = "pending the per-stream editions spec, owner ruling 2026-10-28"],
+        pair()
+    );
 }
 
 mod watch {

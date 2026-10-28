@@ -112,29 +112,171 @@ pub enum Arg {
     Cause(Cause),
 }
 
+/// A stream's text form for args and English: `domain/root`, or
+/// `domain/root@edition` (annals' form).
+fn stream_text(stream: &Cover) -> String {
+    let root = stream
+        .root
+        .as_ref()
+        .map(ToString::to_string)
+        .unwrap_or_default();
+    match &stream.edition {
+        Some(edition) => format!("{}/{root}@{edition}", stream.domain),
+        None => format!("{}/{root}", stream.domain),
+    }
+}
+
+fn stream_arg(stream: &Cover) -> Arg {
+    Arg::Str(stream_text(stream))
+}
+
 impl StoreError {
     /// The message id: kebab-case, starting `angzarr-ports-`, stable, never
     /// reused.
     pub fn code(&self) -> &'static str {
-        todo!("StoreError::code is a proposal")
+        match self {
+            StoreError::Conflict { .. } => "angzarr-ports-store-conflict",
+            StoreError::Discontinuous { .. } => "angzarr-ports-store-discontinuous",
+            StoreError::MalformedStream { .. } => "angzarr-ports-store-malformed-stream",
+            StoreError::Unavailable(_) => "angzarr-ports-store-unavailable",
+            StoreError::Unreadable { .. } => "angzarr-ports-store-unreadable",
+            StoreError::UnitBusy => "angzarr-ports-store-unit-busy",
+            StoreError::UnknownEdition { .. } => "angzarr-ports-store-unknown-edition",
+            StoreError::EditionNameRequired => "angzarr-ports-edition-name-required",
+            StoreError::EditionExists { .. } => "angzarr-ports-edition-exists",
+            StoreError::EditionNotFound { .. } => "angzarr-ports-edition-not-found",
+            StoreError::EditionStoreUnknown { .. } => "angzarr-ports-edition-store-unknown",
+            StoreError::EditionDivergesInTheFuture { .. } => {
+                "angzarr-ports-edition-diverges-in-the-future"
+            }
+        }
     }
 
     /// The message's arguments, by name: the same names every time for a
     /// given code.
     pub fn args(&self) -> Vec<(&'static str, Arg)> {
-        todo!("StoreError::args is a proposal")
+        match self {
+            StoreError::Conflict {
+                stream,
+                expected,
+                actual,
+            } => vec![
+                ("stream", stream_arg(stream)),
+                ("expected", Arg::Uint(*expected)),
+                ("actual", Arg::Uint(*actual)),
+            ],
+            StoreError::Discontinuous {
+                stream,
+                expected,
+                found,
+            } => vec![
+                ("stream", stream_arg(stream)),
+                ("expected", Arg::Uint(*expected)),
+                ("found", Arg::Uint(*found)),
+            ],
+            StoreError::MalformedStream { stream } | StoreError::UnknownEdition { stream } => {
+                vec![("stream", stream_arg(stream))]
+            }
+            StoreError::Unavailable(cause) => vec![("cause", Arg::Cause(cause.clone()))],
+            StoreError::Unreadable {
+                stream,
+                sequence,
+                reason,
+            } => vec![
+                ("stream", stream_arg(stream)),
+                ("sequence", Arg::Uint(*sequence)),
+                ("cause", Arg::Cause(reason.clone())),
+            ],
+            StoreError::UnitBusy | StoreError::EditionNameRequired => Vec::new(),
+            StoreError::EditionExists { name }
+            | StoreError::EditionNotFound { name }
+            | StoreError::EditionDivergesInTheFuture { name } => {
+                vec![("name", Arg::Str(name.clone()))]
+            }
+            StoreError::EditionStoreUnknown { name, store } => vec![
+                ("name", Arg::Str(name.clone())),
+                ("store", Arg::Str(store.clone())),
+            ],
+        }
     }
 
     /// What the caller does about it.
     pub fn recovery(&self) -> Recovery {
-        todo!("StoreError::recovery is a proposal")
+        match self {
+            StoreError::Conflict { .. } | StoreError::Unavailable(_) | StoreError::UnitBusy => {
+                Recovery::Retry
+            }
+            StoreError::Discontinuous { .. } | StoreError::Unreadable { .. } => Recovery::Bug,
+            StoreError::MalformedStream { .. }
+            | StoreError::UnknownEdition { .. }
+            | StoreError::EditionNameRequired
+            | StoreError::EditionExists { .. }
+            | StoreError::EditionNotFound { .. }
+            | StoreError::EditionStoreUnknown { .. }
+            | StoreError::EditionDivergesInTheFuture { .. } => Recovery::Invalid,
+        }
     }
 }
 
 impl fmt::Display for StoreError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let _ = f;
-        todo!("StoreError's English is a proposal")
+        match self {
+            StoreError::Conflict {
+                stream,
+                expected,
+                actual,
+            } => write!(
+                f,
+                "stream {} holds {actual} events, not the {expected} expected: someone else appended first",
+                stream_text(stream)
+            ),
+            StoreError::Discontinuous {
+                stream,
+                expected,
+                found,
+            } => write!(
+                f,
+                "an append to stream {} gives sequence {found} where {expected} was due",
+                stream_text(stream)
+            ),
+            StoreError::MalformedStream { stream } => write!(
+                f,
+                "cover {stream:?} is no stream: it needs a 16-byte root and, if it names an edition, a non-empty one"
+            ),
+            StoreError::Unavailable(cause) => {
+                write!(f, "the store is unavailable: {}", cause.message)
+            }
+            StoreError::Unreadable {
+                stream,
+                sequence,
+                reason,
+            } => write!(
+                f,
+                "event {sequence} of stream {} cannot be read: {}",
+                stream_text(stream),
+                reason.message
+            ),
+            StoreError::UnitBusy => f.write_str(
+                "a unit of work is already open on this handle, which serves one at a time",
+            ),
+            StoreError::UnknownEdition { stream } => write!(
+                f,
+                "stream {} names an edition that was never created",
+                stream_text(stream)
+            ),
+            StoreError::EditionNameRequired => {
+                f.write_str("an edition needs a name: main is unnamed, and always exists")
+            }
+            StoreError::EditionExists { name } => write!(f, "edition {name} already exists"),
+            StoreError::EditionNotFound { name } => write!(f, "edition {name} was never created"),
+            StoreError::EditionStoreUnknown { name, store } => write!(
+                f,
+                "edition {name} names the edition store {store}, which is not configured"
+            ),
+            StoreError::EditionDivergesInTheFuture { name } => {
+                write!(f, "edition {name} would diverge after it is created")
+            }
+        }
     }
 }
 

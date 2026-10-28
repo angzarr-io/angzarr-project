@@ -2,11 +2,14 @@
 //! angzarr core and annals, ONE conformance suite every backend runs, and
 //! an in-memory backend that passes it.
 //!
-//! **A proposal (red).** The signatures here are for review; the bodies of
-//! the dyn adapter, the conversions, the error codes and the in-memory
-//! store are `todo!()` until they are approved. The tests under `tests/`
-//! pin every trait and method, and record each design choice as RULED or
-//! OPEN (`tests/contract.rs`).
+//! The tests under `tests/` pin every trait and method, and record each
+//! design choice as RULED or OPEN (`tests/contract.rs`).
+//!
+//! **Editions are provisional.** [`Editions`] and the edition sections of
+//! the suite pin the registry-and-divergence model, which the owner's
+//! per-stream fork rule (2026-10-28) replaces; the spec is in draft. The
+//! trait stays in the crate, documented as provisional, so the pending
+//! checks still compile against it; no backend here implements it yet.
 //!
 //! # The ports
 //!

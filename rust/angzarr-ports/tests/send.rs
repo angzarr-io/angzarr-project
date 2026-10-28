@@ -1,7 +1,7 @@
 //! On a native target the ports' futures are `Send` (RULED(12): `MaybeSend`
 //! is `Send` there): a server spawns a whole unit of work, generic over the
 //! store, onto a multi-threaded runtime. The spawning compiling is half the
-//! test; running it is red because `MemoryStore` is stubbed.
+//! test; running it on `MemoryStore` is the other.
 
 #![cfg(not(target_arch = "wasm32"))]
 

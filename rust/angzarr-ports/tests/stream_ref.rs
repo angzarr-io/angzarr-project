@@ -1,5 +1,4 @@
 //! The stream key and the wire `Cover` (RULED(1) in contract.rs).
-//! Red because the conversions are stubbed.
 
 use angzarr_ports::angzarr_proto::v1::{self, Cover};
 use angzarr_ports::{StoreError, StreamRef, Uuid};

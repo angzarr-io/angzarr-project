@@ -15,11 +15,14 @@
 //! - Every check is proven able to fail: `tests/meta.rs` runs it on a store
 //!   broken on purpose and requires it to catch the bug.
 //!
-//! **Sections** (a backend runs those whose capabilities it has). The
-//! `editions` and `read_editions` sections pin the registry-and-divergence
-//! model, and will be reworked to the owner's per-stream fork rule
-//! (2026-10-28; spec/editions-forks, in draft): see OPEN(C) in
-//! `tests/contract.rs`.
+//! **Sections** (a backend runs those whose capabilities it has).
+//!
+//! **PENDING the per-stream editions spec (owner ruling 2026-10-28):** the
+//! `editions`, `read_editions` and `read_unknown_edition` sections pin the
+//! registry-and-divergence model, which the owner's per-stream fork rule
+//! replaces (spec/editions-forks, in draft). They are kept, unrun (ignored
+//! in this crate's tests), and are not part of the required-green set until
+//! they are reworked to that rule: see OPEN(C) in `tests/contract.rs`.
 //!
 //! | Section | Needs | Takes |
 //! |---|---|---|
@@ -28,6 +31,7 @@
 //! | `purge` | [`Purge`], [`UnitPurge`] on its unit | a store |
 //! | `editions` | [`Editions`] | a store |
 //! | `read` | [`ReadStore`] | two handles |
+//! | `read_unknown_edition` | [`ReadStore`] | two handles |
 //! | `read_purge` | [`ReadStore`], [`Purge`] | two handles |
 //! | `read_editions` | [`ReadStore`], [`Editions`] | a store |
 //! | `watch` | [`Watch`] | a store |
@@ -1905,18 +1909,19 @@ where
 /// expression evaluated once per test, inside its `async fn`, so it may
 /// `.await`. `store_contract!(#[tokio::test], $fresh)` is the base section;
 /// `store_contract!(<section>, #[tokio::test], $fresh)` any other (see the
-/// module's table). Tests are named after their checks, so a backend runs
+/// module's table). Several attributes may be given, as
+/// `#[tokio::test] #[ignore = "..."]`. Tests are named after their checks, so a backend runs
 /// each section in a module of its own.
 #[macro_export]
 macro_rules! store_contract {
-    (pair, #[$t:meta], $f:expr) => {
-        $crate::store_contract!(@each #[$t], $f;
+    (pair, $(#[$t:meta])+, $f:expr) => {
+        $crate::store_contract!(@each [$(#[$t])+], $f;
             the_commit_position_counts_every_handles_commits,
             a_unit_that_lost_a_race_lands_nothing,
         );
     };
-    (purge, #[$t:meta], $f:expr) => {
-        $crate::store_contract!(@each #[$t], $f;
+    (purge, $(#[$t:meta])+, $f:expr) => {
+        $crate::store_contract!(@each [$(#[$t])+], $f;
             a_purge_deletes_a_streams_events_snapshot_and_command_ids,
             a_purge_deletes_the_streams_positions,
             a_purge_deletes_a_snapshot_with_no_events,
@@ -1926,8 +1931,8 @@ macro_rules! store_contract {
             a_purge_never_lowers_the_commit_position,
         );
     };
-    (editions, #[$t:meta], $f:expr) => {
-        $crate::store_contract!(@each #[$t], $f;
+    (editions, $(#[$t:meta])+, $f:expr) => {
+        $crate::store_contract!(@each [$(#[$t])+], $f;
             an_edition_is_created_once_and_recorded,
             an_edition_create_refuses_a_bad_request,
             an_edition_reads_mains_events_below_its_divergence_then_its_own,
@@ -1935,53 +1940,57 @@ macro_rules! store_contract {
             deleting_an_edition_refuses_an_empty_or_unknown_name,
         );
     };
-    (read, #[$t:meta], $f:expr) => {
-        $crate::store_contract!(@each #[$t], $f;
+    (read, $(#[$t:meta])+, $f:expr) => {
+        $crate::store_contract!(@each [$(#[$t])+], $f;
             a_read_unit_sees_the_store_as_it_began,
-            a_read_unit_refuses_an_edition_never_created,
             a_read_unit_heads_and_snapshots_as_it_began,
+        );
+    };
+    (read_unknown_edition, $(#[$t:meta])+, $f:expr) => {
+        $crate::store_contract!(@each [$(#[$t])+], $f;
+            a_read_unit_refuses_an_edition_never_created,
             a_read_unit_refuses_heads_and_snapshots_in_an_edition_never_created,
         );
     };
-    (read_purge, #[$t:meta], $f:expr) => {
-        $crate::store_contract!(@each #[$t], $f;
+    (read_purge, $(#[$t:meta])+, $f:expr) => {
+        $crate::store_contract!(@each [$(#[$t])+], $f;
             a_read_unit_keeps_a_stream_purged_after_it_began,
             a_read_unit_keeps_the_head_and_snapshot_of_a_stream_purged_after_it_began,
         );
     };
-    (read_editions, #[$t:meta], $f:expr) => {
-        $crate::store_contract!(@each #[$t], $f;
+    (read_editions, $(#[$t:meta])+, $f:expr) => {
+        $crate::store_contract!(@each [$(#[$t])+], $f;
             a_read_unit_reads_a_created_edition_through_to_main,
             a_read_unit_heads_a_created_edition_through_to_main_but_not_its_snapshots,
         );
     };
-    (watch, #[$t:meta], $f:expr) => {
-        $crate::store_contract!(@each #[$t], $f;
+    (watch, $(#[$t:meta])+, $f:expr) => {
+        $crate::store_contract!(@each [$(#[$t])+], $f;
             a_change_token_changes_when_its_own_store_commits,
         );
     };
-    (watch_pair, #[$t:meta], $f:expr) => {
-        $crate::store_contract!(@each #[$t], $f;
+    (watch_pair, $(#[$t:meta])+, $f:expr) => {
+        $crate::store_contract!(@each [$(#[$t])+], $f;
             a_change_token_changes_when_another_handle_commits,
         );
     };
-    (until_time, #[$t:meta], $f:expr) => {
-        $crate::store_contract!(@each #[$t], $f;
+    (until_time, $(#[$t:meta])+, $f:expr) => {
+        $crate::store_contract!(@each [$(#[$t])+], $f;
             read_until_time_is_the_prefix_recorded_by_then,
         );
     };
-    (correlation, #[$t:meta], $f:expr) => {
-        $crate::store_contract!(@each #[$t], $f;
+    (correlation, $(#[$t:meta])+, $f:expr) => {
+        $crate::store_contract!(@each [$(#[$t])+], $f;
             read_by_correlation_gives_one_book_per_stream,
         );
     };
-    (list_streams, #[$t:meta], $f:expr) => {
-        $crate::store_contract!(@each #[$t], $f;
+    (list_streams, $(#[$t:meta])+, $f:expr) => {
+        $crate::store_contract!(@each [$(#[$t])+], $f;
             list_streams_is_every_domains_covers_in_order,
         );
     };
-    (outbox, #[$t:meta], $f:expr) => {
-        $crate::store_contract!(@each #[$t], $f;
+    (outbox, $(#[$t:meta])+, $f:expr) => {
+        $crate::store_contract!(@each [$(#[$t])+], $f;
             an_outbox_entry_lands_with_its_unit_or_not_at_all,
             the_outbox_drains_oldest_first_and_clears,
             a_pending_entry_is_redelivered_until_cleared,
@@ -1989,13 +1998,13 @@ macro_rules! store_contract {
             a_cleared_id_put_again_is_a_new_pending_entry,
         );
     };
-    (outbox_watch, #[$t:meta], $f:expr) => {
-        $crate::store_contract!(@each #[$t], $f;
+    (outbox_watch, $(#[$t:meta])+, $f:expr) => {
+        $crate::store_contract!(@each [$(#[$t])+], $f;
             an_outbox_write_changes_the_change_token,
         );
     };
-    (#[$t:meta], $f:expr) => {
-        $crate::store_contract!(@each #[$t], $f;
+    ($(#[$t:meta])+, $f:expr) => {
+        $crate::store_contract!(@each [$(#[$t])+], $f;
             append_checks_the_expected_length_and_continuity,
             append_refuses_a_stale_first_sequence,
             an_empty_append_checks_and_creates_nothing,
@@ -2021,12 +2030,12 @@ macro_rules! store_contract {
             a_second_begin_on_a_handle_serves_or_refuses_never_waits,
         );
     };
-    (@each #[$t:meta], $f:expr; $($check:ident),* $(,)?) => {
-        $(
-            #[$t]
-            async fn $check() {
-                $crate::contract::$check($f).await;
-            }
-        )*
+    (@each [$($a:tt)*], $f:expr; $check:ident, $($rest:ident,)*) => {
+        $($a)*
+        async fn $check() {
+            $crate::contract::$check($f).await;
+        }
+        $crate::store_contract!(@each [$($a)*], $f; $($rest,)*);
     };
+    (@each [$($a:tt)*], $f:expr;) => {};
 }

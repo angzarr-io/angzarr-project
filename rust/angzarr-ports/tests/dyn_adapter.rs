@@ -1,7 +1,6 @@
 //! The dyn adapter: core's `Arc<dyn …>` wiring (RULED(15)).
 //!
-//! Red because the adapter's boxing impls (src/dyn_store.rs) are stubbed,
-//! and beneath them `MemoryStore`.
+//! Run over `MemoryStore`.
 
 #![cfg(not(target_arch = "wasm32"))]
 
@@ -74,8 +73,10 @@ async fn one_dyn_store_upcasts_to_each_port() {
     );
 }
 
-/// Core's edition admin through `Arc<dyn DynEditions>`.
+/// Core's edition admin through `Arc<dyn DynEditions>`. PENDING the
+/// per-stream editions spec (owner ruling 2026-10-28).
 #[tokio::test]
+#[ignore = "pending the per-stream editions spec, owner ruling 2026-10-28"]
 async fn editions_are_served_through_dyn() {
     let editions: Arc<dyn DynEditions> = Arc::new(MemoryStore::new());
     let request = CreateEditionRequest {

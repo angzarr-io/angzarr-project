@@ -1,5 +1,5 @@
-//! One error, stable codes (RULED(14); `UnitBusy` is RULED(A) in contract.rs). Red because the codes,
-//! args, recovery and English are stubbed.
+//! One error, stable codes (RULED(14); `UnitBusy` is RULED(A) in contract.rs). The codes, args,
+//! recovery and English.
 
 use std::collections::BTreeSet;
 

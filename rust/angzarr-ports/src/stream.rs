@@ -44,7 +44,11 @@ impl<'a> StreamRef<'a> {
 
     /// The stream as a wire `Cover`.
     pub fn to_cover(&self) -> Cover {
-        todo!("StreamRef::to_cover is a proposal")
+        Cover {
+            domain: self.domain.to_string(),
+            root: Some(self.root.into()),
+            edition: self.edition.map(str::to_string),
+        }
     }
 }
 
@@ -56,8 +60,20 @@ impl<'a> TryFrom<&'a Cover> for StreamRef<'a> {
     type Error = StoreError;
 
     fn try_from(cover: &'a Cover) -> Result<Self, StoreError> {
-        let _ = cover;
-        todo!("StreamRef::try_from(&Cover) is a proposal")
+        let malformed = || StoreError::MalformedStream {
+            stream: cover.clone(),
+        };
+        let root = cover.root.as_ref().ok_or_else(malformed)?;
+        let root = Uuid::try_from(root).map_err(|_| malformed())?;
+        let edition = match cover.edition.as_deref() {
+            Some("") => return Err(malformed()),
+            edition => edition,
+        };
+        Ok(StreamRef {
+            domain: &cover.domain,
+            edition,
+            root,
+        })
     }
 }
 

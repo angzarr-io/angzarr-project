@@ -6,9 +6,8 @@
 //! `Broken` wraps the shipped `MemoryStore` and gets exactly one thing
 //! wrong, its [`Bug`]. A check "catches" a bug when it panics on that store
 //! with anything but `todo!()`'s "not yet implemented": a stub's panic is no
-//! catch. So, while `MemoryStore` is stubbed, every test here is red for
-//! that reason, and turns green only when the check really catches the bug
-//! on a working store. With no bug (`Honest`), `Broken` must pass every
+//! catch, so a test here is green only when the check really catches the
+//! bug on a working store. With no bug (`Honest`), `Broken` must pass every
 //! check, so a check that fails it fails it for its bug.
 
 #![cfg(not(target_arch = "wasm32"))]
@@ -269,7 +268,21 @@ impl Broken {
         }
     }
 
+    /// Whether `s` is in a created edition. Asked of the registry only by
+    /// the edition bugs, whose checks are pending the per-stream editions
+    /// spec: the shipped store's registry is not implemented yet.
     async fn created_edition(&self, s: StreamRef<'_>) -> bool {
+        let edition_bug = matches!(
+            self.bug,
+            Bug::EditionNoFallThrough
+                | Bug::EditionFallsThroughPastDivergence
+                | Bug::ReadUnitNoFallThrough
+                | Bug::ReadUnitHeadNoFallThrough
+                | Bug::ReadUnitSnapshotFallsThrough
+        );
+        if !edition_bug {
+            return false;
+        }
         match s.edition {
             Some(name) => matches!(Editions::edition(&self.inner, name).await, Ok(Some(_))),
             None => false,
@@ -536,6 +549,26 @@ impl UnitOfWork for Broken {
     }
 }
 
+impl BrokenUnit {
+    /// Land this unit's appends and positions straight in the store, all
+    /// but `lost`'s: what [`Bug::LandsAroundAConflict`] does.
+    async fn land_around(&self, lost: &Cover) {
+        let store = &self.store.inner;
+        for (s, expected, pages) in &self.appended {
+            if s.get().to_cover() != *lost {
+                let _ = store.append(s.get(), *expected, pages).await;
+            }
+        }
+        for (handler, s, next) in &self.puts {
+            let key = PositionKey {
+                handler,
+                stream: s.get(),
+            };
+            let _ = store.put_position(key, *next).await;
+        }
+    }
+}
+
 impl Unit for BrokenUnit {
     async fn append(
         &mut self,
@@ -546,7 +579,22 @@ impl Unit for BrokenUnit {
         if self.store.is(Bug::UnitWritesThrough) {
             return self.store.append(stream, expected, pages).await;
         }
-        let length = self.inner.append(stream, expected, pages).await?;
+        let length = match self.inner.append(stream, expected, pages).await {
+            Err(StoreError::Conflict {
+                stream: lost,
+                expected,
+                actual,
+            }) if self.store.is(Bug::LandsAroundAConflict) => {
+                // A race lost at the append: land the unit's other writes.
+                self.land_around(&lost).await;
+                return Err(StoreError::Conflict {
+                    stream: lost,
+                    expected,
+                    actual,
+                });
+            }
+            landed => landed?,
+        };
         self.appended
             .push((Owned::of(stream), expected, pages.to_vec()));
         Ok(length)
@@ -1199,6 +1247,41 @@ fn the_purge_checks_catch_what_a_purge_leaves_or_lowers() {
 }
 
 #[test]
+fn the_read_unit_head_and_snapshot_checks_catch_a_live_unit() {
+    catches!(
+        a_read_unit_heads_and_snapshots_as_it_began,
+        broken_pair,
+        ReadUnitHeadIsLive,
+        ReadUnitSnapshotIsLive,
+    );
+    catches!(
+        a_read_unit_keeps_the_head_and_snapshot_of_a_stream_purged_after_it_began,
+        broken_pair,
+        ReadUnitHeadIsLive,
+        ReadUnitSnapshotIsLive,
+    );
+}
+
+#[test]
+fn the_read_unit_checks_catch_a_live_unit() {
+    catches!(
+        a_read_unit_sees_the_store_as_it_began,
+        broken_pair,
+        ReadUnitIsLive
+    );
+    catches!(
+        a_read_unit_keeps_a_stream_purged_after_it_began,
+        broken_pair,
+        ReadUnitIsLive
+    );
+}
+
+// ------- PENDING the per-stream editions spec (owner ruling 2026-10-28):
+// the editions, read_editions and read_unknown_edition sections' meta-tests,
+// kept and not run until those sections are reworked.
+
+#[test]
+#[ignore = "pending the per-stream editions spec, owner ruling 2026-10-28"]
 fn the_edition_checks_catch_a_lax_registry_and_a_wrong_fall_through() {
     catches!(
         an_edition_is_created_once_and_recorded,
@@ -1229,12 +1312,12 @@ fn the_edition_checks_catch_a_lax_registry_and_a_wrong_fall_through() {
 }
 
 #[test]
-fn the_read_unit_head_and_snapshot_checks_catch_a_live_or_lax_unit() {
+#[ignore = "pending the per-stream editions spec, owner ruling 2026-10-28"]
+fn the_read_unit_edition_checks_catch_a_lax_unit_and_a_wrong_fall_through() {
     catches!(
-        a_read_unit_heads_and_snapshots_as_it_began,
+        a_read_unit_refuses_an_edition_never_created,
         broken_pair,
-        ReadUnitHeadIsLive,
-        ReadUnitSnapshotIsLive,
+        ReadUnitAnyEdition
     );
     catches!(
         a_read_unit_refuses_heads_and_snapshots_in_an_edition_never_created,
@@ -1243,10 +1326,9 @@ fn the_read_unit_head_and_snapshot_checks_catch_a_live_or_lax_unit() {
         ReadUnitSnapshotAnyEdition,
     );
     catches!(
-        a_read_unit_keeps_the_head_and_snapshot_of_a_stream_purged_after_it_began,
-        broken_pair,
-        ReadUnitHeadIsLive,
-        ReadUnitSnapshotIsLive,
+        a_read_unit_reads_a_created_edition_through_to_main,
+        broken,
+        ReadUnitNoFallThrough
     );
     catches!(
         a_read_unit_heads_a_created_edition_through_to_main_but_not_its_snapshots,
@@ -1257,26 +1339,20 @@ fn the_read_unit_head_and_snapshot_checks_catch_a_live_or_lax_unit() {
 }
 
 #[test]
-fn the_read_unit_checks_catch_a_live_unit_and_a_wrong_edition() {
-    catches!(
-        a_read_unit_sees_the_store_as_it_began,
-        broken_pair,
-        ReadUnitIsLive
-    );
-    catches!(
-        a_read_unit_refuses_an_edition_never_created,
-        broken_pair,
-        ReadUnitAnyEdition
-    );
-    catches!(
-        a_read_unit_keeps_a_stream_purged_after_it_began,
-        broken_pair,
-        ReadUnitIsLive
-    );
-    catches!(
+#[ignore = "pending the per-stream editions spec, owner ruling 2026-10-28"]
+fn an_honest_broken_store_passes_the_pending_edition_checks() {
+    passes!(broken;
+        an_edition_is_created_once_and_recorded,
+        an_edition_create_refuses_a_bad_request,
+        an_edition_reads_mains_events_below_its_divergence_then_its_own,
+        deleting_an_edition_removes_it_and_its_streams_never_mains,
+        deleting_an_edition_refuses_an_empty_or_unknown_name,
         a_read_unit_reads_a_created_edition_through_to_main,
-        broken,
-        ReadUnitNoFallThrough
+        a_read_unit_heads_a_created_edition_through_to_main_but_not_its_snapshots,
+    );
+    passes!(broken_pair;
+        a_read_unit_refuses_an_edition_never_created,
+        a_read_unit_refuses_heads_and_snapshots_in_an_edition_never_created,
     );
 }
 
@@ -1384,13 +1460,6 @@ fn an_honest_broken_store_passes_every_check() {
         a_purge_in_a_unit_of_work_lands_at_commit_or_not_at_all,
         a_unit_of_work_purges_its_own_appends_and_appends_after,
         a_purge_never_lowers_the_commit_position,
-        an_edition_is_created_once_and_recorded,
-        an_edition_create_refuses_a_bad_request,
-        an_edition_reads_mains_events_below_its_divergence_then_its_own,
-        deleting_an_edition_removes_it_and_its_streams_never_mains,
-        deleting_an_edition_refuses_an_empty_or_unknown_name,
-        a_read_unit_reads_a_created_edition_through_to_main,
-        a_read_unit_heads_a_created_edition_through_to_main_but_not_its_snapshots,
         a_change_token_changes_when_its_own_store_commits,
         read_until_time_is_the_prefix_recorded_by_then,
         read_by_correlation_gives_one_book_per_stream,
@@ -1406,10 +1475,8 @@ fn an_honest_broken_store_passes_every_check() {
         the_commit_position_counts_every_handles_commits,
         a_unit_that_lost_a_race_lands_nothing,
         a_read_unit_sees_the_store_as_it_began,
-        a_read_unit_refuses_an_edition_never_created,
         a_read_unit_keeps_a_stream_purged_after_it_began,
         a_read_unit_heads_and_snapshots_as_it_began,
-        a_read_unit_refuses_heads_and_snapshots_in_an_edition_never_created,
         a_read_unit_keeps_the_head_and_snapshot_of_a_stream_purged_after_it_began,
         a_change_token_changes_when_another_handle_commits,
     );
