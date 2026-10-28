@@ -1,7 +1,10 @@
 # Future
 
-What angzarr doesn't have yet, why each one matters, and the shape we expect it to take. Nothing here is
-decided. Each entry ends with what would settle it.
+What angzarr doesn't have yet, why each one matters, and the shape we expect it to take. Each entry ends
+with what would settle it.
+
+Order: **timers come first, then forgetting personal data.** Set-based validation and outbound side
+effects are not yet scheduled.
 
 ## Why there is no saga primitive
 
@@ -31,7 +34,7 @@ The cost is more hops and more streams than a single saga class: event → polic
 → process-manager events → policy → command. That cost is real in the distributed system and close to free
 in angzarr-embedded, where a process manager can be built into one binary from standard components.
 
-## Timers and deadlines
+## Timers and deadlines (first)
 
 *"If no payment arrives within 15 minutes, cancel the order."*
 
@@ -43,9 +46,14 @@ What's missing is anything that produces those facts. There is no scheduler comp
 "deliver this fact at time T". Other frameworks make this central: Axon has `DeadlineManager`, NServiceBus
 has `RequestTimeout`, and Temporal is built around timers.
 
-Expected shape: a standard component, not a new primitive. A scheduler domain stores "deliver fact F to
-stream S at T" as its own events, and something that watches the clock emits F once T passes. Cancelling
-a deadline is a command to that domain.
+Decided shape: timers emit facts, in two forms:
+
+- **after a duration:** deliver fact F to stream S once N has elapsed;
+- **at an instant:** deliver fact F to stream S at time T.
+
+This is a standard component, not a new primitive. A scheduler domain stores each pending timer as its own
+events, and something that watches the clock emits the fact once the timer is due. Cancelling a timer is a
+command to that domain.
 
 Wanted first by: turn timers in the blackjack example, and taskloom's deferred tasks, which wake on a
 revive condition.
@@ -87,20 +95,22 @@ so a retry stays idempotent. The external system's answer comes back in as a fac
 Settled by: a guide page and one example that sends and retries an external call without sending it twice,
 plus a decision on whether this needs a named component.
 
-## Forgetting personal data
+## Forgetting personal data (second)
 
 *A GDPR erasure request.*
 
 Event stores are append-only, and deleting an edition doesn't cover this: erasure targets one person's
-data across every stream they appear in. The usual technique is crypto-shredding: encrypt personal fields
-with a key per data subject, and delete the key to forget them. Upcasters and projections then have to
-cope with fields that can no longer be decrypted.
+data across every stream they appear in.
+
+Decided technique: **crypto-shredding.** Personal fields are encrypted with a key per data subject, and
+destroying the key forgets them everywhere at once, without rewriting any stream. Upcasters and
+projections then have to cope with fields that can no longer be decrypted.
 
 This isn't needed for the proof of concept, but it is hard to retrofit onto data that is already stored,
-so it should be decided before real personal data is.
+so it should land before real personal data does.
 
-Settled by: a decision on the technique and on where keys live, and a store-suite check that a shredded
-subject's fields are unreadable after the key is deleted.
+Settled by: a decision on where keys live and how a field is marked personal, and a store-suite check that
+a shredded subject's fields are unreadable once the key is destroyed.
 
 ## Already covered
 
