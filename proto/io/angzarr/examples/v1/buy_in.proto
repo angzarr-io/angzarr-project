@@ -28,6 +28,12 @@ option ruby_package = "Angzarr::Examples";
 //   table  PlayerSeated   AWAITING_SEAT -> AWAITING_CAPTURE BuyInSeated     saga-buy-in-player -> player CaptureFunds
 //   player FundsCaptured  AWAITING_CAPTURE -> COMPLETED     BuyInCompleted  —
 //
+// SeatHeld is the PM's one starting trigger (its (event) entry sets
+// starts; ruling B1, decision 14.31): it alone starts an instance for a
+// correlation the PM has not seen. A FundsHeld, PlayerSeated or
+// FundsCaptured for a correlation with no buy-in instance is skipped by
+// the PM's coordinator, and the handler never sees it.
+//
 // The failure branches (the wallet refuses HoldFunds, the table refuses
 // ConfirmSeat, and the PM releases whichever half went through) are not part
 // of this port. They reached the PM as rejection notifications through the

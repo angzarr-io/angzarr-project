@@ -182,12 +182,14 @@ message ShoeShuffled {
   repeated Card cards = 4;
 }
 
-// A seat is held for a buy-in; triggers pmg-buy-in.
+// A seat is held for a buy-in; triggers pmg-buy-in, and is its one
+// starting trigger (starts: ruling B1; see buy_in.proto).
 message SeatHeld {
   option (io.angzarr.v1.event) = {component: "io.angzarr.examples.v1.TableState"};
   option (io.angzarr.v1.event) = {
     component: "io.angzarr.examples.v1.BuyInState"
     domain: "table"
+    starts: true
   };
   bytes buy_in_id = 1;
   bytes player_root = 2;
