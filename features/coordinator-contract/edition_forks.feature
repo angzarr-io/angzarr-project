@@ -6,8 +6,10 @@ Feature: Editions are per-stream forks, and the fork travels with the data
   with the data: a saga's command in X that reaches a stream with no fork
   in X forks it on arrival. A command from outside to an unforked stream is
   refused until propagated. There is no edition registry: an edition is
-  known while any fork event of it exists. Scenarios tagged @proposed
-  follow the drafter's proposals flagged in 14.32.
+  known while any stream of it is forked and not yet deleted. Deletion is
+  a tombstone, sequenced after the work in flight, travelling the same
+  saga flows. Main knows nothing of an edition. The scenarios tagged as
+  proposed follow the drafter's choices flagged in 14.32.
 
   Background:
     Given a "player" aggregate "p-1" with 5 events on the main timeline
@@ -56,7 +58,7 @@ Feature: Editions are per-stream forks, and the fork travels with the data
   # C-0632 (a propagation hop bound) is retired: the fork travels with the
   # data, which is its only bound (decision 14.32).
 
-  @editions @proposed
+  @editions
   @C-0633
   Scenario Outline: An outside input to a stream not forked in the edition is refused until propagated
     Given "player" "p-1" is forked into edition "what-if"
@@ -102,23 +104,59 @@ Feature: Editions are per-stream forks, and the fork travels with the data
 
   @editions
   @C-0637
-  Scenario: Deleting an edition removes its rows in every store
-    Given "player" "p-1" is forked into edition "what-if"
-    And a SeatPlayer command has forked "table" "t-1" in edition "what-if"
-    When DeleteEdition deletes "what-if"
-    Then no event, fork event, snapshot or projection of edition "what-if" remains in any store
-    And the main timelines of "player" "p-1" and "table" "t-1" are unchanged
-
-  @editions @proposed
-  @C-0640
-  Scenario: A saga command racing a delete does not resurrect the edition
+  Scenario: A delete takes effect after the in-flight work before it
     Given "player" "p-1" is forked into edition "what-if"
     And "player" "p-1" recorded PlayerReady in edition "what-if", and its SeatPlayer is still in the saga's outbox
     When DeleteEdition deletes "what-if"
-    And the SeatPlayer command then reaches "table" "t-1"
-    Then the arrival fork finds the fork of "player" "p-1" gone, and the command is refused NOT_FOUND
-    And the saga's coordinator discards the command, logged and not dead-lettered
-    And "table" "t-1" holds no event in edition "what-if"
+    Then "player" "p-1" in edition "what-if" gains an EditionDeleted tombstone after PlayerReady
+    And the SeatPlayer command reaches "table" "t-1" first, forking it and being handled in "what-if"
+    And only then does "table" "t-1" in edition "what-if" gain its own EditionDeleted tombstone
+    And nothing polled, waited on a timer or retried
+
+  @editions @proposed
+  @C-0640
+  Scenario: Each deleted stream keeps only its tombstone, and a later arrival forks it again
+    Given edition "what-if" was deleted, and "table" "t-1" in edition "what-if" holds its tombstone
+    Then "table" "t-1" in edition "what-if" holds no event, snapshot or projection below its tombstone
+    And reading "table" "t-1" in edition "what-if" is answered NOT_FOUND
+    When a saga command in edition "what-if" later arrives at "table" "t-1"
+    Then "table" "t-1" in edition "what-if" gains a new EditionForked event after the tombstone
+    And the command is handled, with no re-check of the delete
+    And ListEditions lists edition "what-if" again, for the user to remediate
+
+  @editions
+  @C-0641
+  Scenario: A delete that fails is dead-lettered and alerted
+    Given "player" "p-1" is forked into edition "what-if"
+    And the edition store refuses to remove the rows of "player" "p-1" in edition "what-if"
+    When DeleteEdition deletes "what-if"
+    Then the failed deletion is dead-lettered and an alert is raised
+
+  @editions
+  @C-0642
+  Scenario Outline: Creating and deleting an edition leaves main byte-for-byte unchanged
+    Given a snapshot of main's <part> for "player" "p-1" and "table" "t-1"
+    When ForkStream forks "player" "p-1" into edition "what-if"
+    And "player" "p-1" records PlayerReady in edition "what-if", forking "table" "t-1"
+    And DeleteEdition deletes "what-if" and the deletion completes
+    Then main's <part> are byte-for-byte unchanged
+
+    Examples:
+      | part                          |
+      | streams                       |
+      | saga outbox entries           |
+      | saga and projector positions  |
+      | projections                   |
+
+  @editions
+  @C-0643
+  Scenario: Edition lifecycle events are never written to, or read from, main
+    When ForkStream forks "player" "p-1" into edition "what-if"
+    And ListEditions is called
+    And DeleteEdition deletes "what-if"
+    Then no EditionForked or EditionDeleted event exists on any main stream
+    And ListEditions and the existence check read only the edition store
+    And main's coordinators, projectors and readers received nothing about edition "what-if"
 
   @editions
   @C-0638
