@@ -189,8 +189,8 @@ message SagaResponse {
   // refused the same way, as is a Fact or a fact_origin (a saga's business
   // code never emits a Fact; its refusal facts come from OnRefused;
   // SagaService, Refusals). A command of a type the saga does not list in
-  // ComponentOptions.sends is refused the same way, when it lists any. A command for a process manager
-  // names the instance its trigger's correlation names (cover root = the
+  // ComponentOptions.sends is refused the same way, when it lists any. A
+  // command for a process manager names the instance its trigger's correlation names (cover root = the
   // trigger's correlation_id; types.proto, the command_identity region);
   // any other root is refused the same way. A command whose cover names a
   // domain other than the saga's one destination
