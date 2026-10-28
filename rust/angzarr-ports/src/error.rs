@@ -49,6 +49,10 @@ pub enum StoreError {
         sequence: u64,
         reason: Cause,
     },
+    /// A second unit of work was begun on a handle that cannot serve two
+    /// at once (one SQLite connection, already in a unit). Refused at once,
+    /// never waited on: the unit already open may belong to the caller.
+    UnitBusy,
     /// A stream in an edition the store never created, where only created
     /// editions are accepted (EA-2: NOT_FOUND). Nothing was read or written.
     UnknownEdition { stream: Cover },
@@ -70,7 +74,7 @@ pub enum StoreError {
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Recovery {
     /// Run again from the dedup lookup, in a fresh unit: a conflict, the
-    /// store unavailable.
+    /// store unavailable, a busy handle.
     Retry,
     /// The request was malformed or names what does not exist. Fix it.
     Invalid,

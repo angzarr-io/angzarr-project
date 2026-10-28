@@ -1,4 +1,4 @@
-//! The stream key and the wire `Cover` (OPEN(1), OPEN(18) in contract.rs).
+//! The stream key and the wire `Cover` (RULED(1) in contract.rs).
 //! Red because the conversions are stubbed.
 
 use angzarr_ports::angzarr_proto::v1::{self, Cover};
@@ -30,7 +30,7 @@ fn a_stream_ref_round_trips_through_its_cover() {
 
 /// Refused once, at the boundary, so no backend sees a malformed key: the
 /// wire's INVALID_ARGUMENT. A `StreamRef` built by hand is not checked
-/// (OPEN(18) is about this line: its fields are public).
+/// (its fields are public).
 #[test]
 fn a_malformed_cover_is_no_stream() {
     for (bad, what) in [

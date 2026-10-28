@@ -1,18 +1,18 @@
-//! The root ports' futures are `Send`: a server spawns a whole unit of work,
-//! generic over the store, onto a multi-threaded runtime (ruling 3; OPEN(12)
-//! in contract.rs). The spawning compiling is half the test; running it is
-//! red because the reference store is stubbed.
+//! On a native target the ports' futures are `Send` (RULED(12): `MaybeSend`
+//! is `Send` there): a server spawns a whole unit of work, generic over the
+//! store, onto a multi-threaded runtime. The spawning compiling is half the
+//! test; running it is red because `MemoryStore` is stubbed.
 
-#[cfg(not(feature = "contract"))]
-compile_error!("the suite is behind the `contract` feature: run `just test`");
+#![cfg(not(target_arch = "wasm32"))]
 
-mod memory;
+#[cfg(not(all(feature = "contract", feature = "memory")))]
+compile_error!("run `just test` (every feature)");
 
 use std::sync::Arc;
 
 use angzarr_ports::contract::{main_stream, page};
+use angzarr_ports::memory::MemoryStore;
 use angzarr_ports::{EventStore, PositionKey, Store, StoreError, Unit, UnitOfWork};
-use memory::MemoryStore;
 
 /// annals' chain, generic: a unit over two streams and a position, every
 /// await inside one spawned task. Compiles only if every port future is

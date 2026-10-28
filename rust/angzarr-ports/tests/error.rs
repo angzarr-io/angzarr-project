@@ -1,4 +1,4 @@
-//! One error, stable codes (OPEN(14) in contract.rs). Red because the codes,
+//! One error, stable codes (RULED(14); `UnitBusy` is OPEN(A) in contract.rs). Red because the codes,
 //! args, recovery and English are stubbed.
 
 use std::collections::BTreeSet;
@@ -60,6 +60,7 @@ fn every() -> Vec<(StoreError, &'static str, Recovery)> {
             "angzarr-ports-store-unreadable",
             Bug,
         ),
+        (StoreError::UnitBusy, "angzarr-ports-store-unit-busy", Retry),
         (
             StoreError::UnknownEdition { stream: stream() },
             "angzarr-ports-store-unknown-edition",
@@ -146,6 +147,7 @@ fn args_carry_the_data_by_name() {
         vec![("cause", Arg::Cause(io()))]
     );
     assert_eq!(StoreError::EditionNameRequired.args(), vec![]);
+    assert_eq!(StoreError::UnitBusy.args(), vec![]);
 }
 
 /// The English fallback names what the args name, for logs.

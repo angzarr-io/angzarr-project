@@ -1,55 +1,63 @@
-//! The reference backend the suite is written against: streams in memory.
+//! A real backend in memory: every port and every opt-in capability, held
+//! to every section of the conformance suite (ruling 13). Not a test toy:
+//! tests, games and anything else that needs no durability use it as their
+//! store. It keeps nothing past the process.
 //!
-//! **Stubbed.** Every operation is `todo!()`, so each contract test is red
-//! because the reference backend does not yet do what the check asks, and
-//! for no other reason. Once the signatures are approved this becomes a
-//! real store (a candidate for the crate itself, behind a `memory` feature:
-//! OPEN(13) in `contract.rs`).
+//! `MemoryStore` is a handle: clones share one store (so two handles are
+//! two clones), and every operation is atomic under one lock. It serves any
+//! number of units at once: a unit holds its writes and checks them at
+//! commit, so a race is refused there.
 //!
-//! `MemoryStore` is a handle: clones share one store, which is how the
-//! `pair` section gets two handles on it.
-
-#![allow(dead_code)]
+//! **A proposal.** Every operation is `todo!()` until the ports are
+//! approved; the suite run against it (`tests/contract.rs`) is what it must
+//! then pass.
 
 use std::sync::{Arc, Mutex};
 
-use angzarr_ports::angzarr_proto::v1::{
-    Cover, CreateEditionRequest, Edition, EventPage, EventRef, Snapshot,
-};
-use angzarr_ports::{
-    Editions, EventStore, PositionKey, PositionStore, Purge, Slice, SnapshotStore, StoreError,
-    StreamRef, Unit, UnitOfWork, UnitPurge, Uuid,
-};
+use angzarr_proto::uuid::Uuid;
+use angzarr_proto::v1::{Cover, CreateEditionRequest, EventBook, EventPage, EventRef, Snapshot};
 use prost_types::Timestamp;
 
-/// What every handle shares. Empty until the store is written.
+use crate::error::StoreError;
+use crate::store::{
+    ChangeToken, EditionRecord, Editions, EventStore, ListStreams, Outbox, OutboxEntry,
+    PositionStore, Purge, ReadByCorrelation, ReadStore, ReadUnit, ReadUntilTime, SnapshotStore,
+    Unit, UnitOfWork, UnitOutbox, UnitPurge, Watch,
+};
+use crate::stream::{PositionKey, Slice, StreamRef};
+
+const STUB: &str = "MemoryStore is a proposal: implemented once the ports are approved";
+
+/// Everything every handle shares. Empty until implemented.
 #[derive(Default)]
 struct State {}
 
+/// The in-memory store. See the module.
 #[derive(Clone, Default)]
 pub struct MemoryStore {
+    #[allow(dead_code)] // read once implemented
     state: Arc<Mutex<State>>,
 }
 
 impl MemoryStore {
+    /// A new, empty store.
     pub fn new() -> MemoryStore {
         MemoryStore::default()
     }
-
-    /// Two handles on one fresh store.
-    pub fn pair() -> (MemoryStore, MemoryStore) {
-        let a = MemoryStore::new();
-        (a.clone(), a)
-    }
 }
 
-/// A unit of work: its pending writes, applied at commit. Owns a handle, so
-/// it borrows nothing.
+/// A unit of work on a [`MemoryStore`]: its pending writes, checked and
+/// applied at commit. Owns a handle, so it borrows nothing.
 pub struct MemoryUnit {
+    #[allow(dead_code)] // read once implemented
     store: MemoryStore,
 }
 
-const STUB: &str = "the reference MemoryStore is stubbed until the signatures are approved";
+/// A read-only unit on a [`MemoryStore`]: the store as it stood at begin.
+pub struct MemoryRead {
+    #[allow(dead_code)] // read once implemented
+    store: MemoryStore,
+}
 
 impl EventStore for MemoryStore {
     async fn append(
@@ -61,7 +69,6 @@ impl EventStore for MemoryStore {
         let _ = (stream, expected, pages);
         todo!("{STUB}")
     }
-
     async fn read(
         &self,
         stream: StreamRef<'_>,
@@ -71,7 +78,6 @@ impl EventStore for MemoryStore {
         let _ = (stream, from, to);
         todo!("{STUB}")
     }
-
     async fn find_command(
         &self,
         stream: StreamRef<'_>,
@@ -80,7 +86,6 @@ impl EventStore for MemoryStore {
         let _ = (stream, command_id);
         todo!("{STUB}")
     }
-
     async fn find_triggered(
         &self,
         stream: StreamRef<'_>,
@@ -89,12 +94,10 @@ impl EventStore for MemoryStore {
         let _ = (stream, trigger);
         todo!("{STUB}")
     }
-
     async fn covers(&self, domain: &str) -> Result<Vec<Cover>, StoreError> {
         let _ = domain;
         todo!("{STUB}")
     }
-
     async fn commit_position(&self) -> Result<u64, StoreError> {
         todo!("{STUB}")
     }
@@ -105,7 +108,6 @@ impl SnapshotStore for MemoryStore {
         let _ = stream;
         todo!("{STUB}")
     }
-
     async fn write_snapshot(
         &self,
         stream: StreamRef<'_>,
@@ -121,7 +123,6 @@ impl PositionStore for MemoryStore {
         let _ = key;
         todo!("{STUB}")
     }
-
     async fn put_position(&self, key: PositionKey<'_>, next: u64) -> Result<(), StoreError> {
         let _ = (key, next);
         todo!("{STUB}")
@@ -130,7 +131,6 @@ impl PositionStore for MemoryStore {
 
 impl UnitOfWork for MemoryStore {
     type Unit<'s> = MemoryUnit;
-
     async fn begin(&self) -> Result<MemoryUnit, StoreError> {
         todo!("{STUB}")
     }
@@ -146,7 +146,6 @@ impl Unit for MemoryUnit {
         let _ = (stream, expected, pages);
         todo!("{STUB}")
     }
-
     async fn read(
         &mut self,
         stream: StreamRef<'_>,
@@ -156,7 +155,6 @@ impl Unit for MemoryUnit {
         let _ = (stream, from, to);
         todo!("{STUB}")
     }
-
     async fn find_command(
         &mut self,
         stream: StreamRef<'_>,
@@ -165,7 +163,6 @@ impl Unit for MemoryUnit {
         let _ = (stream, command_id);
         todo!("{STUB}")
     }
-
     async fn find_triggered(
         &mut self,
         stream: StreamRef<'_>,
@@ -174,12 +171,10 @@ impl Unit for MemoryUnit {
         let _ = (stream, trigger);
         todo!("{STUB}")
     }
-
     async fn covers(&mut self, domain: &str) -> Result<Vec<Cover>, StoreError> {
         let _ = domain;
         todo!("{STUB}")
     }
-
     async fn read_snapshot(
         &mut self,
         stream: StreamRef<'_>,
@@ -187,21 +182,17 @@ impl Unit for MemoryUnit {
         let _ = stream;
         todo!("{STUB}")
     }
-
     async fn position(&mut self, key: PositionKey<'_>) -> Result<u64, StoreError> {
         let _ = key;
         todo!("{STUB}")
     }
-
     async fn put_position(&mut self, key: PositionKey<'_>, next: u64) -> Result<(), StoreError> {
         let _ = (key, next);
         todo!("{STUB}")
     }
-
     async fn commit(self) -> Result<(), StoreError> {
         todo!("{STUB}")
     }
-
     async fn abort(self) -> Result<(), StoreError> {
         todo!("{STUB}")
     }
@@ -226,18 +217,92 @@ impl Editions for MemoryStore {
         &self,
         request: &CreateEditionRequest,
         now: Timestamp,
-    ) -> Result<Edition, StoreError> {
+    ) -> Result<EditionRecord, StoreError> {
         let _ = (request, now);
         todo!("{STUB}")
     }
-
     async fn delete_edition(&self, name: &str) -> Result<(), StoreError> {
         let _ = name;
         todo!("{STUB}")
     }
-
-    async fn edition(&self, name: &str) -> Result<Option<Edition>, StoreError> {
+    async fn edition(&self, name: &str) -> Result<Option<EditionRecord>, StoreError> {
         let _ = name;
+        todo!("{STUB}")
+    }
+}
+
+impl ReadStore for MemoryStore {
+    type Reads<'s> = MemoryRead;
+    async fn begin_read(&self) -> Result<MemoryRead, StoreError> {
+        todo!("{STUB}")
+    }
+}
+
+impl ReadUnit for MemoryRead {
+    async fn covers(&mut self, domain: &str) -> Result<Vec<Cover>, StoreError> {
+        let _ = domain;
+        todo!("{STUB}")
+    }
+    async fn read(
+        &mut self,
+        stream: StreamRef<'_>,
+        from: u64,
+        to: Option<u64>,
+    ) -> Result<Slice, StoreError> {
+        let _ = (stream, from, to);
+        todo!("{STUB}")
+    }
+}
+
+impl Watch for MemoryStore {
+    async fn change_token(&self) -> Result<ChangeToken, StoreError> {
+        todo!("{STUB}")
+    }
+}
+
+impl ReadUntilTime for MemoryStore {
+    async fn read_until_time(
+        &self,
+        stream: StreamRef<'_>,
+        until: &Timestamp,
+    ) -> Result<Slice, StoreError> {
+        let _ = (stream, until);
+        todo!("{STUB}")
+    }
+}
+
+impl ReadByCorrelation for MemoryStore {
+    async fn read_by_correlation(
+        &self,
+        domain: Option<&str>,
+        edition: Option<&str>,
+        correlation_id: Uuid,
+    ) -> Result<Vec<EventBook>, StoreError> {
+        let _ = (domain, edition, correlation_id);
+        todo!("{STUB}")
+    }
+}
+
+impl ListStreams for MemoryStore {
+    async fn list_streams(&self) -> Result<Vec<Cover>, StoreError> {
+        todo!("{STUB}")
+    }
+}
+
+impl Outbox for MemoryStore {
+    async fn pending(&self, limit: usize) -> Result<Vec<OutboxEntry>, StoreError> {
+        let _ = limit;
+        todo!("{STUB}")
+    }
+    async fn clear(&self, ids: &[Uuid]) -> Result<u64, StoreError> {
+        let _ = ids;
+        todo!("{STUB}")
+    }
+}
+
+impl UnitOutbox for MemoryUnit {
+    async fn put_outbox(&mut self, entries: &[OutboxEntry]) -> Result<(), StoreError> {
+        let _ = entries;
         todo!("{STUB}")
     }
 }

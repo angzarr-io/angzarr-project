@@ -1,64 +1,68 @@
 //! angzarr's shared storage contract: ONE set of store ports, used by both
-//! angzarr core and annals, and ONE conformance suite every backend runs.
+//! angzarr core and annals, ONE conformance suite every backend runs, and
+//! an in-memory backend that passes it.
 //!
-//! **A proposal (red).** The signatures here are for review; every body is
-//! `todo!()` until they are approved. The tests under `tests/` pin them,
-//! and mark each open design choice `OPEN(n)` with a proposed answer.
+//! **A proposal (red).** The signatures here are for review; the bodies of
+//! the dyn adapter, the conversions, the error codes and the in-memory
+//! store are `todo!()` until they are approved. The tests under `tests/`
+//! pin every trait and method, and record each design choice as RULED or
+//! OPEN (`tests/contract.rs`).
 //!
 //! # The ports
 //!
-//! | Port | What it keeps | Receiver |
+//! | Port | What it keeps | |
 //! |---|---|---|
-//! | [`EventStore`] | one append-only log of opaque [`EventPage`]s per stream, the dedup lookups, the global commit position | `&self` |
-//! | [`SnapshotStore`] | the newest [`Snapshot`] per stream; the CALLER judges whether it is usable | `&self` |
-//! | [`PositionStore`] | a handler's next sequence per stream | `&self` |
-//! | [`UnitOfWork`] | opens a [`Unit`]: several writes across streams, positions included, committed or aborted together | `&self` (begin), `&mut self` (the unit) |
-//! | [`Purge`], [`UnitPurge`] | opt-in: delete a stream (annals) | `&self` / `&mut self` |
-//! | [`Editions`] | opt-in: the edition registry (EA-1) | `&self` |
+//! | [`EventStore`] | one append-only log of opaque pages per stream, the dedup lookups, the commit position | base |
+//! | [`SnapshotStore`] | the snapshot last written per stream; the caller judges it | base |
+//! | [`PositionStore`] | a handler's next sequence per stream | base |
+//! | [`UnitOfWork`] / [`Unit`] | appends and positions across streams, committed or aborted together | base |
+//! | [`Purge`] / [`UnitPurge`] | delete a stream | opt-in |
+//! | [`Editions`] | the edition registry (EA-1), and the store's fall-through to main (EA-3) | opt-in |
+//! | [`ReadStore`] / [`ReadUnit`] | reads that all see one moment | opt-in |
+//! | [`Watch`] | a cheap "anything committed?" | opt-in |
+//! | [`ReadUntilTime`], [`ReadByCorrelation`], [`ListStreams`] | core's queries | opt-in |
+//! | [`Outbox`] / [`UnitOutbox`] | the transactional outbox, kind-agnostic | opt-in |
 //!
-//! A plain [`EventStore::append`] is an autocommitted unit of one stream:
-//! core's 5.6 checkpoint-plus-outbox and annals' multi-stream chain are the
-//! same [`UnitOfWork`] at two widths.
+//! # Send, wasm, dyn
 //!
-//! # Async, Send, local, dyn
+//! - **One trait set, native async.** Each method returns
+//!   `impl Future + MaybeSend`; a backend writes `async fn`.
+//!   [`MaybeSend`]/[`MaybeSync`] are `Send`/`Sync` on every target but
+//!   `wasm32`, where a browser backend's futures need not be. **A native
+//!   backend whose futures are not `Send` is not supported.**
+//! - **dyn.** [`dyn_store`] boxes the ports for core's `Arc<dyn DynStore>`.
 //!
-//! - **Native async.** Each port method returns `impl Future + Send`; a
-//!   backend writes it as a plain `async fn`. No runtime is assumed.
-//! - **Browser wasm.** [`local`] holds the same ports with futures that need
-//!   not be `Send` (an IndexedDB adapter's). Every `Send` port is also its
-//!   local twin by a blanket impl, so code written over the local ports (the
-//!   conformance suite is) runs on either.
-//! - **dyn.** Native async traits are not object-safe, so [`dyn_store`]
-//!   boxes them: `Arc<dyn DynStore>` for core's wiring. annals stays
-//!   generic and pays no box.
+//! # Features
 //!
-//! # The suite
-//!
-//! Behind the `contract` feature: [`contract`] holds one `async fn` per
-//! check, generic over the local ports, and [`store_contract!`] stamps one
-//! test per check for a backend. See the module.
-//!
-//! [`EventPage`]: angzarr_proto::v1::EventPage
-//! [`Snapshot`]: angzarr_proto::v1::Snapshot
+//! - `memory`: [`memory::MemoryStore`], a real backend in memory, held to
+//!   every section of the suite: for tests, games, and anything that needs
+//!   no durability.
+//! - `contract`: the conformance suite, [`contract`] and
+//!   [`store_contract!`].
 
 mod error;
+mod send;
 mod store;
 mod stream;
 
 pub mod dyn_store;
-pub mod local;
 
 #[cfg(feature = "contract")]
 pub mod contract;
+#[cfg(feature = "memory")]
+pub mod memory;
 
 pub use dyn_store::{
-    BoxFuture, DynEditions, DynEventStore, DynPositionStore, DynSnapshotStore, DynStore, DynUnit,
-    DynUnitOfWork,
+    BoxFuture, DynEditions, DynEventStore, DynListStreams, DynOutbox, DynOutboxStore,
+    DynOutboxUnit, DynPositionStore, DynReadByCorrelation, DynReadUntilTime, DynSnapshotStore,
+    DynStore, DynUnit, DynUnitOfWork,
 };
 pub use error::{Arg, Cause, Recovery, StoreError};
+pub use send::{MaybeSend, MaybeSync};
 pub use store::{
-    Editions, EventStore, PositionStore, Purge, SnapshotStore, Store, Unit, UnitOfWork, UnitPurge,
-    DEFAULT_EDITION_STORE,
+    ChangeToken, EditionRecord, Editions, EventStore, ListStreams, Outbox, OutboxEntry,
+    PositionStore, Purge, ReadByCorrelation, ReadStore, ReadUnit, ReadUntilTime, SnapshotStore,
+    Store, Unit, UnitOfWork, UnitOutbox, UnitPurge, Watch, DEFAULT_EDITION_STORE,
 };
 pub use stream::{Head, PositionKey, Slice, StreamRef};
 
