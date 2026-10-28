@@ -39,12 +39,13 @@ option ruby_package = "Angzarr::Meta";
 //
 // Propagation: the creation TRAVELS WITH THE DATA. A policy's command in X
 // that reaches a stream with no EditionCreated in X is the propagation: the
-// runtime (the stream's coordinator, or annals' kernel) appends
+// angzarr system layer (shared; called by the stream's coordinator, or by
+// annals' kernel) appends
 // EditionCreated at that stream's own head (or
 // at X's commit position, for a time-based edition), with propagated_from
 // = the EditionCreated of the stream the policy reacted to and forked_by =
 // the arriving command's command_id, and then hands the command to the
-// router as an ordinary command in X. This is the runtime's: the router
+// router as an ordinary command in X. This is the system layer's: the router
 // never sees an EditionCreated. An arrival in an edition that is deleted,
 // or being deleted, is refused NOT_FOUND, ErrorInfo reason
 // EDITION_NOT_FOUND, before the router is called.
@@ -77,19 +78,19 @@ message EditionCreated {
 // 1. RECORDED: DeleteEdition appends EditionDeleted to X's origin streams;
 //    each other stream the deletion reaches records its own, in its own
 //    domain, in sequence after its earlier work.
-// 2. PROPAGATED: the runtime carries it onward along the streams that
+// 2. PROPAGATED: the system layer carries it onward along the streams that
 //    domain's policies reached in X, writing each one's own EditionDeleted
 //    (never as a policy's command: no policy sees it).
-// 3. REMOVED: only after it has propagated onward (the runtime's onward
+// 3. REMOVED: only after it has propagated onward (the system layer's onward
 //    writes and outbox entries for it have completed), the stream's rows
 //    tagged X are removed, this event included. Nothing remains.
-// Who owns it (decision 14.32, amended): the RUNTIME (annals' kernel and
-// store, or core's coordinator), never the router, which sees no
-// meta-event. The runtime writes EditionDeleted in X's origin stream(s),
+// Who owns it (decision 14.32, amended): the ANGZARR SYSTEM LAYER, the
+// shared system code both runtimes call around the router, never the
+// router, which sees no meta-event. It writes EditionDeleted in X's origin stream(s),
 // then propagates it along the streams its policies reached in X, as its
 // own write in each; a stream with nothing of X left is skipped, and
 // nothing is created or forked there. It is not carried as a policy
-// command. A meta-event payload arriving from outside the runtime is
+// command. A meta-event payload arriving from outside the system layer is
 // refused INVALID_ARGUMENT, google.rpc.ErrorInfo reason
 // META_EVENT_FROM_OUTSIDE, writing nothing.
 //

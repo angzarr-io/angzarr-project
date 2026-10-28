@@ -2347,33 +2347,38 @@ option below.
 >   either case.
 > - Main is still never written: all of this lives in X.
 
-> **Amended again (the owner's ruling, 2026-10-28): who owns the edition
-> lifecycle.** The ROUTER never sees a meta-event; the RUNTIME owns the
-> edition lifecycle.
+> **Amended again (the owner's rulings, 2026-10-28): who owns the edition
+> lifecycle.** The ROUTER never sees a meta-event; the ANGZARR SYSTEM
+> LAYER owns the edition lifecycle (the owner: "edition is the angzarr
+> SYSTEM").
 > - **The router** is pure business dispatch: domain, process manager and
 >   policy handlers; typed refusals and the refusal path; the dedup
 >   DECISION; the process manager start rule; and one edition rule, that
 >   a policy's commands stay in their trigger's edition.
-> - **The runtime** (annals' kernel and store, locally; core's
->   coordinator, distributed) owns everything else of an edition:
+> - **The angzarr system layer** is ONE shared piece of system code, a
+>   crate in angzarr-project beside angzarr-proto and angzarr-ports
+>   (working name `angzarr-system`), which BOTH runtimes (annals' kernel,
+>   locally; core's coordinator, distributed) call around the router's
+>   business dispatch. It is neither the router nor reimplemented per
+>   runtime. It owns everything else of an edition:
 >   - **Creation on arrival:** when a policy's command in X arrives at a
->     stream with no rows in X, the runtime writes that stream's
+>     stream with no rows in X, the system layer writes that stream's
 >     `meta.EditionCreated`, then hands the command to the router as an
 >     ordinary command in X.
->   - **Refusals, before the router is called:** outside input to an
+>   - **Refusals, before the router is called** (the system layer's): outside input to an
 >     unforked stream, `FAILED_PRECONDITION` reason `EDITION_NOT_FORKED`;
 >     an arrival in an edition that is deleted, or being deleted,
 >     `NOT_FOUND` reason `EDITION_NOT_FOUND`; a meta-event payload
->     arriving from outside the runtime, `INVALID_ARGUMENT` reason
+>     arriving from outside the system layer, `INVALID_ARGUMENT` reason
 >     `META_EVENT_FROM_OUTSIDE` (flagged: the name and status). Nothing
 >     is written in any of them.
->   - **Deletion's transit:** the runtime writes `meta.EditionDeleted` in
+>   - **Deletion's transit:** the system layer writes `meta.EditionDeleted` in
 >     X's origin stream(s), then propagates it along the streams its
->     policies reached in X, as the runtime's own write in each (recorded
+>     policies reached in X, as its own write in each (recorded
 >     in each, propagated onward, then removed); a stream with nothing of X
 >     left is skipped, and nothing is created or forked there. It is not
 >     carried as a policy command.
->   - **Filtering:** the runtime filters meta-events out of everything
+>   - **Filtering:** the system layer filters meta-events out of everything
 >     policies and handlers see; no business code runs for one.
 
 **14.33 The stateless event-to-command mapper is a POLICY, not a saga.**
