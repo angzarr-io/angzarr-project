@@ -41,7 +41,7 @@ option ruby_package = "Angzarr";
 //     inputs, and the refusal facts that the sagas whose source is the
 //     PM's domain deliver when their commands are refused (SagaService in
 //     saga.proto, Refusals): the standard CommandRefused, handled by a
-//     generated on_refused_<Command> (ComponentOptions.refusals), or a
+//     generated on_refused_<Command> (inferred from its handlers), or a
 //     domestic fact a saga translates the refusal into.
 // Its (command) entries name both (options.proto); the handler
 // registration says which is a command and which a fact, as for an

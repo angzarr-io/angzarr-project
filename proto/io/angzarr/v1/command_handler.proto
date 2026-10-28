@@ -46,7 +46,14 @@ service CommandHandlerService {
   // types.proto), and the library folds whatever it is given.
   //
   // A rejection is answered as a gRPC error status, never as a response
-  // message, and the refusing domain records nothing. There is no
+  // message, and the refusing domain records nothing. A business rejection
+  // (FAILED_PRECONDITION) carries a reason (google.rpc.ErrorInfo), a
+  // message and, optionally, a typed refusal object, one of the command's
+  // CommandOptions.refused_with types, which the client library packs into
+  // the status details as a google.protobuf.Any; the generated handler
+  // returns its events or one of those objects (decision 14.31). The
+  // coordinator passes the status on unchanged, and a saga whose command
+  // was refused receives it as RefusalResponse (types.proto). There is no
   // compensation input: when a saga's command is refused, the saga delivers
   // a refusal fact to its own source domain, which decides how to respond
   // (decision 14.31; SagaService in saga.proto, Refusals).

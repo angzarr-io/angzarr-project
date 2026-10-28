@@ -136,7 +136,7 @@ Reactions always run asynchronously.
 - Aligns with: Axon, Marten/Wolverine and NServiceBus, where reactions are
   asynchronous messages.
 
-> **Amended by 14.31 (pass 14):** the side channel stays deleted, but a refusal is no longer a domain event of the refusing side. A saga's target (an aggregate or a process manager) refuses the saga's command with a business rejection and records nothing. The saga then delivers one unrefusable refusal fact to its own source domain, in one of two modes chosen per command at code generation (angzarr-cli's switch): by default its generated code passes through the standard `CommandRefused { command, response, trigger }`, which the source domain handles in a generated `on_refused_<Command>(refusal, state)`; or, opted in, the saga's callback translates `Refusal { event, command, response }` into a domestic fact. Either way the fact's id is the refused command's id, the source decides what the refusal means and records its own events, and both calls go through the outbox (the fact written in the transaction that clears the command's entry), retried and deduplicated by that one id. Process managers take the replies to their steps as commands from sagas, and the refusals of their own steps as these facts.
+> **Amended by 14.31 (pass 14):** the side channel stays deleted, but a refusal is no longer a domain event of the refusing side. A saga's target (an aggregate or a process manager) refuses the saga's command with a business rejection, optionally carrying a typed refusal object of its own domain, and records nothing. The refusal goes back to the saga, which builds one unrefusable refusal fact for its own source domain: by default its generated code passes through the standard `CommandRefused { command, refusal, trigger }`, packing the typed refusal object as an `Any`, which the source handles in its `on_refused_<Command>(refusal, state)`; or, where angzarr-cli selects translate at code generation, the saga's callback reads `Refusal { event, command, response }` and returns a domestic fact. Either way the fact's id is the refused command's id, the source decides what the refusal means and records its own events, and both calls go through the outbox (the fact written in the transaction that clears the command's entry), retried and deduplicated by that one id. Process managers take the replies to their steps as commands from sagas, and the refusals of their own steps as these facts.
 
 **2.2 The compensation and notification channel is deleted.** In its place,
 process managers handle replies, and refusals are domain events.
@@ -1872,64 +1872,69 @@ and 14.30.
   passes it a fact (that the foreign CH refused)". A saga's target, an
   aggregate or a PM alike, refuses a saga's command as it refuses any
   command (a business rejection, `FAILED_PRECONDITION`) and records
-  NOTHING. The saga then delivers ONE unrefusable refusal fact to its OWN
-  source domain, whose fact handler decides what the refusal means and
-  records its own events. Two modes, chosen per command at CODE
-  GENERATION:
-  - **Pass-through (the default, generated).** The saga's generated code,
-    with no user code, forwards the standard fact `CommandRefused {
-    command, response, trigger }` (`types.proto`: the refused
-    `CommandBook`, the `RefusalResponse`, the triggering event's
-    `EventRef`) to the stream of the triggering event. The source domain's
-    command handler gets a generated dispatch by the foreign command's
-    type, `on_refused_<Command>(refusal, state) -> events`, where its author
-    writes the reaction, declared by `ComponentOptions.refusals` (8). The
-    source domain imports the foreign command's protos (accepted).
-  - **Translate (opt-in, per command).** The saga's callback,
-    `on_refused_<Command>(Refusal { event, command, response })`, returns
-    a DOMESTIC fact type of the source domain, so the source never refers
-    to the foreign protos (the saga already does); the source handles it as
-    an ordinary fact. Declared by `ComponentOptions.sends` (9, SAGA): a
-    `SagaSend { command, refusal_fact }` per command the saga may send.
-  - **The switch is compile time.** In the owner's words, "cli may have to
-    have that switch, as it's compile time". angzarr-cli's codegen takes a
-    refusal switch, as a flag and as a build-config entry, per saga or per
-    saga command (`translate` or `pass-through`). The proto carries the
-    default (PROPOSED, flagged): a `SagaSend` naming `refusal_fact`
-    defaults to translate, one without it to pass-through; the switch
-    overrides it, and translate without a `refusal_fact` fails generation.
-    Nothing about the mode is decided or visible at run time beyond which
-    fact type arrives.
-  - **Mechanics.** The saga's coordinator calls `SagaService.OnRefused(
-    Refusal) returns (OnRefusedResponse)` for every business rejection, in
-    both modes: the generated code builds the pass-through fact or calls
-    the translating callback. `OnRefused` is kept in both modes because
-    the ruling places the pass-through in the saga's generated code; the
-    alternative (the coordinator building the pass-through fact itself and
-    calling `OnRefused` only to translate) is open. The coordinator stamps
-    the fact's `causation_id` (the triggering event), the trigger's
-    correlation and edition, and writes it as a new outbox entry in the
-    transaction that clears the command's entry; a crash retries the step.
-    annals makes the same calls directly, in the chain.
+  NOTHING. The refusal goes back to the SAGA, which builds ONE unrefusable
+  refusal fact for its OWN source domain; that domain's fact handler
+  decides what the refusal means and records its own events.
+  - **A typed refusal object.** "The base CommandRefused fact is created
+    by the saga. It will have an Any type to pack the foreign refusal
+    object into. The foreign refusal object is business-specific code. The
+    refusal object is passed back to the saga by the command-refused
+    return type." A command declares the refusal objects its handler may
+    return, messages of its own domain (`CommandOptions.refused_with`, 4;
+    e.g. `InsufficientFunds { available, requested }`); the generated
+    handler returns its events or one of them; the client library packs it
+    into the status details as an `Any`; and the refused saga receives
+    `RefusalResponse { reason, message, refusal }` (`types.proto`; `refusal`
+    the packed object).
+  - **The saga builds the fact, so the coordinator calls it in both
+    modes.** `SagaService.OnRefused(Refusal { event, command, response })
+    returns (OnRefusedResponse)`. Pass-through (the default): the saga's
+    generated code, with no user code, answers the standard
+    `CommandRefused { command, refusal, trigger, reason, message }`
+    (`refusal` the typed object still packed; `trigger` the triggering
+    event's `EventRef`), and the source domain's command handler has a
+    generated dispatch by the foreign command's type,
+    `on_refused_<Command>(refusal, state) -> events`, where its author
+    writes the reaction and unpacks the refusal object; the source imports
+    the foreign protos (accepted). Translate: the saga's callback
+    `on_refused_<Command>(Refusal)` reads the typed refusal object and
+    returns a DOMESTIC fact, so the source never refers to the foreign
+    protos.
+  - **The switch is the CLI's only.** "cli may have to have that switch,
+    as it's compile time." angzarr-cli selects pass-through or translate
+    per saga or per saga command, as a flag and as a build-config entry;
+    pass-through is its default, and selecting translate makes the saga's
+    callback for that command required, so a missing one fails generation
+    (or the build). No proto option carries the mode, and nothing about it
+    is visible at run time beyond which fact type arrives.
+  - **No declaration of what a saga sends.** "Declaring commands it may
+    send is a mistake, period." So there is no `sends`; and the source's
+    `on_refused_<Command>` dispatch is inferred from the handlers it
+    defines (the handler registration is the declaration, as for facts),
+    so there is no `refusals` either (the drafter's choice, FLAGGED; the
+    alternative was to keep `refusals` to drive generation). Consequence,
+    stated plainly: the generator can no longer check refusal coverage
+    against what a saga sends. A refusal with no path, a pass-through
+    `CommandRefused` whose command type the source defines no handler for,
+    is caught only at RUN time: answered `NO_FACT_HANDLER`, dead-lettered
+    and alerted. What the generator can still check: a `refused_with` type
+    exists and belongs to the command's handling domain, and a command
+    selected for translate has its callback.
   - **Identity: the refused command's id.** The refusal fact's
     `command_id` IS the refused command's `command_id`, in both modes, with
     no prefix and no derivation; its `fact_origin.external_id` is that id's
-    canonical text. One id therefore appears in two streams by design:
-    never applied in the foreign (target) stream, which recorded nothing,
-    and recorded as the refusal fact in the domestic (source) stream. Both
-    ends deduplicate on it.
-  - **Generator rules.** Every command a saga may send (`sends`) has
-    exactly one refusal path, in the mode the switch selects: a
-    `refusal_fact` (translate) or the command in the source domain's
-    `refusals` (pass-through). Both is an error; neither is a lint warning,
-    since such a refusal would be dead-lettered at run time. A `sends`
-    entry must name a command of the destination's owner, a
-    `refusal_fact` a fact of the source's owner; an unused `refusals`
-    entry is a lint warning. With `sends` declared, a command of another
-    type is a saga bug.
-  - Only a business rejection reaches `OnRefused`; retryable failures are
-    retried and any other terminal failure is a bug, dead-lettered and
-    alerted. The fact is unrefusable, so compensation cannot loop.
+    canonical text (accepted). One id therefore appears in two streams by
+    design: never applied in the foreign (target) stream, which recorded
+    nothing, and recorded as the refusal fact in the domestic (source)
+    stream. Both ends deduplicate on it.
+  - **Mechanics.** The coordinator stamps the fact's `causation_id` (the
+    triggering event), the trigger's correlation and edition, and writes
+    it as a new outbox entry in the transaction that clears the command's
+    entry; a crash retries the step. annals makes the same calls directly,
+    in the chain. Only a business rejection reaches `OnRefused`;
+    retryable failures are retried and any other terminal failure is a
+    bug, dead-lettered and alerted. The fact is unrefusable, so
+    compensation cannot loop.
   - **Owner's rulings (2026-10-28, accepted):** a refusal with no path is
     dead-lettered for a human and alerted; a failing translating callback
     is dead-lettered and alerted like any handler failure; a fact its
@@ -2010,11 +2015,12 @@ and 14.30.
   `BuyInTableSaga` (buy-in -> table: `ConfirmSeat`, `ReleaseSeat`) carry
   its decisions. Two refusals run end to end, one per mode. Pass-through:
   the wallet refuses `HoldFunds` and records nothing, `BuyInPlayerSaga`
-  forwards `CommandRefused`, the buy-in's generated
-  `on_refused_HoldFunds` records `BuyInFailed`, and `BuyInTableSaga`
-  releases the seat. Translate: the table refuses `ConfirmSeat`,
-  `BuyInTableSaga`'s callback returns the buy-in fact
-  `SeatConfirmationRefused`, the PM records `BuyInSeatLost`, and
+  forwards `CommandRefused` packing the wallet's `InsufficientFunds`, the
+  buy-in's `on_refused_HoldFunds` unpacks it and records `BuyInFailed`,
+  and `BuyInTableSaga` releases the seat. Translate (selected for
+  `ConfirmSeat` by the build config): the table refuses `ConfirmSeat` with
+  `SeatNotConfirmable`, `BuyInTableSaga`'s callback reads it and returns
+  the buy-in fact `SeatConfirmationRefused`, the PM records `BuyInSeatLost`, and
   `BuyInPlayerSaga` releases the hold.
 - **Withdrawn with the earlier drafts:** triggers as a PM input and their
   dedup by `find_triggered`; the `cause` oneof; the facts-only PM; sagas
@@ -2042,31 +2048,35 @@ and 14.30.
       `RefusalCallback`, `RefusalFact`, `refusal_types` and the
       `(on_refused)` option were confirmed too, then replaced by the
       refusal-wiring ruling (below);
-    - the refusal wiring (plan ruling 7): pass-through by default, translate
-      opt-in per command, the refused command's id as the fact's id, the
-      declarations on both sides, the one-path generator check, and the
-      compile-time switch.
-  - Removed by the refusal-wiring ruling: the `(on_refused)` option and
+    - the refusal wiring (plan ruling 7 and the rulings that refined
+      it): the saga builds the fact (so `OnRefused` serves both modes);
+      the typed refusal object, packed as an `Any`; pass-through by
+      default and translate as the CLI selects, with no proto option; no
+      declaration of what a saga sends; the refused command's id as the
+      fact's id, and its canonical text as the `external_id`;
+    - the names `CommandRefused`, `RefusalResponse` and
+      `OnRefusedResponse`.
+  - Removed by the refusal-wiring rulings: the `(on_refused)` option and
     `RefusalCallback` on fact messages, `RefusalFact`,
-    `ComponentDescriptor.refusal_types`, and the `"angzarr-refusal:"`
-    prefix and its derivation.
+    `ComponentDescriptor.refusal_types`, the `"angzarr-refusal:"` prefix
+    and its derivation; then `ComponentOptions.sends`, `SagaSend`,
+    `refusal_fact` and the exactly-one-path rule and lint; and
+    `ComponentOptions.refusals` (inferred instead; FLAGGED).
   - Still for the owner to confirm:
-    - the names `CommandRefused`, `refusals`, `sends`, `SagaSend`,
-      `refusal_fact` and `OnRefusedResponse`; `RefusalResponse` moving to
-      `types.proto` beside `CommandRefused`;
-    - the proto default for the switch (a `refusal_fact` means translate
-      unless the CLI says otherwise), and its granularity (per saga or per
-      saga command, as a flag and as a build-config entry);
-    - keeping `OnRefused` for both modes, rather than the coordinator
-      building the pass-through fact;
-    - `fact_origin.external_id` of a refusal fact = the refused command's
-      id as canonical text; checking only the fact's domain (not its root)
-      against the trigger's stream;
-    - `sends` making any other command type a saga bug once it is
-      declared; and the example's intentional missing-path warnings
-      (`CaptureFunds`, `ReleaseHold`, `ReleaseSeat`);
+    - inferring the source's `on_refused_<Command>` dispatch from its
+      handlers rather than keeping `refusals`;
+    - the name and place of `CommandOptions.refused_with` (4), and the
+      generated handler's result shape (events or one refusal object);
+    - `CommandRefused` also carrying `reason` and `message` beside the
+      owner's `{ command, refusal, trigger }`; `RefusalResponse` as
+      `{ reason, message, refusal }` (status details other than the
+      reason and the refusal object are dropped);
+    - checking only the refusal fact's domain (not its root) against the
+      trigger's stream;
     - a PM with no starting input draws a generator warning;
-    - in the example, the command names (`StartBuyIn`, `RecordFundsHeld`,
+    - in the example, the refusal objects `InsufficientFunds` and
+      `SeatNotConfirmable`, the build config selecting translate for
+      `ConfirmSeat`, the command names (`StartBuyIn`, `RecordFundsHeld`,
       `RecordPlayerSeated`, `RecordFundsCaptured`), the saga names
       (`TableBuyInSaga`, `PlayerBuyInSaga`, `BuyInPlayerSaga`,
       `BuyInTableSaga`), `BuyInFailed`, `PHASE_FAILED` and
@@ -2105,7 +2115,9 @@ and 14.30.
 - Cost: every cross-domain step is a saga hop each way, and one saga per
   (source domain, PM) pair to deploy; every domain whose events feed a
   domain whose sagas' commands can be refused handles their refusals,
-  importing the foreign protos in pass-through mode; a refusal is recorded
+  importing the foreign protos in pass-through mode, and a missing handler
+  is found only at run time (a dead letter), since nothing declares what a
+  saga sends; a refusal is recorded
   only by the
   source, not by the refusing domain, so the target's stream never shows
   what it turned away.

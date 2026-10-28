@@ -742,22 +742,34 @@ fn a_process_manager_descriptor_lists_its_starting_facts() {
 }
 
 #[test]
-fn the_standard_refusal_fact_carries_the_refused_command_and_its_trigger() {
-    // Decision 14.31: CommandRefused { command, response, trigger }, the
-    // pass-through refusal fact; its id is the refused command's id.
+fn the_standard_refusal_fact_carries_the_refused_command_its_typed_refusal_and_trigger() {
+    // Decision 14.31: the saga builds CommandRefused { command, refusal (the
+    // foreign domain's typed refusal object, packed), trigger, reason,
+    // message }; its id is the refused command's id.
     let refused = book(Kind::Reaction, None);
+    let typed = any(
+        "/io.angzarr.examples.v1.InsufficientFunds",
+        &[8, 100, 16, 200, 3],
+    );
     let original = CommandRefused {
         command: Some(refused.clone()),
-        response: Some(RefusalResponse {
-            message: "insufficient funds".into(),
-            details: vec![],
-        }),
+        refusal: Some(typed.clone()),
         trigger: Some(cause()),
+        reason: "INSUFFICIENT_AVAILABLE_FUNDS".into(),
+        message: "insufficient funds".into(),
     };
     let decoded = round_trip(&original);
     assert_eq!(decoded, original);
+    assert_eq!(decoded.refusal, Some(typed.clone()));
     assert_eq!(
         decoded.command.unwrap().page.unwrap().command_id,
         refused.page.unwrap().command_id
     );
+    // The refused saga receives the same typed object in RefusalResponse.
+    let response = RefusalResponse {
+        reason: "INSUFFICIENT_AVAILABLE_FUNDS".into(),
+        message: "insufficient funds".into(),
+        refusal: Some(typed),
+    };
+    assert_eq!(round_trip(&response), response);
 }

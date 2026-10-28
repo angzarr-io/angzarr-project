@@ -584,32 +584,48 @@ message FactOrigin {
 
 // region refusal_facts
 // The standard refusal fact (decision 14.31; SagaService in saga.proto,
-// Refusals). In PASS-THROUGH mode, the default, a saga's generated code
-// forwards it to the saga's own source domain when the saga's command is
-// refused. The source domain handles it by a generated dispatch on the
-// refused command's type, on_refused_<Command>(refusal, state) -> events,
-// declared by ComponentOptions.refusals (options.proto); with none
-// declared for that type it answers NO_FACT_HANDLER, and the fact is
-// dead-lettered and alerted. Its identity is the refused command's: its
-// command_id is the refused command's command_id (the command_identity
-// region, Validation). The name CommandRefused is the drafter's (FLAGGED).
+// Refusals). The SAGA builds it: in PASS-THROUGH mode, the default chosen
+// by angzarr-cli, the saga's generated code answers it from
+// SagaService.OnRefused, for the saga's own source domain, when the
+// saga's command is refused. The source domain handles it by a generated
+// dispatch on the refused command's type, on_refused_<Command>(refusal,
+// state) -> events, inferred from the handlers it defines; with none for
+// that type it answers NO_FACT_HANDLER, and the fact is dead-lettered and
+// alerted. Its identity is the refused command's: its command_id is the
+// refused command's command_id, and its fact_origin.external_id that id's
+// canonical text (the command_identity region, Validation).
 message CommandRefused {
   // The refused command, as it was delivered (identity stamped): its
   // cover (the target domain and root) and its payload, whose type URL
   // picks the source domain's on_refused_<Command> handler.
   CommandBook command = 1;
-  // The target's refusal response.
-  RefusalResponse response = 2;
+  // The foreign domain's TYPED refusal object, packed: one of the command's
+  // CommandOptions.refused_with types (e.g. InsufficientFunds { available,
+  // requested }), business-specific, unpacked by the source's handler.
+  // Unset when the target refused with a reason and message only.
+  google.protobuf.Any refusal = 2;
   // The saga's triggering event (the refused command's causation_id).
   EventRef trigger = 3;
+  // The refusal's reason code and message (RefusalResponse), carried for
+  // a source that does not unpack the refusal object (the drafter's
+  // addition to the owner's { command, refusal, trigger }; FLAGGED).
+  string reason = 4;
+  string message = 5;
 }
 
-// A target's refusal of a command: the status message of its
-// FAILED_PRECONDITION and its status details, verbatim (typically a
-// google.rpc.ErrorInfo naming the business reason).
+// A target's refusal of a command, as the refused saga receives it
+// (Refusal.response in saga.proto): the business rejection
+// (FAILED_PRECONDITION) its command handler returned.
 message RefusalResponse {
-  string message = 1;
-  repeated google.protobuf.Any details = 2;
+  // The reason code: the google.rpc.ErrorInfo reason of the rejection
+  // (e.g. INSUFFICIENT_AVAILABLE_FUNDS).
+  string reason = 1;
+  // The status message.
+  string message = 2;
+  // The typed refusal object the handler returned, one of the command's
+  // CommandOptions.refused_with types, packed by the client library into
+  // the status details and handed on here. Unset if it returned none.
+  google.protobuf.Any refusal = 3;
 }
 // endregion
 
