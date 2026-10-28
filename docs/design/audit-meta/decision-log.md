@@ -1915,18 +1915,6 @@ protos had never carried. Amends 13.1 and 13.2, 5.6 and 14.24.
   `ConfirmSeat`); `BuyInFundsHeld` gains `table_root` (2) and
   `BuyInSeated` gains `player_root` (3), because a saga takes its target
   roots from the event and never looks one up.
-- **Which page of a trigger book is the trigger (drafter's proposal,
-  flagged; not ruled).** The spec named "the trigger's `EventRef`" without
-  saying which page of a trigger `EventBook` it is. Proposed: the book's
-  LAST page; the `EventRef` is (the book's cover, that page's sequence).
-  Earlier pages and the snapshot are context; the reaction `command_id`
-  and `causation_id`, a PM's `triggering_event` and correlation, and the
-  B1 start check all use the last page. Each event of a write is its own
-  trigger, delivered as its own book ending at it, in sequence order. A
-  trigger book with no pages is malformed. Prior angzarr core reads the
-  trigger the same way (the newest page: `trigger.pages.last()` and the
-  maximum page sequence in its PM orchestration). Written into the
-  `event_ref` region of `types.proto`.
 - **Drafter's choices** (none of these was in ruling 7). The owner ruled
   on them on 2026-10-28.
   - Accepted by the owner:
@@ -1960,10 +1948,7 @@ protos had never carried. Amends 13.1 and 13.2, 5.6 and 14.24.
       coordinator, before deduplication; a skip is silent (no dead letter,
       no alert, no metric named); a PM may declare no starting trigger, so
       that only commands start it, with no generator warning; and a
-      non-PM descriptor listing `starting_types` is refused;
-    - the trigger is a trigger book's last page, each event of a write is
-      delivered as its own trigger book, and an empty trigger book is
-      malformed (above; FLAGGED, the spec was silent).
+      non-PM descriptor listing `starting_types` is refused.
 - Why: a PM's state is a record of what happened, so every input it takes
   is a fact and every output is its own event. Keeping commands to other
   domains in sagas leaves one kind of component that sends commands, one

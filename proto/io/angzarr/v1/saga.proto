@@ -41,10 +41,7 @@ option ruby_package = "Angzarr";
 // rejection of a saga's command is retried when retryable and otherwise
 // dead-lettered.
 service SagaService {
-  // Translate source events into commands for target domains. The request
-  // is the source stream's book ending at the trigger event, its last page
-  // (the event_ref region of types.proto): the saga reacts to that page,
-  // and the earlier pages are context.
+  // Translate source events into commands for target domains.
   rpc Handle(EventBook) returns (SagaResponse);
 }
 
