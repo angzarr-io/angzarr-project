@@ -78,7 +78,7 @@ message CreateTable {
 }
 
 // Hold a seat for a buy-in (SeatHeld), which starts pmg-buy-in through
-// saga-table-buy-in's TableSeatHeld fact.
+// saga-table-buy-in's StartBuyIn command.
 // buy_in_id = request_id. Refused when the seat is seated or held, the player
 // is already seated at this table, or amount is outside
 // [min_buy_in, max_buy_in]. A player may have buy-ins pending for several
@@ -145,7 +145,8 @@ message ConfirmSeat {
 }
 
 // Free a held seat (SeatReleased). Releasing a hold that no longer exists
-// succeeds with no events.
+// succeeds with no events. saga-buy-in-table sends it on BuyInFailed (the
+// wallet refused HoldFunds; see the refusal flow in buy_in.proto).
 message ReleaseSeat {
   option (io.angzarr.v1.command) = {component: "io.angzarr.examples.v1.TableState"};
   bytes buy_in_id = 1;
@@ -184,7 +185,7 @@ message ShoeShuffled {
 }
 
 // A seat is held for a buy-in. saga-table-buy-in turns it into the
-// TableSeatHeld fact that starts pmg-buy-in (see buy_in.proto).
+// StartBuyIn command that starts pmg-buy-in (see buy_in.proto).
 message SeatHeld {
   option (io.angzarr.v1.event) = {component: "io.angzarr.examples.v1.TableState"};
   option (io.angzarr.v1.event) = {
