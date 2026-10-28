@@ -41,26 +41,27 @@ option ruby_package = "Angzarr";
 // WIRING", and the owner's rulings of 2026-10-28). A target, an aggregate
 // or a process manager alike, refuses a saga's command the way it refuses
 // any command: a business rejection (FAILED_PRECONDITION) carrying a
-// reason, a message and, optionally, a business-specific TYPED refusal
-// object of its own domain (CommandOptions.refused_with, options.proto;
-// e.g. InsufficientFunds { available, requested }), and it records
-// NOTHING. The refusal then comes back to the SAGA, which builds the one
-// unrefusable fact of it for its OWN source domain (input_domain). In the
+// message and, optionally, a business-specific TYPED refusal object of its
+// own domain (a member of the command's <Command>Refusal oneof,
+// options.proto, the refusals region; e.g. InsufficientFunds { available,
+// requested }), and it records NOTHING. The refusal then comes back to the
+// SAGA, which builds the one unrefusable fact of it for its OWN source:
+// the exact stream of its triggering event. In the
 // owner's words: "the base CommandRefused fact is created by the saga. It
 // will have an Any type to pack the foreign refusal object into. The
 // foreign refusal object is business-specific code. The refusal object is
 // passed back to the saga by the command-refused return type."
 //   - The saga's coordinator calls SagaService.OnRefused with a Refusal
 //     { event, command, response }: the triggering event, the command as
-//     sent, and the target's RefusalResponse { reason, message, refusal },
-//     whose refusal is the typed refusal object as an Any (types.proto).
+//     sent, and the target's RefusalResponse { refusal, message }, whose
+//     refusal is the typed refusal object as an Any (types.proto).
 //     It does so in BOTH modes, because the saga, not the coordinator,
 //     builds the fact.
 //   - PASS-THROUGH (the default): the saga's generated code, with no user
 //     code, answers the standard CommandRefused { command, refusal (the
 //     typed refusal object, still packed), trigger (the triggering
-//     event's EventRef), reason, message } (types.proto, the refusal_facts
-//     region), addressed to the stream of the triggering event. The source
+//     event's EventRef) } (types.proto, the refusal_facts region), and
+//     nothing else, addressed to the stream of the triggering event. The source
 //     domain's command handler has a generated dispatch by the refused
 //     (foreign) command's type,
 //       on_refused_<Command>(refusal, state) -> events,
@@ -72,7 +73,10 @@ option ruby_package = "Angzarr";
 //         -> <a fact type of the source domain>,
 //     reads the typed refusal object and returns a DOMESTIC fact, so the
 //     source never refers to the foreign protos (the saga already does).
-//     Refusal is one struct, so a field can be added later without
+//     This is WHY translate exists: CommandRefused carries only the
+//     foreign object, so a domain that does not want to unpack it, or
+//     import the foreign protos, has the saga unpack it there and hand
+//     over a domestic fact. Refusal is one struct, so a field can be added later without
 //     breaking saga code; no context object rides with the command
 //     (considered and deferred, decision 14.31).
 //   - The mode is chosen per saga or per saga command by angzarr-cli's
@@ -93,13 +97,16 @@ option ruby_package = "Angzarr";
 //   - The fact's identity is the REFUSED COMMAND'S: its command_id is the
 //     refused command's command_id (no prefix, no derivation), and the
 //     coordinator stamps causation_id (the refused command's, the
-//     triggering event), the trigger's correlation_id and edition, and
-//     fact_origin.external_id = that command_id's canonical text. One id
+//     triggering event), the trigger's correlation_id, and
+//     fact_origin.external_id = that command_id's canonical text, and
+//     addresses it to the exact stream the trigger names (domain, root
+//     and edition). One id
 //     therefore appears in two streams by design: never applied in the
 //     foreign (target) stream, which recorded nothing, and recorded as the
 //     refusal fact in the domestic (source) stream. The saga leaves these
-//     unset; a fact for any domain but the saga's input_domain, or one
-//     that sets Handling, is a saga bug.
+//     unset, its cover included; a fact for any other stream than the
+//     trigger's (domain, root or edition), or one that sets Handling, is a
+//     saga bug, and every coordinator refuses such a fact.
 //   - Distributed: the coordinator calls OnRefused when the outbox relay
 //     receives the refusal, and writes the fact as a new outbox entry in
 //     the same transaction that clears the command's entry. A crash before
@@ -231,8 +238,8 @@ message Refusal {
 // OnRefused's answer: the refusal fact for the saga's own source domain.
 message OnRefusedResponse {
   // A CommandBook whose page body is a Fact (a CommandRefused in
-  // pass-through mode, the domestic fact in translate mode), addressed to
-  // the saga's input_domain: payloads only, as for a command; the
-  // coordinator stamps its identity (SagaService, Refusals).
+  // pass-through mode, the domestic fact in translate mode): payloads
+  // only, its cover left empty; the coordinator addresses it to the
+  // trigger's stream and stamps its identity (SagaService, Refusals).
   CommandBook fact = 1;
 }

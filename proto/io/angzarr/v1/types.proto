@@ -460,8 +460,8 @@ message EventRef {
 // so it stamps no causation_id; decision 14.31). Set by a saga's
 // coordinator only: on reaction commands, where it is the input the
 // reaction command_id is derived from, and on refusal facts, where it is
-// the refused command's own causation_id, so it names a stream of the
-// domain the fact is addressed to (SagaService in saga.proto, Refusals).
+// the refused command's own causation_id, so it names the very stream the
+// fact is addressed to (SagaService in saga.proto, Refusals).
 // It is transport and trace metadata, NOT persisted on the events the
 // command produces: their causation is the command itself
 // (EventMeta.causation.command_id). The coordinators record the trigger
@@ -480,9 +480,9 @@ message EventRef {
 //             any Handling field; a set command_id must equal the
 //             derivation; never causation_id. The one exception is a
 //             refusal fact (decision 14.31), the only Fact with a
-//             causation_id: it is accepted only if its cover's domain is
-//             the domain of the stream causation_id names (the saga's own
-//             source domain); its command_id is the refused command's,
+//             causation_id: it is accepted only by the exact stream
+//             causation_id names, domain, root and edition alike (the
+//             stream of the saga's triggering event); its command_id is the refused command's,
 //             not a derivation, and its fact_origin.external_id is that
 //             command_id's canonical text. The same id is thus in two
 //             streams by design: never applied in the refusing (target)
@@ -586,46 +586,57 @@ message FactOrigin {
 // The standard refusal fact (decision 14.31; SagaService in saga.proto,
 // Refusals). The SAGA builds it: in PASS-THROUGH mode, the default chosen
 // by angzarr-cli, the saga's generated code answers it from
-// SagaService.OnRefused, for the saga's own source domain, when the
-// saga's command is refused. The source domain handles it by a generated
-// dispatch on the refused command's type, on_refused_<Command>(refusal,
-// state) -> events, inferred from the handlers it defines; with none for
-// that type it answers NO_FACT_HANDLER, and the fact is dead-lettered and
-// alerted. Its identity is the refused command's: its command_id is the
-// refused command's command_id, and its fact_origin.external_id that id's
+// SagaService.OnRefused when the saga's command is refused, addressed to
+// the exact stream of the saga's triggering event (domain, root and
+// edition). The source domain handles it by a generated dispatch on the
+// refused command's type, on_refused_<Command>(refusal, state) -> events,
+// inferred from the handlers it defines; with none for that type it
+// answers NO_FACT_HANDLER, and the fact is dead-lettered and alerted. Its
+// identity is the refused command's: its command_id is the refused
+// command's command_id, and its fact_origin.external_id that id's
 // canonical text (the command_identity region, Validation).
+//
+// It carries the refused command, the foreign domain's TYPED refusal
+// object (packed), and the trigger, and nothing else: no reason code or
+// message. A source that handles it unpacks the foreign object, so it
+// imports the foreign domain's protos. That is the REASON the saga's
+// translate mode exists: a domain that does not want to unpack a foreign
+// object, or import foreign protos, has angzarr-cli select translate for
+// that command, and the saga unpacks the object there and hands over a
+// domestic fact instead.
 message CommandRefused {
   // The refused command, as it was delivered (identity stamped): its
   // cover (the target domain and root) and its payload, whose type URL
   // picks the source domain's on_refused_<Command> handler.
   CommandBook command = 1;
-  // The foreign domain's TYPED refusal object, packed: one of the command's
-  // CommandOptions.refused_with types (e.g. InsufficientFunds { available,
-  // requested }), business-specific, unpacked by the source's handler.
-  // Unset when the target refused with a reason and message only.
+  // The foreign domain's TYPED refusal object, packed: the member set in
+  // the command's <Command>Refusal oneof (options.proto, the refusals
+  // region; e.g. InsufficientFunds { available, requested }),
+  // business-specific, unpacked by the source's handler. Unset when the
+  // target refused without one.
   google.protobuf.Any refusal = 2;
-  // The saga's triggering event (the refused command's causation_id).
+  // The saga's triggering event (the refused command's causation_id),
+  // which is also the stream this fact is addressed to.
   EventRef trigger = 3;
-  // The refusal's reason code and message (RefusalResponse), carried for
-  // a source that does not unpack the refusal object (the drafter's
-  // addition to the owner's { command, refusal, trigger }; FLAGGED).
-  string reason = 4;
-  string message = 5;
 }
 
 // A target's refusal of a command, as the refused saga receives it
-// (Refusal.response in saga.proto): the business rejection
-// (FAILED_PRECONDITION) its command handler returned.
+// (Refusal.response in saga.proto), built by the saga's coordinator from
+// the business rejection (FAILED_PRECONDITION) the target answered.
 message RefusalResponse {
-  // The reason code: the google.rpc.ErrorInfo reason of the rejection
-  // (e.g. INSUFFICIENT_AVAILABLE_FUNDS).
-  string reason = 1;
-  // The status message.
+  // The typed refusal object the handler returned: the member set in the
+  // command's <Command>Refusal oneof, packed by the client library into the
+  // rejection's status details and handed on here. Unset if it returned
+  // none.
+  google.protobuf.Any refusal = 1;
+  // The rejection's status message. Kept because the transport always
+  // carries one (a gRPC status has a message even when no refusal object
+  // is returned), and the saga's translating callback and the dead letter
+  // of an unhandled refusal may need it. It is never forwarded into
+  // CommandRefused: a domestic domain that wants it, or anything else not
+  // in the typed object, gets it through translate mode. (The ErrorInfo
+  // reason code is not kept: the typed object's type names the reason.)
   string message = 2;
-  // The typed refusal object the handler returned, one of the command's
-  // CommandOptions.refused_with types, packed by the client library into
-  // the status details and handed on here. Unset if it returned none.
-  google.protobuf.Any refusal = 3;
 }
 // endregion
 
@@ -871,9 +882,9 @@ message Projection {
 //   - any Handling field on a reaction command (see below);
 //   - a command or Fact addressed to a process manager whose set
 //     correlation_id differs from its cover's root (process_manager.proto);
-//   - a Fact with causation_id addressed to any domain but the one its
-//     causation_id's stream is in (a saga's refusal fact goes only to the
-//     saga's own source domain);
+//   - a Fact with causation_id addressed to any stream but the one its
+//     causation_id names (domain, root and edition: a saga's refusal fact
+//     goes only to the stream of its triggering event);
 //   - a Fact without fact_origin, or with an empty external_id, or with a
 //     command_id other than its derivation (a refusal fact excepted: its
 //     command_id is the refused command's); a Command with fact_origin
@@ -973,9 +984,8 @@ message CommandPage {
   // A saga's output only (reaction commands, and refusal facts): the
   // command's own causation, its triggering event. Framework-authenticated
   // callers only. The reaction command_id is derived from it, and a refusal
-  // fact must be addressed to the domain of the stream it names. Transport
-  // and trace
-  // metadata: NOT persisted on the events the command produces (their
+  // fact must be addressed to the exact stream it names (domain, root and
+  // edition). Transport and trace metadata: NOT persisted on the events the command produces (their
   // causation is this command; see the command_identity region).
   EventRef causation_id = 10;
   // Facts only, and required there: where the fact came from. Copied onto

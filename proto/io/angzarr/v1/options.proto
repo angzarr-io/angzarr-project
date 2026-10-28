@@ -71,9 +71,10 @@ option ruby_package = "Angzarr";
 // is a rejection plus a fact: the target refuses a saga's command and
 // records nothing, the saga delivers one refusal fact to its own source
 // domain, and that domain's fact handler decides what it means (decision
-// 2.2, as amended by 14.31; SagaService in saga.proto, Refusals). A
-// command declares the typed refusal objects its handler may return
-// (CommandOptions.refused_with; the refusals region, below). A
+// 2.2, as amended by 14.31; SagaService in saga.proto, Refusals). The
+// typed refusal objects a command's handler may return are found by
+// structure, not annotation: a <Command>Refusal oneof message beside the
+// command (the refusals region, below). A
 // process manager's inputs are declared like an aggregate's, as (command)
 // entries whose component is the PM's state message; they say which inputs
 // may start an instance (CommandOptions.starts).
@@ -134,16 +135,9 @@ message CommandOptions {
   // starting input can never start an instance, so the generator warns
   // about it.
   bool starts = 3;
-  // AGGREGATE and PROCESS_MANAGER: the fully-qualified types of the typed
-  // REFUSAL objects this command's handler may return (the refusals
-  // region). Each is a message of the handling domain, business-specific
-  // (e.g. InsufficientFunds { available, requested }). The generated
-  // handler returns either its events or one of these; the client library
-  // packs the one returned into the refusal's status details, and it
-  // reaches the refused saga as RefusalResponse.refusal. Empty means the
-  // handler refuses with a reason and message only. The name refused_with
-  // is the drafter's (FLAGGED).
-  repeated string refused_with = 4;
+  // Field 4 (refused_with, a draft annotation for typed refusal objects)
+  // is deleted, unreserved (policy 6.6): refusal objects are found by the
+  // <Command>Refusal naming convention instead (the refusals region).
 }
 
 // Marks a message as an EVENT consumed by ONE component. The extension is
@@ -417,13 +411,29 @@ extend google.protobuf.FieldOptions {
 // WIRING"; SagaService in saga.proto, Refusals).
 //
 // The refusing side. A command handler refuses with a business rejection
-// (FAILED_PRECONDITION) carrying a reason code, a message and, optionally,
-// a TYPED refusal object: a message of its own domain, declared in the
-// command's CommandOptions.refused_with. The generated handler's result is
-// its events or one of those refusal objects; the client library packs the
-// object into the status details as a google.protobuf.Any, and the
-// coordinator hands it on as RefusalResponse.refusal (types.proto). The
-// refusing domain records nothing.
+// (FAILED_PRECONDITION) carrying a message and, optionally, a TYPED
+// refusal object of its own domain. Which refusal objects a command may
+// return is STRUCTURAL, with no annotation (the drafter's proposal,
+// FLAGGED): beside each refusable command X, in the same proto package,
+// the domain defines
+//   message XRefusal {
+//     oneof refusal {
+//       InsufficientFunds insufficient_funds = 1;
+//       ...
+//     }
+//   }
+// The generator finds X's refusal message by that name and types X's
+// generated handler result as "events or XRefusal". The client library
+// packs the chosen oneof member (the concrete object, e.g.
+// InsufficientFunds, not the XRefusal wrapper) into the rejection's
+// status details as a google.protobuf.Any, and the coordinator hands it on
+// as RefusalResponse.refusal (types.proto). The refusing domain records
+// nothing. A command with no XRefusal refuses with a message only.
+// Generator diagnostics: an XRefusal whose X is no command of the package
+// is a lint warning (an orphan, or a name that only looks like one); a
+// oneof member that is not a message of the command's own domain is a
+// lint error; a XRefusal with no oneof named refusal, or with a member
+// that is not a message, is an error.
 //
 // The saga's side. When a saga's command is refused, the saga's
 // coordinator calls SagaService.OnRefused, and the saga's generated code
@@ -431,7 +441,7 @@ extend google.protobuf.FieldOptions {
 // of two paths:
 //   - PASS-THROUGH (the default): the generated code builds the standard
 //     CommandRefused { command, refusal (the typed refusal object, as an
-//     Any), trigger, reason, message } and sends it. The source domain
+//     Any), trigger } and sends it. The source domain
 //     handles it by a generated dispatch on the refused command's type,
 //       on_refused_<Command>(refusal: CommandRefused, state) -> events,
 //     where its author writes the reaction (unpacking the typed refusal
@@ -441,6 +451,10 @@ extend google.protobuf.FieldOptions {
 //         -> <a fact type of the source domain>,
 //     reads the typed refusal object and returns a DOMESTIC fact, so the
 //     source never refers to the foreign protos (the saga already does).
+//     That is why translate exists: CommandRefused carries only the
+//     foreign object, so a domain that does not want to unpack it, or
+//     import the foreign protos, has the saga unpack it and hand over a
+//     domestic fact.
 //
 // The switch is angzarr-cli's ONLY ("cli may have to have that switch, as
 // it's compile time": the owner, 2026-10-28). The CLI selects pass-through
@@ -460,7 +474,6 @@ extend google.protobuf.FieldOptions {
 // no path (a pass-through CommandRefused whose command type the source has
 // no handler for) is caught at RUN time: the source answers
 // NO_FACT_HANDLER, and the fact is dead-lettered and alerted. What the
-// generator still checks: a refused_with type exists and is a message of
-// the command's handling domain, and a command selected for translate has
-// its callback.
+// generator still checks: the XRefusal diagnostics above, and that a
+// command selected for translate has its callback.
 // endregion
