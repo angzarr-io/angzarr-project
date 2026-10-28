@@ -80,7 +80,8 @@ option ruby_package = "Angzarr";
 //   - A COMMAND addressed to a PM always starts an instance when none
 //     exists: it is delivered with an empty process_state, like any
 //     command (Delivery of commands, below). B1 governs triggers only.
-// "The trigger" is the trigger event named by the trigger's EventRef, and
+// "The trigger" is the trigger event named by the trigger's EventRef (the
+// trigger book's last page; the event_ref region of types.proto), and
 // its type is that event's type URL as delivered (after upcasting;
 // decision 14.25). The check runs in the coordinator, before
 // deduplication and before the handler; business code never sees a
@@ -207,8 +208,10 @@ message ProcessManagerHandleRequest {
   // process events (see ProcessManagerService, Process events and
   // deduplication). Exactly one is set.
   oneof cause {
-    // A trigger: full state of triggering domain. Process events written
-    // for it carry causation.triggering_event.
+    // A trigger: the source stream's book, ending at the trigger event,
+    // which is its LAST page (the event_ref region of types.proto). Process
+    // events written for it carry causation.triggering_event, that page's
+    // EventRef.
     EventBook trigger = 1;
     // A command addressed to the PM's own stream, after the coordinator's
     // pipeline: ids assigned and correlation_id set (its cover's root), no

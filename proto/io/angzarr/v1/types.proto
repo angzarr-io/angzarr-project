@@ -388,6 +388,24 @@ message EventRef {
   Cover stream = 1; // The stream holding the event (domain, edition, root)
   uint64 sequence = 2; // The event's EventPage.sequence within that stream
 }
+
+// The trigger of a trigger book (decision 14.31, a drafter's proposal for
+// the owner to confirm). A reactor is handed its trigger as an EventBook
+// of the source stream: SagaService.Handle,
+// SagaCoordinatorService.Execute, ProcessManagerCoordinatorService.Handle
+// and ProcessManagerHandleRequest.trigger. The trigger is that book's LAST
+// page, and the trigger's EventRef is (the book's cover, the last page's
+// sequence). Pages are in ascending sequence order, so the last page is
+// the highest sequence. The earlier pages, and the book's snapshot, are
+// the source stream's state before the trigger, given as context: the
+// reactor reacts to the last page only, and everything derived from "the
+// trigger" uses that page (the reaction command_id and causation_id, a
+// PM's triggering_event and correlation, the B1 start check). Each event
+// of a write is its own trigger: a write of several events is delivered as
+// that many trigger books, one ending at each event, in sequence order. A
+// trigger book with no pages is malformed: a client caller is answered
+// INVALID_ARGUMENT (where a client may call at all), and a framework
+// delivery is dead-lettered and alerted.
 // endregion
 
 // region command_identity
