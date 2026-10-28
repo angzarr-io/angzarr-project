@@ -51,24 +51,28 @@ option ruby_package = "Angzarr::Examples";
 //   1. BuyInStarted -> saga-buy-in-player sends HoldFunds to the wallet;
 //   2. the wallet refuses it (FAILED_PRECONDITION,
 //      INSUFFICIENT_AVAILABLE_FUNDS) with its typed refusal object
-//      InsufficientFunds{available, requested} (HoldFunds' refused_with,
-//      player.proto), and records NOTHING;
+//      InsufficientFunds{available, requested} (the member of
+//      HoldFundsRefusal, player.proto, that its handler chose), and records
+//      NOTHING;
 //   3. saga-buy-in-player's coordinator calls OnRefused with Refusal{event
 //      = BuyInStarted, command = the HoldFunds sent, response =
-//      RefusalResponse{reason, message, refusal = InsufficientFunds as an
-//      Any}}; the saga's generated code, with no user code, answers the
-//      standard CommandRefused{command = the HoldFunds, refusal = the
-//      packed InsufficientFunds, trigger = BuyInStarted's EventRef,
-//      reason, message} for its own source: the buy-in stream of
-//      BuyInStarted (this PM instance). The coordinator stamps it (its
-//      command_id = HoldFunds' command_id, causation_id = BuyInStarted,
-//      the correlation) and writes it to the outbox in the same
-//      transaction that clears HoldFunds' entry;
+//      RefusalResponse{refusal = InsufficientFunds as an Any, message}};
+//      the saga's generated code, with no user code, answers the standard
+//      CommandRefused{command = the HoldFunds, refusal = the packed
+//      InsufficientFunds, trigger = BuyInStarted's EventRef}, and nothing
+//      else. The coordinator addresses it to the exact stream of
+//      BuyInStarted (this PM instance: domain, root and edition), stamps
+//      it (its command_id = HoldFunds' command_id, causation_id =
+//      BuyInStarted, the correlation) and writes it to the outbox in the
+//      same transaction that clears HoldFunds' entry;
 //   4. the buy-in domain defines on_refused_HoldFunds(refusal, state)
 //      (its generated dispatch is inferred from that handler; this file
 //      imports player.proto for HoldFunds and InsufficientFunds), which
 //      unpacks InsufficientFunds and records BuyInFailed{reason,
-//      available, requested}, phase AWAITING_HOLD -> FAILED;
+//      available, requested}, phase AWAITING_HOLD -> FAILED. (Had the
+//      buy-in not wanted the player's protos, the build would select
+//      translate for HoldFunds, and the saga would unpack InsufficientFunds
+//      and hand over a buy-in fact: the reason translate exists);
 //   5. BuyInFailed -> saga-buy-in-table sends ReleaseSeat to the table,
 //      which records SeatReleased.
 //
@@ -76,8 +80,8 @@ option ruby_package = "Angzarr::Examples";
 // player took another seat meanwhile).
 //   1. BuyInFundsHeld -> saga-buy-in-table sends ConfirmSeat to the table;
 //   2. the table refuses it (FAILED_PRECONDITION) with its typed refusal
-//      object SeatNotConfirmable{reason} (ConfirmSeat's refused_with,
-//      table.proto), and records NOTHING;
+//      object SeatNotConfirmable{reason} (the member of
+//      ConfirmSeatRefusal, table.proto), and records NOTHING;
 //   3. translate is selected for ConfirmSeat, so saga-buy-in-table's
 //      callback on_refused_ConfirmSeat(Refusal{event = BuyInFundsHeld,
 //      command = the ConfirmSeat sent, response}) reads
