@@ -8,8 +8,9 @@
 //! descriptors (see `tests/conflict_units.rs`). prost-build emits messages only: the
 //! `UpcasterService` in upcaster.proto and the `EditionAdminService` in
 //! meta.proto are skipped because no service generator is configured, so
-//! meta.proto contributes its messages only (`CreateEditionRequest`,
-//! `DeleteEditionRequest`, `Edition`). meta.proto imports
+//! meta.proto contributes its messages only (`ForkStreamRequest`,
+//! `ListEditionsRequest`/`Response`, `EditionSummary`,
+//! `DeleteEditionRequest`). meta.proto imports
 //! `google/api/annotations.proto` for its HTTP bindings: protoc resolves it
 //! from this repo's vendored `proto/google/api/`, and nothing generated
 //! here references `google.api` (its code is emitted to `$OUT_DIR` but not

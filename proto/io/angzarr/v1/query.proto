@@ -28,9 +28,9 @@ option ruby_package = "Angzarr";
 // Upcasting. A coordinator upcasts every event it returns through its own
 // business process's UpcasterService (see upcaster.proto).
 //
-// Editions: a Query or CorrelationQuery naming a non-main edition that was
-// never created (EditionAdminService.CreateEdition, meta.proto) is refused
-// NOT_FOUND.
+// Editions: a Query or CorrelationQuery naming an unknown edition (no fork
+// event of it exists: never created with EditionAdminService.ForkStream,
+// meta.proto, or deleted) is refused NOT_FOUND.
 service EventQueryService {
   // Get a single EventBook (unary) - use for explicit queries with gRPC tooling
   rpc GetEventBook(Query) returns (EventBook) {

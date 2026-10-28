@@ -1,104 +1,115 @@
-//! meta.proto's EditionAdminService messages: the edition registry's
-//! request and record types, generated (messages only; no service).
+//! Editions as per-stream forks (decision 14.32): the fork event in
+//! types.proto, and meta.proto's EditionAdminService messages (generated;
+//! messages only, no service).
 
 use angzarr_proto::protos::FILES;
-use angzarr_proto::v1::{CreateEditionRequest, DeleteEditionRequest, Edition};
+use angzarr_proto::v1::{
+    Cover, DeleteEditionRequest, EditionForked, EditionSummary, EventRef, ForkStreamRequest,
+    ListEditionsResponse, Uuid,
+};
 use prost::{Message, Name};
 
-fn at(seconds: i64) -> Option<prost_types::Timestamp> {
-    Some(prost_types::Timestamp { seconds, nanos: 7 })
-}
-
 /// The first byte of an encoding: the first field's tag, as
-/// `(number << 3) | wire type` (2, length-delimited, for every field here).
+/// `(number << 3) | wire type`.
 fn first_tag<M: Message>(m: &M) -> u8 {
     m.encode_to_vec()[0]
 }
 
-#[test]
-fn create_edition_request_round_trips_with_its_field_numbers() {
-    let request = CreateEditionRequest {
-        name: "what-if".into(),
-        diverge_at: at(1_700_000_000),
-        store: "archive".into(),
-    };
-    assert_eq!(
-        CreateEditionRequest::decode(&*request.encode_to_vec()).unwrap(),
-        request
-    );
-    let name = CreateEditionRequest {
-        name: "e".into(),
-        ..Default::default()
-    };
-    let diverge_at = CreateEditionRequest {
-        diverge_at: at(1),
-        ..Default::default()
-    };
-    let store = CreateEditionRequest {
-        store: "s".into(),
-        ..Default::default()
-    };
-    assert_eq!(first_tag(&name), (1 << 3) | 2);
-    assert_eq!(first_tag(&diverge_at), (2 << 3) | 2);
-    assert_eq!(first_tag(&store), (3 << 3) | 2);
+fn stream(edition: &str) -> Cover {
+    Cover {
+        domain: "player".into(),
+        root: Some(Uuid {
+            value: vec![7; 16].into(),
+        }),
+        edition: Some(edition.into()),
+    }
 }
 
 #[test]
-fn an_unset_divergence_point_is_distinct_from_the_epoch() {
-    let unset = CreateEditionRequest {
-        name: "e".into(),
-        ..Default::default()
+fn the_fork_event_round_trips_with_its_field_numbers() {
+    let fork = EditionForked {
+        edition: "what-if".into(),
+        parent_sequence: 12,
+        commit_position: 0,
+        propagated_from: Some(EventRef {
+            stream: Some(stream("what-if")),
+            sequence: 3,
+        }),
+        on_demand: false,
     };
-    let epoch = CreateEditionRequest {
-        diverge_at: Some(prost_types::Timestamp::default()),
-        ..unset.clone()
-    };
-    let decode = |m: &CreateEditionRequest| {
-        CreateEditionRequest::decode(&*m.encode_to_vec())
-            .unwrap()
-            .diverge_at
-    };
-    assert_eq!(decode(&unset), None);
-    assert_eq!(decode(&epoch), Some(prost_types::Timestamp::default()));
-}
-
-#[test]
-fn edition_record_round_trips_with_its_field_numbers() {
-    let edition = Edition {
-        name: "what-if".into(),
-        diverged_at: at(10),
-        store: "default".into(),
-        created_at: at(20),
-    };
-    assert_eq!(Edition::decode(&*edition.encode_to_vec()).unwrap(), edition);
-    let field = |e: Edition| first_tag(&e);
+    assert_eq!(EditionForked::decode(&*fork.encode_to_vec()).unwrap(), fork);
+    let tag = |f: EditionForked| first_tag(&f);
     assert_eq!(
-        field(Edition {
-            name: "e".into(),
+        tag(EditionForked {
+            edition: "e".into(),
             ..Default::default()
         }),
         (1 << 3) | 2
     );
     assert_eq!(
-        field(Edition {
-            diverged_at: at(1),
+        tag(EditionForked {
+            parent_sequence: 1,
             ..Default::default()
         }),
-        (2 << 3) | 2
+        2 << 3
     );
     assert_eq!(
-        field(Edition {
-            store: "s".into(),
+        tag(EditionForked {
+            commit_position: 1,
             ..Default::default()
         }),
-        (3 << 3) | 2
+        3 << 3
     );
     assert_eq!(
-        field(Edition {
-            created_at: at(1),
+        tag(EditionForked {
+            propagated_from: Some(EventRef::default()),
             ..Default::default()
         }),
         (4 << 3) | 2
+    );
+    assert_eq!(
+        tag(EditionForked {
+            on_demand: true,
+            ..Default::default()
+        }),
+        5 << 3
+    );
+}
+
+#[test]
+fn fork_stream_request_names_the_stream_and_the_optional_commit_position() {
+    let per_stream = ForkStreamRequest {
+        stream: Some(stream("what-if")),
+        commit_position: 0,
+    };
+    assert_eq!(
+        ForkStreamRequest::decode(&*per_stream.encode_to_vec()).unwrap(),
+        per_stream
+    );
+    assert_eq!(first_tag(&per_stream), (1 << 3) | 2);
+    let time_based = ForkStreamRequest {
+        commit_position: 42,
+        ..Default::default()
+    };
+    assert_eq!(first_tag(&time_based), 2 << 3);
+}
+
+#[test]
+fn editions_are_listed_as_summaries_derived_from_fork_events() {
+    let response = ListEditionsResponse {
+        editions: vec![EditionSummary {
+            name: "what-if".into(),
+            origins: vec![EventRef {
+                stream: Some(stream("what-if")),
+                sequence: 12,
+            }],
+            forked_streams: 4,
+            commit_position: 0,
+        }],
+    };
+    assert_eq!(
+        ListEditionsResponse::decode(&*response.encode_to_vec()).unwrap(),
+        response
     );
 }
 
@@ -116,10 +127,10 @@ fn delete_edition_request_carries_the_name_as_field_one() {
 
 #[test]
 fn edition_messages_have_angzarr_type_urls() {
-    assert_eq!(Edition::type_url(), "/io.angzarr.v1.Edition");
+    assert_eq!(EditionForked::type_url(), "/io.angzarr.v1.EditionForked");
     assert_eq!(
-        CreateEditionRequest::type_url(),
-        "/io.angzarr.v1.CreateEditionRequest"
+        ForkStreamRequest::type_url(),
+        "/io.angzarr.v1.ForkStreamRequest"
     );
     assert_eq!(
         DeleteEditionRequest::type_url(),
