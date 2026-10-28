@@ -16,6 +16,7 @@ name = "angzarr-ports"
 version = "0.1.0"
 dependencies = [
  "angzarr-proto",
+ "prost",
  "prost-types",
  "tokio",
  "wasm-bindgen-test",

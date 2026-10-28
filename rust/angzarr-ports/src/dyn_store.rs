@@ -13,9 +13,8 @@
 use std::future::Future;
 use std::pin::Pin;
 
-use crate::{CreateEditionRequest, Edition};
 use angzarr_proto::uuid::Uuid;
-use angzarr_proto::v1::{Cover, EventBook, EventPage, Snapshot};
+use angzarr_proto::v1::{Cover, EditionSummary, EventBook, EventPage, Snapshot};
 use prost_types::Timestamp;
 
 use crate::error::StoreError;
@@ -82,13 +81,13 @@ pub trait DynPositionStore: MaybeSend + MaybeSync {
 
 /// [`Editions`], object-safe: core's edition admin.
 pub trait DynEditions: MaybeSend + MaybeSync {
-    fn create_edition<'a>(
+    fn fork_point<'a>(
         &'a self,
-        request: &'a CreateEditionRequest,
-        now: Timestamp,
-    ) -> BoxFuture<'a, Result<Edition, StoreError>>;
+        stream: StreamRef<'a>,
+        commit_position: u64,
+    ) -> BoxFuture<'a, Result<u64, StoreError>>;
+    fn list_editions(&self) -> BoxFuture<'_, Result<Vec<EditionSummary>, StoreError>>;
     fn delete_edition<'a>(&'a self, name: &'a str) -> BoxFuture<'a, Result<(), StoreError>>;
-    fn edition<'a>(&'a self, name: &'a str) -> BoxFuture<'a, Result<Option<Edition>, StoreError>>;
 }
 
 /// [`ReadUntilTime`], object-safe.
@@ -152,6 +151,11 @@ pub trait DynUnit<'s>: MaybeSend + 's {
         &'a mut self,
         stream: StreamRef<'a>,
     ) -> BoxFuture<'a, Result<Option<Snapshot>, StoreError>>;
+    fn write_snapshot<'a>(
+        &'a mut self,
+        stream: StreamRef<'a>,
+        snapshot: &'a Snapshot,
+    ) -> BoxFuture<'a, Result<(), StoreError>>;
     fn position<'a>(&'a mut self, key: PositionKey<'a>) -> BoxFuture<'a, Result<u64, StoreError>>;
     fn put_position<'a>(
         &'a mut self,
@@ -252,18 +256,19 @@ impl<T: PositionStore> DynPositionStore for T {
 }
 
 impl<T: Editions> DynEditions for T {
-    fn create_edition<'a>(
+    fn fork_point<'a>(
         &'a self,
-        request: &'a CreateEditionRequest,
-        now: Timestamp,
-    ) -> BoxFuture<'a, Result<Edition, StoreError>> {
-        Box::pin(Editions::create_edition(self, request, now))
+        stream: StreamRef<'a>,
+        commit_position: u64,
+    ) -> BoxFuture<'a, Result<u64, StoreError>> {
+        let _ = (stream, commit_position);
+        todo!("proposed: the dyn adapter's fork_point")
+    }
+    fn list_editions(&self) -> BoxFuture<'_, Result<Vec<EditionSummary>, StoreError>> {
+        todo!("proposed: the dyn adapter's list_editions")
     }
     fn delete_edition<'a>(&'a self, name: &'a str) -> BoxFuture<'a, Result<(), StoreError>> {
         Box::pin(Editions::delete_edition(self, name))
-    }
-    fn edition<'a>(&'a self, name: &'a str) -> BoxFuture<'a, Result<Option<Edition>, StoreError>> {
-        Box::pin(Editions::edition(self, name))
     }
 }
 
@@ -352,6 +357,14 @@ impl<'s, U: Unit + 's> DynUnit<'s> for U {
         stream: StreamRef<'a>,
     ) -> BoxFuture<'a, Result<Option<Snapshot>, StoreError>> {
         Box::pin(Unit::read_snapshot(self, stream))
+    }
+    fn write_snapshot<'a>(
+        &'a mut self,
+        stream: StreamRef<'a>,
+        snapshot: &'a Snapshot,
+    ) -> BoxFuture<'a, Result<(), StoreError>> {
+        let _ = (stream, snapshot);
+        todo!("proposed: the dyn adapter's unit write_snapshot")
     }
     fn position<'a>(&'a mut self, key: PositionKey<'a>) -> BoxFuture<'a, Result<u64, StoreError>> {
         Box::pin(Unit::position(self, key))
@@ -496,6 +509,13 @@ impl<'s> Unit for Box<dyn DynUnit<'s> + 's> {
         stream: StreamRef<'_>,
     ) -> Result<Option<Snapshot>, StoreError> {
         (**self).read_snapshot(stream).await
+    }
+    async fn write_snapshot(
+        &mut self,
+        stream: StreamRef<'_>,
+        snapshot: &Snapshot,
+    ) -> Result<(), StoreError> {
+        (**self).write_snapshot(stream, snapshot).await
     }
     async fn position(&mut self, key: PositionKey<'_>) -> Result<u64, StoreError> {
         (**self).position(key).await

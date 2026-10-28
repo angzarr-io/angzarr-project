@@ -7,28 +7,31 @@
 //! two clones), and every operation is atomic under one lock, held only
 //! for the operation itself (never across an `.await`).
 //!
-//! - **Units of work** are optimistic: a unit holds its writes, reads the
-//!   store with its own writes laid over it, and checks at its append and
-//!   again at its commit that no other writer moved the streams it wrote.
+//! - **Units of work** are optimistic and step-scoped: a unit writes one
+//!   stream, holds its writes, reads the store with its own writes laid
+//!   over it, and checks at its append and again at its commit that no
+//!   other writer moved its stream.
 //!   It serves any number of units at once, so it never answers
 //!   [`StoreError::UnitBusy`].
 //! - **Read units** read one moment: the store's data is copy-on-write
 //!   behind an `Arc`, so a read unit keeps the moment it began, and a
 //!   writer copies the data only while a read unit still holds it.
-//! - **Editions** (the [`Editions`] registry and its fall-through) are
-//!   PROVISIONAL, pending the per-stream editions spec (owner ruling
-//!   2026-10-28): `Editions` is not implemented here yet, so the store has
-//!   created no edition. Its streams in any edition are plain streams of
-//!   their own, and its read units refuse every edition (EA-2: a store
-//!   with no registry has created none).
+//! - **Editions** are per-stream forks (14.32), and this is their
+//!   reference backend: for what-if and AI experimentation, in games and
+//!   elsewhere, fork a stream into an edition, run commands there, read
+//!   both timelines side by side, delete the edition, and main is
+//!   unchanged byte for byte.
+//!
+//! **A proposal in part (red).** The fork rule, [`Editions`] and the
+//! step-scoped unit (one stream per unit, its snapshot written in it) are
+//! pinned by the suite and not yet implemented here.
 
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex, MutexGuard};
 
-use crate::{CreateEditionRequest, Edition};
 use angzarr_proto::uuid::Uuid;
 use angzarr_proto::v1::event_meta::Causation;
-use angzarr_proto::v1::{Cover, EventBook, EventPage, Snapshot};
+use angzarr_proto::v1::{Cover, EditionSummary, EventBook, EventPage, Snapshot};
 use prost_types::Timestamp;
 
 use crate::error::StoreError;
@@ -39,8 +42,8 @@ use crate::store::{
 };
 use crate::stream::{PositionKey, Slice, StreamRef};
 
-const EDITIONS_PENDING: &str =
-    "MemoryStore's Editions are pending the per-stream editions spec (owner ruling 2026-10-28)";
+const PROPOSED: &str =
+    "proposed for review: MemoryStore's per-stream editions and step-scoped units";
 
 /// A stream's place: its fields, ordered as [`StreamRef`] orders them
 /// (domain, then main before each edition by name, then root as bytes).
@@ -104,10 +107,6 @@ impl Data {
     }
 }
 
-// `StoreError` is the ports' reviewed error, returned by every port
-// method; boxing its fields would change that public shape, so its size is
-// accepted here as it is on the trait methods (which clippy does not flag).
-#[allow(clippy::result_large_err)]
 /// Refuse an append to a stream of `length` that does not expect that
 /// length, or whose pages do not run on from it.
 fn check_append(
@@ -117,19 +116,15 @@ fn check_append(
     pages: &[EventPage],
 ) -> Result<(), StoreError> {
     if expected != length {
-        return Err(StoreError::Conflict {
-            stream: stream.to_cover(),
-            expected,
-            actual: length,
-        });
+        return Err(StoreError::conflict(stream, expected, length));
     }
     for (due, page) in (expected..).zip(pages) {
         if page.sequence != due {
-            return Err(StoreError::Discontinuous {
-                stream: stream.to_cover(),
-                expected: due,
-                found: page.sequence,
-            });
+            return Err(StoreError::discontinuous(
+                stream.to_cover(),
+                due,
+                page.sequence,
+            ));
         }
     }
     Ok(())
@@ -419,6 +414,15 @@ impl Unit for MemoryUnit {
         Ok(self.store.data().snapshots.get(&k).cloned())
     }
 
+    async fn write_snapshot(
+        &mut self,
+        stream: StreamRef<'_>,
+        snapshot: &Snapshot,
+    ) -> Result<(), StoreError> {
+        let _ = (stream, snapshot);
+        todo!("{PROPOSED}")
+    }
+
     async fn position(&mut self, key: PositionKey<'_>) -> Result<u64, StoreError> {
         let p = place(key);
         if let Some(next) = self.positions.get(&p) {
@@ -447,11 +451,7 @@ impl Unit for MemoryUnit {
             }
             let actual = guard.pages(k).len() as u64;
             if actual != pending.base {
-                return Err(StoreError::Conflict {
-                    stream: cover(k),
-                    expected: pending.base,
-                    actual,
-                });
+                return Err(StoreError::conflict(cover(k), pending.base, actual));
             }
         }
         let data = Arc::make_mut(&mut guard);
@@ -508,23 +508,22 @@ impl UnitPurge for MemoryUnit {
 }
 
 impl Editions for MemoryStore {
-    async fn create_edition(
+    async fn fork_point(
         &self,
-        request: &CreateEditionRequest,
-        now: Timestamp,
-    ) -> Result<Edition, StoreError> {
-        let _ = (request, now);
-        todo!("{EDITIONS_PENDING}")
+        stream: StreamRef<'_>,
+        commit_position: u64,
+    ) -> Result<u64, StoreError> {
+        let _ = (stream, commit_position);
+        todo!("{PROPOSED}")
+    }
+
+    async fn list_editions(&self) -> Result<Vec<EditionSummary>, StoreError> {
+        todo!("{PROPOSED}")
     }
 
     async fn delete_edition(&self, name: &str) -> Result<(), StoreError> {
         let _ = name;
-        todo!("{EDITIONS_PENDING}")
-    }
-
-    async fn edition(&self, name: &str) -> Result<Option<Edition>, StoreError> {
-        let _ = name;
-        todo!("{EDITIONS_PENDING}")
+        todo!("{PROPOSED}")
     }
 }
 
@@ -542,17 +541,11 @@ impl ReadStore for MemoryStore {
     }
 }
 
-// `StoreError` is the ports' reviewed error, returned by every port
-// method; boxing its fields would change that public shape, so its size is
-// accepted here as it is on the trait methods (which clippy does not flag).
-#[allow(clippy::result_large_err)]
-/// The store has created no edition (its registry is pending), so a read
-/// unit refuses every edition's stream.
+/// A read unit's stream, refusing every edition: the fork rule is not yet
+/// implemented here (red), so this store knows no edition.
 fn main_only(stream: StreamRef<'_>) -> Result<Key, StoreError> {
     match stream.edition {
-        Some(_) => Err(StoreError::UnknownEdition {
-            stream: stream.to_cover(),
-        }),
+        Some(_) => Err(StoreError::unknown_edition(stream.to_cover())),
         None => Ok(key(stream)),
     }
 }

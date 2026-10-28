@@ -22,15 +22,17 @@ use std::sync::{Arc, Mutex};
 
 use angzarr_ports::angzarr_proto::ids::fact_command_id;
 use angzarr_ports::angzarr_proto::v1::event_meta::Causation;
-use angzarr_ports::angzarr_proto::v1::{Cover, EventBook, EventPage, Snapshot};
+use angzarr_ports::angzarr_proto::v1::{
+    Cover, EditionSummary, EventBook, EventPage, EventRef, Snapshot,
+};
 use angzarr_ports::contract;
 use angzarr_ports::memory::{MemoryRead, MemoryStore, MemoryUnit};
 use angzarr_ports::{
     ChangeToken, Editions, EventStore, Head, ListStreams, Outbox, OutboxEntry, PositionKey,
     PositionStore, Purge, ReadByCorrelation, ReadStore, ReadUnit, ReadUntilTime, Slice,
     SnapshotStore, StoreError, StreamRef, Unit, UnitOfWork, UnitOutbox, UnitPurge, Uuid, Watch,
+    EDITION_FORKED_TYPE_URL,
 };
-use angzarr_ports::{CreateEditionRequest, Edition};
 use prost_types::Timestamp;
 
 /// What a [`Broken`] store gets wrong: one bug each.
@@ -105,6 +107,12 @@ enum Bug {
     RefusesOnlyOnce,
     /// A unit that lost a race still lands its other writes.
     LandsAroundAConflict,
+    /// Its units write a second stream (straight to the store).
+    UnitTakesSecondStream,
+    /// Its units write their snapshot straight to the store.
+    UnitSnapshotWritesThrough,
+    /// A unit that lost a race at commit lands its pages after the winner's.
+    LastWriterWins,
     // ---- purge
     /// A purge keeps the snapshot.
     PurgeKeepsSnapshot,
@@ -118,38 +126,39 @@ enum Bug {
     UnitPurgeMissesPending,
     /// A purge lowers the commit position.
     PurgeLowersPosition,
-    // ---- editions
-    /// A second create of one name answers the first.
-    EditionCreatedTwice,
-    /// A create with no name succeeds.
-    EditionNameless,
-    /// An edition's stream reads its own events alone.
-    EditionNoFallThrough,
-    /// An edition's stream reads main's events past the divergence too.
-    EditionFallsThroughPastDivergence,
-    /// Deleting an edition deletes main's streams too.
-    EditionDeleteTakesMain,
-    /// Deleting an unknown edition succeeds.
-    EditionDeleteUnknownOk,
+    // ---- editions' forks (every store)
+    /// An unforked edition stream reads empty, not as main's.
+    UnforkedReadsEmpty,
+    /// Outside input to an unforked edition stream is taken (and lost).
+    AcceptsUnforkedInput,
+    /// A second fork of a stream is taken.
+    SecondForkAccepted,
+    /// A forked stream reads main's later events too.
+    ForkSeesMainsLater,
+    /// An edition stream with no snapshot of its own reads main's.
+    SnapshotFallsThrough,
+    // ---- editions (the administration)
+    /// The time-based fork point is always main's head.
+    ForkPointIsTheHead,
+    /// `ListEditions` counts propagated forks among the origins.
+    OriginsIncludePropagated,
+    /// `DeleteEdition` keeps the edition's snapshots.
+    DeleteKeepsSnapshots,
+    /// `DeleteEdition` deletes main's streams too.
+    DeleteTakesMain,
+    /// `DeleteEdition` of an unknown edition succeeds.
+    DeleteUnknownOk,
     // ---- read units
     /// Its read units read the live store.
     ReadUnitIsLive,
-    /// Its read units read any edition.
+    /// Its read units read an unknown edition (as main's), not refusing it.
     ReadUnitAnyEdition,
-    /// Its read units read an edition's own events alone.
+    /// Its read units read a forked stream's own events alone.
     ReadUnitNoFallThrough,
     /// Its read units' head is the live store's.
     ReadUnitHeadIsLive,
     /// Its read units' snapshot is the live store's, escaping the moment.
     ReadUnitSnapshotIsLive,
-    /// Its read units head any edition, created or not.
-    ReadUnitHeadAnyEdition,
-    /// Its read units read any edition's snapshot, created or not.
-    ReadUnitSnapshotAnyEdition,
-    /// Its read units' head counts an edition's own events alone.
-    ReadUnitHeadNoFallThrough,
-    /// Its read units give an edition main's snapshot when it has none.
-    ReadUnitSnapshotFallsThrough,
     // ---- watch
     /// Its token never changes.
     TokenStandsStill,
@@ -250,6 +259,12 @@ fn broken_pair(bug: Bug) -> (Broken, Broken) {
     (a, b)
 }
 
+fn is_fork(page: &EventPage) -> bool {
+    page.payload
+        .as_ref()
+        .is_some_and(|p| p.type_url == EDITION_FORKED_TYPE_URL)
+}
+
 fn main_of(s: StreamRef<'_>) -> StreamRef<'_> {
     StreamRef { edition: None, ..s }
 }
@@ -267,39 +282,29 @@ impl Broken {
         }
     }
 
-    /// Whether `s` is in a created edition. Asked of the registry only by
-    /// the edition bugs, whose checks are pending the per-stream editions
-    /// spec: the shipped store's registry is not implemented yet.
-    async fn created_edition(&self, s: StreamRef<'_>) -> bool {
-        let edition_bug = matches!(
-            self.bug,
-            Bug::EditionNoFallThrough
-                | Bug::EditionFallsThroughPastDivergence
-                | Bug::ReadUnitNoFallThrough
-                | Bug::ReadUnitHeadNoFallThrough
-                | Bug::ReadUnitSnapshotFallsThrough
-        );
-        if !edition_bug {
-            return false;
+    /// `slice` without the history below its fork (a forked stream's own
+    /// events alone).
+    fn strip_history(mut slice: Slice) -> Slice {
+        if let Some(at) = slice.pages.iter().position(is_fork) {
+            slice.pages.drain(..at);
         }
-        match s.edition {
-            Some(name) => matches!(Editions::edition(&self.inner, name).await, Ok(Some(_))),
-            None => false,
-        }
+        slice
     }
 
-    /// `slice` of an edition stream without main's history.
-    async fn strip_history(&self, s: StreamRef<'_>, mut slice: Slice) -> Slice {
-        let main = EventStore::read(&self.inner, main_of(s), 0, None)
-            .await
-            .unwrap();
-        let mut n = 0;
-        slice.pages.retain(|p| {
-            let history = main.pages.get(n) == Some(p);
-            n += 1;
-            !history
-        });
-        slice
+    /// Every stream of edition `name` that holds a row, as `(stream, its
+    /// fork's sequence)`.
+    async fn edition_streams(&self, name: &str) -> Vec<(Owned, u64)> {
+        let mut found = Vec::new();
+        for cover in self.inner.list_streams().await.unwrap() {
+            if cover.edition.as_deref() != Some(name) {
+                continue;
+            }
+            let s = StreamRef::try_from(&cover).unwrap();
+            let pages = self.inner.read(s, 0, None).await.unwrap().pages;
+            let at = pages.iter().find(|p| is_fork(p)).map_or(0, |p| p.sequence);
+            found.push((Owned::of(s), at));
+        }
+        found
     }
 }
 
@@ -333,7 +338,15 @@ impl EventStore for Broken {
                 page.sequence = due;
             }
         }
-        let length = self.inner.append(stream, expected, &pages).await?;
+        let length = match self.inner.append(stream, expected, &pages).await {
+            Err(StoreError::EditionNotForked { .. }) if self.is(Bug::AcceptsUnforkedInput) => {
+                return Ok(expected + pages.len() as u64)
+            }
+            Err(StoreError::EditionAlreadyForked { .. }) if self.is(Bug::SecondForkAccepted) => {
+                return Ok(expected + pages.len() as u64)
+            }
+            landed => landed?,
+        };
         if !pages.is_empty() {
             self.local.commits.fetch_add(1, Ordering::SeqCst);
         }
@@ -355,17 +368,14 @@ impl EventStore for Broken {
         if self.is(Bug::ForgetsTheEnd) && slice.pages.is_empty() {
             slice.next_sequence = from;
         }
-        if self.created_edition(stream).await {
-            if self.is(Bug::EditionNoFallThrough) {
-                slice = self.strip_history(stream, slice).await;
-            }
-            if self.is(Bug::EditionFallsThroughPastDivergence) {
-                let main = self.inner.read(main_of(stream), from, to).await?;
-                let mut pages = main.pages;
-                let end = pages.len() as u64 + from;
-                pages.extend(slice.pages.into_iter().filter(|p| p.sequence >= end));
-                slice.pages = pages;
-            }
+        let forked_at = slice.pages.iter().find(|p| is_fork(p)).map(|p| p.sequence);
+        if self.is(Bug::UnforkedReadsEmpty) && stream.edition.is_some() && forked_at.is_none() {
+            return Ok(Slice::default());
+        }
+        if let (Bug::ForkSeesMainsLater, Some(at)) = (self.bug, forked_at) {
+            let later = self.inner.read(main_of(stream), at, None).await?.pages;
+            let after = slice.pages.iter().position(is_fork).unwrap() + 1;
+            slice.pages.splice(after..after, later);
         }
         Ok(slice)
     }
@@ -451,7 +461,11 @@ impl EventStore for Broken {
 
 impl SnapshotStore for Broken {
     async fn read_snapshot(&self, stream: StreamRef<'_>) -> Result<Option<Snapshot>, StoreError> {
-        self.inner.read_snapshot(stream).await
+        let own = self.inner.read_snapshot(stream).await?;
+        if own.is_none() && self.is(Bug::SnapshotFallsThrough) && stream.edition.is_some() {
+            return self.inner.read_snapshot(main_of(stream)).await;
+        }
+        Ok(own)
     }
 
     async fn write_snapshot(
@@ -592,6 +606,11 @@ impl Unit for BrokenUnit {
                     actual,
                 });
             }
+            Err(StoreError::UnitStreamBound { .. })
+                if self.store.is(Bug::UnitTakesSecondStream) =>
+            {
+                return self.store.inner.append(stream, expected, pages).await;
+            }
             landed => landed?,
         };
         self.appended
@@ -639,6 +658,24 @@ impl Unit for BrokenUnit {
         self.inner.read_snapshot(stream).await
     }
 
+    async fn write_snapshot(
+        &mut self,
+        stream: StreamRef<'_>,
+        snapshot: &Snapshot,
+    ) -> Result<(), StoreError> {
+        if self.store.is(Bug::UnitSnapshotWritesThrough) {
+            return self.store.write_snapshot(stream, snapshot).await;
+        }
+        match self.inner.write_snapshot(stream, snapshot).await {
+            Err(StoreError::UnitStreamBound { .. })
+                if self.store.is(Bug::UnitTakesSecondStream) =>
+            {
+                self.store.inner.write_snapshot(stream, snapshot).await
+            }
+            written => written,
+        }
+    }
+
     async fn position(&mut self, key: PositionKey<'_>) -> Result<u64, StoreError> {
         self.inner.position(key).await
     }
@@ -661,10 +698,21 @@ impl Unit for BrokenUnit {
             return inner.abort().await;
         }
         let landed = inner.commit().await;
-        if let Err(StoreError::Conflict { stream, .. }) = &landed {
+        if let Err(StoreError::Conflict { stream, actual, .. }) = &landed {
+            if store.is(Bug::LastWriterWins) {
+                // Land its pages after the winner's, renumbered.
+                for (s, _, pages) in &appended {
+                    let mut pages = pages.clone();
+                    for (due, page) in (*actual..).zip(&mut pages) {
+                        page.sequence = due;
+                    }
+                    store.inner.append(s.get(), *actual, &pages).await?;
+                }
+                return Ok(());
+            }
             if store.is(Bug::LandsAroundAConflict) {
                 for (s, expected, pages) in &appended {
-                    if s.get().to_cover() != *stream {
+                    if s.get().to_cover() != **stream {
                         let _ = store.inner.append(s.get(), *expected, pages).await;
                     }
                 }
@@ -747,45 +795,59 @@ impl UnitPurge for BrokenUnit {
 }
 
 impl Editions for Broken {
-    async fn create_edition(
+    async fn fork_point(
         &self,
-        request: &CreateEditionRequest,
-        now: Timestamp,
-    ) -> Result<Edition, StoreError> {
-        if self.is(Bug::EditionNameless) && request.name.is_empty() {
-            let named = CreateEditionRequest {
-                name: "nameless".to_string(),
-                ..request.clone()
-            };
-            return self.inner.create_edition(&named, now).await;
+        stream: StreamRef<'_>,
+        commit_position: u64,
+    ) -> Result<u64, StoreError> {
+        if self.is(Bug::ForkPointIsTheHead) {
+            return Ok(self.inner.head(main_of(stream)).await?.next_sequence);
         }
-        match self.inner.create_edition(request, now).await {
-            Err(StoreError::EditionExists { name }) if self.is(Bug::EditionCreatedTwice) => {
-                Ok(self.inner.edition(&name).await?.expect("it exists"))
+        self.inner.fork_point(stream, commit_position).await
+    }
+
+    async fn list_editions(&self) -> Result<Vec<EditionSummary>, StoreError> {
+        let mut listed = self.inner.list_editions().await?;
+        if self.is(Bug::OriginsIncludePropagated) {
+            for summary in &mut listed {
+                let mut all = Vec::new();
+                for (s, at) in self.edition_streams(&summary.name).await {
+                    all.push(EventRef {
+                        stream: Some(s.get().to_cover()),
+                        sequence: at,
+                    });
+                }
+                summary.origins = all;
             }
-            made => made,
         }
+        Ok(listed)
     }
 
     async fn delete_edition(&self, name: &str) -> Result<(), StoreError> {
-        let deleted = match self.inner.delete_edition(name).await {
-            Err(StoreError::EditionNotFound { .. }) if self.is(Bug::EditionDeleteUnknownOk) => {
-                Ok(())
-            }
-            deleted => deleted,
-        };
-        if self.is(Bug::EditionDeleteTakesMain) {
-            for cover in self.inner.list_streams().await? {
-                if cover.edition.is_none() {
-                    self.inner.purge(StreamRef::try_from(&cover)?).await?;
-                }
+        let streams = self.edition_streams(name).await;
+        let mut snapshots = Vec::new();
+        for (s, _) in &streams {
+            if let Some(kept) = self.inner.read_snapshot(s.get()).await? {
+                snapshots.push((s.clone(), kept));
             }
         }
-        deleted
-    }
-
-    async fn edition(&self, name: &str) -> Result<Option<Edition>, StoreError> {
-        self.inner.edition(name).await
+        match self.inner.delete_edition(name).await {
+            Err(StoreError::EditionNotFound { .. }) if self.is(Bug::DeleteUnknownOk) => {
+                return Ok(())
+            }
+            deleted => deleted?,
+        }
+        if self.is(Bug::DeleteKeepsSnapshots) {
+            for (s, kept) in snapshots {
+                self.inner.write_snapshot(s.get(), &kept).await?;
+            }
+        }
+        if self.is(Bug::DeleteTakesMain) {
+            for (s, _) in &streams {
+                self.inner.purge(main_of(s.get())).await?;
+            }
+        }
+        Ok(())
     }
 }
 
@@ -820,50 +882,35 @@ impl ReadUnit for BrokenRead {
         from: u64,
         to: Option<u64>,
     ) -> Result<Slice, StoreError> {
-        let live = self.store.is(Bug::ReadUnitIsLive)
-            || (self.store.is(Bug::ReadUnitAnyEdition) && stream.edition.is_some());
-        if live {
+        if self.store.is(Bug::ReadUnitIsLive) {
             return self.store.read(stream, from, to).await;
         }
-        let slice = self.inner.read(stream, from, to).await?;
-        if self.store.is(Bug::ReadUnitNoFallThrough) && self.store.created_edition(stream).await {
-            return Ok(self.store.strip_history(stream, slice).await);
+        match self.inner.read(stream, from, to).await {
+            Err(StoreError::UnknownEdition { .. }) if self.store.is(Bug::ReadUnitAnyEdition) => {
+                self.store.read(stream, from, to).await
+            }
+            Ok(slice) if self.store.is(Bug::ReadUnitNoFallThrough) => {
+                Ok(Broken::strip_history(slice))
+            }
+            read => read,
         }
-        Ok(slice)
     }
 
     async fn head(&mut self, stream: StreamRef<'_>) -> Result<Head, StoreError> {
-        let live = self.store.is(Bug::ReadUnitHeadIsLive)
-            || (self.store.is(Bug::ReadUnitHeadAnyEdition) && stream.edition.is_some());
-        if live {
+        if self.store.is(Bug::ReadUnitHeadIsLive) {
             return self.store.head(stream).await;
         }
-        let mut head = ReadUnit::head(&mut self.inner, stream).await?;
-        if self.store.is(Bug::ReadUnitHeadNoFallThrough) && self.store.created_edition(stream).await
-        {
-            let all = self.inner.read(stream, 0, None).await?;
-            head.next_sequence = self.store.strip_history(stream, all).await.pages.len() as u64;
-        }
-        Ok(head)
+        ReadUnit::head(&mut self.inner, stream).await
     }
 
     async fn read_snapshot(
         &mut self,
         stream: StreamRef<'_>,
     ) -> Result<Option<Snapshot>, StoreError> {
-        let live = self.store.is(Bug::ReadUnitSnapshotIsLive)
-            || (self.store.is(Bug::ReadUnitSnapshotAnyEdition) && stream.edition.is_some());
-        if live {
+        if self.store.is(Bug::ReadUnitSnapshotIsLive) {
             return self.store.read_snapshot(stream).await;
         }
-        let own = self.inner.read_snapshot(stream).await?;
-        if own.is_none()
-            && self.store.is(Bug::ReadUnitSnapshotFallsThrough)
-            && self.store.created_edition(stream).await
-        {
-            return self.inner.read_snapshot(main_of(stream)).await;
-        }
-        Ok(own)
+        self.inner.read_snapshot(stream).await
     }
 }
 
@@ -1017,9 +1064,19 @@ fn caught<F: Future>(check: F) -> Result<(), String> {
     }
 }
 
-/// Require `check` to catch each bug, on a fresh store or pair.
+/// Require `check` to pass the honest wrapper, then to catch each bug, on
+/// a fresh store or pair.
 macro_rules! catches {
     ($check:ident, $make:ident, $($bug:ident),+ $(,)?) => {
+        // A catch proves something only if the same wrapper with no bug
+        // passes the check: otherwise the check fails for the store's own
+        // gap, whatever the bug.
+        if let Err(why) = run(contract::$check($make(Bug::Honest))) {
+            panic!(
+                "{} fails an honest store, so no catch counts: {why}",
+                stringify!($check)
+            );
+        }
         $(
             if let Err(why) = caught(contract::$check($make(Bug::$bug))) {
                 panic!("{} on a store that {:?}: {why}", stringify!($check), Bug::$bug);
@@ -1275,83 +1332,90 @@ fn the_read_unit_checks_catch_a_live_unit() {
     );
 }
 
-// ------- PENDING the per-stream editions spec (owner ruling 2026-10-28):
-// the editions, read_editions and read_unknown_edition sections' meta-tests,
-// kept and not run until those sections are reworked.
-
 #[test]
-#[ignore = "pending the per-stream editions spec, owner ruling 2026-10-28"]
-fn the_edition_checks_catch_a_lax_registry_and_a_wrong_fall_through() {
+fn the_fork_checks_catch_a_store_that_breaks_the_fork_rule() {
     catches!(
-        an_edition_is_created_once_and_recorded,
+        an_unforked_edition_stream_reads_as_main,
         broken,
-        EditionCreatedTwice
+        UnforkedReadsEmpty,
+        SnapshotFallsThrough,
     );
     catches!(
-        an_edition_create_refuses_a_bad_request,
+        an_edition_stream_takes_only_a_fork_as_its_first_own_event,
         broken,
-        EditionNameless
+        AcceptsUnforkedInput,
+        SecondForkAccepted,
     );
     catches!(
-        an_edition_reads_mains_events_below_its_divergence_then_its_own,
+        a_forked_stream_reads_main_below_its_fork_then_its_own,
         broken,
-        EditionNoFallThrough,
-        EditionFallsThroughPastDivergence,
-    );
-    catches!(
-        deleting_an_edition_removes_it_and_its_streams_never_mains,
-        broken,
-        EditionDeleteTakesMain
-    );
-    catches!(
-        deleting_an_edition_refuses_an_empty_or_unknown_name,
-        broken,
-        EditionDeleteUnknownOk
+        ForkSeesMainsLater,
+        SnapshotFallsThrough,
+        UnforkedReadsEmpty,
     );
 }
 
 #[test]
-#[ignore = "pending the per-stream editions spec, owner ruling 2026-10-28"]
+fn the_step_unit_checks_catch_a_second_stream_an_early_snapshot_and_a_lost_race() {
+    catches!(
+        a_unit_of_work_writes_one_stream_and_refuses_a_second,
+        broken,
+        UnitTakesSecondStream
+    );
+    catches!(
+        a_unit_of_work_lands_its_snapshot_with_its_appends,
+        broken,
+        UnitSnapshotWritesThrough
+    );
+    catches!(
+        two_steps_racing_on_one_stream_land_one,
+        broken_pair,
+        LastWriterWins
+    );
+}
+
+#[test]
+fn the_edition_checks_catch_a_wrong_fork_point_list_or_delete() {
+    catches!(
+        fork_point_is_mains_first_sequence_after_a_commit_position,
+        broken,
+        ForkPointIsTheHead
+    );
+    catches!(
+        list_editions_derives_each_edition_from_its_fork_events,
+        broken,
+        OriginsIncludePropagated
+    );
+    catches!(
+        deleting_an_edition_removes_every_row_tagged_with_it,
+        broken,
+        DeleteKeepsSnapshots,
+        DeleteTakesMain,
+    );
+    catches!(
+        deleting_an_edition_refuses_an_empty_or_unknown_name,
+        broken,
+        DeleteUnknownOk
+    );
+    catches!(
+        a_what_if_edition_runs_beside_main_and_leaves_main_untouched,
+        broken,
+        DeleteTakesMain,
+        ForkSeesMainsLater,
+    );
+}
+
+#[test]
 fn the_read_unit_edition_checks_catch_a_lax_unit_and_a_wrong_fall_through() {
     catches!(
-        a_read_unit_refuses_an_edition_never_created,
+        a_read_unit_refuses_an_unknown_edition_and_reads_an_unforked_stream_as_main,
         broken_pair,
         ReadUnitAnyEdition
     );
     catches!(
-        a_read_unit_refuses_heads_and_snapshots_in_an_edition_never_created,
-        broken_pair,
-        ReadUnitHeadAnyEdition,
-        ReadUnitSnapshotAnyEdition,
-    );
-    catches!(
-        a_read_unit_reads_a_created_edition_through_to_main,
+        a_read_unit_reads_a_forked_stream_through_to_main,
         broken,
         ReadUnitNoFallThrough
-    );
-    catches!(
-        a_read_unit_heads_a_created_edition_through_to_main_but_not_its_snapshots,
-        broken,
-        ReadUnitHeadNoFallThrough,
-        ReadUnitSnapshotFallsThrough,
-    );
-}
-
-#[test]
-#[ignore = "pending the per-stream editions spec, owner ruling 2026-10-28"]
-fn an_honest_broken_store_passes_the_pending_edition_checks() {
-    passes!(broken;
-        an_edition_is_created_once_and_recorded,
-        an_edition_create_refuses_a_bad_request,
-        an_edition_reads_mains_events_below_its_divergence_then_its_own,
-        deleting_an_edition_removes_it_and_its_streams_never_mains,
-        deleting_an_edition_refuses_an_empty_or_unknown_name,
-        a_read_unit_reads_a_created_edition_through_to_main,
-        a_read_unit_heads_a_created_edition_through_to_main_but_not_its_snapshots,
-    );
-    passes!(broken_pair;
-        a_read_unit_refuses_an_edition_never_created,
-        a_read_unit_refuses_heads_and_snapshots_in_an_edition_never_created,
     );
 }
 
@@ -1438,6 +1502,9 @@ fn an_honest_broken_store_passes_every_check() {
         head_is_the_next_sequence_and_the_last_recorded_at,
         a_stream_is_domain_edition_and_root,
         covers_orders_main_first_then_by_edition_and_root,
+        an_unforked_edition_stream_reads_as_main,
+        an_edition_stream_takes_only_a_fork_as_its_first_own_event,
+        a_forked_stream_reads_main_below_its_fork_then_its_own,
         find_command_finds_a_commands_events_on_its_stream,
         find_command_finds_a_retried_facts_events_by_its_id,
         find_command_finds_a_refusal_fact_on_the_trigger_stream_by_the_refused_id,
@@ -1450,6 +1517,8 @@ fn an_honest_broken_store_passes_every_check() {
         a_unit_of_work_checks_and_reads_its_pending_appends,
         a_unit_of_work_lists_its_pending_streams,
         a_unit_of_work_finds_its_pending_commands_and_facts,
+        a_unit_of_work_writes_one_stream_and_refuses_a_second,
+        a_unit_of_work_lands_its_snapshot_with_its_appends,
         a_unit_of_work_puts_positions_with_its_appends,
         a_second_begin_on_a_handle_serves_or_refuses_never_waits,
         a_purge_deletes_a_streams_events_snapshot_and_command_ids,
@@ -1459,6 +1528,12 @@ fn an_honest_broken_store_passes_every_check() {
         a_purge_in_a_unit_of_work_lands_at_commit_or_not_at_all,
         a_unit_of_work_purges_its_own_appends_and_appends_after,
         a_purge_never_lowers_the_commit_position,
+        fork_point_is_mains_first_sequence_after_a_commit_position,
+        list_editions_derives_each_edition_from_its_fork_events,
+        deleting_an_edition_removes_every_row_tagged_with_it,
+        deleting_an_edition_refuses_an_empty_or_unknown_name,
+        a_what_if_edition_runs_beside_main_and_leaves_main_untouched,
+        a_read_unit_reads_a_forked_stream_through_to_main,
         a_change_token_changes_when_its_own_store_commits,
         read_until_time_is_the_prefix_recorded_by_then,
         read_by_correlation_gives_one_book_per_stream,
@@ -1473,6 +1548,8 @@ fn an_honest_broken_store_passes_every_check() {
     passes!(broken_pair;
         the_commit_position_counts_every_handles_commits,
         a_unit_that_lost_a_race_lands_nothing,
+        two_steps_racing_on_one_stream_land_one,
+        a_read_unit_refuses_an_unknown_edition_and_reads_an_unforked_stream_as_main,
         a_read_unit_sees_the_store_as_it_began,
         a_read_unit_keeps_a_stream_purged_after_it_began,
         a_read_unit_heads_and_snapshots_as_it_began,

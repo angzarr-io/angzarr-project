@@ -43,9 +43,7 @@ fn a_malformed_cover_is_no_stream() {
     ] {
         assert_eq!(
             StreamRef::try_from(&bad),
-            Err(StoreError::MalformedStream {
-                stream: bad.clone()
-            }),
+            Err(StoreError::malformed_stream(bad.clone())),
             "{what}"
         );
     }

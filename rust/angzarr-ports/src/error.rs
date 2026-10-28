@@ -17,26 +17,31 @@ use angzarr_proto::v1::Cover;
 /// answer are different variants: a [`Conflict`](StoreError::Conflict)
 /// means "re-read and run again"; [`Unavailable`](StoreError::Unavailable)
 /// means "the store could not say".
+///
+/// Every stream a variant names is boxed (owner ruling, 2026-10-28), so the
+/// error stays small (pinned in `tests/error.rs`); build one with the
+/// constructors ([`StoreError::conflict`], ...) and read its stream with
+/// [`StoreError::stream`], and the box never shows.
 #[derive(Clone, PartialEq, Eq, Debug)]
 #[non_exhaustive]
 pub enum StoreError {
     /// Someone else appended first: the stream is at `actual`, not
     /// `expected`. Nothing was appended. Core's `SequenceConflict`.
     Conflict {
-        stream: Cover,
+        stream: Box<Cover>,
         expected: u64,
         actual: u64,
     },
     /// The pages do not continue the stream: sequence `found` where
     /// `expected` was due. A caller bug; nothing was appended.
     Discontinuous {
-        stream: Cover,
+        stream: Box<Cover>,
         expected: u64,
         found: u64,
     },
     /// A wire `Cover` that is no stream: no root, a root not 16 bytes, or an
     /// edition set to the empty string (INVALID_ARGUMENT).
-    MalformedStream { stream: Cover },
+    MalformedStream { stream: Box<Cover> },
     /// The store failed: I/O, a timeout, a dropped connection, a schema this
     /// build cannot read. A write may or may not have landed.
     Unavailable(Cause),
@@ -45,7 +50,7 @@ pub enum StoreError {
     /// missing. Upcasting is never the store's: an unknown payload type is
     /// not this.
     Unreadable {
-        stream: Cover,
+        stream: Box<Cover>,
         sequence: u64,
         reason: Cause,
     },
@@ -53,21 +58,112 @@ pub enum StoreError {
     /// at once (one SQLite connection, already in a unit). Refused at once,
     /// never waited on: the unit already open may belong to the caller.
     UnitBusy,
-    /// A stream in an edition the store never created, where only created
-    /// editions are accepted (EA-2: NOT_FOUND). Nothing was read or written.
-    UnknownEdition { stream: Cover },
-    /// An edition create or delete with no name: main is unnamed
-    /// (INVALID_ARGUMENT).
+    /// A unit of work is ONE handling step's write to ONE stream (plan
+    /// ruling 2): its first write bound it to `bound`, and a write to
+    /// `refused` is refused. A caller bug; nothing of it was written.
+    UnitStreamBound {
+        bound: Box<Cover>,
+        refused: Box<Cover>,
+    },
+    /// A read unit was given a stream in an edition that does not exist (no
+    /// fork event of it anywhere; 14.32: NOT_FOUND). Nothing was read.
+    UnknownEdition { stream: Box<Cover> },
+    /// A write to an edition stream with no fork in that edition, other
+    /// than its fork: input from outside is refused until the fork reaches
+    /// the stream (14.32: FAILED_PRECONDITION, `EDITION_NOT_FORKED`).
+    /// Nothing was written.
+    EditionNotForked { stream: Box<Cover> },
+    /// A fork of a stream already forked in its edition (14.32:
+    /// ALREADY_EXISTS), or of main, which is never forked into. Nothing
+    /// was written.
+    EditionAlreadyForked { stream: Box<Cover> },
+    /// An edition operation with no edition: main is unnamed, and is
+    /// neither forked into nor deleted (INVALID_ARGUMENT).
     EditionNameRequired,
-    /// The edition was already created (ALREADY_EXISTS).
-    EditionExists { name: String },
-    /// The edition was never created, or is deleted (NOT_FOUND).
+    /// The edition does not exist: no fork event of it (NOT_FOUND).
     EditionNotFound { name: String },
-    /// The edition names a store that is not configured
-    /// (FAILED_PRECONDITION).
-    EditionStoreUnknown { name: String, store: String },
-    /// The divergence point is after the create (INVALID_ARGUMENT).
-    EditionDivergesInTheFuture { name: String },
+}
+
+impl From<crate::stream::StreamRef<'_>> for Cover {
+    fn from(stream: crate::stream::StreamRef<'_>) -> Cover {
+        stream.to_cover()
+    }
+}
+
+impl StoreError {
+    pub fn conflict(stream: impl Into<Cover>, expected: u64, actual: u64) -> StoreError {
+        StoreError::Conflict {
+            stream: Box::new(stream.into()),
+            expected,
+            actual,
+        }
+    }
+
+    pub fn discontinuous(stream: impl Into<Cover>, expected: u64, found: u64) -> StoreError {
+        StoreError::Discontinuous {
+            stream: Box::new(stream.into()),
+            expected,
+            found,
+        }
+    }
+
+    pub fn malformed_stream(stream: impl Into<Cover>) -> StoreError {
+        StoreError::MalformedStream {
+            stream: Box::new(stream.into()),
+        }
+    }
+
+    pub fn unreadable(stream: impl Into<Cover>, sequence: u64, reason: Cause) -> StoreError {
+        StoreError::Unreadable {
+            stream: Box::new(stream.into()),
+            sequence,
+            reason,
+        }
+    }
+
+    pub fn unit_stream_bound(bound: impl Into<Cover>, refused: impl Into<Cover>) -> StoreError {
+        StoreError::UnitStreamBound {
+            bound: Box::new(bound.into()),
+            refused: Box::new(refused.into()),
+        }
+    }
+
+    pub fn unknown_edition(stream: impl Into<Cover>) -> StoreError {
+        StoreError::UnknownEdition {
+            stream: Box::new(stream.into()),
+        }
+    }
+
+    pub fn edition_not_forked(stream: impl Into<Cover>) -> StoreError {
+        StoreError::EditionNotForked {
+            stream: Box::new(stream.into()),
+        }
+    }
+
+    pub fn edition_already_forked(stream: impl Into<Cover>) -> StoreError {
+        StoreError::EditionAlreadyForked {
+            stream: Box::new(stream.into()),
+        }
+    }
+
+    /// The stream the error is about, if it names one (for
+    /// [`UnitStreamBound`](StoreError::UnitStreamBound), the refused one).
+    pub fn stream(&self) -> Option<&Cover> {
+        match self {
+            StoreError::Conflict { stream, .. }
+            | StoreError::Discontinuous { stream, .. }
+            | StoreError::MalformedStream { stream }
+            | StoreError::Unreadable { stream, .. }
+            | StoreError::UnknownEdition { stream }
+            | StoreError::EditionNotForked { stream }
+            | StoreError::EditionAlreadyForked { stream } => Some(stream),
+            StoreError::UnitStreamBound { refused, .. } => Some(refused),
+            StoreError::Unavailable(_)
+            | StoreError::UnitBusy
+            | StoreError::EditionNameRequired
+            | StoreError::EditionNotFound { .. } => None,
+        }
+    }
 }
 
 /// What a caller does about a [`StoreError`].
@@ -143,12 +239,10 @@ impl StoreError {
             StoreError::UnitBusy => "angzarr-ports-store-unit-busy",
             StoreError::UnknownEdition { .. } => "angzarr-ports-store-unknown-edition",
             StoreError::EditionNameRequired => "angzarr-ports-edition-name-required",
-            StoreError::EditionExists { .. } => "angzarr-ports-edition-exists",
             StoreError::EditionNotFound { .. } => "angzarr-ports-edition-not-found",
-            StoreError::EditionStoreUnknown { .. } => "angzarr-ports-edition-store-unknown",
-            StoreError::EditionDivergesInTheFuture { .. } => {
-                "angzarr-ports-edition-diverges-in-the-future"
-            }
+            StoreError::UnitStreamBound { .. }
+            | StoreError::EditionNotForked { .. }
+            | StoreError::EditionAlreadyForked { .. } => todo!("proposed: its code"),
         }
     }
 
@@ -188,15 +282,10 @@ impl StoreError {
                 ("cause", Arg::Cause(reason.clone())),
             ],
             StoreError::UnitBusy | StoreError::EditionNameRequired => Vec::new(),
-            StoreError::EditionExists { name }
-            | StoreError::EditionNotFound { name }
-            | StoreError::EditionDivergesInTheFuture { name } => {
-                vec![("name", Arg::Str(name.clone()))]
-            }
-            StoreError::EditionStoreUnknown { name, store } => vec![
-                ("name", Arg::Str(name.clone())),
-                ("store", Arg::Str(store.clone())),
-            ],
+            StoreError::EditionNotFound { name } => vec![("name", Arg::Str(name.clone()))],
+            StoreError::UnitStreamBound { .. }
+            | StoreError::EditionNotForked { .. }
+            | StoreError::EditionAlreadyForked { .. } => todo!("proposed: its args"),
         }
     }
 
@@ -210,10 +299,10 @@ impl StoreError {
             StoreError::MalformedStream { .. }
             | StoreError::UnknownEdition { .. }
             | StoreError::EditionNameRequired
-            | StoreError::EditionExists { .. }
-            | StoreError::EditionNotFound { .. }
-            | StoreError::EditionStoreUnknown { .. }
-            | StoreError::EditionDivergesInTheFuture { .. } => Recovery::Invalid,
+            | StoreError::EditionNotFound { .. } => Recovery::Invalid,
+            StoreError::UnitStreamBound { .. }
+            | StoreError::EditionNotForked { .. }
+            | StoreError::EditionAlreadyForked { .. } => todo!("proposed: its recovery"),
         }
     }
 }
@@ -261,21 +350,18 @@ impl fmt::Display for StoreError {
             ),
             StoreError::UnknownEdition { stream } => write!(
                 f,
-                "stream {} names an edition that was never created",
+                "stream {} names an edition that does not exist",
                 stream_text(stream)
             ),
-            StoreError::EditionNameRequired => {
-                f.write_str("an edition needs a name: main is unnamed, and always exists")
-            }
-            StoreError::EditionExists { name } => write!(f, "edition {name} already exists"),
-            StoreError::EditionNotFound { name } => write!(f, "edition {name} was never created"),
-            StoreError::EditionStoreUnknown { name, store } => write!(
-                f,
-                "edition {name} names the edition store {store}, which is not configured"
+            StoreError::EditionNameRequired => f.write_str(
+                "an edition operation needs an edition: main is unnamed, and is neither forked into nor deleted",
             ),
-            StoreError::EditionDivergesInTheFuture { name } => {
-                write!(f, "edition {name} would diverge after it is created")
+            StoreError::EditionNotFound { name } => {
+                write!(f, "edition {name} does not exist: no stream is forked in it")
             }
+            StoreError::UnitStreamBound { .. }
+            | StoreError::EditionNotForked { .. }
+            | StoreError::EditionAlreadyForked { .. } => todo!("proposed: its English"),
         }
     }
 }

@@ -25,6 +25,8 @@ memory = []
 angzarr-proto = { path = "../angzarr-proto" }
 # `Timestamp`, as angzarr-proto's messages hold it.
 prost-types = "0.14"
+# Decoding a fork's `EditionForked` (a framework event) for `ListEditions`.
+prost = "0.14"
 # Nothing else: no async runtime, no proc macro. The traits use native
 # return-position `impl Future`; the dyn adapter boxes with std alone.
 

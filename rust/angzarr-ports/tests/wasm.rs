@@ -119,6 +119,13 @@ impl Unit for RcUnit {
     ) -> Result<Option<Snapshot>, StoreError> {
         self.0.read_snapshot(stream).await
     }
+    async fn write_snapshot(
+        &mut self,
+        stream: StreamRef<'_>,
+        snapshot: &Snapshot,
+    ) -> Result<(), StoreError> {
+        self.0.write_snapshot(stream, snapshot).await
+    }
     async fn position(&mut self, key: PositionKey<'_>) -> Result<u64, StoreError> {
         self.0.position(key).await
     }

@@ -5,11 +5,11 @@
 //! The tests under `tests/` pin every trait and method, and record each
 //! design choice as RULED or OPEN (`tests/contract.rs`).
 //!
-//! **Editions are provisional.** [`Editions`] and the edition sections of
-//! the suite pin the registry-and-divergence model, which the owner's
-//! per-stream fork rule (2026-10-28) replaces; the spec is in draft. The
-//! trait stays in the crate, documented as provisional, so the pending
-//! checks still compile against it; no backend here implements it yet.
+//! **Editions are per-stream forks (14.32).** Every store reads an edition
+//! stream as main below its own fork, then its own events, and refuses
+//! outside input to an unforked one; [`Editions`] adds the administration
+//! (the time-based fork point, `ListEditions`, `DeleteEdition`). Main is
+//! never written by any of it.
 //!
 //! # The ports
 //!
@@ -18,9 +18,9 @@
 //! | [`EventStore`] | one append-only log of opaque pages per stream, the dedup lookups, the commit position | base |
 //! | [`SnapshotStore`] | the snapshot last written per stream; the caller judges it | base |
 //! | [`PositionStore`] | a handler's next sequence per stream | base |
-//! | [`UnitOfWork`] / [`Unit`] | appends and positions across streams, committed or aborted together | base |
+//! | [`UnitOfWork`] / [`Unit`] | ONE handling step's atomic write: one stream's appends and snapshot, with the step's positions (and outbox entries), committed or aborted together | base |
 //! | [`Purge`] / [`UnitPurge`] | delete a stream | opt-in |
-//! | [`Editions`] | the edition registry (EA-1), and the store's fall-through to main (EA-3) | opt-in |
+//! | [`Editions`] | per-stream forks' administration: the time-based fork point, `ListEditions`, `DeleteEdition` | opt-in |
 //! | [`ReadStore`] / [`ReadUnit`] | reads that all see one moment | opt-in |
 //! | [`Watch`] | a cheap "anything committed?" | opt-in |
 //! | [`ReadUntilTime`], [`ReadByCorrelation`], [`ListStreams`] | core's queries | opt-in |
@@ -38,13 +38,15 @@
 //! # Features
 //!
 //! - `memory`: [`memory::MemoryStore`], a real backend in memory, held to
-//!   every section of the suite: for tests, games, and anything that needs
-//!   no durability.
+//!   every section of the suite, editions included: for tests, games, and
+//!   anything that needs no durability, and the reference backend for
+//!   what-if and AI experimentation (fork a stream into an edition, run
+//!   commands there, read both timelines, delete the edition, and main is
+//!   unchanged).
 //! - `contract`: the conformance suite, [`contract`] and
 //!   [`store_contract!`].
 
 mod error;
-mod pending_editions;
 mod send;
 mod store;
 mod stream;
@@ -62,12 +64,11 @@ pub use dyn_store::{
     DynStore, DynUnit, DynUnitOfWork,
 };
 pub use error::{Arg, Cause, Recovery, StoreError};
-pub use pending_editions::{CreateEditionRequest, Edition};
 pub use send::{MaybeSend, MaybeSync};
 pub use store::{
     ChangeToken, Editions, EventStore, ListStreams, Outbox, OutboxEntry, PositionStore, Purge,
     ReadByCorrelation, ReadStore, ReadUnit, ReadUntilTime, SnapshotStore, Store, Unit, UnitOfWork,
-    UnitOutbox, UnitPurge, Watch, DEFAULT_EDITION_STORE,
+    UnitOutbox, UnitPurge, Watch, EDITION_FORKED_TYPE_URL,
 };
 pub use stream::{Head, PositionKey, Slice, StreamRef};
 

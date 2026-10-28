@@ -1,5 +1,5 @@
-//! One error, stable codes (RULED(14); `UnitBusy` is RULED(A) in contract.rs). The codes, args,
-//! recovery and English.
+//! One error, stable codes (RULED(14); `UnitBusy` is RULED(A) in
+//! contract.rs). The codes, args, recovery and English, and its size.
 
 use std::collections::BTreeSet;
 
@@ -14,6 +14,20 @@ fn stream() -> Cover {
     }
 }
 
+fn other() -> Cover {
+    Cover {
+        root: Some(v1::Uuid::from_bytes([8; 16])),
+        ..stream()
+    }
+}
+
+fn stream_in(edition: &str) -> Cover {
+    Cover {
+        edition: Some(edition.to_string()),
+        ..stream()
+    }
+}
+
 fn io() -> Cause {
     Cause::new("annals-store-sql-io", "disk I/O error")
 }
@@ -24,25 +38,17 @@ fn every() -> Vec<(StoreError, &'static str, Recovery)> {
     let name = || "what-if".to_string();
     vec![
         (
-            StoreError::Conflict {
-                stream: stream(),
-                expected: 1,
-                actual: 2,
-            },
+            StoreError::conflict(stream(), 1, 2),
             "angzarr-ports-store-conflict",
             Retry,
         ),
         (
-            StoreError::Discontinuous {
-                stream: stream(),
-                expected: 2,
-                found: 3,
-            },
+            StoreError::discontinuous(stream(), 2, 3),
             "angzarr-ports-store-discontinuous",
             Bug,
         ),
         (
-            StoreError::MalformedStream { stream: stream() },
+            StoreError::malformed_stream(stream()),
             "angzarr-ports-store-malformed-stream",
             Invalid,
         ),
@@ -52,17 +58,13 @@ fn every() -> Vec<(StoreError, &'static str, Recovery)> {
             Retry,
         ),
         (
-            StoreError::Unreadable {
-                stream: stream(),
-                sequence: 4,
-                reason: io(),
-            },
+            StoreError::unreadable(stream(), 4, io()),
             "angzarr-ports-store-unreadable",
             Bug,
         ),
         (StoreError::UnitBusy, "angzarr-ports-store-unit-busy", Retry),
         (
-            StoreError::UnknownEdition { stream: stream() },
+            StoreError::unknown_edition(stream()),
             "angzarr-ports-store-unknown-edition",
             Invalid,
         ),
@@ -72,26 +74,23 @@ fn every() -> Vec<(StoreError, &'static str, Recovery)> {
             Invalid,
         ),
         (
-            StoreError::EditionExists { name: name() },
-            "angzarr-ports-edition-exists",
-            Invalid,
-        ),
-        (
             StoreError::EditionNotFound { name: name() },
             "angzarr-ports-edition-not-found",
             Invalid,
         ),
         (
-            StoreError::EditionStoreUnknown {
-                name: name(),
-                store: "redis".to_string(),
-            },
-            "angzarr-ports-edition-store-unknown",
+            StoreError::unit_stream_bound(stream(), other()),
+            "angzarr-ports-store-unit-stream-bound",
+            Bug,
+        ),
+        (
+            StoreError::edition_not_forked(stream_in("what-if")),
+            "angzarr-ports-store-edition-not-forked",
             Invalid,
         ),
         (
-            StoreError::EditionDivergesInTheFuture { name: name() },
-            "angzarr-ports-edition-diverges-in-the-future",
+            StoreError::edition_already_forked(stream_in("what-if")),
+            "angzarr-ports-store-edition-already-forked",
             Invalid,
         ),
     ]
@@ -126,11 +125,7 @@ fn every_error_says_how_to_recover() {
 /// its text form, a cause nested whole.
 #[test]
 fn args_carry_the_data_by_name() {
-    let conflict = StoreError::Conflict {
-        stream: stream(),
-        expected: 1,
-        actual: 2,
-    };
+    let conflict = StoreError::conflict(stream(), 1, 2);
     assert_eq!(
         conflict.args(),
         vec![
@@ -153,13 +148,75 @@ fn args_carry_the_data_by_name() {
 /// The English fallback names what the args name, for logs.
 #[test]
 fn the_english_names_the_stream_and_the_numbers() {
-    let text = StoreError::Conflict {
-        stream: stream(),
-        expected: 1,
-        actual: 2,
-    }
-    .to_string();
+    let text = StoreError::conflict(stream(), 1, 2).to_string();
     for part in ["account/07070707-0707-0707-0707-070707070707", "1", "2"] {
         assert!(text.contains(part), "{text:?} names {part}");
     }
+}
+
+/// The step-scoped unit's and the forks' refusals carry their streams, as
+/// args and in the English.
+#[test]
+fn the_new_refusals_name_their_streams() {
+    let root = |n: u8| format!("{n:02x}").repeat(4);
+    let text = |n: u8| {
+        let r = root(n);
+        format!(
+            "{}-{}-{}-{}-{}",
+            r,
+            &r[..4],
+            &r[..4],
+            &r[..4],
+            r.clone() + &r[..4]
+        )
+    };
+    let s = format!("account/{}", text(7));
+    let o = format!("account/{}", text(8));
+    let bound = StoreError::unit_stream_bound(stream(), other());
+    assert_eq!(
+        bound.args(),
+        vec![
+            ("bound", Arg::Str(s.clone())),
+            ("refused", Arg::Str(o.clone()))
+        ]
+    );
+    assert!(bound.to_string().contains(&s) && bound.to_string().contains(&o));
+    let e = format!("{s}@what-if");
+    for refusal in [
+        StoreError::edition_not_forked(stream_in("what-if")),
+        StoreError::edition_already_forked(stream_in("what-if")),
+    ] {
+        assert_eq!(refusal.args(), vec![("stream", Arg::Str(e.clone()))]);
+        assert!(refusal.to_string().contains(&e), "{refusal}");
+    }
+}
+
+/// The streams are boxed (owner ruling, 2026-10-28) so the error stays
+/// small: every `Result<_, StoreError>` carries it. The bound is the boxed
+/// layout's: the largest variant is `Unreadable` (a box, a sequence and a
+/// `Cause` of a `&'static str` and a `String`: 8 + 8 + 16 + 24 = 56 bytes),
+/// whose niche holds the discriminant, so 56; 64 leaves a word to spare and
+/// stops it silently growing back.
+#[test]
+fn the_error_stays_small() {
+    assert!(
+        std::mem::size_of::<StoreError>() <= 64,
+        "StoreError is {} bytes",
+        std::mem::size_of::<StoreError>()
+    );
+}
+
+/// The constructors and the accessor hide the box.
+#[test]
+fn the_stream_is_read_without_the_box() {
+    assert_eq!(
+        StoreError::conflict(stream(), 1, 2).stream(),
+        Some(&stream())
+    );
+    assert_eq!(
+        StoreError::unit_stream_bound(stream(), other()).stream(),
+        Some(&other()),
+        "the refused stream"
+    );
+    assert_eq!(StoreError::UnitBusy.stream(), None);
 }

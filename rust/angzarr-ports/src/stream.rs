@@ -60,9 +60,7 @@ impl<'a> TryFrom<&'a Cover> for StreamRef<'a> {
     type Error = StoreError;
 
     fn try_from(cover: &'a Cover) -> Result<Self, StoreError> {
-        let malformed = || StoreError::MalformedStream {
-            stream: cover.clone(),
-        };
+        let malformed = || StoreError::malformed_stream(cover.clone());
         let root = cover.root.as_ref().ok_or_else(malformed)?;
         let root = Uuid::try_from(root).map_err(|_| malformed())?;
         let edition = match cover.edition.as_deref() {

@@ -6,8 +6,8 @@
 //! **Shape.**
 //! - Each check is a `pub async fn` taking a fresh, EMPTY store (or, in a
 //!   pair section, two handles `(a, b)` on one fresh store) and panicking,
-//!   naming what failed. Pages are opaque to a store: the checks write their
-//!   own and never decode a payload.
+//!   naming what failed. Pages are opaque to a store (but for a fork's
+//!   `EditionForked`, a framework event): the checks write their own.
 //! - The checks are generic over the one trait set, so they run on any
 //!   backend, `Arc<dyn DynStore>` included, under the caller's runtime.
 //! - [`store_contract!`](crate::store_contract) stamps one test per check of
@@ -17,12 +17,11 @@
 //!
 //! **Sections** (a backend runs those whose capabilities it has).
 //!
-//! **PENDING the per-stream editions spec (owner ruling 2026-10-28):** the
-//! `editions`, `read_editions` and `read_unknown_edition` sections pin the
-//! registry-and-divergence model, which the owner's per-stream fork rule
-//! replaces (spec/editions-forks, in draft). They are kept, unrun (ignored
-//! in this crate's tests), and are not part of the required-green set until
-//! they are reworked to that rule: see OPEN(C) in `tests/contract.rs`.
+//! Editions are per-stream forks (14.32): the base section holds every
+//! store to the fork rule (an unforked stream reads as main's, outside
+//! input to it is refused, a forked stream reads main below its fork, main
+//! is never written); `editions` adds the administration and the what-if
+//! scenario.
 //!
 //! | Section | Needs | Takes |
 //! |---|---|---|
@@ -31,9 +30,8 @@
 //! | `purge` | [`Purge`], [`UnitPurge`] on its unit | a store |
 //! | `editions` | [`Editions`] | a store |
 //! | `read` | [`ReadStore`] | two handles |
-//! | `read_unknown_edition` | [`ReadStore`] | two handles |
 //! | `read_purge` | [`ReadStore`], [`Purge`] | two handles |
-//! | `read_editions` | [`ReadStore`], [`Editions`] | a store |
+//! | `read_forks` | [`ReadStore`] | a store |
 //! | `watch` | [`Watch`] | a store |
 //! | `watch_pair` | [`Watch`] | two handles |
 //! | `until_time` | [`ReadUntilTime`] | a store |
@@ -44,17 +42,20 @@
 
 use std::future::Future;
 
-use crate::CreateEditionRequest;
 use angzarr_proto::ids::fact_command_id;
 use angzarr_proto::uuid::Uuid;
 use angzarr_proto::v1::event_meta::Causation;
-use angzarr_proto::v1::{Cover, EventBook, EventMeta, EventPage, FactOrigin, Snapshot};
+use angzarr_proto::v1::meta::EditionCreated as EditionForked;
+use angzarr_proto::v1::{
+    Cover, EditionSummary, EventBook, EventMeta, EventPage, EventRef, FactOrigin, Snapshot,
+};
+use prost::Message;
 use prost_types::{Any, Timestamp};
 
 use crate::error::StoreError;
 use crate::store::{
     Editions, ListStreams, Outbox, OutboxEntry, Purge, ReadByCorrelation, ReadStore, ReadUnit,
-    ReadUntilTime, Store, Unit, UnitOutbox, UnitPurge, Watch, DEFAULT_EDITION_STORE,
+    ReadUntilTime, Store, Unit, UnitOutbox, UnitPurge, Watch, EDITION_FORKED_TYPE_URL,
 };
 use crate::stream::{PositionKey, StreamRef};
 
@@ -181,23 +182,82 @@ fn covers(streams: &[StreamRef<'_>]) -> Vec<Cover> {
 }
 
 fn conflict(stream: StreamRef<'_>, expected: u64, actual: u64) -> StoreError {
-    StoreError::Conflict {
-        stream: stream.to_cover(),
-        expected,
-        actual,
-    }
+    StoreError::conflict(stream, expected, actual)
 }
 
 fn key<'a>(handler: &'a str, stream: StreamRef<'a>) -> PositionKey<'a> {
     PositionKey { handler, stream }
 }
 
-fn create(name: &str) -> CreateEditionRequest {
-    CreateEditionRequest {
-        name: name.to_string(),
-        diverge_at: None,
-        store: String::new(),
+/// The fork of a stream into `edition` at `sequence` (its fork sequence):
+/// an origin fork, per-stream (14.32).
+pub fn fork_page(sequence: u64, edition: &str) -> EventPage {
+    forked(
+        sequence,
+        EditionForked {
+            edition: edition.to_string(),
+            parent_sequence: sequence,
+            ..EditionForked::default()
+        },
+    )
+}
+
+/// A time-based origin fork into `edition` at `sequence`, made at global
+/// commit position `commit_position`.
+pub fn fork_page_at(sequence: u64, edition: &str, commit_position: u64) -> EventPage {
+    forked(
+        sequence,
+        EditionForked {
+            edition: edition.to_string(),
+            parent_sequence: sequence,
+            commit_position,
+            ..EditionForked::default()
+        },
+    )
+}
+
+/// A fork made by a saga command's arrival: propagated from the fork
+/// `from`, by the command `by`.
+pub fn propagated_fork_page(sequence: u64, edition: &str, from: EventRef, by: Uuid) -> EventPage {
+    forked(
+        sequence,
+        EditionForked {
+            edition: edition.to_string(),
+            parent_sequence: sequence,
+            propagated_from: Some(from),
+            forked_by: Some(by.into()),
+            ..EditionForked::default()
+        },
+    )
+}
+
+fn forked(sequence: u64, fork: EditionForked) -> EventPage {
+    let mut page = stamped(sequence, Causation::CommandId(command(0xF0).into()), 0xC0);
+    page.payload = Some(Any {
+        type_url: EDITION_FORKED_TYPE_URL.to_string(),
+        value: fork.encode_to_vec(),
+    });
+    page
+}
+
+/// The event at `sequence` of `stream`, as a reference.
+pub fn event_ref(stream: StreamRef<'_>, sequence: u64) -> EventRef {
+    EventRef {
+        stream: Some(stream.to_cover()),
+        sequence,
     }
+}
+
+/// Fork edition stream `stream` at its current head (main's, while it is
+/// unforked): an origin fork. Returns the fork sequence.
+pub async fn fork<S: Store>(store: &S, stream: StreamRef<'_>) -> u64 {
+    let edition = stream.edition.expect("an edition stream");
+    let at = store.head(stream).await.unwrap().next_sequence;
+    store
+        .append(stream, at, &[fork_page(at, edition)])
+        .await
+        .unwrap();
+    at
 }
 
 /// `future`'s output, or a panic naming `what` if it has not finished
@@ -287,11 +347,7 @@ pub async fn append_checks_the_expected_length_and_continuity<S: Store>(store: S
     );
     assert_eq!(
         store.append(s, 2, &[page(3, 2)]).await,
-        Err(StoreError::Discontinuous {
-            stream: s.to_cover(),
-            expected: 2,
-            found: 3
-        }),
+        Err(StoreError::discontinuous(s.to_cover(), 2, 3)),
         "a page that does not run on"
     );
     assert_eq!(store.append(s, 2, &[page(2, 2)]).await, Ok(3));
@@ -394,40 +450,51 @@ pub async fn head_is_the_next_sequence_and_the_last_recorded_at<S: Store>(store:
 // --------------------------------------------------------- base: streams
 
 pub async fn a_stream_is_domain_edition_and_root<S: Store>(store: S) {
-    let streams = [
+    let (main1, ledger1, main2) = (
         main_stream("account", 1),
         main_stream("ledger", 1),
-        edition_stream("account", 1, "what-if"),
         main_stream("account", 2),
-    ];
-    for (n, s) in streams.iter().enumerate() {
-        store.append(*s, 0, &[page(0, n as u8)]).await.unwrap();
-    }
-    for (n, s) in streams.iter().enumerate() {
+    );
+    let fork1 = edition_stream("account", 1, "what-if");
+    store.append(main1, 0, &[page(0, 0)]).await.unwrap();
+    store.append(ledger1, 0, &[page(0, 1)]).await.unwrap();
+    store.append(main2, 0, &[page(0, 3)]).await.unwrap();
+    store
+        .append(fork1, 1, &[fork_page(1, "what-if"), page(2, 2)])
+        .await
+        .unwrap();
+    for (s, pages) in [
+        (main1, vec![page(0, 0)]),
+        (ledger1, vec![page(0, 1)]),
+        (main2, vec![page(0, 3)]),
+        (fork1, vec![page(0, 0), fork_page(1, "what-if"), page(2, 2)]),
+    ] {
         assert_eq!(
-            store.read(*s, 0, None).await.unwrap().pages,
-            [page(0, n as u8)],
-            "{s:?} holds its own page only"
+            store.read(s, 0, None).await.unwrap().pages,
+            pages,
+            "{s:?} holds its own pages (an edition's, below main's history)"
         );
     }
     assert_eq!(
         store.covers("account").await,
-        Ok(covers(&[streams[0], streams[3], streams[2]]))
+        Ok(covers(&[main1, main2, fork1]))
     );
-    assert_eq!(store.covers("ledger").await, Ok(covers(&[streams[1]])));
+    assert_eq!(store.covers("ledger").await, Ok(covers(&[ledger1])));
     assert_eq!(store.covers("nowhere").await, Ok(vec![]));
 }
 
 pub async fn covers_orders_main_first_then_by_edition_and_root<S: Store>(store: S) {
-    for s in [
-        edition_stream("account", 1, "b"),
-        main_stream("account", 2),
-        edition_stream("account", 2, "a"),
-        main_stream("account", 1),
-        edition_stream("account", 1, "a"),
-    ] {
-        store.append(s, 0, &[page(0, 1)]).await.unwrap();
-    }
+    fork(&store, edition_stream("account", 1, "b")).await;
+    store
+        .append(main_stream("account", 2), 0, &[page(0, 1)])
+        .await
+        .unwrap();
+    fork(&store, edition_stream("account", 2, "a")).await;
+    store
+        .append(main_stream("account", 1), 0, &[page(0, 1)])
+        .await
+        .unwrap();
+    fork(&store, edition_stream("account", 1, "a")).await;
     assert_eq!(
         store.covers("account").await,
         Ok(covers(&[
@@ -442,12 +509,6 @@ pub async fn covers_orders_main_first_then_by_edition_and_root<S: Store>(store: 
 
 // ----------------------------------------------------------- base: dedup
 
-/// 14.31: a saga's command refused by its target comes back as a refusal
-/// fact on the EXACT stream of the saga's trigger (domain, root and
-/// edition), its id the refused command's `command_id` itself. A refusal
-/// retried under that id is found there by `find_command`, and only there:
-/// not on main's stream of the same root, and not on the refusing target,
-/// which never applied the command.
 pub async fn find_command_finds_a_refusal_fact_on_the_trigger_stream_by_the_refused_id<S>(store: S)
 where
     S: Store,
@@ -455,23 +516,23 @@ where
     let refused = command(0x42);
     let source = edition_stream("order", 1, "what-if");
     let target = main_stream("wallet", 2);
-    store.append(source, 0, &[page(0, 1)]).await.unwrap();
     store
         .append(main_stream("order", 1), 0, &[page(0, 1)])
         .await
         .unwrap();
     store.append(target, 0, &[page(0, 3)]).await.unwrap();
+    fork(&store, source).await;
     store
         .append(
             source,
-            1,
-            &[refusal_page(1, refused), refusal_page(2, refused)],
+            2,
+            &[refusal_page(2, refused), refusal_page(3, refused)],
         )
         .await
         .unwrap();
     assert_eq!(
         store.find_command(source, refused).await,
-        Ok(vec![refusal_page(1, refused), refusal_page(2, refused)]),
+        Ok(vec![refusal_page(2, refused), refusal_page(3, refused)]),
         "the refusal, retried under the refused command's id: found, whole"
     );
     assert_eq!(
@@ -551,6 +612,151 @@ pub async fn find_command_finds_a_retried_facts_events_by_its_id<S: Store>(store
         Ok(vec![]),
         "per stream"
     );
+}
+
+// ------------------------------------------------- base: editions' forks
+
+/// 14.32: an edition stream with no event of its own reads as main's
+/// stream, is not listed, and has no snapshot of main's (snapshots never
+/// fall through).
+pub async fn an_unforked_edition_stream_reads_as_main<S: Store>(store: S) {
+    let main = main_stream("account", 1);
+    let e = edition_stream("account", 1, "what-if");
+    store
+        .append(main, 0, &[page(0, 1), page(1, 1)])
+        .await
+        .unwrap();
+    store
+        .write_snapshot(main, &snapshot(1, "v1"))
+        .await
+        .unwrap();
+    let slice = store.read(e, 0, None).await.unwrap();
+    assert_eq!(slice.pages, [page(0, 1), page(1, 1)], "main's version");
+    assert_eq!(slice.next_sequence, 2);
+    assert_eq!(store.head(e).await.unwrap().next_sequence, 2);
+    assert_eq!(
+        store.find_command(e, command(1)).await,
+        Ok(vec![page(0, 1), page(1, 1)])
+    );
+    assert_eq!(
+        store.covers("account").await,
+        Ok(covers(&[main])),
+        "not listed"
+    );
+    assert_eq!(
+        store.read_snapshot(e).await,
+        Ok(None),
+        "no snapshot of main's"
+    );
+}
+
+/// 14.32: an edition stream's first own event is its fork. Outside input
+/// to an unforked stream is refused `EditionNotForked` and writes nothing;
+/// a second fork is `EditionAlreadyForked`; main is never forked into; a
+/// fork above main's head is a conflict; a fork and the arriving command's
+/// events may land in one write.
+pub async fn an_edition_stream_takes_only_a_fork_as_its_first_own_event<S: Store>(store: S) {
+    let main = main_stream("account", 1);
+    let e = edition_stream("account", 1, "what-if");
+    store.append(main, 0, &[page(0, 1)]).await.unwrap();
+    assert_eq!(
+        store.append(e, 1, &[page(1, 2)]).await,
+        Err(StoreError::edition_not_forked(e)),
+        "outside input, unforked"
+    );
+    assert_eq!(
+        store.covers("account").await,
+        Ok(covers(&[main])),
+        "nothing written"
+    );
+    assert_eq!(store.read(e, 0, None).await.unwrap().pages, [page(0, 1)]);
+    assert_eq!(
+        store.append(main, 1, &[fork_page(1, "what-if")]).await,
+        Err(StoreError::EditionNameRequired),
+        "main is never forked into"
+    );
+    assert_eq!(store.append(e, 1, &[fork_page(1, "what-if")]).await, Ok(2));
+    assert_eq!(
+        store.append(e, 2, &[fork_page(2, "what-if")]).await,
+        Err(StoreError::edition_already_forked(e)),
+        "forked already"
+    );
+    let above = edition_stream("account", 1, "other");
+    assert_eq!(
+        store.append(above, 5, &[fork_page(5, "other")]).await,
+        Err(conflict(above, 5, 1)),
+        "a fork above main's head"
+    );
+    let arrival = edition_stream("account", 1, "third");
+    assert_eq!(
+        store
+            .append(arrival, 1, &[fork_page(1, "third"), page(2, 3)])
+            .await,
+        Ok(3),
+        "a fork and its arriving command's events, in one write"
+    );
+    assert_eq!(
+        store.read(main, 0, None).await.unwrap().pages,
+        [page(0, 1)],
+        "main untouched"
+    );
+}
+
+/// 14.32's read rule: a forked stream reads main's events below its own
+/// fork sequence, then its own, numbered on; main's later events never
+/// reach it, and every read, lookup and unit sees the same history.
+pub async fn a_forked_stream_reads_main_below_its_fork_then_its_own<S: Store>(store: S) {
+    let main = main_stream("account", 1);
+    let e = edition_stream("account", 1, "what-if");
+    store
+        .append(main, 0, &[page(0, 1), page(1, 1)])
+        .await
+        .unwrap();
+    store
+        .write_snapshot(main, &snapshot(1, "v1"))
+        .await
+        .unwrap();
+    assert_eq!(fork(&store, e).await, 2, "at main's head");
+    store.append(main, 2, &[page(2, 3)]).await.unwrap();
+    let history = store.read(e, 0, None).await.unwrap();
+    assert_eq!(
+        history.pages,
+        [page(0, 1), page(1, 1), fork_page(2, "what-if")]
+    );
+    assert_eq!(history.next_sequence, 3);
+    assert_eq!(store.append(e, 3, &[page(3, 5)]).await, Ok(4));
+    assert_eq!(
+        store.read(e, 0, None).await.unwrap().pages,
+        [page(0, 1), page(1, 1), fork_page(2, "what-if"), page(3, 5)]
+    );
+    assert_eq!(
+        store.read(main, 0, None).await.unwrap().pages,
+        [page(0, 1), page(1, 1), page(2, 3)],
+        "main untouched"
+    );
+    assert_eq!(
+        store.find_command(e, command(1)).await,
+        Ok(vec![page(0, 1), page(1, 1)]),
+        "dedup sees its history"
+    );
+    assert_eq!(
+        store.find_command(e, command(3)).await,
+        Ok(vec![]),
+        "not main's later"
+    );
+    assert_eq!(store.covers("account").await, Ok(covers(&[main, e])));
+    assert_eq!(
+        store.read_snapshot(e).await,
+        Ok(None),
+        "snapshots never fall through"
+    );
+    let mut unit = store.begin().await.unwrap();
+    assert_eq!(
+        unit.read(e, 0, Some(2)).await.unwrap().pages,
+        [page(0, 1), page(1, 1)],
+        "a unit reads the same history"
+    );
+    assert_eq!(unit.append(e, 4, &[page(4, 6)]).await, Ok(5));
 }
 
 // ------------------------------------------------------- base: snapshots
@@ -635,10 +841,7 @@ pub async fn the_commit_position_rises_with_every_commit<S: Store>(store: S) {
         "another domain: {appended}, then {elsewhere}"
     );
     let mut unit = store.begin().await.unwrap();
-    unit.append(main_stream("account", 1), 1, &[page(1, 3)])
-        .await
-        .unwrap();
-    unit.append(main_stream("account", 2), 0, &[page(0, 3)])
+    unit.append(main_stream("account", 1), 1, &[page(1, 3), page(2, 3)])
         .await
         .unwrap();
     let pending = store.commit_position().await.unwrap();
@@ -713,8 +916,13 @@ pub async fn a_unit_of_work_checks_and_reads_its_pending_appends<S: Store>(store
     let s = main_stream("account", 1);
     let other = main_stream("account", 2);
     store.append(s, 0, &[page(0, 1)]).await.unwrap();
+    store.append(other, 0, &[page(0, 9)]).await.unwrap();
     let mut unit = store.begin().await.unwrap();
-    assert_eq!(unit.head(other).await.unwrap().next_sequence, 0);
+    assert_eq!(
+        unit.read(other, 0, None).await.unwrap().pages,
+        [page(0, 9)],
+        "a unit reads any stream"
+    );
     assert_eq!(unit.append(s, 1, &[page(1, 2)]).await, Ok(2));
     assert_eq!(
         unit.append(s, 1, &[page(1, 3)]).await,
@@ -723,20 +931,15 @@ pub async fn a_unit_of_work_checks_and_reads_its_pending_appends<S: Store>(store
     );
     assert_eq!(
         unit.append(s, 2, &[page(2, 3), page(4, 3)]).await,
-        Err(StoreError::Discontinuous {
-            stream: s.to_cover(),
-            expected: 3,
-            found: 4
-        })
+        Err(StoreError::discontinuous(s.to_cover(), 3, 4))
     );
-    assert_eq!(unit.append(other, 0, &[page(0, 4)]).await, Ok(1));
+    assert_eq!(unit.append(s, 2, &[page(2, 4)]).await, Ok(3));
     let slice = unit.read(s, 1, None).await.unwrap();
-    assert_eq!(slice.pages, [page(1, 2)]);
-    assert_eq!(slice.next_sequence, 2);
-    assert_eq!(slice.last_recorded_at, Some(at(1)));
-    assert_eq!(unit.read(other, 0, None).await.unwrap().pages, [page(0, 4)]);
+    assert_eq!(slice.pages, [page(1, 2), page(2, 4)]);
+    assert_eq!(slice.next_sequence, 3);
+    assert_eq!(slice.last_recorded_at, Some(at(2)));
     unit.commit().await.unwrap();
-    assert_eq!(store.head(s).await.unwrap().next_sequence, 2);
+    assert_eq!(store.head(s).await.unwrap().next_sequence, 3);
     assert_eq!(store.covers("account").await, Ok(covers(&[s, other])));
 }
 
@@ -749,31 +952,26 @@ pub async fn a_unit_of_work_lists_its_pending_streams<S: Store>(store: S) {
     unit.append(main_stream("account", 1), 0, &[page(0, 2)])
         .await
         .unwrap();
-    unit.append(main_stream("account", 3), 0, &[])
-        .await
-        .unwrap();
     assert_eq!(
         unit.covers("account").await,
         Ok(covers(&[
             main_stream("account", 1),
             main_stream("account", 2)
         ])),
-        "its own append, the store's, and no empty one, in order"
+        "its own stream and the store's, in order"
     );
 }
 
 pub async fn a_unit_of_work_finds_its_pending_commands_and_facts<S: Store>(store: S) {
-    let s = main_stream("account", 1);
-    let pm = main_stream("shipping", 1);
+    let s = main_stream("shipping", 1);
     let mut unit = store.begin().await.unwrap();
-    unit.append(s, 0, &[page(0, 1)]).await.unwrap();
-    unit.append(pm, 0, &[fact_page(0, "order-7-paid")])
+    unit.append(s, 0, &[page(0, 1), fact_page(1, "order-7-paid")])
         .await
         .unwrap();
     assert_eq!(unit.find_command(s, command(1)).await, Ok(vec![page(0, 1)]));
     assert_eq!(
-        unit.find_command(pm, fact_id("order-7-paid")).await,
-        Ok(vec![fact_page(0, "order-7-paid")]),
+        unit.find_command(s, fact_id("order-7-paid")).await,
+        Ok(vec![fact_page(1, "order-7-paid")]),
         "a pending fact, by its id"
     );
     assert_eq!(
@@ -783,7 +981,71 @@ pub async fn a_unit_of_work_finds_its_pending_commands_and_facts<S: Store>(store
     );
 }
 
-/// Spec 5.6: a reactor's output lands with its source checkpoint, or
+/// Plan ruling 2: a unit is ONE handling step's write to ONE stream. Its
+/// first write binds it; a write to another stream (an append, even an
+/// empty one, or a snapshot) is refused and writes nothing. Reading other
+/// streams is no write, and positions may name any stream.
+pub async fn a_unit_of_work_writes_one_stream_and_refuses_a_second<S: Store>(store: S) {
+    let (s, other) = (main_stream("account", 1), main_stream("account", 2));
+    let mut unit = store.begin().await.unwrap();
+    unit.append(s, 0, &[page(0, 1)]).await.unwrap();
+    let bound = || StoreError::unit_stream_bound(s, other);
+    assert_eq!(unit.append(other, 0, &[page(0, 2)]).await, Err(bound()));
+    assert_eq!(
+        unit.append(other, 0, &[]).await,
+        Err(bound()),
+        "even an empty append"
+    );
+    assert_eq!(
+        unit.write_snapshot(other, &snapshot(0, "v1")).await,
+        Err(bound()),
+        "a snapshot of another stream"
+    );
+    assert_eq!(
+        unit.head(other).await.unwrap().next_sequence,
+        0,
+        "a read of another stream is no write"
+    );
+    unit.put_position(key("h", other), 1).await.unwrap();
+    unit.commit().await.unwrap();
+    assert_eq!(store.head(s).await.unwrap().next_sequence, 1);
+    assert_eq!(store.head(other).await.unwrap().next_sequence, 0);
+    assert_eq!(store.read_snapshot(other).await, Ok(None));
+    assert_eq!(store.position(key("h", other)).await, Ok(1));
+    let mut by_snapshot = store.begin().await.unwrap();
+    by_snapshot
+        .write_snapshot(other, &snapshot(0, "v1"))
+        .await
+        .unwrap();
+    assert_eq!(
+        by_snapshot.append(s, 1, &[page(1, 3)]).await,
+        Err(StoreError::unit_stream_bound(other, s)),
+        "a snapshot binds the unit too"
+    );
+}
+
+/// The step's snapshot of its stream lands with its appends, at commit, or
+/// not at all; the unit reads it at once.
+pub async fn a_unit_of_work_lands_its_snapshot_with_its_appends<S: Store>(store: S) {
+    let s = main_stream("account", 1);
+    {
+        let mut unit = store.begin().await.unwrap();
+        unit.append(s, 0, &[page(0, 1)]).await.unwrap();
+        unit.write_snapshot(s, &snapshot(0, "v1")).await.unwrap();
+        assert_eq!(unit.read_snapshot(s).await, Ok(Some(snapshot(0, "v1"))));
+        assert_eq!(store.read_snapshot(s).await, Ok(None), "not before commit");
+    }
+    assert_eq!(store.read_snapshot(s).await, Ok(None), "dropped: none");
+    assert_eq!(store.head(s).await.unwrap().next_sequence, 0);
+    let mut unit = store.begin().await.unwrap();
+    unit.append(s, 0, &[page(0, 1)]).await.unwrap();
+    unit.write_snapshot(s, &snapshot(0, "v1")).await.unwrap();
+    unit.commit().await.unwrap();
+    assert_eq!(store.read_snapshot(s).await, Ok(Some(snapshot(0, "v1"))));
+    assert_eq!(store.head(s).await.unwrap().next_sequence, 1);
+}
+
+/// Spec 5.6: a step's output lands with its source checkpoint, or
 /// neither does.
 pub async fn a_unit_of_work_puts_positions_with_its_appends<S: Store>(store: S) {
     let out = main_stream("ledger", 1);
@@ -869,16 +1131,14 @@ pub async fn the_commit_position_counts_every_handles_commits<S: Store>((a, b): 
     );
 }
 
-/// A unit that read a stream, then lost the race to another handle's
+/// A step that read a stream, then lost the race to another writer's
 /// append, is refused as a conflict, at its append or at its commit, and
-/// nothing it wrote lands.
+/// nothing of the step lands: not its position.
 pub async fn a_unit_that_lost_a_race_lands_nothing<S: Store>((a, b): (S, S)) {
     let s = main_stream("account", 1);
-    let other = main_stream("account", 2);
     let k = key("h", main_stream("order", 1));
     let mut unit = b.begin().await.unwrap();
     assert_eq!(unit.head(s).await.unwrap().next_sequence, 0);
-    unit.append(other, 0, &[page(0, 2)]).await.unwrap();
     unit.put_position(k, 1).await.unwrap();
     a.append(s, 0, &[page(0, 1)]).await.unwrap();
     let refused = match unit.append(s, 0, &[page(0, 2)]).await {
@@ -890,12 +1150,27 @@ pub async fn a_unit_that_lost_a_race_lands_nothing<S: Store>((a, b): (S, S)) {
         "refused as a conflict: {refused:?}"
     );
     assert_eq!(a.read(s, 0, None).await.unwrap().pages, [page(0, 1)]);
-    assert_eq!(
-        a.head(other).await.unwrap().next_sequence,
-        0,
-        "its other stream"
-    );
     assert_eq!(a.position(k).await, Ok(0), "its position");
+}
+
+/// Two steps on ONE stream, both pending at once: the first to commit
+/// wins, and the other's commit is refused as a conflict, landing nothing.
+pub async fn two_steps_racing_on_one_stream_land_one<S: Store>((a, b): (S, S)) {
+    let s = main_stream("account", 1);
+    let k = key("h", main_stream("order", 1));
+    let mut first = a.begin().await.unwrap();
+    let mut second = b.begin().await.unwrap();
+    first.append(s, 0, &[page(0, 1)]).await.unwrap();
+    second.append(s, 0, &[page(0, 2)]).await.unwrap();
+    second.put_position(k, 1).await.unwrap();
+    first.commit().await.unwrap();
+    let refused = second.commit().await;
+    assert!(
+        matches!(refused, Err(StoreError::Conflict { .. })),
+        "the later commit is refused as a conflict: {refused:?}"
+    );
+    assert_eq!(a.read(s, 0, None).await.unwrap().pages, [page(0, 1)]);
+    assert_eq!(a.position(k).await, Ok(0), "nothing of the loser");
 }
 
 // ------------------------------------------------------------ purge (opt-in)
@@ -1045,21 +1320,14 @@ where
     for<'s> S::Unit<'s>: UnitPurge,
 {
     let s = main_stream("account", 1);
-    let other = main_stream("account", 2);
     store.append(s, 0, &[page(0, 1)]).await.unwrap();
     store.write_snapshot(s, &snapshot(0, "v1")).await.unwrap();
     let mut unit = store.begin().await.unwrap();
     unit.append(s, 1, &[page(1, 2)]).await.unwrap();
-    unit.append(other, 0, &[page(0, 2)]).await.unwrap();
     assert_eq!(
         UnitPurge::purge(&mut unit, s).await,
         Ok(2),
         "stored and pending"
-    );
-    assert_eq!(
-        UnitPurge::purge(&mut unit, other).await,
-        Ok(1),
-        "only pending"
     );
     assert_eq!(unit.covers("account").await, Ok(vec![]));
     assert_eq!(
@@ -1074,7 +1342,6 @@ where
     assert_eq!((slice.next_sequence, slice.pages), (1, vec![page(0, 3)]));
     assert_eq!(store.read_snapshot(s).await, Ok(None));
     assert_eq!(store.find_command(s, command(2)).await, Ok(vec![]));
-    assert_eq!(store.head(other).await.unwrap().next_sequence, 0);
     assert_eq!(store.covers("account").await, Ok(covers(&[s])));
 }
 
@@ -1112,201 +1379,161 @@ where
 
 // --------------------------------------------------------- editions (opt-in)
 
-pub async fn an_edition_is_created_once_and_recorded<S>(store: S)
-where
-    S: Store + Editions,
-{
-    assert_eq!(store.edition("what-if").await, Ok(None));
-    store
-        .append(main_stream("account", 1), 0, &[page(0, 1)])
-        .await
-        .unwrap();
-    let made = store
-        .create_edition(&create("what-if"), at(10))
-        .await
-        .unwrap();
-    assert_eq!(made.name, "what-if");
-    assert_eq!(
-        made.diverged_at,
-        Some(at(10)),
-        "unset: the create's instant"
-    );
-    assert_eq!(
-        made.store, DEFAULT_EDITION_STORE,
-        "unnamed: the default store"
-    );
-    assert_eq!(made.created_at, Some(at(10)));
-    assert_eq!(store.edition("what-if").await, Ok(Some(made)));
-    let earlier = CreateEditionRequest {
-        diverge_at: Some(at(3)),
-        ..create("then")
-    };
-    let then = store.create_edition(&earlier, at(10)).await.unwrap();
-    assert_eq!(
-        then.diverged_at,
-        Some(at(3)),
-        "the requested instant, recorded"
-    );
-    assert_eq!(
-        store.create_edition(&create("what-if"), at(11)).await,
-        Err(StoreError::EditionExists {
-            name: "what-if".to_string()
-        })
-    );
-}
-
-pub async fn an_edition_create_refuses_a_bad_request<S>(store: S)
-where
-    S: Store + Editions,
-{
-    assert_eq!(
-        store.create_edition(&create(""), at(10)).await,
-        Err(StoreError::EditionNameRequired),
-        "main is unnamed"
-    );
-    let future = CreateEditionRequest {
-        diverge_at: Some(at(11)),
-        ..create("later")
-    };
-    assert_eq!(
-        store.create_edition(&future, at(10)).await,
-        Err(StoreError::EditionDivergesInTheFuture {
-            name: "later".to_string()
-        })
-    );
-    let elsewhere = CreateEditionRequest {
-        store: "nowhere".to_string(),
-        ..create("far")
-    };
-    assert_eq!(
-        store.create_edition(&elsewhere, at(10)).await,
-        Err(StoreError::EditionStoreUnknown {
-            name: "far".to_string(),
-            store: "nowhere".to_string()
-        })
-    );
-    for name in ["", "later", "far"] {
-        assert_eq!(store.edition(name).await, Ok(None), "{name:?} not recorded");
-    }
-}
-
-/// EA-3, ruling 11: the STORE falls through. A created edition's stream is
-/// main's events committed below the divergence, then its own, numbered on
-/// from them; main's later events are not its.
-pub async fn an_edition_reads_mains_events_below_its_divergence_then_its_own<S>(store: S)
+/// The time-based option: a fork at global commit position `p` takes
+/// main's first sequence committed after `p` as its fork sequence, and the
+/// fork reads main's events committed at or before it.
+pub async fn fork_point_is_mains_first_sequence_after_a_commit_position<S>(store: S)
 where
     S: Store + Editions,
 {
     let main = main_stream("account", 1);
-    let born_after = main_stream("account", 2);
-    let fork = edition_stream("account", 1, "what-if");
+    let start = store.commit_position().await.unwrap();
+    store.append(main, 0, &[page(0, 1)]).await.unwrap();
+    let after_one = store.commit_position().await.unwrap();
     store
-        .append(main, 0, &[page(0, 1), page(1, 1)])
+        .append(main, 1, &[page(1, 2), page(2, 2)])
         .await
         .unwrap();
+    let after_three = store.commit_position().await.unwrap();
     store
-        .create_edition(&create("what-if"), at(10))
+        .append(main_stream("ledger", 1), 0, &[page(0, 3)])
         .await
         .unwrap();
-    store.append(main, 2, &[page(2, 2)]).await.unwrap();
-    store.append(born_after, 0, &[page(0, 3)]).await.unwrap();
-
-    let history = store.read(fork, 0, None).await.unwrap();
+    let later = store.commit_position().await.unwrap();
+    assert_eq!(store.fork_point(main, start).await, Ok(0));
+    assert_eq!(store.fork_point(main, after_one).await, Ok(1));
+    assert_eq!(store.fork_point(main, after_three).await, Ok(3));
     assert_eq!(
-        history.pages,
-        [page(0, 1), page(1, 1)],
-        "main's, below the divergence"
+        store.fork_point(main, later).await,
+        Ok(3),
+        "another stream's commit"
     );
-    assert_eq!(history.next_sequence, 2);
-    assert_eq!(history.last_recorded_at, Some(at(1)));
+    let then = edition_stream("account", 1, "then");
+    let at = store.fork_point(main, after_one).await.unwrap();
     assert_eq!(
         store
-            .read(edition_stream("account", 2, "what-if"), 0, None)
-            .await
-            .unwrap()
-            .pages,
-        [],
-        "a main stream begun after the divergence is not the edition's"
+            .append(then, at, &[fork_page_at(at, "then", after_one)])
+            .await,
+        Ok(2),
+        "a fork below main's head"
     );
     assert_eq!(
-        store.covers("account").await,
-        Ok(covers(&[main, born_after])),
-        "listed only once it holds an event of its own"
+        store.read(then, 0, None).await.unwrap().pages,
+        [page(0, 1), fork_page_at(1, "then", after_one)]
     );
-    assert_eq!(
-        store.append(fork, 0, &[page(0, 5)]).await,
-        Err(conflict(fork, 0, 2)),
-        "its length counts main's history"
-    );
-    assert_eq!(store.append(fork, 2, &[page(2, 5)]).await, Ok(3));
-    assert_eq!(
-        store.read(fork, 0, None).await.unwrap().pages,
-        [page(0, 1), page(1, 1), page(2, 5)]
-    );
-    assert_eq!(
-        store.read(main, 0, None).await.unwrap().pages,
-        [page(0, 1), page(1, 1), page(2, 2)],
-        "main untouched"
-    );
-    assert_eq!(
-        store.find_command(fork, command(1)).await,
-        Ok(vec![page(0, 1), page(1, 1)]),
-        "dedup sees its history"
-    );
-    assert_eq!(store.find_command(fork, command(2)).await, Ok(vec![]));
-    assert_eq!(
-        store.covers("account").await,
-        Ok(covers(&[main, born_after, fork]))
-    );
-    let mut unit = store.begin().await.unwrap();
-    assert_eq!(
-        unit.read(fork, 0, Some(2)).await.unwrap().pages,
-        [page(0, 1), page(1, 1)],
-        "a unit reads the same history"
-    );
-    assert_eq!(unit.append(fork, 3, &[page(3, 6)]).await, Ok(4));
 }
 
-pub async fn deleting_an_edition_removes_it_and_its_streams_never_mains<S>(store: S)
+/// `ListEditions`: derived from the fork events on each call, one summary
+/// per edition, by name: its origin forks (no `propagated_from`), how many
+/// streams it forked, its time-based commit position.
+pub async fn list_editions_derives_each_edition_from_its_fork_events<S>(store: S)
 where
     S: Store + Editions,
 {
+    assert_eq!(store.list_editions().await, Ok(vec![]));
+    let (o1, o2) = (main_stream("order", 1), main_stream("wallet", 2));
+    store.append(o1, 0, &[page(0, 1)]).await.unwrap();
+    let (w1, w2) = (
+        edition_stream("order", 1, "what-if"),
+        edition_stream("wallet", 2, "what-if"),
+    );
+    fork(&store, w1).await;
+    store.append(w1, 2, &[page(2, 4)]).await.unwrap();
     store
-        .create_edition(&create("what-if"), at(10))
+        .append(
+            w2,
+            0,
+            &[propagated_fork_page(
+                0,
+                "what-if",
+                event_ref(w1, 1),
+                command(9),
+            )],
+        )
         .await
         .unwrap();
+    let b = edition_stream("wallet", 2, "b-test");
+    fork(&store, b).await;
+    let p = store.commit_position().await.unwrap();
+    let then = edition_stream("order", 1, "then");
+    let at = store.fork_point(o1, p).await.unwrap();
     store
-        .create_edition(&create("other"), at(10))
+        .append(then, at, &[fork_page_at(at, "then", p)])
         .await
         .unwrap();
+    let summary = |name: &str, origins: Vec<EventRef>, forked: u64, cp: u64| EditionSummary {
+        name: name.to_string(),
+        origins,
+        forked_streams: forked,
+        commit_position: cp,
+    };
+    let _ = o2;
+    assert_eq!(
+        store.list_editions().await,
+        Ok(vec![
+            summary("b-test", vec![event_ref(b, 0)], 1, 0),
+            summary("then", vec![event_ref(then, 1)], 1, p),
+            summary("what-if", vec![event_ref(w1, 1)], 2, 0),
+        ])
+    );
+}
+
+/// `DeleteEdition`: every row tagged with the edition goes (events and
+/// forks, snapshots, positions on its streams); main and other editions
+/// are untouched; its streams read as main's again, and outside input to
+/// them is refused until a new fork.
+pub async fn deleting_an_edition_removes_every_row_tagged_with_it<S>(store: S)
+where
+    S: Store + Editions,
+{
     let main = main_stream("account", 1);
-    let gone = [
+    let (e, kept) = (
         edition_stream("account", 1, "what-if"),
-        edition_stream("ledger", 1, "what-if"),
-    ];
-    let kept = edition_stream("account", 1, "other");
-    for s in [main, gone[0], gone[1], kept] {
-        store.append(s, 0, &[page(0, 1)]).await.unwrap();
-        store.write_snapshot(s, &snapshot(0, "v1")).await.unwrap();
-        store.put_position(key("h", s), 1).await.unwrap();
+        edition_stream("account", 1, "keep"),
+    );
+    store.append(main, 0, &[page(0, 1)]).await.unwrap();
+    store
+        .write_snapshot(main, &snapshot(0, "v1"))
+        .await
+        .unwrap();
+    store.put_position(key("h", main), 1).await.unwrap();
+    for s in [e, kept] {
+        fork(&store, s).await;
+        store.append(s, 2, &[page(2, 2)]).await.unwrap();
+        store.write_snapshot(s, &snapshot(2, "v2")).await.unwrap();
+        store.put_position(key("h", s), 3).await.unwrap();
     }
     store.delete_edition("what-if").await.unwrap();
-    assert_eq!(store.edition("what-if").await, Ok(None));
-    for s in gone {
-        assert_eq!(
-            store.head(s).await.unwrap().next_sequence,
-            0,
-            "{s:?} events"
-        );
-        assert_eq!(store.read_snapshot(s).await, Ok(None), "{s:?} snapshot");
-        assert_eq!(store.position(key("h", s)).await, Ok(0), "{s:?} position");
-    }
-    for s in [main, kept] {
-        assert_eq!(store.head(s).await.unwrap().next_sequence, 1, "{s:?} kept");
-        assert_eq!(store.read_snapshot(s).await, Ok(Some(snapshot(0, "v1"))));
-        assert_eq!(store.position(key("h", s)).await, Ok(1));
-    }
+    assert_eq!(
+        store.read(e, 0, None).await.unwrap().pages,
+        [page(0, 1)],
+        "main's again"
+    );
+    assert_eq!(store.read_snapshot(e).await, Ok(None));
+    assert_eq!(store.position(key("h", e)).await, Ok(0));
+    assert_eq!(
+        store.append(e, 1, &[page(1, 3)]).await,
+        Err(StoreError::edition_not_forked(e)),
+        "unforked again"
+    );
+    let names: Vec<String> = store
+        .list_editions()
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|s| s.name)
+        .collect();
+    assert_eq!(names, ["keep"]);
     assert_eq!(store.covers("account").await, Ok(covers(&[main, kept])));
+    assert_eq!(store.read(main, 0, None).await.unwrap().pages, [page(0, 1)]);
+    assert_eq!(store.read_snapshot(main).await, Ok(Some(snapshot(0, "v1"))));
+    assert_eq!(store.position(key("h", main)).await, Ok(1));
+    assert_eq!(
+        store.read(kept, 0, None).await.unwrap().pages,
+        [page(0, 1), fork_page(1, "keep"), page(2, 2)]
+    );
+    assert_eq!(store.read_snapshot(kept).await, Ok(Some(snapshot(2, "v2"))));
+    assert_eq!(store.position(key("h", kept)).await, Ok(3));
 }
 
 pub async fn deleting_an_edition_refuses_an_empty_or_unknown_name<S>(store: S)
@@ -1323,7 +1550,7 @@ where
             name: "never".to_string()
         })
     );
-    store.create_edition(&create("once"), at(1)).await.unwrap();
+    fork(&store, edition_stream("account", 1, "once")).await;
     store.delete_edition("once").await.unwrap();
     assert_eq!(
         store.delete_edition("once").await,
@@ -1331,6 +1558,85 @@ where
             name: "once".to_string()
         }),
         "already deleted"
+    );
+}
+
+/// Main's pages, snapshot and a position on it, to compare.
+async fn main_state<S: Store>(
+    store: &S,
+    main: StreamRef<'_>,
+    k: PositionKey<'_>,
+) -> (crate::stream::Slice, Option<Snapshot>, u64) {
+    (
+        store.read(main, 0, None).await.unwrap(),
+        store.read_snapshot(main).await.unwrap(),
+        store.position(k).await.unwrap(),
+    )
+}
+
+/// The reference what-if (the owner's use: games and AI experimentation):
+/// fork a stream, run several steps in the edition, read both timelines,
+/// delete the edition, and main is byte-for-byte as main alone made it.
+pub async fn a_what_if_edition_runs_beside_main_and_leaves_main_untouched<S>(store: S)
+where
+    S: Store + Editions,
+{
+    let main = main_stream("game", 1);
+    let e = edition_stream("game", 1, "what-if");
+    let projector = |s| key("score", s);
+    store
+        .append(main, 0, &[page(0, 1), page(1, 2), page(2, 3)])
+        .await
+        .unwrap();
+    store
+        .write_snapshot(main, &snapshot(2, "v1"))
+        .await
+        .unwrap();
+    store.put_position(projector(main), 3).await.unwrap();
+    let before = main_state(&store, main, projector(main)).await;
+    fork(&store, e).await;
+    for n in 0..3u8 {
+        let mut step = store.begin().await.unwrap();
+        let at = step.head(e).await.unwrap().next_sequence;
+        step.append(e, at, &[page(at, 10 + n)]).await.unwrap();
+        step.write_snapshot(e, &snapshot(at, "v1")).await.unwrap();
+        step.put_position(projector(e), at + 1).await.unwrap();
+        step.commit().await.unwrap();
+    }
+    assert_eq!(
+        main_state(&store, main, projector(main)).await,
+        before,
+        "the edition's steps never touch main"
+    );
+    store.append(main, 3, &[page(3, 4)]).await.unwrap();
+    assert_eq!(
+        store.read(e, 0, None).await.unwrap().pages,
+        [
+            page(0, 1),
+            page(1, 2),
+            page(2, 3),
+            fork_page(3, "what-if"),
+            page(4, 10),
+            page(5, 11),
+            page(6, 12),
+        ],
+        "the edition's timeline: main's history, its fork, its own steps"
+    );
+    assert_eq!(store.read_snapshot(e).await, Ok(Some(snapshot(6, "v1"))));
+    assert_eq!(store.position(projector(e)).await, Ok(7));
+    let main_alone = main_state(&store, main, projector(main)).await;
+    assert_eq!(main_alone.0.pages.len(), 4, "main's timeline: its own four");
+    store.delete_edition("what-if").await.unwrap();
+    assert_eq!(
+        main_state(&store, main, projector(main)).await,
+        main_alone,
+        "the delete never touches main"
+    );
+    assert_eq!(store.list_editions().await, Ok(vec![]));
+    assert_eq!(
+        store.read(e, 0, None).await.unwrap(),
+        main_alone.0,
+        "gone: main's version"
     );
 }
 
@@ -1365,40 +1671,6 @@ where
     let mut later = reader.begin_read().await.unwrap();
     assert_eq!(later.covers("account").await, Ok(covers(&[early, late])));
     assert_eq!(later.read(early, 0, None).await.unwrap().next_sequence, 3);
-}
-
-/// EA-2: a read unit refuses a stream in an edition never created; such a
-/// stream is neither read nor listed. Main is always read.
-pub async fn a_read_unit_refuses_an_edition_never_created<S>((reader, writer): (S, S))
-where
-    S: Store + ReadStore,
-{
-    let main = main_stream("account", 1);
-    let uncreated = edition_stream("account", 1, "what-if");
-    writer.append(main, 0, &[page(0, 1)]).await.unwrap();
-    writer.append(uncreated, 0, &[page(0, 2)]).await.unwrap();
-    let mut reads = reader.begin_read().await.unwrap();
-    assert_eq!(
-        reads.read(uncreated, 0, None).await,
-        Err(StoreError::UnknownEdition {
-            stream: uncreated.to_cover()
-        }),
-        "a stream it holds, in an edition never created"
-    );
-    let misspelt = edition_stream("account", 2, "wat-if");
-    assert_eq!(
-        reads.read(misspelt, 0, None).await,
-        Err(StoreError::UnknownEdition {
-            stream: misspelt.to_cover()
-        }),
-        "no such stream either: refused, not empty"
-    );
-    assert_eq!(
-        reads.covers("account").await,
-        Ok(covers(&[main])),
-        "not listed"
-    );
-    assert_eq!(reads.read(main, 0, None).await.unwrap().pages, [page(0, 1)]);
 }
 
 pub async fn a_read_unit_keeps_a_stream_purged_after_it_began<S>((reader, writer): (S, S))
@@ -1457,31 +1729,6 @@ where
     assert_eq!(later.read_snapshot(s).await, Ok(Some(snapshot(1, "v1"))));
 }
 
-/// EA-2 for a read unit's head and snapshot too: an edition never created
-/// is refused, not answered empty.
-pub async fn a_read_unit_refuses_heads_and_snapshots_in_an_edition_never_created<S>(
-    (reader, writer): (S, S),
-) where
-    S: Store + ReadStore,
-{
-    let uncreated = edition_stream("account", 1, "what-if");
-    writer.append(uncreated, 0, &[page(0, 1)]).await.unwrap();
-    writer
-        .write_snapshot(uncreated, &snapshot(0, "v1"))
-        .await
-        .unwrap();
-    let refused = || StoreError::UnknownEdition {
-        stream: uncreated.to_cover(),
-    };
-    let mut reads = reader.begin_read().await.unwrap();
-    assert_eq!(reads.head(uncreated).await, Err(refused()), "its head");
-    assert_eq!(
-        reads.read_snapshot(uncreated).await,
-        Err(refused()),
-        "its snapshot"
-    );
-}
-
 /// A stream purged after a read unit began keeps, through the unit, its
 /// head and its snapshot as well as its pages.
 pub async fn a_read_unit_keeps_the_head_and_snapshot_of_a_stream_purged_after_it_began<S>(
@@ -1509,15 +1756,51 @@ pub async fn a_read_unit_keeps_the_head_and_snapshot_of_a_stream_purged_after_it
     assert_eq!(later.read_snapshot(s).await, Ok(None));
 }
 
-/// A read unit heads a created edition through to main, as the store reads
-/// it (EA-3), but reads only the edition's OWN snapshot: snapshots never
-/// fall through (ruling B).
-pub async fn a_read_unit_heads_a_created_edition_through_to_main_but_not_its_snapshots<S>(store: S)
-where
-    S: Store + ReadStore + Editions,
+/// 14.32: a read unit refuses a stream in an edition that does not exist
+/// (no fork event of it anywhere), in its reads, head and snapshot; once
+/// the edition exists, an unforked stream of it reads as main's.
+pub async fn a_read_unit_refuses_an_unknown_edition_and_reads_an_unforked_stream_as_main<S>(
+    (reader, writer): (S, S),
+) where
+    S: Store + ReadStore,
 {
     let main = main_stream("account", 1);
-    let fork = edition_stream("account", 1, "what-if");
+    let e = edition_stream("account", 1, "what-if");
+    writer.append(main, 0, &[page(0, 1)]).await.unwrap();
+    writer
+        .write_snapshot(main, &snapshot(0, "v1"))
+        .await
+        .unwrap();
+    let unknown = || StoreError::unknown_edition(e);
+    let mut reads = reader.begin_read().await.unwrap();
+    assert_eq!(reads.read(e, 0, None).await, Err(unknown()));
+    assert_eq!(reads.head(e).await, Err(unknown()), "its head");
+    assert_eq!(reads.read_snapshot(e).await, Err(unknown()), "its snapshot");
+    assert_eq!(reads.covers("account").await, Ok(covers(&[main])));
+    drop(reads);
+    fork(&writer, edition_stream("account", 2, "what-if")).await;
+    let mut reads = reader.begin_read().await.unwrap();
+    assert_eq!(
+        reads.read(e, 0, None).await.unwrap().pages,
+        [page(0, 1)],
+        "a known edition's unforked stream: main's version"
+    );
+    assert_eq!(reads.head(e).await.unwrap().next_sequence, 1);
+    assert_eq!(
+        reads.read_snapshot(e).await,
+        Ok(None),
+        "no snapshot of main's"
+    );
+}
+
+/// A read unit reads a forked stream as the store does: main below its
+/// fork, then its own; its own snapshot only.
+pub async fn a_read_unit_reads_a_forked_stream_through_to_main<S>(store: S)
+where
+    S: Store + ReadStore,
+{
+    let main = main_stream("account", 1);
+    let e = edition_stream("account", 1, "what-if");
     store
         .append(main, 0, &[page(0, 1), page(1, 1)])
         .await
@@ -1526,56 +1809,29 @@ where
         .write_snapshot(main, &snapshot(1, "v1"))
         .await
         .unwrap();
-    store
-        .create_edition(&create("what-if"), at(10))
-        .await
-        .unwrap();
+    fork(&store, e).await;
     store.append(main, 2, &[page(2, 3)]).await.unwrap();
     {
         let mut reads = store.begin_read().await.unwrap();
-        let head = reads.head(fork).await.unwrap();
         assert_eq!(
-            (head.next_sequence, head.last_recorded_at),
-            (2, Some(at(1))),
-            "main's history below the divergence"
+            reads.read(e, 0, None).await.unwrap().pages,
+            [page(0, 1), page(1, 1), fork_page(2, "what-if")]
         );
+        let head = reads.head(e).await.unwrap();
+        assert_eq!(head.next_sequence, 3);
         assert_eq!(
-            reads.read_snapshot(fork).await,
+            reads.read_snapshot(e).await,
             Ok(None),
-            "main's snapshot is not the edition's"
+            "main's is not the edition's"
         );
     }
-    store.append(fork, 2, &[page(2, 5)]).await.unwrap();
-    store
-        .write_snapshot(fork, &snapshot(2, "v2"))
-        .await
-        .unwrap();
+    store.append(e, 3, &[page(3, 5)]).await.unwrap();
+    store.write_snapshot(e, &snapshot(3, "v2")).await.unwrap();
     let mut reads = store.begin_read().await.unwrap();
-    assert_eq!(reads.head(fork).await.unwrap().next_sequence, 3);
-    assert_eq!(reads.read_snapshot(fork).await, Ok(Some(snapshot(2, "v2"))));
+    assert_eq!(reads.head(e).await.unwrap().next_sequence, 4);
+    assert_eq!(reads.read_snapshot(e).await, Ok(Some(snapshot(3, "v2"))));
     assert_eq!(reads.read_snapshot(main).await, Ok(Some(snapshot(1, "v1"))));
-}
-
-/// A read unit reads a created edition as the store does: through to main.
-pub async fn a_read_unit_reads_a_created_edition_through_to_main<S>(store: S)
-where
-    S: Store + ReadStore + Editions,
-{
-    let main = main_stream("account", 1);
-    let fork = edition_stream("account", 1, "what-if");
-    store.append(main, 0, &[page(0, 1)]).await.unwrap();
-    store
-        .create_edition(&create("what-if"), at(10))
-        .await
-        .unwrap();
-    store.append(fork, 1, &[page(1, 2)]).await.unwrap();
-    store.append(main, 1, &[page(1, 3)]).await.unwrap();
-    let mut reads = store.begin_read().await.unwrap();
-    assert_eq!(
-        reads.read(fork, 0, None).await.unwrap().pages,
-        [page(0, 1), page(1, 2)]
-    );
-    assert_eq!(reads.covers("account").await, Ok(covers(&[main, fork])));
+    assert_eq!(reads.covers("account").await, Ok(covers(&[main, e])));
 }
 
 // --------------------------------------------------------- watch (opt-in)
@@ -1669,7 +1925,10 @@ where
         main_stream("account", 2),
         main_stream("ledger", 1),
     );
-    let fork = edition_stream("account", 3, "what-if");
+    let (fork1, fork3) = (
+        edition_stream("account", 1, "what-if"),
+        edition_stream("account", 3, "what-if"),
+    );
     store
         .append(
             a1,
@@ -1684,7 +1943,16 @@ where
         .unwrap();
     store.append(a2, 0, &[correlated(0, 4, 8)]).await.unwrap();
     store.append(l1, 0, &[correlated(0, 5, 7)]).await.unwrap();
-    store.append(fork, 0, &[correlated(0, 6, 7)]).await.unwrap();
+    fork(&store, fork1).await;
+    store
+        .append(fork1, 4, &[correlated(4, 9, 7)])
+        .await
+        .unwrap();
+    fork(&store, fork3).await;
+    store
+        .append(fork3, 1, &[correlated(1, 6, 7)])
+        .await
+        .unwrap();
     let book = |s: StreamRef<'_>, pages: Vec<EventPage>, next| EventBook {
         cover: Some(s.to_cover()),
         pages,
@@ -1705,12 +1973,29 @@ where
             .await,
         Ok(vec![book(l1, vec![correlated(0, 5, 7)], 1)])
     );
+    let in_what_if = store
+        .read_by_correlation(Some("account"), Some("what-if"), command(7))
+        .await
+        .unwrap();
     assert_eq!(
-        store
-            .read_by_correlation(None, Some("what-if"), command(7))
-            .await,
-        Ok(vec![book(fork, vec![correlated(0, 6, 7)], 1)]),
-        "the edition's timeline"
+        in_what_if
+            .iter()
+            .filter(|b| b.cover.as_ref().and_then(|c| c.edition.as_deref()) == Some("what-if"))
+            .cloned()
+            .collect::<Vec<_>>(),
+        vec![
+            book(
+                fork1,
+                vec![
+                    correlated(0, 1, 7),
+                    correlated(2, 3, 7),
+                    correlated(4, 9, 7)
+                ],
+                5
+            ),
+            book(fork3, vec![correlated(1, 6, 7)], 2),
+        ],
+        "the edition's forked streams, read as `read` reads them: history included"
     );
     assert_eq!(
         store.read_by_correlation(None, None, command(9)).await,
@@ -1722,12 +2007,12 @@ pub async fn list_streams_is_every_domains_covers_in_order<S>(store: S)
 where
     S: Store + ListStreams,
 {
-    for s in [
-        main_stream("ledger", 1),
-        edition_stream("account", 1, "a"),
-        main_stream("account", 2),
-        main_stream("account", 1),
-    ] {
+    store
+        .append(main_stream("ledger", 1), 0, &[page(0, 1)])
+        .await
+        .unwrap();
+    fork(&store, edition_stream("account", 1, "a")).await;
+    for s in [main_stream("account", 2), main_stream("account", 1)] {
         store.append(s, 0, &[page(0, 1)]).await.unwrap();
     }
     store.append(main_stream("order", 1), 0, &[]).await.unwrap();
@@ -1917,6 +2202,7 @@ macro_rules! store_contract {
         $crate::store_contract!(@each [$(#[$t])+], $f;
             the_commit_position_counts_every_handles_commits,
             a_unit_that_lost_a_race_lands_nothing,
+            two_steps_racing_on_one_stream_land_one,
         );
     };
     (purge, $(#[$t:meta])+, $f:expr) => {
@@ -1932,23 +2218,18 @@ macro_rules! store_contract {
     };
     (editions, $(#[$t:meta])+, $f:expr) => {
         $crate::store_contract!(@each [$(#[$t])+], $f;
-            an_edition_is_created_once_and_recorded,
-            an_edition_create_refuses_a_bad_request,
-            an_edition_reads_mains_events_below_its_divergence_then_its_own,
-            deleting_an_edition_removes_it_and_its_streams_never_mains,
+            fork_point_is_mains_first_sequence_after_a_commit_position,
+            list_editions_derives_each_edition_from_its_fork_events,
+            deleting_an_edition_removes_every_row_tagged_with_it,
             deleting_an_edition_refuses_an_empty_or_unknown_name,
+            a_what_if_edition_runs_beside_main_and_leaves_main_untouched,
         );
     };
     (read, $(#[$t:meta])+, $f:expr) => {
         $crate::store_contract!(@each [$(#[$t])+], $f;
             a_read_unit_sees_the_store_as_it_began,
             a_read_unit_heads_and_snapshots_as_it_began,
-        );
-    };
-    (read_unknown_edition, $(#[$t:meta])+, $f:expr) => {
-        $crate::store_contract!(@each [$(#[$t])+], $f;
-            a_read_unit_refuses_an_edition_never_created,
-            a_read_unit_refuses_heads_and_snapshots_in_an_edition_never_created,
+            a_read_unit_refuses_an_unknown_edition_and_reads_an_unforked_stream_as_main,
         );
     };
     (read_purge, $(#[$t:meta])+, $f:expr) => {
@@ -1957,10 +2238,9 @@ macro_rules! store_contract {
             a_read_unit_keeps_the_head_and_snapshot_of_a_stream_purged_after_it_began,
         );
     };
-    (read_editions, $(#[$t:meta])+, $f:expr) => {
+    (read_forks, $(#[$t:meta])+, $f:expr) => {
         $crate::store_contract!(@each [$(#[$t])+], $f;
-            a_read_unit_reads_a_created_edition_through_to_main,
-            a_read_unit_heads_a_created_edition_through_to_main_but_not_its_snapshots,
+            a_read_unit_reads_a_forked_stream_through_to_main,
         );
     };
     (watch, $(#[$t:meta])+, $f:expr) => {
@@ -2013,6 +2293,9 @@ macro_rules! store_contract {
             head_is_the_next_sequence_and_the_last_recorded_at,
             a_stream_is_domain_edition_and_root,
             covers_orders_main_first_then_by_edition_and_root,
+            an_unforked_edition_stream_reads_as_main,
+            an_edition_stream_takes_only_a_fork_as_its_first_own_event,
+            a_forked_stream_reads_main_below_its_fork_then_its_own,
             find_command_finds_a_commands_events_on_its_stream,
             find_command_finds_a_retried_facts_events_by_its_id,
             find_command_finds_a_refusal_fact_on_the_trigger_stream_by_the_refused_id,
@@ -2025,6 +2308,8 @@ macro_rules! store_contract {
             a_unit_of_work_checks_and_reads_its_pending_appends,
             a_unit_of_work_lists_its_pending_streams,
             a_unit_of_work_finds_its_pending_commands_and_facts,
+            a_unit_of_work_writes_one_stream_and_refuses_a_second,
+            a_unit_of_work_lands_its_snapshot_with_its_appends,
             a_unit_of_work_puts_positions_with_its_appends,
             a_second_begin_on_a_handle_serves_or_refuses_never_waits,
         );

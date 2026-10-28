@@ -12,9 +12,8 @@
 use std::future::Future;
 use std::sync::Arc;
 
-use crate::{CreateEditionRequest, Edition};
 use angzarr_proto::uuid::Uuid;
-use angzarr_proto::v1::{Cover, EventBook, EventPage, Snapshot};
+use angzarr_proto::v1::{Cover, EditionSummary, EventBook, EventPage, Snapshot};
 use prost_types::{Any, Timestamp};
 
 use crate::error::StoreError;
@@ -29,11 +28,22 @@ use crate::stream::{Head, PositionKey, Slice, StreamRef};
 /// it indexes into columns. It never decodes a payload, never assigns or
 /// rewrites a sequence; upcasting is the reader's, on every read.
 ///
-/// **Editions (EA-3).** In a store that keeps the edition registry
-/// ([`Editions`]), a created edition's stream reads main's events committed
-/// below the edition's divergence commit position, then its own, numbered
-/// on from them. Every read, lookup and append here sees that history. A
-/// stream in an edition never created is a plain stream of its own.
+/// **Editions are per-stream forks (14.32).** Every store keeps this rule;
+/// [`Editions`] adds only the administration.
+/// - An edition stream (D, X, R) with no event of its own reads as main's
+///   (D, R), and is not listed by [`covers`](EventStore::covers).
+/// - Its first own event must be its FORK: a page whose payload is an
+///   `EditionForked` ([`EDITION_FORKED_TYPE_URL`]), appended with
+///   `expected` = the fork sequence: main's head, or (the time-based
+///   option) any sequence below it ([`Editions::fork_point`]). Any other
+///   first write is refused [`StoreError::EditionNotForked`], a second
+///   fork [`StoreError::EditionAlreadyForked`], and a fork of main
+///   [`StoreError::EditionNameRequired`].
+/// - A forked stream reads main's events below its own fork sequence, then
+///   its own, numbered on; main's later events never reach it. Every read,
+///   lookup, append and unit sees that history. Snapshots and positions
+///   never fall through.
+/// - Main is never written by any of it.
 pub trait EventStore: MaybeSend + MaybeSync {
     /// Append `pages` to `stream` as one autocommitted write, creating the
     /// stream when `expected` is its length and it holds nothing. Refused,
@@ -134,10 +144,18 @@ pub trait UnitOfWork: MaybeSend + MaybeSync {
     fn begin(&self) -> impl Future<Output = Result<Self::Unit<'_>, StoreError>> + MaybeSend;
 }
 
-/// One open unit of work: its reads see its writes; nothing is seen
-/// outside before [`commit`](Unit::commit); dropped or aborted, nothing
-/// lands. A race lost to another handle is [`StoreError::Conflict`], at the
-/// unit's append or at its commit.
+/// One open unit of work: ONE handling step's atomic write (plan ruling 2;
+/// no cross-stream unit). It writes ONE stream: its appends, and that
+/// stream's snapshot, with the step's positions and outbox entries, all
+/// landing together at [`commit`](Unit::commit) or not at all (dropped or
+/// aborted). The unit's first write to a stream (an append, a snapshot, a
+/// purge) BINDS it to that stream; a write to another is refused
+/// [`StoreError::UnitStreamBound`]. A step that writes no stream (a saga's:
+/// positions and outbox only) is bound to none. Positions may name any
+/// stream: they are the step's place in what it consumes. Reads are of any
+/// stream, and see the unit's writes. A race lost to another writer of the
+/// stream is [`StoreError::Conflict`], at the unit's append or at its
+/// commit, and then nothing of the unit lands.
 pub trait Unit: MaybeSend {
     fn append(
         &mut self,
@@ -171,12 +189,19 @@ pub trait Unit: MaybeSend {
         domain: &str,
     ) -> impl Future<Output = Result<Vec<Cover>, StoreError>> + MaybeSend;
 
-    /// Snapshots are read in a unit, never written: a cache is no part of
-    /// a commit.
+    /// The stream's snapshot as the unit sees it: its own, once written.
     fn read_snapshot(
         &mut self,
         stream: StreamRef<'_>,
     ) -> impl Future<Output = Result<Option<Snapshot>, StoreError>> + MaybeSend;
+
+    /// Keep `snapshot` as the unit's stream's newest, landing at commit with
+    /// its appends. Binds the unit to `stream` like an append.
+    fn write_snapshot(
+        &mut self,
+        stream: StreamRef<'_>,
+        snapshot: &Snapshot,
+    ) -> impl Future<Output = Result<(), StoreError>> + MaybeSend;
 
     fn position(
         &mut self,
@@ -215,7 +240,8 @@ pub trait Purge: MaybeSend + MaybeSync {
     ) -> impl Future<Output = Result<u64, StoreError>> + MaybeSend;
 }
 
-/// [`Purge`] in a unit: lands at commit, seen by the unit at once.
+/// [`Purge`] in a unit: lands at commit, seen by the unit at once. Binds
+/// the unit to `stream` like an append.
 pub trait UnitPurge: Unit {
     fn purge(
         &mut self,
@@ -225,48 +251,50 @@ pub trait UnitPurge: Unit {
 
 // =============================================================== editions
 
-/// The store an edition created with none named is placed in.
-pub const DEFAULT_EDITION_STORE: &str = "default";
+/// The type URL of an `EditionForked` payload: what marks a page as a fork.
+pub const EDITION_FORKED_TYPE_URL: &str = "/io.angzarr.v1.EditionForked";
 
-/// Opt-in: the edition registry (EA-1), and with it EA-3's fall-through
-/// on every read of [`EventStore`].
-///
-/// **PROVISIONAL, pending the per-stream editions spec (owner ruling
-/// 2026-10-28):** editions become per-stream forks (a fork event appended
-/// to the edition's stream; no administrative registry), so this trait and
-/// the `editions`/`read_editions`/`read_unknown_edition` sections will be
-/// reworked. Do not implement it against the current shape.
+/// Opt-in: the administration of editions as per-stream forks (14.32;
+/// `EditionAdminService`). There is no registry: an edition is known while
+/// a fork event of it exists, and everything here is derived from, or
+/// removes, the edition's own rows. Forking itself is an append (see
+/// [`EventStore`]); main is never written.
 pub trait Editions: MaybeSend + MaybeSync {
-    /// Create the edition `request` names at `now`. It diverges at the
-    /// store's commit position at the create: main's events committed
-    /// before it are its history. HOW that position is recorded is pending
-    /// the human (edition creation is to be the edition's first event;
-    /// where that event lives is OPEN(C)). Refused: an empty name, a
-    /// `diverge_at` after `now`, a name already created, an unknown store.
-    fn create_edition(
+    /// The time-based option's fork sequence for `stream`: main's first
+    /// sequence committed after global commit position `commit_position`
+    /// (main's events committed at or before it are the fork's history).
+    fn fork_point(
         &self,
-        request: &CreateEditionRequest,
-        now: Timestamp,
-    ) -> impl Future<Output = Result<Edition, StoreError>> + MaybeSend;
+        stream: StreamRef<'_>,
+        commit_position: u64,
+    ) -> impl Future<Output = Result<u64, StoreError>> + MaybeSend;
 
-    /// Delete the edition, its record and everything stored under it in
-    /// every domain. Main is never touched.
+    /// `ListEditions`: one summary per edition holding a fork event, by
+    /// name, derived from its fork events on each call: its origin forks
+    /// (those with no `propagated_from`), how many streams it has forked,
+    /// and its time-based commit position (0 if per-stream).
+    fn list_editions(
+        &self,
+    ) -> impl Future<Output = Result<Vec<EditionSummary>, StoreError>> + MaybeSend;
+
+    /// `DeleteEdition`'s removal: every row tagged with edition `name`
+    /// (events and forks, snapshots, positions on its streams), at once.
+    /// The caller sequences it after the edition's in-flight work. Nothing
+    /// of main is touched, and the edition is unknown afterwards. Refused:
+    /// an empty name, an edition that does not exist.
     fn delete_edition(
         &self,
         name: &str,
     ) -> impl Future<Output = Result<(), StoreError>> + MaybeSend;
-
-    fn edition(
-        &self,
-        name: &str,
-    ) -> impl Future<Output = Result<Option<Edition>, StoreError>> + MaybeSend;
 }
 
 // ========================================================== one-moment reads
 
 /// Opt-in: read-only units whose reads all see one moment (annals'
-/// `ReadStore`). A read unit refuses a stream in an edition never created
-/// ([`StoreError::UnknownEdition`], EA-2) and lists none.
+/// `ReadStore`). A read unit reads editions as the store does, and refuses
+/// a stream in an edition that does not exist (no fork event of it
+/// anywhere: [`StoreError::UnknownEdition`]); an unforked stream of a known
+/// edition reads as main's.
 pub trait ReadStore: MaybeSend + MaybeSync {
     type Reads<'s>: ReadUnit + 's
     where

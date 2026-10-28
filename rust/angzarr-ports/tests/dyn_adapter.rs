@@ -10,9 +10,10 @@ compile_error!("run `just test` (every feature)");
 use std::sync::Arc;
 
 use angzarr_ports::angzarr_proto::v1::EventBook;
-use angzarr_ports::contract::{at, command, correlated, entry, main_stream, page};
+use angzarr_ports::contract::{
+    at, command, correlated, edition_stream, entry, event_ref, fork_page, main_stream, page,
+};
 use angzarr_ports::memory::MemoryStore;
-use angzarr_ports::CreateEditionRequest;
 use angzarr_ports::{
     DynEditions, DynEventStore, DynListStreams, DynOutbox, DynOutboxStore, DynReadByCorrelation,
     DynReadUntilTime, DynStore, DynUnitOfWork,
@@ -74,20 +75,30 @@ async fn one_dyn_store_upcasts_to_each_port() {
     );
 }
 
-/// Core's edition admin through `Arc<dyn DynEditions>`. PENDING the
-/// per-stream editions spec (owner ruling 2026-10-28).
+/// Core's edition admin through `Arc<dyn DynEditions>`: a fork (an append,
+/// through the dyn store), the time-based fork point, `ListEditions` and
+/// `DeleteEdition`.
 #[tokio::test]
-#[ignore = "pending the per-stream editions spec, owner ruling 2026-10-28"]
 async fn editions_are_served_through_dyn() {
-    let editions: Arc<dyn DynEditions> = Arc::new(MemoryStore::new());
-    let request = CreateEditionRequest {
-        name: "what-if".to_string(),
-        ..CreateEditionRequest::default()
-    };
-    let made = editions.create_edition(&request, at(1)).await.unwrap();
-    assert_eq!(editions.edition("what-if").await, Ok(Some(made)));
+    let store = MemoryStore::new();
+    let events: Arc<dyn DynStore> = Arc::new(store.clone());
+    let editions: Arc<dyn DynEditions> = Arc::new(store);
+    let main = main_stream("account", 1);
+    let e = edition_stream("account", 1, "what-if");
+    DynEventStore::append(&*events, main, 0, &[page(0, 1)])
+        .await
+        .unwrap();
+    let p = DynEventStore::commit_position(&*events).await.unwrap();
+    assert_eq!(editions.fork_point(main, p).await, Ok(1));
+    DynEventStore::append(&*events, e, 1, &[fork_page(1, "what-if")])
+        .await
+        .unwrap();
+    let listed = editions.list_editions().await.unwrap();
+    assert_eq!(listed.len(), 1);
+    assert_eq!(listed[0].name, "what-if");
+    assert_eq!(listed[0].origins, [event_ref(e, 1)]);
     editions.delete_edition("what-if").await.unwrap();
-    assert_eq!(editions.edition("what-if").await, Ok(None));
+    assert_eq!(editions.list_editions().await, Ok(vec![]));
 }
 
 /// Core's queries through their dyn twins.
