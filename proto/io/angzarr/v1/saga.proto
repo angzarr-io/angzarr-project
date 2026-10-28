@@ -76,9 +76,9 @@ option ruby_package = "Angzarr";
 //     This is WHY translate exists: CommandRefused carries only the
 //     foreign object, so a domain that does not want to unpack it, or
 //     import the foreign protos, has the saga unpack it there and hand
-//     over a domestic fact. Refusal is one struct, so a field can be added later without
-//     breaking saga code; no context object rides with the command
-//     (considered and deferred, decision 14.31).
+//     over a domestic fact. Refusal is one struct, so a field can be
+//     added later without breaking saga code; no context object rides
+//     with the command (considered and deferred, decision 14.31).
 //   - The mode is chosen per saga or per saga command by angzarr-cli's
 //     refusal switch, at code generation, and nowhere else (no proto
 //     option); pass-through is the CLI's default, and selecting translate

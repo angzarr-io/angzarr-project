@@ -482,9 +482,10 @@ message EventRef {
 //             refusal fact (decision 14.31), the only Fact with a
 //             causation_id: it is accepted only by the exact stream
 //             causation_id names, domain, root and edition alike (the
-//             stream of the saga's triggering event); its command_id is the refused command's,
-//             not a derivation, and its fact_origin.external_id is that
-//             command_id's canonical text. The same id is thus in two
+//             stream of the saga's triggering event); its command_id is
+//             the refused command's, not a derivation, and its
+//             fact_origin.external_id is that command_id's canonical
+//             text. The same id is thus in two
 //             streams by design: never applied in the refusing (target)
 //             stream, and recorded as the refusal in the source stream.
 //   Command   never fact_origin.
@@ -985,8 +986,9 @@ message CommandPage {
   // command's own causation, its triggering event. Framework-authenticated
   // callers only. The reaction command_id is derived from it, and a refusal
   // fact must be addressed to the exact stream it names (domain, root and
-  // edition). Transport and trace metadata: NOT persisted on the events the command produces (their
-  // causation is this command; see the command_identity region).
+  // edition). Transport and trace metadata: NOT persisted on the events
+  // the command produces (their causation is this command; see the
+  // command_identity region).
   EventRef causation_id = 10;
   // Facts only, and required there: where the fact came from. Copied onto
   // every event (EventMeta.fact).
