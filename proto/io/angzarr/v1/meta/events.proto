@@ -1,0 +1,104 @@
+syntax = "proto3";
+
+package io.angzarr.v1.meta;
+
+import "io/angzarr/v1/types.proto";
+
+option csharp_namespace = "Angzarr.Meta";
+option go_package = "github.com/benjaminabbitt/angzarr/client/go/proto/io/angzarr/v1/meta;angzarrmeta";
+option java_multiple_files = true;
+option java_package = "io.angzarr.meta";
+option ruby_package = "Angzarr::Meta";
+
+// ============================================================================
+// Framework meta-events
+// ============================================================================
+//
+// The reserved namespace for FRAMEWORK META-EVENTS (decision 14.32, the
+// owner's ruling of 2026-10-28). A meta-event is a real event, appended to
+// a stream and stamped like any other (a framework-derived command_id of
+// its own, never that of the command whose arrival made it), but it is the
+// framework's, not a domain's:
+// - Stores and coordinators MAY recognise a meta-event by its type URL
+//   (/io.angzarr.v1.meta.<Name>) and act on it (a store reads an edition
+//   stream through its EditionCreated; a coordinator removes a stream's
+//   edition rows once its EditionDeleted has propagated).
+// - Business handlers NEVER see one: the client library hands no applier,
+//   saga, process manager or projector handler a meta-event.
+// - It travels on the same data flow as any event: a saga's step that
+//   reacts to an event in edition X carries X's meta-events onward to the
+//   streams it reaches (angzarr automates this; annals does it in its
+//   in-process chain of committed steps).
+// Only meta-events something needs are defined here.
+
+// region edition_meta_events
+// An edition's creation, per stream (decision 14.32; Cover.edition). The
+// first event of X's version of a stream (D, X, R), appended at the
+// sequence main's version of that stream would have used next (its FORK
+// SEQUENCE): (D, X, R) reads main's events below it, then X's own.
+//
+// Propagation: the creation TRAVELS WITH THE DATA. A saga's command in X
+// that reaches a stream with no EditionCreated in X is the propagation: the
+// stream's coordinator appends EditionCreated at that stream's own head (or
+// at X's commit position, for a time-based edition), with propagated_from
+// = the EditionCreated of the stream the saga reacted to and forked_by =
+// the arriving command's command_id, and then handles the command.
+// Concurrent arrivals race on the append like any two writes; the loser
+// finds the stream created and appends no second one. An arrival in an
+// edition that is deleted, or being deleted, is refused NOT_FOUND and
+// creates nothing (see EditionDeleted); only an origin creation
+// (ForkStream) brings a deleted edition's name back.
+message EditionCreated {
+  // The edition (also the stream's Cover.edition, repeated so the payload
+  // describes itself). Required, non-empty.
+  string edition = 1;
+  // The fork sequence: main's next sequence for this stream when it was
+  // created in X (or the first main sequence after the commit position,
+  // for a time-based edition), equal to this event's own EventPage.sequence.
+  uint64 parent_sequence = 2;
+  // The time-based option's global commit position; 0 for a per-stream
+  // edition.
+  uint64 commit_position = 3;
+  // For a creation made by a saga command's arrival: the EditionCreated of
+  // the stream the saga reacted to. Unset for an origin (ForkStream).
+  io.angzarr.v1.EventRef propagated_from = 4;
+  // For a creation made by a saga command's arrival: that command's
+  // command_id. Unset for an origin.
+  io.angzarr.v1.UUID forked_by = 5;
+}
+
+// An edition's deletion, per stream (decision 14.32, the owner's rulings of
+// 2026-10-28: "delete edition / EditionDeleted needs to be an EVENT, to
+// propagate via sagas to other domains"; "it needs to exist in its
+// domains"). Per stream (D, X, R), in this order:
+// 1. RECORDED: DeleteEdition appends EditionDeleted to X's origin streams;
+//    each other stream the deletion reaches records its own, in its own
+//    domain, in sequence after its earlier work.
+// 2. PROPAGATED: the recorded event travels onward through that domain's
+//    saga flows to the next domains, like any event (the same flow that
+//    carried EditionCreated).
+// 3. REMOVED: only after it has propagated onward (its outgoing saga steps
+//    and outbox entries for it have completed), the stream's rows tagged X
+//    are removed, this event included. Nothing remains.
+// Main is never written. A stream in X that the deletion cannot reach
+// through the saga flows keeps its rows and stays visible in ListEditions.
+// After deletion, a later arrival in X (a saga command, or a step's
+// position on a removed stream) is REFUSED NOT_FOUND: X does not exist,
+// and the arrival re-creates neither the stream nor the edition. X is
+// known to be deleted, or being deleted, while any stream of it holds an
+// EditionDeleted, and not to exist once no EditionCreated of it remains.
+message EditionDeleted {
+  // The edition. Required, non-empty.
+  string edition = 1;
+  // The edition's global commit position when DeleteEdition was called:
+  // the ordering point every stream's deletion shares (flagged: the
+  // stream's own sequence already orders it after its earlier work).
+  uint64 commit_position = 2;
+  // For a deletion carried by a saga command's arrival: the EditionDeleted
+  // of the stream the saga reacted to. Unset at an origin.
+  io.angzarr.v1.EventRef propagated_from = 3;
+  // For a deletion carried by a saga command's arrival: that command's
+  // command_id. Unset at an origin.
+  io.angzarr.v1.UUID deleted_by = 4;
+}
+// endregion

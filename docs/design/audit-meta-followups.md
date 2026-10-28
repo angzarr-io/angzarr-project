@@ -256,13 +256,14 @@ event onwards, every removal reserves its number and name (see
     outbox is one kind-agnostic capability, used today by sagas; a PM
     needs none.
   - **Editions are per-stream forks** (14.32): forking an origin stream
-    appends `EditionForked` at main's next sequence; each stream reads main
+    appends the `meta.EditionCreated` meta-event at main's next sequence; each stream reads main
     below its own fork, then the edition; the fork travels with the data
     (a saga command's arrival forks its target; outside inputs to an
     unforked stream are refused), eventually consistent; a time-based fork is an option; no
     registry (`ForkStream`, `ListEditions`, `DeleteEdition`); deletion is
-    a tombstone sequenced after the work in flight, travelling the same
-    flows; main knows nothing of an edition.
+    the `meta.EditionDeleted` event, recorded in each stream it reaches,
+    propagated onward through the same flows, and only then removed with
+    that stream's rows; main knows nothing of an edition.
 
 ### Worked example: hatpick's `ListState`
 
@@ -399,10 +400,9 @@ markers can go wrong.
     14.32 there is no registry: an edition whose fork events are all
     evicted becomes unknown).
 - **Editions as per-stream forks** (14.32, the drafter's proposals, open):
-  `EditionForked.forked_by`; the tombstone carried by each saga
-  coordinator to the streams its commands forked (read from X's fork
-  events); a deleted stream keeping its tombstone and answering
-  `NOT_FOUND`. Known limitation: a stream whose forking saga is gone keeps
+  `meta.EditionCreated.forked_by`; deletion as the `meta.EditionDeleted`
+  event, recorded per stream, propagated onward through the saga flows,
+  then removed with the stream's rows (the owner's rulings, 2026-10-28). Known limitation: a stream whose forking saga is gone keeps
   its fork, visible in `ListEditions`. (The whole-system
   divergence point this item used to track is now the time-based
   option.)

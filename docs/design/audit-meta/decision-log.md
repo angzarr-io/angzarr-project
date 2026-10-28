@@ -2291,6 +2291,56 @@ option below.
   stream's first event in the branch), and with angzarr's own rule that a
   reaction stays in its trigger's edition.
 
+> **Amended (the owner's later rulings, 2026-10-28): meta-events, and
+> deletion as an event.** Where 14.32 above says `EditionForked`, read
+> `io.angzarr.v1.meta.EditionCreated`; where it says deletion removes every
+> row tagged X in one sequenced operation, read the sequence below. It
+> supersedes "Deletion: sequenced, then every row tagged X removed" and its
+> "no `EditionDeleted`" sub-ruling.
+> - **Framework meta-events have a reserved namespace,**
+>   `io.angzarr.v1.meta` (`meta/events.proto`). A meta-event is a real
+>   event, appended and stamped like any other with a framework-derived
+>   `command_id` of its own; stores and coordinators may recognise one by
+>   its type URL and act on it; business handlers never see one. Only the
+>   meta-events something needs are defined: `EditionCreated` (the fork
+>   event, renamed; the owner: "the fork event is renamed EDITION
+>   CREATION") and `EditionDeleted`.
+> - **Deletion is an event that exists in its domains** (the owner:
+>   "delete edition / EditionDeleted needs to be an EVENT, to propagate via
+>   sagas to other domains"; "it needs to exist in its domains"). Per
+>   stream of X, in this order: (1) RECORDED: `DeleteEdition` appends
+>   `EditionDeleted` to X's origin streams, and each stream the deletion
+>   reaches records its own, in its own domain, in sequence after its
+>   earlier work; (2) PROPAGATED: the recorded event travels onward through
+>   that domain's saga flows to the next domains, like any event
+>   (angzarr automates it; annals does it in its in-process chain of
+>   committed steps); (3) REMOVED: only after it has propagated onward (its
+>   outgoing saga steps and outbox entries for it have completed) are the
+>   stream's rows tagged X removed, the `EditionDeleted` event included.
+>   Nothing remains. A removal before propagation is a bug.
+> - `EditionDeleted { edition, commit_position, propagated_from,
+>   deleted_by }`: `commit_position` is the edition's global commit
+>   position at the call (flagged: the stream's own sequence already
+>   orders the deletion after its earlier work); the last two mirror
+>   `EditionCreated`'s propagation fields.
+> - **Known limitation, with no new mechanism:** a stream of X that the
+>   deletion cannot reach through the saga flows keeps its rows and stays
+>   visible in `ListEditions`, for the user to act on.
+> - **After deletion, a later arrival is refused** (the owner, revising
+>   the draft's D6): once an edition is deleted, a later arrival in it (a
+>   saga command, or a step's position on a removed stream) is refused
+>   `NOT_FOUND`, because the edition does not exist; it re-creates neither
+>   the stream nor the edition. Only an explicit create (`ForkStream`)
+>   brings the name back. This replaces 14.32's "a later saga command in X
+>   re-forks its target like any arrival, so X reappears in
+>   `ListEditions`". A store knows it from its rows alone (flagged): an
+>   edition is DELETED, or being deleted, while any stream of it holds an
+>   `EditionDeleted`, and does not exist once no `EditionCreated` of it
+>   remains anywhere; an arrival's creation (one with `propagated_from`)
+>   and a position on a stream with no rows of the edition are refused in
+>   either case.
+> - Main is still never written: all of this lives in X.
+
 ## Corrections
 
 Facts the earlier passes or the design note got wrong:

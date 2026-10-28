@@ -1,11 +1,13 @@
-//! Editions as per-stream forks (decision 14.32): the fork event in
-//! types.proto, and meta.proto's EditionAdminService messages (generated;
-//! messages only, no service).
+//! Editions as per-stream forks (decision 14.32): the meta-events
+//! EditionCreated and EditionDeleted in the reserved `io.angzarr.v1.meta`
+//! namespace (meta/events.proto), and meta.proto's EditionAdminService
+//! messages (generated; messages only, no service).
 
 use angzarr_proto::protos::FILES;
+use angzarr_proto::v1::meta::{EditionCreated, EditionDeleted};
 use angzarr_proto::v1::{
-    Cover, DeleteEditionRequest, EditionForked, EditionSummary, EventRef, ForkStreamRequest,
-    ListEditionsResponse, Uuid,
+    Cover, DeleteEditionRequest, EditionSummary, EventRef, ForkStreamRequest, ListEditionsResponse,
+    Uuid,
 };
 use prost::{Message, Name};
 
@@ -26,8 +28,8 @@ fn stream(edition: &str) -> Cover {
 }
 
 #[test]
-fn the_fork_event_round_trips_with_its_field_numbers() {
-    let fork = EditionForked {
+fn the_edition_creation_meta_event_round_trips_with_its_field_numbers() {
+    let fork = EditionCreated {
         edition: "what-if".into(),
         parent_sequence: 12,
         commit_position: 0,
@@ -39,38 +41,41 @@ fn the_fork_event_round_trips_with_its_field_numbers() {
             value: vec![9; 16].into(),
         }),
     };
-    assert_eq!(EditionForked::decode(&*fork.encode_to_vec()).unwrap(), fork);
-    let tag = |f: EditionForked| first_tag(&f);
     assert_eq!(
-        tag(EditionForked {
+        EditionCreated::decode(&*fork.encode_to_vec()).unwrap(),
+        fork
+    );
+    let tag = |f: EditionCreated| first_tag(&f);
+    assert_eq!(
+        tag(EditionCreated {
             edition: "e".into(),
             ..Default::default()
         }),
         (1 << 3) | 2
     );
     assert_eq!(
-        tag(EditionForked {
+        tag(EditionCreated {
             parent_sequence: 1,
             ..Default::default()
         }),
         2 << 3
     );
     assert_eq!(
-        tag(EditionForked {
+        tag(EditionCreated {
             commit_position: 1,
             ..Default::default()
         }),
         3 << 3
     );
     assert_eq!(
-        tag(EditionForked {
+        tag(EditionCreated {
             propagated_from: Some(EventRef::default()),
             ..Default::default()
         }),
         (4 << 3) | 2
     );
     assert_eq!(
-        tag(EditionForked {
+        tag(EditionCreated {
             forked_by: Some(Uuid::default()),
             ..Default::default()
         }),
@@ -129,7 +134,15 @@ fn delete_edition_request_carries_the_name_as_field_one() {
 
 #[test]
 fn edition_messages_have_angzarr_type_urls() {
-    assert_eq!(EditionForked::type_url(), "/io.angzarr.v1.EditionForked");
+    assert_eq!(
+        EditionCreated::type_url(),
+        "/io.angzarr.v1.meta.EditionCreated",
+        "the reserved meta-event namespace"
+    );
+    assert_eq!(
+        EditionDeleted::type_url(),
+        "/io.angzarr.v1.meta.EditionDeleted"
+    );
     assert_eq!(
         ForkStreamRequest::type_url(),
         "/io.angzarr.v1.ForkStreamRequest"
@@ -145,9 +158,58 @@ fn meta_proto_and_its_google_api_imports_are_embedded() {
     let paths: Vec<_> = FILES.iter().map(|f| f.path).collect();
     for path in [
         "io/angzarr/v1/meta.proto",
+        "io/angzarr/v1/meta/events.proto",
         "google/api/annotations.proto",
         "google/api/http.proto",
     ] {
         assert!(paths.contains(&path), "{path} not embedded");
     }
+}
+
+#[test]
+fn the_edition_deletion_meta_event_round_trips_with_its_field_numbers() {
+    let deleted = EditionDeleted {
+        edition: "what-if".into(),
+        commit_position: 42,
+        propagated_from: Some(EventRef {
+            stream: Some(stream("what-if")),
+            sequence: 7,
+        }),
+        deleted_by: Some(Uuid {
+            value: vec![9; 16].into(),
+        }),
+    };
+    assert_eq!(
+        EditionDeleted::decode(&*deleted.encode_to_vec()).unwrap(),
+        deleted
+    );
+    let tag = |d: EditionDeleted| first_tag(&d);
+    assert_eq!(
+        tag(EditionDeleted {
+            edition: "e".into(),
+            ..Default::default()
+        }),
+        (1 << 3) | 2
+    );
+    assert_eq!(
+        tag(EditionDeleted {
+            commit_position: 1,
+            ..Default::default()
+        }),
+        2 << 3
+    );
+    assert_eq!(
+        tag(EditionDeleted {
+            propagated_from: Some(EventRef::default()),
+            ..Default::default()
+        }),
+        (3 << 3) | 2
+    );
+    assert_eq!(
+        tag(EditionDeleted {
+            deleted_by: Some(Uuid::default()),
+            ..Default::default()
+        }),
+        (4 << 3) | 2
+    );
 }

@@ -39,7 +39,7 @@ Preview the effects of a command before committing. "Show me what the order woul
 
 An edition is a set of **per-stream forks** (decision 14.32). There is no edition registry: an edition exists exactly as far as its fork events do.
 
-**Forking a stream.** Creating edition `X` forks an origin stream: an `EditionForked` event is appended to the stream's `X` version at the sequence main would have used next. That event is the first event of `X`'s version of the stream, and its sequence marks main's end and `X`'s start for that stream.
+**Forking a stream.** Creating edition `X` forks an origin stream: an `EditionCreated` meta-event is appended to the stream's `X` version at the sequence main would have used next. That event is the first event of `X`'s version of the stream, and its sequence marks main's end and `X`'s start for that stream.
 
 ```python title="illustrative - create an edition by forking an origin stream"
 admin.fork_stream(Cover(domain="orders", root=order_id, edition="pricing-experiment"))
@@ -67,7 +67,7 @@ A command you send yourself to a stream the edition hasn't reached is refused (`
 admin.delete_edition("pricing-experiment")
 ```
 
-Deleting is ordered, like everything else: an `EditionDeleted` tombstone is appended to the edition's origin streams and travels the same saga flows the forks did, so it takes effect in each stream after the work already in flight there; each stream then drops its edition rows below the tombstone. Nothing polls or retries; a delete that genuinely fails is dead-lettered and alerted. If a saga command in the edition arrives afterwards, it forks the stream again, and the edition shows up in `ListEditions` again for you to delete. An edition is unknown once every stream of it is deleted, and commands or queries naming it are refused `NOT_FOUND`.
+Deleting is an event, ordered like everything else: an `EditionDeleted` meta-event is recorded in the edition's origin streams after the work already in flight there, travels onward through the same saga flows the creations did (each stream it reaches records its own), and only after it has propagated onward are that stream's edition rows removed, the event included. Nothing polls or retries; a removal that genuinely fails is dead-lettered and alerted. A stream the delete can't reach through the saga flows keeps its rows, and the edition stays in `ListEditions`. Once an edition is deleted, a later arrival in it (a saga command, a step's position) is refused `NOT_FOUND` and re-creates nothing: only an explicit `ForkStream` brings the name back. An edition is unknown once every stream of it is deleted, and commands or queries naming it are refused `NOT_FOUND`.
 
 Everything about an edition lives in the edition's own streams and store. The main timeline knows nothing of its creation or deletion: main's streams, outbox, positions and projections are unchanged.
 

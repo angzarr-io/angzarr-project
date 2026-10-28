@@ -184,8 +184,8 @@ message Cover {
   // Per-stream forks (decision 14.32, the owner's ruling of 2026-10-28).
   // An edition is a set of per-stream FORKS, and nothing else: there is no
   // edition registry and no separate metadata store. Stream (D, X, R)
-  // exists in edition X from its fork: an EditionForked event (below, the
-  // editions region) at the sequence main's version (D, main, R) would
+  // exists in edition X from its creation: an EditionCreated meta-event
+  // (meta/events.proto) at the sequence main's version (D, main, R) would
   // have used next. That event is the first of X's version of the stream,
   // and its sequence marks main's end and X's start for that stream.
   //   - Read rule, per stream: (D, X, R) reads main's events BELOW ITS OWN
@@ -196,7 +196,7 @@ message Cover {
   //   - The fork TRAVELS WITH THE DATA (the owner's ruling): when a saga's
   //     command in X reaches a stream with no fork in X, that arrival is
   //     the propagation; the coordinator forks the stream then, and handles
-  //     the command (EditionForked, Propagation). Streams X's activity
+  //     the command (meta.EditionCreated, Propagation). Streams X's activity
   //     never touches are never forked.
   //   - A command or fact from outside (not a saga's) addressed in X to a
   //     stream with no fork in X is REFUSED until propagation forks it:
@@ -214,6 +214,9 @@ message Cover {
   //     that was never created, or was deleted, is refused loudly
   //     (NOT_FOUND), never silently given storage: a misspelt edition
   //     cannot write anywhere.
+  //   - Deleting X is an event too (meta.EditionDeleted): recorded in each
+  //     stream it reaches, propagated onward through the saga flows, and
+  //     only then are that stream's rows of X removed, the event included.
   //   - Main knows nothing of an edition: its lifecycle lives only in the
   //     edition's streams and store (the editions region).
   //
@@ -612,99 +615,29 @@ message FactOrigin {
 }
 
 // region editions
-// The fork event (decision 14.32; Cover.edition). Appended to (D, X, R) at
-// the sequence main's version of that stream would have used next: the
-// first event of X's version of the stream, whose sequence (the FORK
-// SEQUENCE) marks main's end and X's start. A framework event: it carries
-// no business payload, and the client library never hands it to business
-// code (no applier, saga or projector handler sees it). It is stamped like
-// any event, with a framework-derived command_id of its own: never the
-// command whose arrival made it, which keeps that id free for its own
-// deduplication on the stream.
-//
-// Propagation: the fork TRAVELS WITH THE DATA (the owner's ruling). The
-// owner: "it's not lazy, but it is eventually consistent. Edition creation
-// events propagate on the same system as data flows". A saga's command in
-// X (a reaction to an event in X) that reaches a stream with no fork in X
-// IS the propagation: the stream's coordinator appends EditionForked at
-// that stream's own head (or at X's commit position, for a time-based
-// edition), with propagated_from = the fork event of the stream the saga
-// reacted to (the command's causation_id stream, in X) and forked_by = the
-// arriving command's command_id, and then handles the command. Concurrent
-// arrivals race on the append like any two writes; the loser finds the
-// stream forked and appends no second fork. Nothing is propagated ahead of
-// the data: a stream X's activity never touches is never forked, so the
-// data flow itself is the only bound. A process manager is a domain:
-// saga commands into it carry the fork like any other, and nothing is
-// PM-specific.
-//
-// From outside, refuse until propagated. A command or fact that is not a
-// saga's (no causation_id), addressed in X to a stream with no fork in X,
-// is refused FAILED_PRECONDITION, with google.rpc.ErrorInfo reason
-// EDITION_NOT_FORKED (the owner's ruling); nothing is written.
-// ForkStream forks such a stream explicitly. A query or subscription of it
-// reads main's version and forks nothing.
+// An edition's lifecycle is FRAMEWORK META-EVENTS in the edition's own
+// streams (decision 14.32): io.angzarr.v1.meta.EditionCreated and
+// io.angzarr.v1.meta.EditionDeleted, in meta/events.proto, the reserved
+// namespace for meta-events (stores and coordinators may recognise them by
+// type; business handlers never see them).
 //
 // Main knows nothing (the owner's invariant). Every datum and message of
 // an edition's lifecycle lives in the edition's own streams (D, X, R), in
-// the edition's configured store: EditionForked is appended there and only
-// there, and every row of X carries X in its key. Nothing is appended
-// to, recorded in, indexed against or read from main's streams for an
-// edition's lifecycle, except that a fork READS main's head (its fork
-// sequence) and a stream in X reads main's events below its fork
-// sequence. propagated_from names a stream in X, never one in main.
-// Listing editions and checking that one exists query X's own fork
-// events. The outbox entries,
-// positions and deliveries of X's processing are X's, kept apart from
-// main's. Main's coordinators, projectors and readers behave exactly as if
-// no edition existed: creating and deleting an edition leaves main's
+// the edition's configured store, and every row of X carries X in its key.
+// Nothing is appended to, recorded in, indexed against or read from main's
+// streams for an edition's lifecycle, except that a creation READS main's
+// head (its fork sequence) and a stream in X reads main's events below it.
+// Listing editions and checking that one exists query X's own creation
+// events. X's outbox entries, positions and deliveries are X's, kept apart
+// from main's. Main's coordinators, projectors and readers behave exactly
+// as if no edition existed: creating and deleting an edition leaves main's
 // streams, outbox and positions byte-for-byte unchanged.
 //
-// Deletion (the owner's rulings, 2026-10-28). Every row of X carries X in
-// its key, so deleting X is one operation: DeleteEdition is SEQUENCED after
-// X's in-flight work, then REMOVES EVERY ROW TAGGED X from X's store(s).
-// Nothing remains: no tombstone, no per-stream deleted state, nothing
-// travelling to forked streams. Its sequence point (the owner's ruling):
-// X's commit position when DeleteEdition is called, with no
-// marker event (none is needed, so none is written); the removal runs once
-// all of X's work below that point has completed (X's outbox holds no
-// entry below it and X's deliveries and subscriptions have passed it),
-// which is ordering, not polling: nothing retries. The removal takes
-// every row tagged X, including any written after the point. Afterwards X
-// is unknown (NOT_FOUND), as if never created. A later saga command in X
-// re-forks its target as any arrival does, so X reappears in ListEditions
-// for the user to delete again. A delete that genuinely fails (rows that
-// cannot be removed) is dead-lettered and alerted. Known limitation: work
-// in X that never completes (for example commands of X held in an
-// undeployed saga's outbox) holds the delete back; the edition stays
-// visible in ListEditions while it waits.
-//
 // The time-based option. With ForkStreamRequest.commit_position set, the
-// origin fork and every arrival fork of the edition fork at that one global
-// commit position, not at each stream's head: each stream reads main's
-// events committed at or before it. This is EA-3's former whole-system
-// behaviour and the 2026-10-27 commit-order ruling, kept as an option; it
-// needs the store contract's global commit position.
-message EditionForked {
-  // The edition (also the stream's Cover.edition; repeated here so the
-  // payload describes itself). Required, non-empty.
-  string edition = 1;
-  // The fork sequence: main's next sequence for this stream when it was
-  // forked (or the first main sequence after the commit position, for a
-  // time-based edition), equal to this event's own EventPage.sequence. The
-  // stream reads main's events below it.
-  uint64 parent_sequence = 2;
-  // The time-based option's global commit position; 0 for a per-stream
-  // edition.
-  uint64 commit_position = 3;
-  // For a fork made by a saga command's arrival: the fork event of the
-  // stream the saga reacted to. Unset for an origin fork (ForkStream).
-  EventRef propagated_from = 4;
-  // For a fork made by a saga command's arrival: that command's
-  // command_id. Unset for an origin fork. (Replaces the draft's on_demand;
-  // the owner's ruling.)
-  UUID forked_by = 5;
-}
+// origin creation and every arrival creation of the edition fork at that
+// one global commit position, not at each stream's head: each stream reads
+// main's events committed at or before it. It needs the store contract's
+// global commit position.
 // endregion
 
 // region refusal_facts

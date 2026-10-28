@@ -12,7 +12,7 @@ An identifier for diverged timelines. Editions enable branching scenarios like s
 
 ## Forks
 
-Creating an edition forks an origin stream: an `EditionForked` event is appended to the stream's edition version at main's next sequence. That stream reads main's events below its fork sequence, then the edition's own. The fork travels with the data: a saga's command in the edition forks the stream it reaches, on arrival (eventually consistent); a command from outside to a stream the edition hasn't reached is refused until then. A time-based fork at one global commit position is an option. There is no edition registry: listing editions queries the fork events.
+Creating an edition forks an origin stream: an `EditionCreated` meta-event is appended to the stream's edition version at main's next sequence. That stream reads main's events below its fork sequence, then the edition's own. The fork travels with the data: a saga's command in the edition forks the stream it reaches, on arrival (eventually consistent); a command from outside to a stream the edition hasn't reached is refused until then. A time-based fork at one global commit position is an option. There is no edition registry: listing editions queries the fork events.
 
 ## Use Cases
 
@@ -33,4 +33,4 @@ Editions are an Angzarr-specific concept not found in standard event sourcing. T
 
 ## Cleanup
 
-`EditionAdminService.DeleteEdition` appends an `EditionDeleted` tombstone to the edition's origin streams; it travels the same saga flows the forks did, in order, so it takes effect after the work in flight before it, and each stream that receives it drops its edition rows below it. Main cannot be deleted, and knows nothing of an edition's creation or deletion.
+`EditionAdminService.DeleteEdition` appends an `EditionDeleted` meta-event to the edition's origin streams. Per stream, in order: the event is recorded in the stream's own domain, after its earlier work; it travels onward through the saga flows the creations did, and each stream it reaches records its own; and only after it has propagated onward are that stream's edition rows removed, the event included. Nothing remains. A stream the delete can't reach through the saga flows keeps its rows, and the edition stays listed. After deletion a later arrival in the edition is refused `NOT_FOUND`; only an explicit `ForkStream` brings the name back. Main cannot be deleted, and knows nothing of an edition's creation or deletion.

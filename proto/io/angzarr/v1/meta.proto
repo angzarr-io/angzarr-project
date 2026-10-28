@@ -16,23 +16,25 @@ option ruby_package = "Angzarr";
 // ============================================================================
 //
 // Editions are PER-STREAM FORKS (decision 14.32, the owner's ruling of
-// 2026-10-28; Cover.edition and EditionForked in types.proto). There is no
+// 2026-10-28; Cover.edition in types.proto, and the meta-events
+// EditionCreated and EditionDeleted in meta/events.proto). There is no
 // edition registry and no separate metadata store: an edition exists
 // exactly as far as its fork events do. Creating edition X forks an origin
-// stream: it appends an EditionForked event to (D, X, R). The fork then
+// stream: it appends an EditionCreated meta-event to (D, X, R). It then
 // travels with the data: each saga command in X that reaches a stream with
-// no fork in X forks it on arrival (types.proto, EditionForked). Listing
-// editions is a query over X's own fork events; deleting one removes every
-// row tagged with it, once its in-flight work is done. Everything of an
-// edition's
-// lifecycle lives in the edition's own streams and store: main knows
-// nothing of it.
+// no fork in X forks it on arrival (meta.EditionCreated). Listing
+// editions is a query over X's own creation events. Deleting one is an
+// event too: EditionDeleted is recorded in X's origin streams, travels
+// onward through the saga flows like any event, and each stream's rows of
+// X are removed only after its EditionDeleted has propagated onward.
+// Everything of an edition's lifecycle lives in the edition's own streams
+// and store: main knows nothing of it.
 //
 // These operations are authorised as operator actions from the call's
 // credentials, and who performed one goes to the deployment's security log,
 // never into the data (types.proto, security_logs region). ForkStream
-// writes an event (the fork) to an edition stream only, and DeleteEdition
-// removes the edition's rows; nothing here writes to, records in or
+// and DeleteEdition write meta-events to edition streams only; nothing
+// here writes to, records in or
 // indexes against main, and
 // main can be neither forked into nor deleted.
 
@@ -40,10 +42,10 @@ option ruby_package = "Angzarr";
 // EditionAdminService: forks origin streams into editions, lists editions,
 // and deletes them (see Cover.edition in types.proto).
 service EditionAdminService {
-  // Fork one origin stream into an edition: append EditionForked to (the
+  // Fork one origin stream into an edition: append EditionCreated to (the
   // stream's domain, edition, root), creating the edition if no fork event
   // of it exists yet. From there the fork travels with the data
-  // (types.proto, EditionForked). Forking more origin streams into an
+  // (meta.EditionCreated). Forking more origin streams into an
   // existing edition is allowed, and is how a stream that saga commands
   // have not reached is addressed from outside. Answers the fork event's
   // EventRef.
@@ -66,13 +68,21 @@ service EditionAdminService {
   rpc ListEditions(ListEditionsRequest) returns (ListEditionsResponse) {
     option (google.api.http) = {get: "/v1/admin/editions"};
   }
-  // Delete an edition: sequenced after the edition's in-flight work (its
-  // work below the edition's commit position at the call), then remove
-  // every row tagged with it from its store(s): events, fork events,
+  // Delete an edition (meta.EditionDeleted, the owner's rulings of
+  // 2026-10-28): append EditionDeleted to each of X's origin streams, in
+  // sequence after their earlier work. From there, per stream: the event
+  // is RECORDED in the stream's own domain; it PROPAGATES onward through
+  // that domain's saga flows to the streams of X it reaches, each of which
+  // records its own; and only once it has propagated onward (its outgoing
+  // saga steps and outbox entries have completed) are that stream's rows
+  // of X removed: events, the creation and deletion events included,
   // snapshots, projector output, outbox entries and positions. Nothing
-  // remains, and the edition is unknown afterwards (types.proto, the
-  // editions region, Deletion). Answers once the deletion is sequenced;
-  // it then completes in order. A deletion that genuinely fails is
+  // remains. A stream of X the deletion cannot reach through the saga
+  // flows keeps its rows and stays visible in ListEditions. Once X is
+  // deleted, a later arrival in it (a saga command, a step's position on a
+  // removed stream) is refused NOT_FOUND and re-creates nothing; only
+  // ForkStream brings the name back. Answers once
+  // the origins have recorded it. A removal that genuinely fails is
   // dead-lettered and alerted. Main is never touched.
   //   INVALID_ARGUMENT  name is empty (a name is required; main is unnamed
   //                     and can never be deleted);
@@ -107,7 +117,7 @@ message ListEditionsResponse {
 // stored.
 message EditionSummary {
   string name = 1; // Always non-empty (main is not an edition)
-  // The origin forks: the EditionForked events with no propagated_from.
+  // The origin forks: the EditionCreated events with no propagated_from.
   repeated EventRef origins = 2;
   uint64 forked_streams = 3; // How many streams hold a fork event of it
   uint64 commit_position = 4; // The time-based option's point; 0 if per-stream

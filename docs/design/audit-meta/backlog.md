@@ -956,26 +956,27 @@ and of `EventMeta`'s `causation` oneof, `correlation_id` and `fact`.
 
 **EA-1** [core] **Fork streams, list and delete editions (no registry).**
 - What: serve the reshaped `EditionAdminService` (decision 14.32):
-  `ForkStream` appends `EditionForked` to (D, X, R) at main's next
+  `ForkStream` appends `meta.EditionCreated` to (D, X, R) at main's next
   sequence for that stream (refusing an already-forked stream
   `ALREADY_EXISTS`, and a time-based fork the stores cannot place
   `FAILED_PRECONDITION`); `ListEditions` answers `EditionSummary` rows
-  derived from the edition stores' fork and deletion events; `DeleteEdition`
-  appends `EditionDeleted` to each origin fork stream in X. The tombstone
-  travels, with only existing mechanisms, the saga flows the forks did:
-  each saga coordinator, reaching it in its stream's sequence, carries it
-  after the commands already in its outbox to the streams its commands
-  forked (read from X's fork events' `propagated_from`; PROPOSED), through
-  the command path as a framework fact; a stream holding it removes its X
-  rows below it and keeps it (PROPOSED). No timer, retry, sweep or table;
-  a delete that genuinely fails is dead-lettered and alerted. Nothing of
+  derived from the edition stores' creation events; `DeleteEdition`
+  appends `meta.EditionDeleted` to each origin stream in X. Per stream,
+  in order (the owner's rulings): the event is recorded in the stream's
+  own domain after its earlier work; it propagates onward through that
+  domain's saga flows, each stream it reaches recording its own; and
+  only after its outgoing saga steps and outbox entries have completed
+  are that stream's X rows removed, the event included. A stream the
+  delete cannot reach keeps its rows and stays listed. No timer, retry,
+  sweep or table; a removal that genuinely fails is dead-lettered and
+  alerted. Nothing of
   an edition's lifecycle touches main: its events, outbox, positions and
   deliveries are kept in the edition's store. Delete the edition registry
   and its `Edition` records; map edition names to stores in
   configuration. Retire core's `DeleteEditionEvents` storage method.
 - Why: `meta.proto`; decision 14.32.
 - Settled when: scenarios C-0410, C-0628, C-0636, C-0637 and C-0640 to
-  C-0643 pass.
+  C-0647 pass.
 
 **EA-2** [core] **The per-stream read rule, and refusing unknown or
 unforked targets.**
@@ -994,14 +995,14 @@ unforked targets.**
 **EA-3** [core, router] **The fork travels with the data; the time-based
 option.**
 - What: when a saga's command in X (it carries a causation_id) reaches a
-  stream with no fork in X, append `EditionForked` at the stream's head
+  stream with no fork in X, append `meta.EditionCreated` at the stream's head
   (or X's commit position), with `propagated_from` = the fork of the
   causation_id's stream in X and `forked_by` = the command's id, with a
   framework-derived `command_id` of its own, then handle the command; a
   concurrent arrival that loses the append finds the stream forked. The
-  arrival fork never re-checks a delete: an arrival after a stream's
-  tombstone forks it again, visibly. The client library never
-  hands `EditionForked` to business code. The time-based option forks
+  arrival in an edition that is deleted, or being deleted, is refused
+  `NOT_FOUND` and re-creates nothing; only `ForkStream` brings the name
+  back. The client library never hands a meta-event to business code. The time-based option forks
   every stream at the origin fork's commit position, which needs the store
   contract's global commit position (the 2026-10-27 ruling, now this
   option). Supersedes this item's earlier "make the whole-system

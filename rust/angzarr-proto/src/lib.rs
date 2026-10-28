@@ -17,8 +17,9 @@
 //! descriptors), the edition administration messages from `meta.proto`
 //! (`ForkStreamRequest`, `ListEditionsRequest`/`Response`,
 //! `EditionSummary` and `DeleteEditionRequest`; editions are per-stream
-//! forks, and the fork event `EditionForked` is in `types.proto`;
-//! `EditionAdminService` itself is not generated), plus
+//! forks; `EditionAdminService` itself is not generated), the framework
+//! meta-events of `io.angzarr.v1.meta` (`v1::meta`: `EditionCreated` and
+//! `EditionDeleted`), plus
 //! `sererr.v1`, which `types.proto` imports. Every
 //! message implements [`prost::Name`] with no type-name domain, so
 //! `prost_types::Any::from_msg` yields type URLs of the form
@@ -58,6 +59,12 @@ pub mod io {
         #[allow(clippy::doc_overindented_list_items, clippy::doc_lazy_continuation)]
         pub mod v1 {
             include!(concat!(env!("OUT_DIR"), "/io.angzarr.v1.rs"));
+            /// The framework meta-events (`io.angzarr.v1.meta`): stores
+            /// and coordinators may recognise them by type; business
+            /// handlers never see them.
+            pub mod meta {
+                include!(concat!(env!("OUT_DIR"), "/io.angzarr.v1.meta.rs"));
+            }
         }
     }
 }
