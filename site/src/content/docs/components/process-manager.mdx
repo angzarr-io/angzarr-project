@@ -174,18 +174,18 @@ On restart, the PM rebuilds state by replaying its own events.
 
 A PM tracks the replies to the steps it starts. Its event carries the instance's correlation ID, so the saga's command built from it carries that correlation, and so do the target's events. The saga from the target's domain to the PM's domain turns the replies the PM needs into commands to the instance under that correlation.
 
-A target that **refuses** a saga's command records nothing, and may return a **typed refusal object** of its own domain, declared on the command (`refused_with`; e.g. the wallet's `InsufficientFunds { available, requested }`). The refusal goes back to the saga, which builds one **refusal fact** for its own source domain; when that source is the PM, the PM decides the next step from its own state. The fact's id is the refused command's id. Two modes, chosen per saga or per command by the `angzarr` CLI when the code is generated (pass-through is its default; no proto option carries the mode):
+A target that **refuses** a saga's command records nothing, and may return a **typed refusal object** of its own domain (e.g. the wallet's `InsufficientFunds { available, requested }`). No annotation declares it: beside the command `HoldFunds`, the domain defines `HoldFundsRefusal { oneof refusal { InsufficientFunds insufficient_funds = 1; } }`, and the generated handler returns its events or a `HoldFundsRefusal`. The refusal goes back to the saga, which builds one **refusal fact** for the exact stream of its triggering event (domain, root and edition); when that source is the PM, the PM decides the next step from its own state. The fact's id is the refused command's id. Two modes, chosen per saga or per command by the `angzarr` CLI when the code is generated (pass-through is its default; no proto option carries the mode):
 
-- **Pass-through (default).** The saga's generated code builds the standard `CommandRefused { command, refusal, trigger, reason, message }`, with the typed refusal object packed in `refusal`. The PM defines a handler for the foreign command's refusal, and its generated dispatch routes to it:
+- **Pass-through (default).** The saga's generated code builds the standard `CommandRefused { command, refusal, trigger }`, and nothing else, with the typed refusal object packed in `refusal`. The PM defines a handler for the foreign command's refusal, and its generated dispatch routes to it:
 
   ```python title="illustrative"
   def on_refused_hold_funds(refusal: CommandRefused, state: BuyInState):
       funds = refusal.refusal.unpack(InsufficientFunds)
-      return BuyInFailed(buy_in_id=state.buy_in_id, reason=refusal.reason,
+      return BuyInFailed(buy_in_id=state.buy_in_id, reason="INSUFFICIENT_FUNDS",
                          available=funds.available, requested=funds.requested)
   ```
 
-- **Translate (selected per command in the CLI).** The saga's callback reads the typed refusal object and returns a domestic fact, so the PM never refers to the foreign protos:
+- **Translate (selected per command in the CLI).** The saga's callback reads the typed refusal object and returns a domestic fact, so the PM never refers to the foreign protos. This is why translate exists: `CommandRefused` carries only the foreign object, so a domain that does not want to unpack it, or import the foreign protos, has the saga unpack it and hand over a domestic fact:
 
   ```python title="illustrative"
   def on_refused_confirm_seat(refusal: Refusal) -> SeatConfirmationRefused:
