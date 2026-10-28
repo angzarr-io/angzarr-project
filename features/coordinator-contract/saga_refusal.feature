@@ -51,18 +51,18 @@ Feature: Saga refusals - a refused command becomes a fact for the saga's own sou
       | INVALID_ARGUMENT  | HoldFunds is dead-lettered and an alert is raised           |
       | INTERNAL          | HoldFunds is dead-lettered and an alert is raised           |
 
-  @saga_refusal @proposed
+  @saga_refusal
   @C-0616
-  Scenario: A refused command with no callback is dead-lettered for a human (PROPOSED)
+  Scenario: A refused command with no callback is dead-lettered for a human
     Given a saga "BuyInToTable" translating from "buy-in" to "table" with no on-refused callback for ConfirmSeat
     And the table refuses ConfirmSeat with FAILED_PRECONDITION
     When "BuyIn" records BuyInFundsHeld
     Then ConfirmSeat is dead-lettered with its refusal and an alert is raised
     And nothing is recorded in "buy-in" or "table"
 
-  @saga_refusal @proposed
+  @saga_refusal
   @C-0617
-  Scenario: A failing callback is dead-lettered and alerted (PROPOSED)
+  Scenario: A failing callback is dead-lettered and alerted
     Given player "p-1" has too little available to hold 500
     And "BuyInToPlayer"'s callback fails with INTERNAL
     When "BuyIn" records BuyInStarted for 500 from player "p-1"

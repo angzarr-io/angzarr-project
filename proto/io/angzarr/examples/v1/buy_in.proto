@@ -35,10 +35,9 @@ option ruby_package = "Angzarr::Examples";
 // starts; ruling B1, adapted, decision 14.31): it alone starts an instance
 // for a correlation the PM has not seen. Any other command for a
 // correlation with no buy-in instance is refused by the PM's coordinator
-// before the handler (PM_NO_INSTANCE; the PROPOSED rule). Neither
-// saga-table-buy-in nor saga-player-buy-in declares an on-refused
-// callback, so such a refusal is dead-lettered for a human (the PROPOSED
-// rule for a command with no callback).
+// before the handler (PM_NO_INSTANCE). Neither saga-table-buy-in nor
+// saga-player-buy-in declares an on-refused callback, so such a refusal
+// is dead-lettered and alerted, for a human (decision 14.31).
 //
 // One refusal, end to end (decision 2.2, as amended by 14.31). The wallet
 // cannot fund the buy-in:

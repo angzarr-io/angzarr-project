@@ -1906,7 +1906,7 @@ and 14.30.
   - Only a business rejection reaches the callback; retryable failures are
     retried and any other terminal failure is a bug, dead-lettered and
     alerted. The fact is unrefusable, so compensation cannot loop.
-  - **PROPOSED (flagged):** a refused command with NO callback is
+  - **Owner's ruling (2026-10-28, accepted):** a refused command with NO callback is
     dead-lettered for a human, with its refusal, and alerted; a callback
     that FAILS (an error status, or a malformed fact) is a saga bug,
     dead-lettered and alerted like any handler failure; a fact its source
@@ -1925,22 +1925,23 @@ and 14.30.
   exactly one exception: a fact addressed to the domain of the stream its
   `causation_id` names, which is how a saga's rejection fact reaches only
   its own source domain.
-- **Start rule (B1, adapted; OPEN for commands).** Only input types
+- **Start rule (B1, adapted; owner's ruling of 2026-10-28, accepted).** Only input types
   (command or fact) the PM declares as starting (`CommandOptions.starts`,
   3; advertised as `ComponentDescriptor.starting_types`, 7) may start an
   instance. Any other input for a correlation with no instance is not
   delivered, decided by the coordinator before the handler by the type URL
   after upcasting: a FACT is skipped silently (answered `APPLIED`, no
-  events, nothing dead-lettered or alerted). For a COMMAND the drafter
-  PROPOSES (FLAGGED, not ruled) a refusal: `FAILED_PRECONDITION` with an
-  `ErrorInfo` reason `PM_NO_INSTANCE`, recording nothing. Reasons: a
+  events, nothing dead-lettered or alerted). A COMMAND is refused:
+  `FAILED_PRECONDITION` with an `ErrorInfo` reason `PM_NO_INSTANCE`,
+  recording nothing (the drafter's proposal, accepted by the owner).
+  Reasons: a
   command is refusable, and a silent `APPLIED` would tell the sender a
   command took effect that did not; a saga's refused command goes to the
   saga's on-refused callback, whose fact tells the saga's source, which
   decides what an unstarted process means for it, by the same mechanism
   as every other refusal (or, with no callback, it is dead-lettered for a
-  human). The alternative is to skip it silently, as for a fact. Either
-  way a PM should declare as starting every input that can arrive first.
+  human). The alternative, a silent skip as for a fact, was not taken. A
+  PM should declare as starting every input that can arrive first.
   `starts` on an aggregate's entry fails generation; a PM with no starting
   input draws a generator warning; a non-PM descriptor listing
   `starting_types` is refused like one with an empty `rules_version`.
@@ -1994,27 +1995,29 @@ and 14.30.
   the reaction-origin fact id; the trigger-page proposal (which page of a
   saga's trigger book is the trigger stays open, backlog OB-6).
 - **Drafter's choices.**
-  - Accepted by the owner on 2026-10-28 and still standing: the
-    correlation names the instance; a failing PM handler is dead-lettered
-    and alerted; for B1, the `starts` / `starting_types` naming, the
-    upcast type-URL match and the silent skip (now for facts).
-  - Still for the owner to confirm:
-    - the start rule for a non-starting COMMAND: refused `PM_NO_INSTANCE`
-      (proposed) or skipped silently (FLAGGED, above);
-    - deleting `ProcessManagerService` and its messages, so a PM is served
-      by `CommandHandlerService` (`process_manager.proto` is comment only);
+  - Accepted by the owner on 2026-10-28 (owner's rulings):
+    - the correlation names the instance; a failing PM handler is
+      dead-lettered and alerted; for B1, the `starts` / `starting_types`
+      naming, the upcast type-URL match and the silent skip of a fact;
+    - the start rule for a non-starting COMMAND: refused
+      (`FAILED_PRECONDITION`, `PM_NO_INSTANCE`), recording nothing;
+    - the callback failure rules: only `FAILED_PRECONDITION` reaches the
+      callback; a refused command with no callback is dead-lettered and
+      alerted; a failing callback is dead-lettered and alerted;
+    - the deletions and shapes: `ProcessManagerService`,
+      `ProcessManagerCoordinatorService` and their messages (a PM is
+      served by `CommandHandlerService`; `process_manager.proto` is
+      comment only); `EventMeta.triggering_event`; `EventConsumer.applies`;
+      `causation` as a one-arm oneof; `Handling` on commands to a PM, as
+      on an aggregate's;
     - the names `on_refused` (the option and the handler prefix),
       `RefusalCallback`, `Refusal { event, command, response }`,
       `RefusalResponse`, `RefusalFact`, `OnRefused` and
-      `ComponentDescriptor.refusal_types`; declaring the callback on the
-      fact message it returns;
+      `ComponentDescriptor.refusal_types`.
+  - Still for the owner to confirm:
+    - declaring the callback on the fact message it returns;
     - the `"angzarr-refusal:"` origin, and checking only the fact's
       domain (not its root) against the trigger's stream;
-    - only `FAILED_PRECONDITION` reaches the callback;
-    - no callback: dead-letter for a human; a failing callback:
-      dead-letter and alert;
-    - deleting `EventMeta.triggering_event` and keeping `causation` a
-      one-arm oneof; deleting `EventConsumer.applies`;
     - a PM with no starting input draws a generator warning;
     - in the example, the command names (`StartBuyIn`, `RecordFundsHeld`,
       `RecordPlayerSeated`, `RecordFundsCaptured`), the saga names
@@ -2022,6 +2025,31 @@ and 14.30.
       `BuyInTableSaga`), `BuyInFailed`, `PHASE_FAILED` and
       `failure_reason`, and stale steps accepted as no-ops rather than
       refused.
+- **What PMs were for, and where each warrant now lives.** The
+  2026-10-19 `process_manager.proto` warranted a PM by five things; each
+  is still served:
+  - its own workflow state, not derivable from aggregates: the PM is a
+    domain, whose stream and state are its own;
+  - status queries ("show all pending fulfillments"): the PM's own
+    events, read and projected like any domain's;
+  - timeouts and scheduling: facts addressed to the PM (a timer or a
+    webhook), never refused;
+  - reacting to several domains: sagas from those domains, sending the PM
+    commands;
+  - tracking the replies to the steps it starts: sagas into its domain for
+    the replies, and the on-refused callbacks of its outbound sagas for
+    the refusals, as facts.
+  The cost, in the owner's terms: the workflow's "what to send next"
+  moves out of the PM into its outbound sagas, so a PM's events must carry
+  enough data for those sagas to build each next command (a saga takes
+  everything from the event and never looks anything up). And, in the
+  owner's words, "if we want all that in a single process again, we can
+  use an annals domain for that": where a workflow's logic should live
+  together, the PM and its outbound sagas can be deployed as ONE local
+  (annals) domain, a single process in which the saga hops are chained
+  calls in one unit of work. That recovers the old single-handler cohesion
+  without a special PM shape, because components are deployment-agnostic:
+  they assume nothing about distribution (plan ruling 13).
 - Why: one input shape for every domain (commands and facts) and one
   output shape for every stateful component (its own events); sagas are
   the one place where one domain's events cross into another; a refusal

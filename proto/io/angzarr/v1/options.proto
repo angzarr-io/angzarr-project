@@ -126,8 +126,8 @@ message CommandOptions {
   // PROCESS_MANAGER only: this command or fact type may START an
   // instance. An input for a correlation with no PM instance starts one
   // only if its entry sets starts; any other is not delivered: a fact is
-  // skipped silently, and a command refused (the command case PROPOSED;
-  // ruling B1, adapted; decision 14.31; see process_manager.proto,
+  // skipped silently, and a command refused (ruling B1, adapted; decision
+  // 14.31, owner's ruling; see process_manager.proto,
   // Starting an instance). The generator advertises the starting inputs
   // in the PM's descriptor (ComponentDescriptor.starting_types). Setting
   // starts on an aggregate's entry fails generation. A PM that declares no
@@ -415,8 +415,7 @@ extend google.protobuf.FieldOptions {
 // (ComponentDescriptor.refusal_types). Generation fails when the saga is
 // not a SAGA, the command's component does not own the saga's
 // output_domain, this fact's (command) component does not own its
-// input_domain, or two entries name the same (saga, command). The name
-// on_refused is PROPOSED (flagged).
+// input_domain, or two entries name the same (saga, command).
 //
 //   // In the source domain's protos:
 //   message HoldFundsRefused {

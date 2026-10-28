@@ -207,8 +207,8 @@ A target that refuses a saga's command (a business rejection) records nothing. T
 | What happened | What the coordinator does |
 |---------------|---------------------------|
 | A business rejection, with a callback | Calls the callback; delivers its fact to the saga's source, retried, deduplicated by fact id |
-| A business rejection, no callback (**proposed**) | Dead-letters the command with its refusal for a human, and alerts |
-| The callback fails (**proposed**) | Dead-letters the refusal and alerts |
+| A business rejection, no callback | Dead-letters the command with its refusal for a human, and alerts |
+| The callback fails | Dead-letters the refusal and alerts |
 | A retryable failure | Retries the command |
 | Any other terminal failure | Dead-letters the command and alerts: a bug |
 
@@ -220,7 +220,7 @@ A process manager is a domain, so its failures are an aggregate's: a refused com
 |---------------|---------------------------|----------------------|
 | A command or fact names an instance its `correlation_id` disagrees with | Refuses it before the handler runs | `INVALID_ARGUMENT` (a saga's is dead-lettered and alerted) |
 | A non-starting fact for a correlation with no instance | Skips it; nothing is recorded, dead-lettered or alerted | `APPLIED` with no events |
-| A non-starting command for a correlation with no instance (**proposed**) | Refuses it, recording nothing | `FAILED_PRECONDITION`, `PM_NO_INSTANCE` |
+| A non-starting command for a correlation with no instance | Refuses it, recording nothing | `FAILED_PRECONDITION`, `PM_NO_INSTANCE` |
 
 ---
 

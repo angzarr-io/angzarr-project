@@ -117,7 +117,7 @@ The PM instance's root **is** the workflow's correlation ID, unchanged. A comman
 
 ### Which inputs start an instance
 
-A PM declares which of its command and fact types are **starting** inputs (`starts` on the `(command)` entry). An input for a correlation the PM has no instance for starts one only if its type is a starting input. Any other such fact is skipped, silently: nothing is recorded, dead-lettered or alerted, and the sender is answered `APPLIED` with no events. Any other such command is, as **proposed** and not yet ruled, refused (`FAILED_PRECONDITION`, `PM_NO_INSTANCE`). Declare as starting every input that can arrive first: inputs from different domains arrive in no guaranteed order.
+A PM declares which of its command and fact types are **starting** inputs (`starts` on the `(command)` entry). An input for a correlation the PM has no instance for starts one only if its type is a starting input. Any other such fact is skipped, silently: nothing is recorded, dead-lettered or alerted, and the sender is answered `APPLIED` with no events. Any other such command is refused (`FAILED_PRECONDITION`, `PM_NO_INSTANCE`), recording nothing. Declare as starting every input that can arrive first: inputs from different domains arrive in no guaranteed order.
 
 ---
 

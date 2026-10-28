@@ -80,7 +80,7 @@ option ruby_package = "Angzarr";
 //     callback. A retryable failure is retried; any other terminal failure
 //     (INVALID_ARGUMENT, PERMISSION_DENIED, NOT_FOUND, INTERNAL, ...) is a
 //     bug, dead-lettered and alerted.
-//   - PROPOSED (flagged): a refused command whose type has NO callback is
+//   - Owner's ruling (decision 14.31): a refused command whose type has NO callback is
 //     dead-lettered for a human (with the refusal) and
 //     alerted; nothing is recorded anywhere. A callback that FAILS (an
 //     error status, or a fact refused as malformed) is a saga bug: the
@@ -187,8 +187,7 @@ message SagaResponse {
 // The on-refused callback's one argument (SagaService, Refusals): the
 // three things a stateless saga needs to craft its rejection fact. One
 // struct, so a field (a context object, say; considered and deferred by
-// decision 14.31) can be added later without breaking saga code. The name
-// Refusal is PROPOSED (flagged).
+// decision 14.31) can be added later without breaking saga code.
 message Refusal {
   // The triggering event: a book of the source stream holding the one
   // event the saga reacted to (the refused command's causation_id).

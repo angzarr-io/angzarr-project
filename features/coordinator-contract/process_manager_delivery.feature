@@ -53,11 +53,11 @@ Feature: Process manager delivery - a process manager is a domain, behind its ow
     When a RecordStockReserved command is sent to "fulfillment" root "0192a6b0-0000-7000-8000-000000000012"
     Then "Fulfillment"'s coordinator delivers the command to "Fulfillment" with its state "awaiting stock"
 
-  @process_manager @pm_start @proposed
+  @process_manager @pm_start
   @C-0595
-  Scenario: A non-starting command for an unknown correlation is refused (PROPOSED)
-    # Decision 14.31 flags this rule for the owner; the alternative is a
-    # silent skip, as for a fact.
+  Scenario: A non-starting command for an unknown correlation is refused
+    # Owner's ruling, decision 14.31: refused, recording nothing; a fact
+    # is skipped silently instead (C-0593).
     Given a process manager "Fulfillment" owning domain "fulfillment" whose StartFulfillment command is a starting input
     And "Fulfillment" also takes a RecordStockReserved command, which is not a starting input
     And "Fulfillment" has no instance for correlation "0192a6b0-0000-7000-8000-000000000013"

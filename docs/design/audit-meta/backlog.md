@@ -186,8 +186,8 @@ dead-lettering from core is PR-6.
   `causation_id`, correlation, edition and `"angzarr-refusal:"` origin;
   and write it as a new outbox entry in the transaction that clears the
   command's entry. A refused command with no callback is dead-lettered
-  for a human, and a failing callback dead-lettered and alerted (both
-  PROPOSED). Every coordinator accepts a `Fact` with `causation_id` only
+  and alerted, and a failing callback dead-lettered and alerted (owner's
+  rulings). Every coordinator accepts a `Fact` with `causation_id` only
   for the domain of the stream it names. angzarr-cli generates
   `on_refused_<Command>(Refusal)` from `(on_refused)`, lints mismatches,
   and fills `refusal_types`; client libraries serve `OnRefused`. annals
@@ -674,15 +674,14 @@ index.
   `ComponentDescriptor.starting_types`; the client library answers
   `Describe` with it. The PM's coordinator refuses a non-PM descriptor
   listing starting types; for a correlation with no instance it skips a
-  non-starting fact silently (answered `APPLIED`, no events) and, as
-  PROPOSED, refuses a non-starting command (`FAILED_PRECONDITION`,
-  `PM_NO_INSTANCE`).
+  non-starting fact silently (answered `APPLIED`, no events) and refuses
+  a non-starting command (`FAILED_PRECONDITION`, `PM_NO_INSTANCE`).
 - Why: decision 14.31 (annals ruling B1, adapted; the command case
-  open); `CommandOptions.starts` (`options.proto`),
+  ruled by the owner, 2026-10-28); `CommandOptions.starts` (`options.proto`),
   `ComponentDescriptor.starting_types` (`types.proto`),
   `process_manager.proto`, Starting an instance.
-- Settled when: the owner rules the command case, and scenarios C-0592
-  to C-0595, C-0606, C-0607 and C-0611 pass.
+- Settled when: scenarios C-0592 to C-0595, C-0606, C-0607 and C-0611
+  pass.
 
 ## VC: command versioning (pass 12)
 

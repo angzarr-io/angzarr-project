@@ -78,8 +78,8 @@ option ruby_package = "Angzarr";
 // after upcasting (decision 14.25):
 //   - a FACT is skipped, silently: nothing is recorded, dead-lettered or
 //     alerted, and the sender is answered OK, APPLIED, with no events;
-//   - a COMMAND is refused (PROPOSED, for the owner to rule; decision
-//     14.31): FAILED_PRECONDITION, with a google.rpc.ErrorInfo of reason
+//   - a COMMAND is refused (owner's ruling; decision 14.31):
+//     FAILED_PRECONDITION, with a google.rpc.ErrorInfo of reason
 //     PM_NO_INSTANCE, recording nothing, as any business rejection. A
 //     saga's refused command then goes to the saga's on-refused callback,
 //     whose fact tells the saga's source, which decides what an unstarted

@@ -1339,7 +1339,7 @@ message ComponentDescriptor {
   // entries with starts set (options.proto). An input for a correlation
   // with no PM instance is delivered only if its type is listed here;
   // otherwise the coordinator skips a fact silently and refuses a command
-  // (ruling B1, adapted; the command case is PROPOSED; see
+  // (ruling B1, adapted; decision 14.31; see
   // process_manager.proto, Starting an instance). Empty for every other
   // kind: a descriptor of another kind that sets it is refused, as one
   // with an empty rules_version is (see ComponentService, Refusal).
@@ -1348,7 +1348,7 @@ message ComponentDescriptor {
   // callback for, generated from the (on_refused) options naming it
   // (options.proto). On a business rejection of one of these the
   // coordinator calls SagaService.OnRefused; a refused command of any
-  // other type is dead-lettered for a human (PROPOSED; SagaService in
+  // other type is dead-lettered and alerted, for a human (SagaService in
   // saga.proto, Refusals). Empty for every other kind: a descriptor of
   // another kind that sets it is refused, as one with an empty
   // rules_version is.

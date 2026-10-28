@@ -11,7 +11,7 @@ implement it.
 |---|---|
 | `conflict_resolution.feature` | The default resolution from the registered state, unsupported resolutions refused, STRICT's ABORTED, AGGREGATE_HANDLES and COMMUTATIVE delivered with the window and a fresh nonce; reaction commands are never stale |
 | `component_discovery.feature` | The coordinator asks its business process to describe its one component on connect and on every reconnect; nothing is delivered before; readiness; a versionless description is refused; failed requests logged, alerted after the grace period |
-| `process_manager_delivery.feature` | A process manager is a domain behind its own coordinator (14.31): its own delivery, state and stream; which inputs start an instance (B1; the command case proposed); commands it may refuse, facts it never does; dedup before the handler; other domains' events arriving only through sagas, and decisions leaving through sagas |
+| `process_manager_delivery.feature` | A process manager is a domain behind its own coordinator (14.31): its own delivery, state and stream; which inputs start an instance (B1: a non-starting command refused, a fact skipped); commands it may refuse, facts it never does; dedup before the handler; other domains' events arriving only through sagas, and decisions leaving through sagas |
 | `upcasting.feature` | The owning coordinator upcasts on load, on query and wherever stored events reach a subscriber (live or stored history) through its own business process; the store is never rewritten |
 | `query_server.feature` | A standalone query server: queries with no component behind it, no commands, never a snapshot |
 | `rules_version.feature` | The reported build version stamped in full on events and snapshots; the state returned with every answer stored per policy and offered unchanged; which snapshot is offered (registered state type, the default major.minor rule, exact match for non-semantic versions, a domain's accept and reject patterns) |
@@ -19,7 +19,7 @@ implement it.
 | `state_building.feature` | Aggregate state reconstruction from snapshot + pages, `next_sequence` arithmetic |
 | `edition_propagation.feature` | Source/trigger edition stamped onto every saga emission, a rejection fact included; a PM's events in its input's edition; main-timeline aliases (`""`, unset, `"angzarr"`) |
 | `temporal_query.feature` | `TemporalQuery` as_of_sequence / as_of_time and when a snapshot may start the result |
-| `saga_refusal.feature` | A refused saga command: the target records nothing, the saga's on-refused callback crafts a fact for its own source domain, through the outbox; no callback, a failing callback, a fact for another domain (some PROPOSED) |
+| `saga_refusal.feature` | A refused saga command: the target records nothing, the saga's on-refused callback crafts a fact for its own source domain, through the outbox; no callback, a failing callback, a fact for another domain |
 | `sync_modes.feature` | ASYNC, DECISION, SIMPLE, CASCADE, ISOLATED and the per-command `PageHeader.sync_mode` (caller's mode is a floor) |
 | `dead_letter_queue.feature` | `angzarr.dlq.{domain}` routing and `AngzarrDeadLetter` contents per failure source |
 
