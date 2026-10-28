@@ -2,9 +2,10 @@
 # emissions. When a saga or process-manager handler receives an event in
 # edition X, the coordinator stamps edition X onto every outgoing
 # CommandBook / EventBook (a saga's commands and events, a process
-# manager's process_events) before persistence or dispatch. The full
-# Edition (name + divergences) propagates verbatim, and always overrides
-# whatever edition the handler set.
+# manager's process_events) before persistence or dispatch. The edition
+# name propagates verbatim, and always overrides whatever edition the
+# handler set. How an edition's streams are forked, and how forks
+# propagate, is edition_forks.feature (decision 14.32).
 #
 # A process manager is a domain (decision 14.31): its inputs are commands
 # (from sagas, in their trigger's edition) and facts, and its events land
@@ -57,12 +58,9 @@ Feature: Edition propagation across cross-domain emissions
     When an OrderCreated event is dispatched to the saga
     Then the emitted command's cover has no edition set
 
-  @C-0142
-  Scenario: Saga propagation preserves source edition divergences
-    Given a saga "OrderFulfillment" translating from "order" to "inventory"
-    And the source event has edition "speculative" with divergence at "order"=5
-    When an OrderCreated event is dispatched to the saga
-    Then the emitted command's cover has edition "speculative" with divergence at "order"=5
+  # C-0142 (an edition's divergences propagated) is retired: editions are
+  # per-stream forks with no divergence records (decision 14.32; the fork
+  # scenarios are in edition_forks.feature).
 
   # ---------------------------------------------------------------
   # Process Manager: input → its own events
@@ -114,13 +112,8 @@ Feature: Edition propagation across cross-domain emissions
       | "angzarr" | unset     |
 
   @C-0410
-  Scenario Outline: The main timeline cannot be deleted under either spelling
+  Scenario: The main timeline cannot be deleted
     Given an "order" aggregate "order-1" with 2 events on the main timeline
-    When DeleteEditionEvents is requested for edition <edition> in domain "order"
-    Then the request is refused because the main timeline is protected
+    When DeleteEdition is requested with an empty name
+    Then the request is refused INVALID_ARGUMENT because main is unnamed and cannot be deleted
     And the aggregate still has 2 events
-
-    Examples:
-      | edition   |
-      | ""        |
-      | "angzarr" |
