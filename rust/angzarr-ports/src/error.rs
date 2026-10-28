@@ -241,10 +241,10 @@ impl StoreError {
             StoreError::UnknownEdition { .. } => "angzarr-ports-store-unknown-edition",
             StoreError::EditionNameRequired => "angzarr-ports-edition-name-required",
             StoreError::EditionNotFound { .. } => "angzarr-ports-edition-not-found",
-            StoreError::EditionNotForked { .. }
-            | StoreError::EditionAlreadyForked { .. }
-            | StoreError::EditionNotDeleted { .. }
-            | StoreError::EditionNotPropagated { .. } => todo!("proposed: its code"),
+            StoreError::EditionNotForked { .. } => "angzarr-ports-store-edition-not-forked",
+            StoreError::EditionAlreadyForked { .. } => "angzarr-ports-store-edition-already-forked",
+            StoreError::EditionNotDeleted { .. } => "angzarr-ports-store-edition-not-deleted",
+            StoreError::EditionNotPropagated { .. } => "angzarr-ports-store-edition-not-propagated",
         }
     }
 
@@ -285,10 +285,10 @@ impl StoreError {
             ],
             StoreError::EditionNameRequired => Vec::new(),
             StoreError::EditionNotFound { name } => vec![("name", Arg::Str(name.clone()))],
-            StoreError::EditionNotForked { .. }
-            | StoreError::EditionAlreadyForked { .. }
-            | StoreError::EditionNotDeleted { .. }
-            | StoreError::EditionNotPropagated { .. } => todo!("proposed: its args"),
+            StoreError::EditionNotForked { stream }
+            | StoreError::EditionAlreadyForked { stream }
+            | StoreError::EditionNotDeleted { stream }
+            | StoreError::EditionNotPropagated { stream } => vec![("stream", stream_arg(stream))],
         }
     }
 
@@ -301,10 +301,11 @@ impl StoreError {
             | StoreError::UnknownEdition { .. }
             | StoreError::EditionNameRequired
             | StoreError::EditionNotFound { .. } => Recovery::Invalid,
-            StoreError::EditionNotForked { .. }
-            | StoreError::EditionAlreadyForked { .. }
-            | StoreError::EditionNotDeleted { .. }
-            | StoreError::EditionNotPropagated { .. } => todo!("proposed: its recovery"),
+            StoreError::EditionNotForked { .. } | StoreError::EditionAlreadyForked { .. } => {
+                Recovery::Invalid
+            }
+            StoreError::EditionNotDeleted { .. } => Recovery::Bug,
+            StoreError::EditionNotPropagated { .. } => Recovery::Retry,
         }
     }
 }
@@ -358,10 +359,26 @@ impl fmt::Display for StoreError {
             StoreError::EditionNotFound { name } => {
                 write!(f, "edition {name} does not exist: no stream is forked in it")
             }
-            StoreError::EditionNotForked { .. }
-            | StoreError::EditionAlreadyForked { .. }
-            | StoreError::EditionNotDeleted { .. }
-            | StoreError::EditionNotPropagated { .. } => todo!("proposed: its English"),
+            StoreError::EditionNotForked { stream } => write!(
+                f,
+                "stream {} is not yet created in its edition: only its creation may be written first",
+                stream_text(stream)
+            ),
+            StoreError::EditionAlreadyForked { stream } => write!(
+                f,
+                "stream {} is already created in its edition",
+                stream_text(stream)
+            ),
+            StoreError::EditionNotDeleted { stream } => write!(
+                f,
+                "stream {} has not recorded its edition's deletion, so it is not removed",
+                stream_text(stream)
+            ),
+            StoreError::EditionNotPropagated { stream } => write!(
+                f,
+                "stream {}'s deletion has not yet propagated onward: an outbox entry of it is pending",
+                stream_text(stream)
+            ),
         }
     }
 }

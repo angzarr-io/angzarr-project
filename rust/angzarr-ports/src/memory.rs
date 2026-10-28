@@ -7,9 +7,9 @@
 //! two clones), and every operation is atomic under one lock, held only
 //! for the operation itself (never across an `.await`).
 //!
-//! - **A write** lands under the lock at once: its stream's pages checked
-//!   against the expected length, its positions and its outbox entries,
-//!   all or none.
+//! - **A write** is checked whole, then lands under the lock at once: its
+//!   stream's pages against the expected length, its positions and its
+//!   outbox entries, all or none.
 //! - **Read units** read one moment: the store's data is copy-on-write
 //!   behind an `Arc`, so a read unit keeps the moment it began, and a
 //!   writer copies the data only while a read unit still holds it.
@@ -17,29 +17,27 @@
 //!   reference backend: for what-if and AI experimentation, in games and
 //!   elsewhere, create a stream in an edition, run steps there, read both
 //!   timelines side by side, delete the edition, and main is unchanged
-//!   byte for byte.
-//!
-//! **A proposal in part (red).** [`EventStore::write`] (with the editions'
-//! meta-events) and [`Editions`] are pinned by the suite and not yet
-//! implemented here.
+//!   byte for byte. An edition stream keeps only its own rows (its
+//!   creation and after); a read lays them over main's events below its
+//!   fork sequence.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use angzarr_proto::uuid::Uuid;
 use angzarr_proto::v1::event_meta::Causation;
-use angzarr_proto::v1::{Cover, EditionSummary, EventBook, EventPage, Snapshot};
+use angzarr_proto::v1::meta::EditionCreated;
+use angzarr_proto::v1::{Cover, EditionSummary, EventBook, EventPage, EventRef, Snapshot};
+use prost::Message;
 use prost_types::Timestamp;
 
 use crate::error::StoreError;
 use crate::store::{
-    ChangeToken, Editions, EventStore, ListStreams, Outbox, OutboxEntry, PositionStore, Purge,
-    ReadByCorrelation, ReadStore, ReadUnit, ReadUntilTime, SnapshotStore, Watch, Write, Written,
+    Append, ChangeToken, Editions, EventStore, ListStreams, Outbox, OutboxEntry, PositionStore,
+    Purge, ReadByCorrelation, ReadStore, ReadUnit, ReadUntilTime, SnapshotStore, Watch, Write,
+    Written, EDITION_CREATED_TYPE_URL, EDITION_DELETED_TYPE_URL,
 };
 use crate::stream::{PositionKey, Slice, StreamRef};
-
-const PROPOSED: &str =
-    "proposed for review: MemoryStore's one-call write and its editions' meta-events";
 
 /// A stream's place: its fields, ordered as [`StreamRef`] orders them
 /// (domain, then main before each edition by name, then root as bytes).
@@ -51,6 +49,10 @@ fn key(stream: StreamRef<'_>) -> Key {
         stream.edition.map(str::to_string),
         stream.root,
     )
+}
+
+fn main_key(k: &Key) -> Key {
+    (k.0.clone(), None, k.2)
 }
 
 fn cover(key: &Key) -> Cover {
@@ -69,44 +71,112 @@ fn place(position: PositionKey<'_>) -> PositionPlace {
     (key(position.stream), position.handler.to_string())
 }
 
+fn is_type(page: &EventPage, type_url: &str) -> bool {
+    page.payload
+        .as_ref()
+        .is_some_and(|p| p.type_url == type_url)
+}
+
+fn is_creation(page: &EventPage) -> bool {
+    is_type(page, EDITION_CREATED_TYPE_URL)
+}
+
+fn is_deletion(page: &EventPage) -> bool {
+    is_type(page, EDITION_DELETED_TYPE_URL)
+}
+
+/// A creation page's `EditionCreated`, decoded (a framework event: the one
+/// payload a store reads).
+fn creation(page: &EventPage) -> EditionCreated {
+    page.payload
+        .as_ref()
+        .and_then(|p| EditionCreated::decode(p.value.as_slice()).ok())
+        .unwrap_or_default()
+}
+
+/// One pending outbox entry, with the streams of the write that put it
+/// (its stream, and the streams its positions are on): what an edition
+/// stream's removal waits for.
+#[derive(Clone)]
+struct Pending {
+    entry: OutboxEntry,
+    streams: Vec<Key>,
+}
+
 /// The store's data: copied on write only while a read unit holds it.
 #[derive(Clone, Default)]
 struct Data {
+    /// Each stream's OWN rows: main's whole log, an edition stream's from
+    /// its creation on.
     streams: BTreeMap<Key, Vec<EventPage>>,
+    /// The commit position each own row landed at, row for row.
+    landed_at: BTreeMap<Key, Vec<u64>>,
     snapshots: BTreeMap<Key, Snapshot>,
     positions: BTreeMap<PositionPlace, u64>,
-    /// Pending outbox entries, oldest commit first.
-    outbox: Vec<OutboxEntry>,
-    /// Commits that appended an event: the commit position.
+    /// Pending outbox entries, oldest write first.
+    outbox: Vec<Pending>,
+    /// Writes that landed an event: the commit position.
     commit_position: u64,
     /// Commits of anything: the change token.
     commits: u64,
 }
 
 impl Data {
-    fn pages(&self, k: &Key) -> &[EventPage] {
+    fn own(&self, k: &Key) -> &[EventPage] {
         self.streams.get(k).map_or(&[], Vec::as_slice)
     }
 
-    fn purge(&mut self, k: &Key) -> u64 {
-        self.snapshots.remove(k);
-        self.positions.retain(|(stream, _), _| stream != k);
-        self.streams.remove(k).map_or(0, |pages| pages.len() as u64)
+    /// The stream as it reads: main's own log, or an edition stream's own
+    /// rows over main's events below its fork sequence (main's version
+    /// while it has none).
+    fn view(&self, k: &Key) -> Vec<EventPage> {
+        if k.1.is_none() {
+            return self.own(k).to_vec();
+        }
+        let own = self.own(k);
+        let main = self.own(&main_key(k));
+        let Some(first) = own.first() else {
+            return main.to_vec();
+        };
+        let fork = (first.sequence as usize).min(main.len());
+        let mut pages = main[..fork].to_vec();
+        pages.extend_from_slice(own);
+        pages
     }
 
-    #[allow(dead_code)] // the write's, once implemented
-    fn put_outbox(&mut self, entries: &[OutboxEntry]) {
-        for entry in entries {
-            if !self.outbox.iter().any(|kept| kept.id == entry.id) {
-                self.outbox.push(entry.clone());
-            }
-        }
+    /// The streams of edition `name` holding rows.
+    fn edition_streams<'d>(&'d self, name: &'d str) -> impl Iterator<Item = &'d Key> + 'd {
+        self.streams
+            .iter()
+            .filter(move |(k, own)| k.1.as_deref() == Some(name) && !own.is_empty())
+            .map(|(k, _)| k)
+    }
+
+    /// Whether edition `name` exists: a creation of it remains.
+    fn edition_exists(&self, name: &str) -> bool {
+        self.edition_streams(name).next().is_some()
+    }
+
+    /// Whether edition `name` is live: it exists, and no stream of it has
+    /// recorded its deletion.
+    fn edition_live(&self, name: &str) -> bool {
+        self.edition_exists(name)
+            && !self
+                .edition_streams(name)
+                .any(|k| self.own(k).iter().any(is_deletion))
+    }
+
+    /// Remove every row of stream `k`.
+    fn remove(&mut self, k: &Key) -> u64 {
+        self.snapshots.remove(k);
+        self.positions.retain(|(stream, _), _| stream != k);
+        self.landed_at.remove(k);
+        self.streams.remove(k).map_or(0, |pages| pages.len() as u64)
     }
 }
 
 /// Refuse an append to a stream of `length` that does not expect that
 /// length, or whose pages do not run on from it.
-#[allow(dead_code)] // the write's, once implemented
 fn check_append(
     stream: StreamRef<'_>,
     length: u64,
@@ -116,13 +186,14 @@ fn check_append(
     if expected != length {
         return Err(StoreError::conflict(stream, expected, length));
     }
+    check_run(stream, expected, pages)
+}
+
+/// Refuse pages whose sequences do not run on from `expected`.
+fn check_run(stream: StreamRef<'_>, expected: u64, pages: &[EventPage]) -> Result<(), StoreError> {
     for (due, page) in (expected..).zip(pages) {
         if page.sequence != due {
-            return Err(StoreError::discontinuous(
-                stream.to_cover(),
-                due,
-                page.sequence,
-            ));
+            return Err(StoreError::discontinuous(stream, due, page.sequence));
         }
     }
     Ok(())
@@ -163,6 +234,84 @@ fn covers_of(streams: &BTreeMap<Key, Vec<EventPage>>, domain: &str) -> Vec<Cover
         .collect()
 }
 
+/// What a write's stream part lands: its own rows to add.
+struct Landing {
+    key: Key,
+    pages: Vec<EventPage>,
+}
+
+/// Check a write's stream part against `data`, as 14.32's rules have it:
+/// what lands (if anything), and the stream's length after.
+fn check_events(data: &Data, events: Append<'_>) -> Result<(Option<Landing>, u64), StoreError> {
+    let Append {
+        stream,
+        expected,
+        pages,
+    } = events;
+    let k = key(stream);
+    let length = data.view(&k).len() as u64;
+    let Some(name) = stream.edition else {
+        if pages.iter().any(|p| is_creation(p) || is_deletion(p)) {
+            return Err(StoreError::EditionNameRequired);
+        }
+        check_append(stream, length, expected, pages)?;
+        return Ok((
+            Some(Landing {
+                key: k,
+                pages: pages.to_vec(),
+            }),
+            length + pages.len() as u64,
+        ));
+    };
+    if pages.iter().skip(1).any(is_creation) {
+        return Err(StoreError::edition_already_forked(stream));
+    }
+    if !data.own(&k).is_empty() {
+        if pages.first().is_some_and(is_creation) {
+            return Err(StoreError::edition_already_forked(stream));
+        }
+        check_append(stream, length, expected, pages)?;
+        return Ok((
+            Some(Landing {
+                key: k,
+                pages: pages.to_vec(),
+            }),
+            length + pages.len() as u64,
+        ));
+    }
+    // A stream with no row in the edition.
+    match pages.first() {
+        None => {
+            check_append(stream, length, expected, pages)?;
+            Ok((None, length))
+        }
+        // D4: a deletion reaching it has nothing to delete.
+        Some(first) if is_deletion(first) => {
+            check_append(stream, length, expected, &[])?;
+            Ok((None, length))
+        }
+        Some(first) if is_creation(first) => {
+            if expected > length {
+                return Err(StoreError::conflict(stream, expected, length));
+            }
+            check_run(stream, expected, pages)?;
+            if creation(first).propagated_from.is_some() && !data.edition_live(name) {
+                return Err(StoreError::EditionNotFound {
+                    name: name.to_string(),
+                });
+            }
+            Ok((
+                Some(Landing {
+                    key: k,
+                    pages: pages.to_vec(),
+                }),
+                expected + pages.len() as u64,
+            ))
+        }
+        Some(_) => Err(StoreError::edition_not_forked(stream)),
+    }
+}
+
 /// The in-memory store. See the module.
 #[derive(Clone, Default)]
 pub struct MemoryStore {
@@ -192,8 +341,58 @@ impl MemoryStore {
 
 impl EventStore for MemoryStore {
     async fn write(&self, write: Write<'_>) -> Result<Written, StoreError> {
-        let _ = write;
-        todo!("{PROPOSED}")
+        let mut guard = self.lock();
+        // Check it all first: a refusal lands nothing.
+        let (landing, next_sequence) = match write.events {
+            Some(events) => {
+                let (landing, length) = check_events(&guard, events)?;
+                (landing, Some(length))
+            }
+            None => (None, None),
+        };
+        let landing_key = landing.as_ref().map(|l| l.key.clone());
+        for (position, _) in write.positions {
+            let k = key(position.stream);
+            if let Some(name) = position.stream.edition {
+                let has_rows = !guard.own(&k).is_empty() || landing_key.as_ref() == Some(&k);
+                if !has_rows && !guard.edition_live(name) {
+                    return Err(StoreError::EditionNotFound {
+                        name: name.to_string(),
+                    });
+                }
+            }
+        }
+        let lands_pages = landing.as_ref().is_some_and(|l| !l.pages.is_empty());
+        if !lands_pages && write.positions.is_empty() && write.outbox.is_empty() {
+            return Ok(Written { next_sequence });
+        }
+        let data = Arc::make_mut(&mut guard);
+        if let Some(Landing { key: k, pages }) = landing {
+            if !pages.is_empty() {
+                data.commit_position += 1;
+                let at = data.commit_position;
+                data.landed_at
+                    .entry(k.clone())
+                    .or_default()
+                    .extend(pages.iter().map(|_| at));
+                data.streams.entry(k).or_default().extend(pages);
+            }
+        }
+        for (position, next) in write.positions {
+            data.positions.insert(place(*position), *next);
+        }
+        let mut streams: Vec<Key> = landing_key.into_iter().collect();
+        streams.extend(write.positions.iter().map(|(p, _)| key(p.stream)));
+        for entry in write.outbox {
+            if !data.outbox.iter().any(|kept| kept.entry.id == entry.id) {
+                data.outbox.push(Pending {
+                    entry: entry.clone(),
+                    streams: streams.clone(),
+                });
+            }
+        }
+        data.commits += 1;
+        Ok(Written { next_sequence })
     }
 
     async fn read(
@@ -202,7 +401,7 @@ impl EventStore for MemoryStore {
         from: u64,
         to: Option<u64>,
     ) -> Result<Slice, StoreError> {
-        Ok(slice(self.data().pages(&key(stream)), from, to))
+        Ok(slice(&self.data().view(&key(stream)), from, to))
     }
 
     async fn find_command(
@@ -210,13 +409,9 @@ impl EventStore for MemoryStore {
         stream: StreamRef<'_>,
         command_id: Uuid,
     ) -> Result<Vec<EventPage>, StoreError> {
-        Ok(self
-            .data()
-            .pages(&key(stream))
-            .iter()
-            .filter(|p| caused_by(p, command_id))
-            .cloned()
-            .collect())
+        let mut pages = self.data().view(&key(stream));
+        pages.retain(|p| caused_by(p, command_id));
+        Ok(pages)
     }
 
     async fn covers(&self, domain: &str) -> Result<Vec<Cover>, StoreError> {
@@ -256,7 +451,7 @@ impl Purge for MemoryStore {
     async fn purge(&self, stream: StreamRef<'_>) -> Result<u64, StoreError> {
         let mut guard = self.lock();
         let data = Arc::make_mut(&mut guard);
-        let deleted = data.purge(&key(stream));
+        let deleted = data.remove(&key(stream));
         data.commits += 1;
         Ok(deleted)
     }
@@ -268,17 +463,65 @@ impl Editions for MemoryStore {
         stream: StreamRef<'_>,
         commit_position: u64,
     ) -> Result<u64, StoreError> {
-        let _ = (stream, commit_position);
-        todo!("{PROPOSED}")
+        let data = self.data();
+        let main = main_key(&key(stream));
+        Ok(data.landed_at.get(&main).map_or(0, |at| {
+            at.iter().take_while(|&&c| c <= commit_position).count() as u64
+        }))
     }
 
     async fn list_editions(&self) -> Result<Vec<EditionSummary>, StoreError> {
-        todo!("{PROPOSED}")
+        let data = self.data();
+        let mut editions: BTreeMap<String, EditionSummary> = BTreeMap::new();
+        for (k, own) in &data.streams {
+            let (Some(name), Some(first)) = (&k.1, own.first()) else {
+                continue;
+            };
+            let summary = editions
+                .entry(name.clone())
+                .or_insert_with(|| EditionSummary {
+                    name: name.clone(),
+                    ..EditionSummary::default()
+                });
+            summary.forked_streams += 1;
+            let created = creation(first);
+            if created.commit_position != 0 {
+                summary.commit_position = created.commit_position;
+            }
+            if created.propagated_from.is_none() {
+                summary.origins.push(EventRef {
+                    stream: Some(cover(k)),
+                    sequence: first.sequence,
+                });
+            }
+        }
+        Ok(editions.into_values().collect())
     }
 
     async fn remove_deleted(&self, stream: StreamRef<'_>) -> Result<u64, StoreError> {
-        let _ = stream;
-        todo!("{PROPOSED}")
+        let Some(name) = stream.edition else {
+            return Err(StoreError::EditionNameRequired);
+        };
+        let k = key(stream);
+        let mut guard = self.lock();
+        let own = guard.own(&k);
+        if own.is_empty() {
+            return Ok(0);
+        }
+        if !own.iter().any(is_deletion) {
+            return Err(StoreError::edition_not_deleted(stream));
+        }
+        let waiting = guard
+            .outbox
+            .iter()
+            .any(|p| p.entry.edition.as_deref() == Some(name) && p.streams.contains(&k));
+        if waiting {
+            return Err(StoreError::edition_not_propagated(stream));
+        }
+        let data = Arc::make_mut(&mut guard);
+        let removed = data.remove(&k);
+        data.commits += 1;
+        Ok(removed)
     }
 }
 
@@ -286,6 +529,18 @@ impl Editions for MemoryStore {
 /// begin, held, so nothing written after is seen through it.
 pub struct MemoryRead {
     data: Arc<Data>,
+}
+
+impl MemoryRead {
+    /// The stream's key, refusing one in an edition that does not exist.
+    fn known(&self, stream: StreamRef<'_>) -> Result<Key, StoreError> {
+        match stream.edition {
+            Some(name) if !self.data.edition_exists(name) => {
+                Err(StoreError::unknown_edition(stream))
+            }
+            _ => Ok(key(stream)),
+        }
+    }
 }
 
 impl ReadStore for MemoryStore {
@@ -296,20 +551,9 @@ impl ReadStore for MemoryStore {
     }
 }
 
-/// A read unit's stream, refusing every edition: the fork rule is not yet
-/// implemented here (red), so this store knows no edition.
-fn main_only(stream: StreamRef<'_>) -> Result<Key, StoreError> {
-    match stream.edition {
-        Some(_) => Err(StoreError::unknown_edition(stream.to_cover())),
-        None => Ok(key(stream)),
-    }
-}
-
 impl ReadUnit for MemoryRead {
     async fn covers(&mut self, domain: &str) -> Result<Vec<Cover>, StoreError> {
-        let mut covers = covers_of(&self.data.streams, domain);
-        covers.retain(|c| c.edition.is_none());
-        Ok(covers)
+        Ok(covers_of(&self.data.streams, domain))
     }
 
     async fn read(
@@ -318,14 +562,16 @@ impl ReadUnit for MemoryRead {
         from: u64,
         to: Option<u64>,
     ) -> Result<Slice, StoreError> {
-        Ok(slice(self.data.pages(&main_only(stream)?), from, to))
+        let k = self.known(stream)?;
+        Ok(slice(&self.data.view(&k), from, to))
     }
 
     async fn read_snapshot(
         &mut self,
         stream: StreamRef<'_>,
     ) -> Result<Option<Snapshot>, StoreError> {
-        Ok(self.data.snapshots.get(&main_only(stream)?).cloned())
+        let k = self.known(stream)?;
+        Ok(self.data.snapshots.get(&k).cloned())
     }
 }
 
@@ -343,8 +589,7 @@ impl ReadUntilTime for MemoryStore {
         stream: StreamRef<'_>,
         until: &Timestamp,
     ) -> Result<Slice, StoreError> {
-        let data = self.data();
-        let pages = data.pages(&key(stream));
+        let pages = self.data().view(&key(stream));
         let by = |p: &EventPage| {
             p.meta
                 .as_ref()
@@ -353,7 +598,7 @@ impl ReadUntilTime for MemoryStore {
         };
         Ok(Slice {
             next_sequence: pages.len() as u64,
-            last_recorded_at: last_recorded_at(pages),
+            last_recorded_at: last_recorded_at(&pages),
             pages: pages.iter().take_while(|p| by(p)).cloned().collect(),
         })
     }
@@ -373,14 +618,22 @@ impl ReadByCorrelation for MemoryStore {
                 .and_then(|m| m.correlation_id.as_ref())
                 .is_some_and(|c| Uuid::try_from(c).ok() == Some(correlation_id))
         };
-        Ok(data
+        // The timeline's streams: main's, or in an edition every stream as
+        // it reads there (its own rows, or main's version).
+        let streams: BTreeSet<Key> = data
             .streams
             .iter()
-            .filter(|(k, _)| domain.is_none_or(|d| k.0 == d) && k.1.as_deref() == edition)
-            .filter_map(|(k, pages)| {
+            .filter(|(k, own)| !own.is_empty() && domain.is_none_or(|d| k.0 == d))
+            .filter(|(k, _)| k.1.is_none() || k.1.as_deref() == edition)
+            .map(|(k, _)| (k.0.clone(), edition.map(str::to_string), k.2))
+            .collect();
+        Ok(streams
+            .into_iter()
+            .filter_map(|k| {
+                let pages = data.view(&k);
                 let mine: Vec<EventPage> = pages.iter().filter(|p| of(p)).cloned().collect();
                 (!mine.is_empty()).then(|| EventBook {
-                    cover: Some(cover(k)),
+                    cover: Some(cover(&k)),
                     pages: mine,
                     next_sequence: pages.len() as u64,
                     ..EventBook::default()
@@ -404,17 +657,23 @@ impl ListStreams for MemoryStore {
 
 impl Outbox for MemoryStore {
     async fn pending(&self, limit: usize) -> Result<Vec<OutboxEntry>, StoreError> {
-        Ok(self.data().outbox.iter().take(limit).cloned().collect())
+        Ok(self
+            .data()
+            .outbox
+            .iter()
+            .take(limit)
+            .map(|p| p.entry.clone())
+            .collect())
     }
 
     async fn clear(&self, ids: &[Uuid]) -> Result<u64, StoreError> {
         let mut guard = self.lock();
         let before = guard.outbox.len();
-        if !guard.outbox.iter().any(|e| ids.contains(&e.id)) {
+        if !guard.outbox.iter().any(|p| ids.contains(&p.entry.id)) {
             return Ok(0);
         }
         let data = Arc::make_mut(&mut guard);
-        data.outbox.retain(|e| !ids.contains(&e.id));
+        data.outbox.retain(|p| !ids.contains(&p.entry.id));
         data.commits += 1;
         Ok((before - data.outbox.len()) as u64)
     }

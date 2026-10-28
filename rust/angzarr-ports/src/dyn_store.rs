@@ -24,8 +24,6 @@ use crate::store::{
 };
 use crate::stream::{Head, PositionKey, Slice, StreamRef};
 
-const PROPOSED: &str = "proposed for review: the dyn adapter's new method";
-
 /// A boxed future: `Send` on every target but `wasm32`.
 #[cfg(not(target_arch = "wasm32"))]
 pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
@@ -123,8 +121,7 @@ impl<T: DynEventStore + DynSnapshotStore + DynPositionStore + ?Sized> DynStore f
 
 impl<T: EventStore> DynEventStore for T {
     fn write<'a>(&'a self, write: Write<'a>) -> BoxFuture<'a, Result<Written, StoreError>> {
-        let _ = write;
-        todo!("{PROPOSED}")
+        Box::pin(EventStore::write(self, write))
     }
     fn read<'a>(
         &'a self,
@@ -180,18 +177,16 @@ impl<T: Editions> DynEditions for T {
         stream: StreamRef<'a>,
         commit_position: u64,
     ) -> BoxFuture<'a, Result<u64, StoreError>> {
-        let _ = (stream, commit_position);
-        todo!("{PROPOSED}")
+        Box::pin(Editions::fork_point(self, stream, commit_position))
     }
     fn list_editions(&self) -> BoxFuture<'_, Result<Vec<EditionSummary>, StoreError>> {
-        todo!("{PROPOSED}")
+        Box::pin(Editions::list_editions(self))
     }
     fn remove_deleted<'a>(
         &'a self,
         stream: StreamRef<'a>,
     ) -> BoxFuture<'a, Result<u64, StoreError>> {
-        let _ = stream;
-        todo!("{PROPOSED}")
+        Box::pin(Editions::remove_deleted(self, stream))
     }
 }
 
