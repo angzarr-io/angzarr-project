@@ -86,8 +86,7 @@ message UUID {
 // Reaction command ids (see the command_identity region). The command a
 // saga emits as the index-th command (0-based, in emission order) of its
 // reaction to the trigger event T has (a process manager emits no
-// commands; decision 14.31; a saga's FACT takes the reaction origin
-// below instead)
+// commands; decision 14.31)
 //   command_id = UUIDv5(ANGZARR_COMMAND_NAMESPACE, name)
 //   ANGZARR_COMMAND_NAMESPACE = e2c9f744-9fe1-4b4b-bfee-ae514dde293b
 // where name is six netstrings, concatenated:
@@ -120,19 +119,21 @@ message UUID {
 // value, so pass-9 fact correlations are unchanged. Example: external_id
 // "pi_1234" = 917f26ae-ea2e-58af-86de-77013a69617e.
 //
-// Reaction facts. A saga whose destination is a process manager emits
-// Facts (decision 14.31; SagaResponse in saga.proto). The saga's
-// coordinator stamps the index-th one's origin as
-//   fact_origin.external_id = "angzarr-reaction:" + name
-// where name is the same six netstrings as for a reaction command id
-// (above), and its command_id follows the ordinary fact rule,
-// UUIDv5(ANGZARR_FACT_CORRELATION_NAMESPACE, external_id). So a reaction
-// fact is deduplicated like any fact, and a saga re-run reproduces its id.
-// The "angzarr-reaction:" prefix keeps it apart from any external system's
-// id. Worked example: the trigger and component of the reaction example
-// above, index 0, give the 87-byte external_id
-//   angzarr-reaction:4:list,0:,36:01920c8e-7b3a-7cc2-9f4e-5a1b2c3d4e5f,1:7,9:reminders,1:0,
-// and the command id a74a3866-7a5f-55e4-b3cd-b990130c09af.
+// Refusal facts. When a saga's command is refused (a business rejection),
+// the saga's on-refused callback crafts a rejection fact for the saga's
+// own source domain, and the saga's coordinator delivers it (decision
+// 14.31, amending 2.2; SagaService in saga.proto, Refusals). For the
+// refused command with reaction name `name` (the six netstrings above) the
+// coordinator stamps
+//   fact_origin.external_id = "angzarr-refusal:" + name
+// and the fact's command_id follows the ordinary fact rule,
+// UUIDv5(ANGZARR_FACT_CORRELATION_NAMESPACE, external_id). So a refusal
+// fact is deduplicated like any fact, and a re-run refused again
+// reproduces its id. The "angzarr-refusal:" prefix keeps it apart from any
+// external system's id. Worked example: the refused command of the
+// reaction example above (index 0) gives the 86-byte external_id
+//   angzarr-refusal:4:list,0:,36:01920c8e-7b3a-7cc2-9f4e-5a1b2c3d4e5f,1:7,9:reminders,1:0,
+// and the fact id 48e00cac-f635-5467-a9da-76c63487d1a6.
 //
 // Three namespaces, not one: "{domain}:{key}" is also a valid external_id,
 // so under one namespace a fact's command id could equal a stream's root;
@@ -177,8 +178,9 @@ message Cover {
   // The stream's root: caller-chosen (any 16 bytes), derived by
   // compute_root (UUIDv5; see the derived_ids region) or minted (UUIDv7).
   // A process manager's stream is the exception: its root is the
-  // instance's correlation_id, unchanged (ProcessManagerService, Stream;
-  // decision 14.30), and a fact addressed to it names that root.
+  // instance's correlation_id, unchanged (process_manager.proto, Stream;
+  // decision 14.30), and a command or fact addressed to it names that
+  // root.
   UUID root = 1;
   // Edition: the NAME of the timeline the stream belongs to.
   //
@@ -447,14 +449,15 @@ message EventRef {
 // or minted), so every retry of a client-keyed command lands in one
 // correlation; a Fact's is its derived command_id. A reaction command's is
 // its trigger's correlation, stamped by the coordinator; a reactor that sets
-// a different one is a reactor bug. A saga's fact takes its trigger's
-// correlation the same way. A Fact addressed to a process manager's
-// stream is the exception to all of these: its correlation is its cover's
-// root (the PM instance's correlation; decision 14.30), set when absent,
-// and a set correlation_id that differs from the root is malformed (a
-// saga addressing a PM therefore names the instance its trigger's
-// correlation names). A process manager's process events carry their
-// fact's correlation (see Process events, below).
+// a different one is a reactor bug. A refusal fact takes the refused
+// command's correlation (its trigger's) the same way. A command or Fact
+// addressed to a process manager's stream is the exception to all of
+// these: its correlation is its cover's root (the PM instance's
+// correlation; decision 14.30), set when absent, and a set correlation_id
+// that differs from the root is malformed (a saga addressing a PM
+// therefore names the instance its trigger's correlation names). A
+// process manager's events carry their command's or fact's correlation,
+// like any domain's.
 // Correlation is never unset on a persisted event, and the framework never
 // mints one of its own. It groups a workflow and is not an identity: two
 // sources' external ids can coincide, and a sender that must keep them
@@ -465,11 +468,11 @@ message EventRef {
 // causation_id: the command message's own causation, as the standard
 // defines it: the EventRef of the event a saga reacted to, always the
 // triggering event (a process manager emits nothing but its own events,
-// so it stamps no causation_id; decision 14.31). Set on a saga's output
-// only, by its coordinator: on reaction commands, where it is the input
-// the reaction command_id is derived from, and on reaction facts (a
-// saga's facts for a process manager), where the reaction origin is
-// derived from the same trigger (derived_ids region).
+// so it stamps no causation_id; decision 14.31). Set by a saga's
+// coordinator only: on reaction commands, where it is the input the
+// reaction command_id is derived from, and on refusal facts, where it is
+// the refused command's own causation_id, so it names a stream of the
+// domain the fact is addressed to (derived_ids region, Refusal facts).
 // It is transport and trace metadata, NOT persisted on the events the
 // command produces: their causation is the command itself
 // (EventMeta.causation.command_id). The coordinators record the trigger
@@ -486,14 +489,13 @@ message EventRef {
 // Validation (refused before deduplication; see Handling for the full list):
 //   Fact      requires fact_origin with a non-empty external_id; never
 //             any Handling field; a set command_id must equal the
-//             derivation; never causation_id, except a reaction fact (a
-//             saga's fact), which must carry it and is accepted only by a
-//             process manager's stream: a Fact with causation_id addressed
-//             to an aggregate is malformed (decision 14.31).
-//   Command   never fact_origin; never addressed to a process manager's
-//             stream (a PM takes facts only; decision 14.31).
-//   Fact addressed to a process manager's stream: a set correlation_id
-//             must equal the cover's root.
+//             derivation; never causation_id, except a refusal fact
+//             (decision 14.31): a Fact with causation_id is accepted only
+//             if its cover's domain is the domain of the stream
+//             causation_id names (the saga's own source domain).
+//   Command   never fact_origin.
+//   either, addressed to a process manager's stream: a set
+//             correlation_id must equal the cover's root.
 // A client's malformed command is answered INVALID_ARGUMENT; a reaction
 // command has no caller to answer, so it is dead-lettered and alerted as a
 // reactor bug.
@@ -517,20 +519,17 @@ message EventRef {
 // lookup, which now finds the winner's events and answers DUPLICATE (or,
 // if the winner produced no events, decides again; see the costs below).
 //
-// Process events. The events a process manager writes to its own stream
-// (ProcessManagerHandleResponse.process_events) are a fact's events like
-// any other (decision 14.31; ProcessManagerService): a PM's only input is
-// facts, so they carry causation.command_id (the fact's id), fact (its
-// fact_origin) and the fact's correlation_id, and are deduplicated by
-// command_id, before the PM's handler runs, like any fact's. There is no
-// separate trigger lookup.
+// Process managers. A process manager is a domain (decision 14.31): its
+// events are the events of the commands and facts addressed to it, with
+// causation.command_id, and are deduplicated by command_id like any
+// domain's. There is no trigger and no separate trigger lookup.
 //
 // Reactor re-runs. A reaction command_id depends only on (trigger,
 // component, index), never on the reactor's rules_version or code, so a
 // reactor run again over a trigger it already handled (a checkpoint reset)
-// emits the same ids (and a saga's facts the same reaction origins), which
-// every destination answers DUPLICATE, a process manager included. A
-// re-run
+// emits the same ids, which every destination answers DUPLICATE, a
+// process manager included (and a command refused again yields the same
+// refusal fact id, which its source answers DUPLICATE). A re-run
 // never changes history: it adds nothing where the first run applied, even
 // if the reactor's code has changed since. Checkpoint resets are for
 // recovery only (output that was lost before it reached the outbox).
@@ -598,9 +597,9 @@ message FactOrigin {
 // causation, correlation_id and recorded_at are always recorded. causation
 // is the event's DIRECT cause (see the command_identity region):
 // command_id, for every event: each was produced by a command or fact
-// (client, reaction or fact, a process manager's events for a fact
-// included; a PM takes facts only, so it has no trigger-caused events;
-// decision 14.31). fact is set iff the producing command was a Fact.
+// (client, reaction or fact, a process manager's events included; a PM
+// is a domain, with no trigger-caused events; decision 14.31). fact is
+// set iff the producing command was a Fact.
 // rules_version is always recorded from the business logic's report
 // (empty only if the business logic reports none). A reaction command's causation_id (its trigger) is NOT
 // recorded: an event names its own cause, not its cause's cause (decision
@@ -618,14 +617,14 @@ message FactOrigin {
 message EventMeta {
   // The event's direct cause. Always set on a persisted event. It has one
   // arm: triggering_event (18), a process manager's trigger, is deleted,
-  // unreserved (policy 6.6), because a PM's only input is facts (decision
-  // 14.31). The oneof stays, so command_id keeps its encoding, its JSON
+  // unreserved (policy 6.6), because a PM is a domain whose inputs are
+  // commands and facts (decision 14.31). The oneof stays, so command_id keeps its encoding, its JSON
   // and its generated accessor.
   oneof causation {
     // The producing command's command_id (see the command_identity
     // region): every event a client Command, reaction command or Fact
-    // produced, a process manager's events for a fact included. The
-    // deduplication key on the stream.
+    // produced, a process manager's events included. The deduplication key
+    // on the stream.
     UUID command_id = 17;
   }
   // The producing Fact's source: the command's fact_origin, copied. Unset
@@ -647,8 +646,8 @@ message EventMeta {
   // The full version of the business binary that decided (or ingested) the
   // event (e.g. "1.4.2+build.7"): baked in when the binary is built (e.g.
   // by versionator), never a label chosen by hand. Reported by the business
-  // logic with every response (CommandHandlerResponse.rules_version,
-  // ProcessManagerHandleResponse.rules_version) and stamped in full by the
+  // logic with every response (CommandHandlerResponse.rules_version, a
+  // process manager's included) and stamped in full by the
   // coordinator from that response, so during a rolling deployment each
   // event names the build that decided it. Business code never sets it on
   // an event. The framework reads it only to choose which snapshots to
@@ -675,7 +674,7 @@ message EventMeta {
 // returned the state (rules_version, the business binary's full version).
 // The coordinator, never the business logic, decides whether a snapshot may
 // be used. It offers a snapshot with a delivery (ContextualCommand.events,
-// ProcessManagerHandleRequest.process_state) only if both hold:
+// for an aggregate or a process manager alike) only if both hold:
 //   1. its state type URL equals the type_url of the StateDescriptor the
 //      component registered (ComponentDescriptor.state); and
 //   2. its rules_version passes the domain's compatibility rule against the
@@ -718,9 +717,9 @@ message Snapshot {
   // prefix recorded by T (see TemporalQuery).
   //
   // Where snapshots come from. The client library returns the post-command
-  // state on EVERY response (CommandHandlerResponse.events.snapshot.state;
-  // for a process manager, ProcessManagerHandleResponse.process_state);
-  // business code never decides when. The coordinator persists it per the
+  // state on EVERY response (CommandHandlerResponse.events.snapshot.state,
+  // for an aggregate or a process manager alike); business code never
+  // decides when. The coordinator persists it per the
   // domain's storage policy (default: keep the newest only), setting
   // sequence (the last event folded in) and rules_version (the response's,
   // in full), and offers the stored bytes, unchanged, with the next
@@ -810,10 +809,9 @@ message Projection {
 //   5. business code CommandHandlerService.Handle (the client library
 //                    upcasts the payload, dispatches to decide or ingest,
 //                    and resolves AGGREGATE_HANDLES / COMMUTATIVE), then
-//                    the append. For a command addressed to a process
-//                    manager, ProcessManagerService.Handle (its command
-//                    arm), which records it infallibly; step 4 only
-//                    stamps the head.
+//                    the append. A process manager's business code is
+//                    the same CommandHandlerService.Handle (a PM is a
+//                    domain; decision 14.31).
 // The load comes before the lookup: under READ COMMITTED, a lookup first
 // could miss an original delivery that commits before the load, and the
 // retry would append after the original's events with no conflict (applied
@@ -830,10 +828,11 @@ message Projection {
 //   - a conflict_resolution the component's state does not support;
 //   - any Handling field on a Fact (see below);
 //   - any Handling field on a reaction command (see below);
-//   - a Command addressed to a process manager, and a Fact addressed to
-//     one whose set correlation_id differs from its cover's root (see
-//     ProcessManagerService, Delivery);
-//   - a Fact with causation_id (a saga's fact) addressed to an aggregate;
+//   - a command or Fact addressed to a process manager whose set
+//     correlation_id differs from its cover's root (process_manager.proto);
+//   - a Fact with causation_id addressed to any domain but the one its
+//     causation_id's stream is in (a saga's refusal fact goes only to the
+//     saga's own source domain);
 //   - a Fact without fact_origin, or with an empty external_id, or with a
 //     command_id other than its derivation; a Command with fact_origin
 //     (see the command_identity region);
@@ -857,8 +856,8 @@ message Projection {
 // or conflict resolution applies: a Fact that sets any Handling field is
 // malformed and refused as above. The coordinator always stamps a Fact.
 //
-// A process manager takes Facts only (decision 14.31), so every input to
-// one carries no Handling, and its coordinator always stamps the head.
+// A process manager is a domain (decision 14.31): Handling applies to the
+// commands addressed to it exactly as to an aggregate's.
 message Handling {
   // The stream state the command was issued against: the expected
   // next_sequence of the target stream.
@@ -905,17 +904,16 @@ message Handling {
 // fact handler, e.g. #[handles_fact] / ingest, versus a command handler) is
 // the declaration, and the router refuses an arm that does not match the
 // registered handler's kind. There is no proto flag for facts. A process
-// manager's stream takes the Fact arm only: a Command addressed to it is
-// refused INVALID_ARGUMENT (ProcessManagerService, Delivery; decision
-// 14.31).
+// manager's stream takes both arms, like any domain's (decision 14.31).
 //
 // The arm says what kind of payload this is; fact_origin says where a fact
 // came from. They must agree: a Fact requires fact_origin, and a Command
-// never has one. A saga emits Commands for an aggregate and Facts for a
-// process manager, never the other way round (decision 14.31; SagaResponse
-// in saga.proto): a saga's Fact carries a causation_id and its stamped
-// reaction origin, and is refused (dead-lettered and alerted) if it is
-// addressed to an aggregate.
+// never has one. A saga's business code never injects a fact: it emits
+// Commands with a causation_id, and one that emits a Fact is refused
+// (dead-lettered and alerted). The one fact a saga delivers is the
+// rejection fact its on-refused callback crafts for a refused command, and
+// only to the saga's own source domain (decision 14.31, amending 2.2;
+// SagaService in saga.proto, Refusals).
 message CommandPage {
   oneof body {
     Command command = 3; // Asks the aggregate to decide; may be rejected
@@ -929,10 +927,11 @@ message CommandPage {
   // The workflow correlation; set by the coordinator when absent. Copied
   // onto every event (EventMeta.correlation_id).
   UUID correlation_id = 9;
-  // A saga's output only (reaction commands, and reaction facts for a
-  // process manager): the command's own causation, its triggering event.
-  // Framework-authenticated callers only. The reaction command_id, or a
-  // reaction fact's origin, is derived from it. Transport and trace
+  // A saga's output only (reaction commands, and refusal facts): the
+  // command's own causation, its triggering event. Framework-authenticated
+  // callers only. The reaction command_id is derived from it, and a refusal
+  // fact must be addressed to the domain of the stream it names. Transport
+  // and trace
   // metadata: NOT persisted on the events the command produces (their
   // causation is this command; see the command_identity region).
   EventRef causation_id = 10;
@@ -1039,7 +1038,7 @@ message ProjectorFailure {
 //              command_id: business code did not run, and the events are
 //              those, re-read from the stream.
 //   PARKED     a Fact whose ingest handler failed (a process manager's
-//              handler included; a PM takes facts only): it was accepted
+//              fact handler included): it was accepted
 //              and dead-lettered for an operator, with no events. Such a
 //              failure is a bug, never a rejection, so the sender is
 //              answered OK and must not treat it as a refusal.
@@ -1160,14 +1159,15 @@ message Query {
 // sequence order. The order of books is unspecified.
 //
 // Forward causation, from the result alone. Every reaction (a saga's
-// commands and facts, their events, and so a process manager's process
-// events) carries its trigger's correlation (see the command_identity
-// region), so everything event E led to is in the result. How exactly each
-// edge is known depends on the kind of event (decision 13.3):
-//   - Events of a saga's facts, a process manager's process events
-//     included, are linked EXACTLY: their EventMeta.fact.external_id is
-//     the reaction origin, which spells out E's stream and sequence
-//     (derived_ids region, Reaction facts; decision 14.31).
+// commands, their events, a process manager's events, and refusal facts
+// and their events) carries its trigger's correlation (see the
+// command_identity region), so everything event E led to is in the result.
+// How exactly each edge is known depends on the kind of event (decision
+// 13.3):
+//   - Events of a refusal fact are linked EXACTLY: their
+//     EventMeta.fact.external_id spells out the refused command's trigger,
+//     the saga and the command's index (derived_ids region, Refusal facts;
+//     decision 14.31).
 //   - Events of reaction commands are linked only COARSELY, by
 //     correlation: the pages of one command share its
 //     causation.command_id, but the command's trigger (its causation_id)
@@ -1175,7 +1175,7 @@ message Query {
 //     saga emitted for it -> their events) is in the traces and
 //     logs the coordinators write (OpenTelemetry), not in the store.
 // Accepted cost: the event store alone answers "what belongs to this
-// workflow" and "what did this PM do about E", but not "which events did
+// workflow", but not "which events did
 // this saga's reaction to E produce"; that question goes to the traces,
 // whose retention the deployment chooses. Rejected commands leave no
 // events, so they do not appear (see the attempt-audit sink in the design
@@ -1334,15 +1334,25 @@ message ComponentDescriptor {
   // message's descriptor by the codegen (the client library fills it when
   // answering Describe; business code never writes it by hand).
   StateDescriptor state = 6;
-  // PROCESS_MANAGER only: the type URLs of the fact types that are the
-  // PM's STARTING facts, generated from its (command) entries with starts
-  // set (options.proto). A fact for a correlation with no PM instance is
-  // delivered only if its type is listed here; otherwise the coordinator
-  // skips it, silently (ruling B1 as adapted to facts; see
-  // ProcessManagerService, Starting an instance). Empty for every other
+  // PROCESS_MANAGER only: the type URLs of the command and fact types
+  // that are the PM's STARTING inputs, generated from its (command)
+  // entries with starts set (options.proto). An input for a correlation
+  // with no PM instance is delivered only if its type is listed here;
+  // otherwise the coordinator skips a fact silently and refuses a command
+  // (ruling B1, adapted; the command case is PROPOSED; see
+  // process_manager.proto, Starting an instance). Empty for every other
   // kind: a descriptor of another kind that sets it is refused, as one
   // with an empty rules_version is (see ComponentService, Refusal).
   repeated string starting_types = 7;
+  // SAGA only: the type URLs of the commands the saga has an on-refused
+  // callback for, generated from the (on_refused) options naming it
+  // (options.proto). On a business rejection of one of these the
+  // coordinator calls SagaService.OnRefused; a refused command of any
+  // other type is dead-lettered for a human (PROPOSED; SagaService in
+  // saga.proto, Refusals). Empty for every other kind: a descriptor of
+  // another kind that sets it is refused, as one with an empty
+  // rules_version is.
+  repeated string refusal_types = 8;
 }
 
 // A component's state message, as the domain-blind coordinator needs it:

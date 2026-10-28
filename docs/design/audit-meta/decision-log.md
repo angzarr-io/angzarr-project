@@ -136,6 +136,8 @@ Reactions always run asynchronously.
 - Aligns with: Axon, Marten/Wolverine and NServiceBus, where reactions are
   asynchronous messages.
 
+> **Amended by 14.31 (pass 14):** the side channel stays deleted, but a refusal is no longer a domain event of the refusing side. A saga's target (an aggregate or a process manager) refuses the saga's command with a business rejection and records nothing. The saga's coordinator then calls the saga's on-refused callback with one struct, `Refusal { event, command, response }` (the triggering event, the command sent, the refusal response); the callback, stateless, crafts an unrefusable rejection FACT for the saga's own source domain, whose fact handler decides what the refusal means and records its own events. Both calls go through the outbox (the fact is written in the transaction that clears the command's entry), retried, deduplicated by command id and fact id. Process managers take the replies to their steps as commands from sagas, and the refusals of their own steps as these facts.
+
 **2.2 The compensation and notification channel is deleted.** In its place,
 process managers handle replies, and refusals are domain events.
 - Why: a refusal is a business fact and belongs in a stream. A side channel
@@ -275,7 +277,7 @@ unless overridden.
 
 **5.5 `request_id` is required for `HandleAsync` and DLQ replay.**
 
-> **Amended by 14.31 (pass 14):** the outbox is one component-kind-agnostic capability: any component whose output leaves its own stream uses it, and today that is the saga. A process manager needs none: its only output is its own events, and it takes facts only, so it consumes no stream and has no checkpoint.
+> **Amended by 14.31 (pass 14):** the outbox is one component-kind-agnostic capability: any component whose output leaves its own stream uses it, and today that is the saga, for its commands and its refusal facts. A process manager needs none: it is a domain, its only output is its own events, and it consumes no stream, so it has no checkpoint.
 
 **5.6 A transient outbox for all reactors.** Output is stored atomically with
 the source checkpoint, dispatched, then cleared, so that only keys remain.
@@ -1245,7 +1247,7 @@ everything else (CR-1, renamed from `protoc-gen-angzarr-conflict`).
 - The `ContextualCommand` window boundary is named explicitly: pages
   `command.handling.expected_sequence .. events.next_sequence-1`.
 
-> **Amended by 14.31 (pass 14):** `ProcessManagerCoordinatorService` is deleted (a process manager has no trigger entry point); a saga's facts for a process manager also carry the framework-only `causation_id`.
+> **Amended by 14.31 (pass 14):** `ProcessManagerCoordinatorService` is deleted (a process manager is a domain, with no trigger entry point); a saga's refusal facts also carry the framework-only `causation_id`.
 
 **12.10 Framework-only fields and routes are authenticated by mTLS
 identity, on the same RPCs.** `causation_id`, and the caller-supplied
@@ -1305,7 +1307,7 @@ lines, a number and a name each). The new fields take fresh numbers (17,
 pass-12 bytes for 13 and 15 to an empty `EventMeta`. Because `command_id`
 keeps its name, its JSON (`commandId`) is unchanged.
 
-> **Amended by 14.31 (pass 14):** a process manager takes facts only, so every event, a PM's included, carries `command_id`. `triggering_event` (18) is deleted, unreserved; `causation` keeps one arm.
+> **Amended by 14.31 (pass 14):** a process manager is a domain with no triggers, so every event, a PM's included, carries `command_id`. `triggering_event` (18) is deleted, unreserved; `causation` keeps one arm.
 
 **13.1 `EventMeta.causation` is a oneof of the event's direct cause.**
 `oneof causation { UUID command_id = 17; EventRef triggering_event = 18; }`.
@@ -1321,7 +1323,7 @@ on every persisted event. Field 13 is deleted, unreserved.
 - Cost: readers switch on the arm; the dedup index reads one arm.
 - Supersedes: 12.4's field list (with 13.3).
 
-> **Superseded by 14.31 (pass 14):** a process manager has no triggers; its only input is facts, which sagas send it. Its events carry `causation.command_id` (the fact's id) and the fact's correlation, and deduplicate on `command_id` before the handler runs. No PM event is trigger-caused, so `triggering_event`, its index and the trigger lookup are deleted.
+> **Superseded by 14.31 (pass 14):** a process manager is a domain with no triggers; its inputs are commands (which sagas send it) and facts. Its events carry `causation.command_id` and their input's correlation, and deduplicate on `command_id` before the handler runs. No PM event is trigger-caused, so `triggering_event`, its index and the trigger lookup are deleted.
 
 **13.2 PM process events name their trigger, carry its correlation, and
 deduplicate on it.** The PM's coordinator stamps each process event with
@@ -1598,6 +1600,8 @@ coordinator stamps the head), the builder method is
 `UNSPECIFIED`, a cover has no correlation id, and an `EventPage` payload
 is never a `PayloadReference`. Owner ruling, 2026-10-19.
 
+> **Superseded by 14.31 (pass 14):** a process manager is a domain served by `CommandHandlerService`; its state is `CommandHandlerResponse.events.snapshot.state`, as an aggregate's, and `ProcessManagerHandleResponse` is deleted.
+
 **14.14 A process manager's state has its own response field.** Amends
 14.12. `ProcessManagerHandleResponse` gains `Snapshot process_state = 5`,
 the counterpart of the request's `process_state`: the client library sets
@@ -1669,6 +1673,8 @@ several components) is deleted. Owner ruling, 2026-10-20.
   readiness its own.
 - Cost: more processes and coordinators to deploy; a small example runs
   several binaries.
+
+> **Amended by 14.31 (pass 14):** a process manager's coordinator is a command handler coordinator for its domain; several PMs told of one event are several sagas, each sending its own PM a command.
 
 **14.20 Each process manager has its own coordinator.** Supersedes 14.16.
 `ProcessManagerHandleRequest.component` (3) and its `INVALID_ARGUMENT` /
@@ -1804,7 +1810,7 @@ wherever stored events reach a consumer, live publishing and history reads
 alike. C-0586 now exercises a subscriber reading stored history. Owner
 ruling, 2026-10-20 (from core's report).
 
-> **Amended by 14.31 (pass 14):** a process manager has no trigger; its root is the correlation of the facts addressed to it (a fact's cover root, which its `correlation_id` must equal), and its edition the fact's. A saga's fact takes its trigger's correlation, so the rule reaches the same instance.
+> **Amended by 14.31 (pass 14):** a process manager has no trigger; its root is the correlation of the commands and facts addressed to it (their cover root, which a set `correlation_id` must equal), and its edition theirs. A saga's command takes its trigger's correlation, so the rule reaches the same instance.
 
 **14.30 A process manager's root is its trigger's correlation id.** A
 PM instance's stream is (the PM's domain, the trigger's edition, the
@@ -1831,192 +1837,209 @@ correlation is a 16-byte `UUID` since 9.1. Owner ruling, 2026-10-27.
   <https://masstransit.massient.com/documentation/patterns/saga>, where
   masstransit.io's saga documentation now redirects).
 
-**14.31 Process managers take facts only.** Owner ruling, 2026-10-27
-(ruling 7 of the angzarr/annals common plan, "facts in, facts out"),
-revised by the owner on 2026-10-28 to FACTS ONLY. It also writes into the
-spec the owner's ruling **P1** of 2026-10-26 ("a pm would calculate the
-data needed for cross-domain commands, emit events with that data, then
-sagas for those domains would fire the events"), which the protos had
-never carried. Amends 13.1, 13.2, 5.6, 14.24 and 14.30, and the saga
-contract (flagged below).
-- **A PM's only input is facts addressed to it.** A fact (a `CommandBook`
-  whose page body is a `Fact`) whose cover is the PM's domain and whose
-  root names the instance; its `correlation_id`, when unset, is given that
-  root, and a different set value is malformed (14.30 as amended). A PM
-  subscribes to no domain and has no triggers: the events of other
-  domains reach it only as facts, which the saga for (that domain, the
-  PM's domain) builds. A client or an external system may also send it a
-  fact. Its handler is infallible: it records the fact and never refuses
-  it. Its fact types are its `(command)` entries.
-- **No commands to a PM (owner's ruling, 2026-10-28).** The owner:
-  commands to a PM from external systems were a leftover, and a command
-  permits rejection, which needs compensation, a lot of work the owner is
-  "only mostly convinced is necessary". So a PM takes no commands: a
-  `Command` addressed to a PM's stream is refused `INVALID_ARGUMENT` (a
-  saga's is dead-lettered and alerted). This may be revisited if a real
-  case for a command to a PM appears.
-- **Delivery.** A fact to a PM arrives through
-  `CommandHandlerCoordinatorService`, which the PM's own coordinator serves
-  for the PM's domain, in any command mode, and is handed to
-  `ProcessManagerService.Handle`. It follows the Fact pipeline: no
-  `Handling`, `fact_origin` required, deduplicated by the fact's id
-  (`command_id`) on the PM's stream before the handler runs, answered
-  `APPLIED` or `DUPLICATE`, never a rejection. A failing PM handler is a
-  bug: the fact is dead-lettered and alerted, and a sender that waits is
-  answered `PARKED`, as for any failing fact handler.
-  `ProcessManagerCoordinatorService`, the trigger entry point, is deleted:
-  a PM has none.
-- **Which facts start an instance (B1, adapted).** Annals ruling B1 of
-  2026-10-26, which the owner first wrote in for triggers only, now
-  governs facts. A PM instance exists once its stream (in the fact's
-  edition) holds an event. A fact for a correlation with no instance
-  starts one only if the PM declares its type as a starting fact:
-  `CommandOptions.starts` (3) on its `(command)` entry, advertised to the
-  coordinator as `ComponentDescriptor.starting_types` (7). It is then
-  delivered with an empty `process_state`. Any other fact for an unknown
-  correlation is skipped, silently: no handler, nothing appended, nothing
-  dead-lettered or alerted, and the sender answered `OK`, `APPLIED`, with
-  no events. A fact for an existing instance is delivered whatever its
-  type. The type is matched by its type URL after upcasting (14.25). The
-  owner's accepted details carry over: the `starts` / `starting_types`
-  naming pattern, the upcast type URL, the silent skip. `starts` on an
-  aggregate's entry fails generation, and a descriptor of another kind
-  listing `starting_types` is refused like one with an empty
-  `rules_version`.
+**14.31 A process manager is a domain.** Owner rulings of 2026-10-27
+(ruling 7 of the angzarr/annals common plan) and 2026-10-28 (rulings 7 and
+9 as settled after the pm-inputs survey; two earlier drafts of this entry,
+"facts in, facts out" and "facts only", are withdrawn). It also writes into
+the spec the owner's ruling **P1** of 2026-10-26 ("a pm would calculate
+the data needed for cross-domain commands, emit events with that data,
+then sagas for those domains would fire the events"), which the protos
+had never carried. Amends 2.2, 5.6, 12.10, 13.1, 13.2, 14.14, 14.20, 14.24
+and 14.30.
+- **A PM is just a domain.** Its inputs are COMMANDS, which it may refuse,
+  and FACTS (timeouts, webhooks, refusal facts), which it never refuses.
+  It has NO triggers: it subscribes to no domain, and the saga for
+  (another domain, the PM's domain) turns that domain's events into
+  commands to the PM. Its only output is its own events (P1): it sends no
+  commands. It is served exactly as an aggregate is: its business process
+  implements `CommandHandlerService` and its coordinator serves
+  `CommandHandlerCoordinatorService` for its domain. So
+  `ProcessManagerService`, `ProcessManagerCoordinatorService`,
+  `ProcessManagerHandleRequest` and `ProcessManagerHandleResponse` are
+  deleted, unreserved (6.6); `process_manager.proto` keeps only the
+  comment that says what sets a PM apart: its root and its start rule.
+  Its `(command)` entries are declared like an aggregate's, and `Handling`
+  applies to its commands as to any domain's.
+- **The root is the correlation (14.30 amended).** A PM instance's root is
+  its correlation id, unchanged. A command or fact addressed to a PM names
+  the instance in its cover; a `correlation_id` left unset is given the
+  root, and one set to anything else is malformed. A saga addressing a PM
+  therefore names the instance its trigger's correlation names. This is
+  the one pipeline rule a PM's coordinator adds to an aggregate's.
+- **Refusals (2.2 amended; owner's rulings, 2026-10-28, plan ruling 7).**
+  In the owner's words: "saga calls foreign command handler, which
+  refuses. saga then calls its domain command handler and passes it a fact
+  (that the foreign CH refused)", made precise as "saga calls foreign
+  command handler directly with a callback for on refusal. On refusal,
+  callback, it gets the event, the command sent, and the response and can
+  craft its rejection fact". A saga's target, an aggregate or a PM alike,
+  refuses a saga's command as it refuses any command (a business
+  rejection, `FAILED_PRECONDITION`) and records NOTHING. The saga's
+  coordinator then calls the saga's ON-REFUSED CALLBACK,
+  `SagaService.OnRefused(Refusal) returns (RefusalFact)`, with one struct,
+  `Refusal { event, command, response }`: the triggering event, the command
+  as sent, and the target's refusal response (status message and
+  details). The callback returns the rejection FACT, a fact type of the
+  saga's OWN source domain, addressed to that domain (normally the stream
+  of the triggering event); that domain's fact handler decides what the
+  refusal means (release a hold, fail a process) and records its own
+  events. The saga stays stateless: the callback's inputs carry
+  everything. This is the one mechanism for every saga target.
+  - **Declared in proto.** The new `(on_refused)` option (`RefusalCallback
+    { saga, command }`, `options.proto`, extension 50108) sits on the fact
+    message the callback returns and names the saga and the refused
+    command type. The generator gives the saga one handler per entry,
+    `on_refused_<Command>(Refusal) -> <Fact>`, and the saga's descriptor
+    advertises the command types it covers
+    (`ComponentDescriptor.refusal_types`, 8).
+  - **Stamping and dedup.** The coordinator stamps the fact as it stamps a
+    command: `causation_id` (the triggering event), the trigger's
+    correlation and edition, and `fact_origin.external_id` =
+    `"angzarr-refusal:"` + the refused command's reaction name, with the
+    fact id derived from it. The command is deduplicated by its derived
+    `command_id` at the target, the fact by its fact id at the source.
+  - **Distributed.** The coordinator invokes the callback when the outbox
+    relay receives the refusal, and writes the crafted fact as a new outbox
+    entry in the same transaction that clears the command's entry; a crash
+    retries the step, and the two ids keep it from recording twice. In
+    annals the callback is a direct call in the chain.
+  - Only a business rejection reaches the callback; retryable failures are
+    retried and any other terminal failure is a bug, dead-lettered and
+    alerted. The fact is unrefusable, so compensation cannot loop.
+  - **PROPOSED (flagged):** a refused command with NO callback is
+    dead-lettered for a human, with its refusal, and alerted; a callback
+    that FAILS (an error status, or a malformed fact) is a saga bug,
+    dead-lettered and alerted like any handler failure; a fact its source
+    cannot ingest is dead-lettered and alerted at the source.
+  - **A context object was considered and deferred.** The owner first
+    asked for an opaque context the saga could attach to a command and get
+    back in the callback, then judged it unnecessary complexity: a
+    stateless saga's event, command and response already carry everything
+    it used, except data it used but left out of the command, and the fix
+    for that is to put the data in the command. Taking one struct,
+    `Refusal`, keeps a `context` field addable later without breaking saga
+    code. Nothing extra rides in the outbox entry.
+- **The one exception to "a saga never delivers a fact".** A saga's
+  business code still emits Commands only (`SagaResponse.commands`). The
+  rule that a coordinator refuses a Fact carrying `causation_id` gets
+  exactly one exception: a fact addressed to the domain of the stream its
+  `causation_id` names, which is how a saga's rejection fact reaches only
+  its own source domain.
+- **Start rule (B1, adapted; OPEN for commands).** Only input types
+  (command or fact) the PM declares as starting (`CommandOptions.starts`,
+  3; advertised as `ComponentDescriptor.starting_types`, 7) may start an
+  instance. Any other input for a correlation with no instance is not
+  delivered, decided by the coordinator before the handler by the type URL
+  after upcasting: a FACT is skipped silently (answered `APPLIED`, no
+  events, nothing dead-lettered or alerted). For a COMMAND the drafter
+  PROPOSES (FLAGGED, not ruled) a refusal: `FAILED_PRECONDITION` with an
+  `ErrorInfo` reason `PM_NO_INSTANCE`, recording nothing. Reasons: a
+  command is refusable, and a silent `APPLIED` would tell the sender a
+  command took effect that did not; a saga's refused command goes to the
+  saga's on-refused callback, whose fact tells the saga's source, which
+  decides what an unstarted process means for it, by the same mechanism
+  as every other refusal (or, with no callback, it is dead-lettered for a
+  human). The alternative is to skip it silently, as for a fact. Either
+  way a PM should declare as starting every input that can arrive first.
+  `starts` on an aggregate's entry fails generation; a PM with no starting
+  input draws a generator warning; a non-PM descriptor listing
+  `starting_types` is refused like one with an empty `rules_version`.
+- **Deduplication and the handler context.** By `command_id` and by fact
+  id (a fact's `command_id`, derived from its `fact_origin`), on the PM's
+  stream, before the handler runs, as for any domain. One handler context
+  carries the input's identity (its `command_id`, its `fact_origin` for a
+  fact, its correlation, the instance's root). There is no trigger:
+  `EventMeta.triggering_event` (18) is deleted, unreserved, with its index
+  and the `find_triggered` lookup, and `EventMeta.causation` keeps one arm,
+  `command_id` (13.1 and 13.2 amended; 13.2's "trigger-caused events carry
+  no command" has no referent left). `EventConsumer.applies` (3), which
+  told a PM's own fold from a trigger, is deleted, unreserved; an `(event)`
+  entry naming a PM with a source domain fails generation.
+- **Failures.** A failing PM fact handler is a bug: the fact is
+  dead-lettered and alerted, a waiting sender answered `PARKED`. A command
+  handler failing with anything but a business rejection is a bug too,
+  handled as for an aggregate (a saga's command dead-lettered and alerted).
 - **Outputs are the PM's own events.** `ProcessManagerHandleResponse.commands`
-  (2) is deleted, unreserved (6.6). A PM sends no commands and no facts. To
-  act on another domain it records an event carrying that command's data,
-  and the saga for (the PM's domain, that domain) builds the command
-  (14.23, 14.24). `ComponentOptions.output_domains` (6) is deleted,
-  unreserved, and `output_domain` is SAGA only (ruled).
+  (2) is deleted with the message. To act on another domain a PM records
+  an event carrying that command's data, and the saga for (the PM's
+  domain, that domain) builds the command (14.23, 14.24).
+  `ComponentOptions.output_domains` (6) is deleted, unreserved, and
+  `output_domain` is SAGA only (ruled).
 - **The outbox is polymorphic.** Owner's ruling, 2026-10-28: "leave it; if
   we need an outbox it should be polymorphic". 5.6's transient outbox is
-  one transactional outbox, a capability of the framework that names no
-  component kind: any component whose output leaves its own stream
-  (output that is not an append to a stream the component owns) stores
-  that output atomically with its source checkpoint, dispatches it, then
-  clears it, and redelivery re-sends it verbatim. Today the saga is the
-  only kind with such output, so it is the only user. A PM needs none: its
-  only output is its own events, appended like an aggregate's, and since
-  it consumes no stream it has no checkpoint either. A PM, or another
-  kind, that later emits output leaving its stream uses the same outbox
-  under the same rules, with no new design.
-- **One handler context, carrying the fact's identity.**
-  `ProcessManagerHandleRequest` carries `CommandBook fact = 4` beside
-  `process_state` (2); `trigger` (1) is deleted, unreserved. Field 4, not
-  1 or 3, so bytes of the deleted `trigger` (an `EventBook`) or of main's
-  deleted field 3 can never decode as it. The client library gives every
-  PM handler one context type carrying the fact's id (`command_id`), its
-  `fact_origin` and its `correlation_id` (the instance's root), which is
-  exactly the cause the coordinator stamps on the events the handler
-  writes.
-- **Every PM event has a producing fact (13.2 amended).** A PM's events
-  carry `causation.command_id` (the fact's id), `fact` and the fact's
-  correlation, like any fact's events, and are deduplicated by
-  `command_id`. 13.2's "trigger-caused events carry no command" has no
-  referent left: no PM event is trigger-caused, so
-  `EventMeta.triggering_event` (18) is deleted, unreserved, the
-  (stream, `triggering_event`) index and the `find_triggered` lookup go,
-  and `EventMeta.causation` keeps one arm, `command_id`.
-- **Deduplication is the dispatcher's job.** The PM's coordinator looks
-  the fact's id up on the PM's stream before the handler runs; on a hit
-  the handler does not run and nothing is appended. The handler's context
-  offers no deduplication.
-- **The saga contract changes (FLAGGED).** Until now a saga emitted
-  Commands, never Facts, and "a reactor that emits a Fact is refused".
-  Now a saga's output depends on its destination: Commands for an
-  aggregate's domain, Facts for a process manager's (all of one kind,
-  since a saga has one destination). The generator picks the handler's
-  return type from the kind that owns `output_domain`. A saga's fact is
-  addressed to the PM instance its trigger's correlation names (cover
-  root = the trigger's `correlation_id`). Its coordinator stamps
-  `causation_id` (the trigger) and the trigger's correlation, as on a
-  command, and a reaction origin: `fact_origin.external_id` =
-  `"angzarr-reaction:"` + the reaction name (the six netstrings of a
-  reaction command id), with the fact id derived from it by the ordinary
-  fact rule, so a re-run reproduces it and the PM deduplicates it. A
-  `Fact` may now carry `causation_id`, but only a saga's, and only to a
-  PM: a `Fact` with `causation_id` addressed to an aggregate is malformed,
-  so sagas still never inject facts into aggregates. This reverses the
-  pass-13-era rejection of "a reaction-origin fact with a derived command
-  id" (component-shapes proposal): that fact was invented for a trigger
-  no command produced; this one is a real message a saga sends.
-- **What a PM author can no longer do:** subscribe to another domain's
-  events (an `(event)` entry naming a PM with a `domain` fails generation;
-  `EventConsumer.applies` (3), which told a PM's fold from a trigger, is
-  deleted, unreserved); take a command, or refuse anything; send a command
-  or a fact; declare `output_domain` or `output_domains`; deduplicate in
-  the handler.
-- **What sagas now do:** carry every event a PM must know about into the
-  PM, as facts, and every PM decision that touches another domain out of
-  it, as commands. In the blackjack example, `TableBuyInSaga` (table ->
-  buy-in) turns `SeatHeld` and `PlayerSeated` into the facts
-  `TableSeatHeld` (a starting fact) and `TablePlayerSeated`, and
-  `PlayerBuyInSaga` (player -> buy-in) turns `FundsHeld` and
-  `FundsCaptured` into `PlayerFundsHeld` and `PlayerFundsCaptured`;
+  one transactional outbox naming no component kind: any component whose
+  output leaves its own stream stores that output atomically with its
+  source checkpoint, dispatches it, then clears it, and redelivery re-sends
+  it verbatim. Today the saga is the only user, for its commands and its
+  rejection facts (written as a new entry in the transaction that clears
+  the refused command's). A PM needs none:
+  its only output is its own events, and it consumes no stream, so it has
+  no checkpoint.
+- **What sagas now do:** carry every event a PM must hear of into the PM,
+  as commands, and every PM decision out of it, as commands; and, through
+  their on-refused callbacks, turn any refusal of their commands into a
+  fact for their own source domain. In the
+  blackjack example, `TableBuyInSaga` (table -> buy-in: `StartBuyIn`, the
+  starting input, and `RecordPlayerSeated`) and `PlayerBuyInSaga` (player
+  -> buy-in: `RecordFundsHeld`, `RecordFundsCaptured`) feed the PM;
   `BuyInPlayerSaga` (buy-in -> player: `HoldFunds`, `CaptureFunds`) and
-  `BuyInTableSaga` (buy-in -> table: `ConfirmSeat`) build its commands.
-  `BuyInFundsHeld` carries `table_root` (2) and `BuyInSeated`
-  `player_root` (3), because a saga takes its target roots from the event
-  and never looks one up.
-- **Removed by the 2026-10-28 revision:** triggers as a PM input; the
-  `cause` oneof's trigger and command arms; the trigger `EventRef` in the
-  handler context; `find_triggered` deduplication; commands to a PM
-  through `CommandHandlerCoordinatorService`, and `PARKED` for a failing
-  command; `ProcessManagerCoordinatorService`; `EventConsumer.starts` and
-  `Target.starting_types` (B1 for triggers); and the drafter's proposal
-  that a trigger book's trigger is its last page (which page of a saga's
-  trigger book is the trigger stays open, as backlog OB-6).
-- **Drafter's choices** (none of these was in the rulings).
+  `BuyInTableSaga` (buy-in -> table: `ConfirmSeat`, `ReleaseSeat`) carry
+  its decisions. One refusal runs end to end: the wallet refuses
+  `HoldFunds` and records nothing, `BuyInPlayerSaga`'s callback
+  `on_refused_HoldFunds` crafts `HoldFundsRefused` for the buy-in instance,
+  the PM records `BuyInFailed`, and `BuyInTableSaga` releases the seat.
+- **Withdrawn with the earlier drafts:** triggers as a PM input and their
+  dedup by `find_triggered`; the `cause` oneof; the facts-only PM; sagas
+  forwarding facts to a PM, and the saga contract change that allowed it;
+  the reaction-origin fact id; the trigger-page proposal (which page of a
+  saga's trigger book is the trigger stays open, backlog OB-6).
+- **Drafter's choices.**
   - Accepted by the owner on 2026-10-28 and still standing: the
-    correlation names the instance (a set `correlation_id` must equal the
-    cover's root); a failing PM handler is dead-lettered and alerted; for
-    B1, the `starts` / `starting_types` naming, matching on the upcast
-    type URL, and the silent skip.
+    correlation names the instance; a failing PM handler is dead-lettered
+    and alerted; for B1, the `starts` / `starting_types` naming, the
+    upcast type-URL match and the silent skip (now for facts).
   - Still for the owner to confirm:
-    - facts reach a PM through `CommandHandlerCoordinatorService` (served
-      by the PM's coordinator), not a fact RPC of a PM coordinator
-      service; `ProcessManagerCoordinatorService` is deleted;
-    - a sender that waits on a fact whose PM handler fails is answered
-      `PARKED`, as for any failing fact handler;
-    - a skipped fact is answered `APPLIED` with no events, and leaves
-      nothing, so its redelivery is checked again;
-    - the B1 check runs after deduplication (it makes no difference: a
-      stream with no instance holds no fact to find);
-    - `starts` on `CommandOptions` (3) and `starting_types` on
-      `ComponentDescriptor` (7); a PM declaring no starting fact draws a
-      generator warning (it could never start);
-    - deleting `EventMeta.triggering_event` (18) and keeping
-      `causation` a one-arm oneof; deleting `EventConsumer.applies` (3);
-    - the saga's fact identity: `causation_id` on a saga's fact, the
-      `"angzarr-reaction:"` origin, the root taken from the trigger's
-      correlation, and refusing a `Fact` with `causation_id` at an
-      aggregate (how sagas are still kept from injecting facts into
-      aggregates);
-    - the example's fact and saga names (`TableSeatHeld`,
-      `TablePlayerSeated`, `PlayerFundsHeld`, `PlayerFundsCaptured`,
-      `TableBuyInSaga`, `PlayerBuyInSaga`), and placing them in
-      `buy_in.proto`;
-    - the field name `cause` is gone; `fact` (4) is the request's field;
-    - a Fact may also come to a PM from a client or an external system
-      (the owner's ruling names sagas; nothing forbids other senders).
-  - Still open from the first draft: the saga names `BuyInPlayerSaga` and
-    `BuyInTableSaga`.
-- Why: a PM's state is a record of what happened, so every input it takes
-  is a fact and every output is its own event. Feeding a PM only facts
-  makes sagas the one place where one domain's events cross into
-  another, in both directions, and removes the PM's subscriptions,
-  checkpoint and trigger identity. Keeping commands away from PMs keeps
-  rejection, and so compensation, out of them.
-- Cost: every cross-domain step is two hops each way (a saga fact into
-  the PM, a PM event, then a saga command out) and one saga per (source
-  domain, PM) pair to deploy; a PM author who wanted to refuse a request
-  must model it as an aggregate, or record the refusal as an event; the
-  saga contract grows a second output kind.
-- Aligns with: the event-carried-state idiom the owner adopted in P1.
-  Diverges knowingly, as P1 recorded, from the frameworks whose sagas
-  (their process managers) consume events and send commands themselves.
-  Verified against each framework's documentation on 2026-10-28:
+    - the start rule for a non-starting COMMAND: refused `PM_NO_INSTANCE`
+      (proposed) or skipped silently (FLAGGED, above);
+    - deleting `ProcessManagerService` and its messages, so a PM is served
+      by `CommandHandlerService` (`process_manager.proto` is comment only);
+    - the names `on_refused` (the option and the handler prefix),
+      `RefusalCallback`, `Refusal { event, command, response }`,
+      `RefusalResponse`, `RefusalFact`, `OnRefused` and
+      `ComponentDescriptor.refusal_types`; declaring the callback on the
+      fact message it returns;
+    - the `"angzarr-refusal:"` origin, and checking only the fact's
+      domain (not its root) against the trigger's stream;
+    - only `FAILED_PRECONDITION` reaches the callback;
+    - no callback: dead-letter for a human; a failing callback:
+      dead-letter and alert;
+    - deleting `EventMeta.triggering_event` and keeping `causation` a
+      one-arm oneof; deleting `EventConsumer.applies`;
+    - a PM with no starting input draws a generator warning;
+    - in the example, the command names (`StartBuyIn`, `RecordFundsHeld`,
+      `RecordPlayerSeated`, `RecordFundsCaptured`), the saga names
+      (`TableBuyInSaga`, `PlayerBuyInSaga`, `BuyInPlayerSaga`,
+      `BuyInTableSaga`), `BuyInFailed`, `PHASE_FAILED` and
+      `failure_reason`, and stale steps accepted as no-ops rather than
+      refused.
+- Why: one input shape for every domain (commands and facts) and one
+  output shape for every stateful component (its own events); sagas are
+  the one place where one domain's events cross into another; a refusal
+  reaches the one domain that asked for the refused step, durably and
+  unrefusably, with no side channel and no stateful sender.
+- Cost: every cross-domain step is a saga hop each way, and one saga per
+  (source domain, PM) pair to deploy; every domain whose events feed a
+  saga whose commands can be refused declares a callback and a fact type
+  for it; a refusal is recorded only by the
+  source, not by the refusing domain, so the target's stream never shows
+  what it turned away.
+- Aligns with: the PM-as-domain shape of IDDD (process state in an
+  aggregate fed commands by listeners), Akka (an entity with command
+  handlers) and EventFlow (sagas as event-sourced aggregates), per the
+  pm-inputs survey; and the event-carried-state idiom the owner adopted in
+  P1. Diverges knowingly from the frameworks whose sagas (their process
+  managers) consume events and send commands themselves. Verified against
+  each framework's documentation on 2026-10-28:
   - Axon Framework 4.10: the saga example's event handler calls
     `commandGateway.send(new PrepareShippingCommand(...))` and
     `commandGateway.send(new CreateInvoiceCommand(...))`
@@ -2031,9 +2054,8 @@ contract (flagged below).
   - MassTransit: a saga "drives the next steps in the process by
     publishing events or sending commands"
     (<https://masstransit.massient.com/documentation/patterns/saga>).
-  The draft's further claim, that these frameworks "support but do not
-  default to" the event-carried-state idiom, is dropped: none of the
-  pages says so.
+  The IDDD, Akka and EventFlow alignment is the survey's reading, not
+  re-verified for this entry.
 
 ## Corrections
 

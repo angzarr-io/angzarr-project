@@ -174,6 +174,11 @@ fn extensions_are_declared_with_their_numbers_and_types() {
     assert_eq!(unit.r#type(), Type::Message);
     assert_eq!(unit.type_name(), ".io.angzarr.v1.ConflictUnit");
 
+    let refused = ext("on_refused");
+    assert_eq!(refused.number(), 50108);
+    assert_eq!(refused.extendee(), ".google.protobuf.MessageOptions");
+    assert_eq!(refused.type_name(), ".io.angzarr.v1.RefusalCallback");
+
     // No two MessageOptions extensions share a number, and the retired
     // 50101-50103 stay unused.
     let mut numbers: Vec<i32> = options
@@ -183,7 +188,7 @@ fn extensions_are_declared_with_their_numbers_and_types() {
         .map(|e| e.number())
         .collect();
     numbers.sort_unstable();
-    assert_eq!(numbers, [50100, 50104, 50105, 50106]);
+    assert_eq!(numbers, [50100, 50104, 50105, 50106, 50108]);
 }
 
 #[test]

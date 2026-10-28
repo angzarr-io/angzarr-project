@@ -221,8 +221,8 @@ fn event_meta_records_the_command_as_causation_not_its_trigger() {
 
 #[test]
 fn a_process_managers_events_name_their_fact() {
-    // Decision 14.31: a PM takes facts only, so its events are a fact's
-    // events: the fact's id as causation, its origin, its correlation.
+    // Decision 14.31: a PM is a domain; its events for a fact carry the
+    // fact's id as causation, its origin and its correlation.
     let page = command_page(Kind::Fact);
     let meta = round_trip(&meta(Kind::Fact));
     assert_eq!(
@@ -596,6 +596,7 @@ fn component_descriptor_carries_its_state_descriptor() {
         state: Some(state),
         rules_version: "1.4.2+build.7".into(),
         starting_types: vec![],
+        refusal_types: vec![],
     };
     let decoded = round_trip(&original);
     assert_eq!(decoded, original);
@@ -715,13 +716,13 @@ fn type_names_are_io_angzarr_v1() {
 
 #[test]
 fn a_process_manager_descriptor_lists_its_starting_facts() {
-    // Ruling B1, adapted to facts (decision 14.31): a PM's descriptor names
-    // the fact types that may start an instance. A PM subscribes to
-    // nothing, so it has no inputs.
+    // Ruling B1, adapted (decision 14.31): a PM's descriptor names the
+    // input types that may start an instance. A PM subscribes to nothing,
+    // so it has no inputs.
     let original = ComponentDescriptor {
         name: "buy-in".into(),
         kind: ComponentKind::ProcessManager as i32,
-        starting_types: vec!["/io.angzarr.examples.v1.TableSeatHeld".into()],
+        starting_types: vec!["/io.angzarr.examples.v1.StartBuyIn".into()],
         rules_version: "1.0.0".into(),
         ..Default::default()
     };
@@ -729,7 +730,7 @@ fn a_process_manager_descriptor_lists_its_starting_facts() {
     assert_eq!(decoded, original);
     assert_eq!(
         decoded.starting_types,
-        ["/io.angzarr.examples.v1.TableSeatHeld"]
+        ["/io.angzarr.examples.v1.StartBuyIn"]
     );
     assert!(decoded.inputs.is_empty());
     // starting_types is ComponentDescriptor's field 7: 7 << 3 | 2 = 0x3a.
@@ -738,4 +739,24 @@ fn a_process_manager_descriptor_lists_its_starting_facts() {
         ..Default::default()
     };
     assert_eq!(descriptor.encode_to_vec(), [0x3a, 2, b'/', b'a']);
+}
+
+#[test]
+fn a_saga_descriptor_lists_the_commands_it_has_a_refusal_callback_for() {
+    // Decision 14.31: the coordinator calls SagaService.OnRefused only for
+    // a refused command whose type the saga's descriptor lists.
+    let original = ComponentDescriptor {
+        name: "saga-buy-in-player".into(),
+        kind: ComponentKind::Saga as i32,
+        refusal_types: vec!["/io.angzarr.examples.v1.HoldFunds".into()],
+        rules_version: "1.0.0".into(),
+        ..Default::default()
+    };
+    assert_eq!(round_trip(&original), original);
+    // refusal_types is ComponentDescriptor's field 8: 8 << 3 | 2 = 0x42.
+    let descriptor = ComponentDescriptor {
+        refusal_types: vec!["/a".into()],
+        ..Default::default()
+    };
+    assert_eq!(descriptor.encode_to_vec(), [0x42, 2, b'/', b'a']);
 }

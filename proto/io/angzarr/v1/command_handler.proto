@@ -114,10 +114,10 @@ message CommandHandlerResponse {
 // Impact ordering (lowest to highest): ASYNC < DECISION < SIMPLE.
 //
 // No mode waits for reactions. Sagas always run asynchronously, after the
-// command's events are persisted; the commands and facts sagas emit are
-// separate commands with their own outcomes, including the facts that
-// reach a process manager (which reacts to nothing directly and emits no
-// commands; decision 14.31). Every mode
+// command's events are persisted; the commands sagas emit (to aggregates
+// and process managers alike), and their refusal facts, are separate
+// commands with their own outcomes (a process manager reacts to nothing
+// directly and emits no commands; decision 14.31). Every mode
 // publishes the persisted events downstream: there is no mode that writes
 // silently, so replay, migration and recovery tooling either lets reactions
 // run or rebuilds projections afterwards.
@@ -151,17 +151,15 @@ message CommandHandlerResponse {
 // expected_sequence that is ABORTED is dead-lettered with
 // SequenceMismatchDetails, since resending it verbatim cannot succeed.
 //
-// Reaction commands and facts (saga output) are delivered by framework
-// components through these same RPCs; the delivering component's
+// Reaction commands and refusal facts (saga output) are delivered by
+// framework components through these same RPCs; the delivering component's
 // configuration chooses the mode, never the message.
 //
-// A process manager's coordinator serves these RPCs for the PM's own
-// domain, for FACTS only: a fact addressed to a PM (from a saga, a client
-// or an external system) arrives here like any other fact, and is recorded
-// by the PM, never rejected: the answer APPLIED, DUPLICATE or PARKED. A
-// Command addressed to a PM is refused INVALID_ARGUMENT (see
-// ProcessManagerService, Delivery, in process_manager.proto; decision
-// 14.31).
+// A process manager is a domain (decision 14.31): its coordinator serves
+// these RPCs for the PM's own domain, and its business process implements
+// CommandHandlerService, exactly as an aggregate's do. Its commands may be
+// refused and its facts never are. The coordinator adds the PM's root and
+// start rules (process_manager.proto).
 //
 // Client libraries may expose a single handle(book, mode) call as API sugar
 // over these three RPCs; the mode still selects the RPC, and is never sent
@@ -235,15 +233,15 @@ service CommandHandlerCoordinatorService {
 // a caller may send, decided by who the caller is, never by the message.
 //
 // A framework component (a saga coordinator delivering reaction
-// commands and facts, the outbox dispatcher, the DLQ replayer, a
+// commands and refusal facts, the outbox dispatcher, the DLQ replayer, a
 // coordinator delivering triggers) authenticates with its mTLS identity,
 // issued to framework components only. Only such a caller may send:
 //   - CommandPage.causation_id (with the derived command_id of a reaction
-//     command, or the stamped reaction origin of a saga's fact; the
+//     command, or the stamped refusal origin of a refusal fact; the
 //     receiving coordinator trusts them from this caller);
 //   - a caller-supplied trigger EventBook to SagaCoordinatorService.Execute
 //     (whose stamping copies the trigger's correlation and EventRef onto
-//     the saga's commands and facts).
+//     the saga's commands and refusal facts).
 // Any other caller is a client. A client that sends a causation_id is
 // refused PERMISSION_DENIED, as is a client call to a trigger entry point:
 // the request is well formed, but the caller is not allowed to make it

@@ -36,7 +36,7 @@ option ruby_package = "Angzarr";
 // Three independent domain roles, never overloaded:
 //   domain            — the stream the component OWNS (writes its events to)
 //   input_domain      — a domain it SUBSCRIBES to (consumes events from)
-//   output_domain     — the domain it SENDS COMMANDS (or facts) to
+//   output_domain     — the domain it SENDS COMMANDS to
 //
 // Per kind (generation fails on a violation):
 //   kind             domain     input_domain               output_domain
@@ -46,10 +46,10 @@ option ruby_package = "Angzarr";
 //                                                          destination)
 //   PROJECTOR        forbidden  optional (per-event dom.)  empty
 // An aggregate owns its domain's stream and subscribes to nothing. A
-// process manager owns its own workflow stream (domain) and also
-// subscribes to nothing: its only input is facts addressed to it, which
-// sagas from other domains send, and it sends no commands (its decisions
-// reach other domains through sagas from its domain; decision 14.31). An
+// process manager is a domain too (decision 14.31): it owns its own
+// workflow stream (domain), subscribes to nothing, takes commands (most
+// from sagas of other domains) and facts, and sends no commands (its
+// decisions reach other domains through sagas from its domain). An
 // (event) entry naming a PM with a domain set fails generation. Sagas and
 // projectors own no stream.
 //
@@ -58,28 +58,25 @@ option ruby_package = "Angzarr";
 // A saga is a translator between exactly two domains: one source
 // (input_domain) and one destination (output_domain). There is one saga per
 // (source domain, destination domain) pair: every reaction that translates
-// events of one domain into commands (or facts) for another belongs to
-// that pair's one saga, however many event types it reacts to. Anything
-// that needs several destinations is a process manager, whose events the
-// sagas for (the PM's domain, each destination) translate. A saga's
-// output is Commands when its destination is an aggregate's domain and
-// Facts when it is a process manager's (decision 14.31): the generator
-// reads which kind owns output_domain in the proto tree and emits a
-// handler returning facts when a process manager owns it, and commands
-// otherwise (including when nothing in the tree owns it, which lint warns
-// about). A saga declaring no
+// events of one domain into commands for another belongs to that pair's
+// one saga, however many event types it reacts to; its destination may be
+// an aggregate's domain or a process manager's. Anything that needs
+// several destinations is a process manager, whose events the sagas for
+// (the PM's domain, each destination) translate. A saga declaring no
 // output_domain fails generation; at run time a saga command addressed to
 // any other domain is refused by the client library before it answers (see
 // SagaResponse in saga.proto).
 //
 // There are no compensation declarations. A refusal in a choreographed flow
-// is a domain event that a saga translates into commands, or into facts
-// for a process manager, which handles the replies to the steps it starts
-// as facts. A process manager's inputs are declared as (command) entries
-// whose component is the PM's state message: each names a FACT type and
-// generates an infallible fact handler (it records the fact and never
-// rejects it; decision 14.31). Its (command) entries say which facts may
-// start an instance (CommandOptions.starts).
+// is a rejection plus a fact: the target refuses a saga's command and
+// records nothing, the saga's on-refused callback crafts a rejection fact
+// for the saga's own source domain, and that domain's fact handler decides
+// what it means (decision 2.2, as amended by 14.31; SagaService in
+// saga.proto, Refusals). The callback is declared by (on_refused), below,
+// on the fact message it returns. A
+// process manager's inputs are declared like an aggregate's, as (command)
+// entries whose component is the PM's state message; they say which inputs
+// may start an instance (CommandOptions.starts).
 message ComponentOptions {
   ComponentKind kind = 1;
   // Domain this component subscribes to: the saga's single source domain, or
@@ -88,7 +85,7 @@ message ComponentOptions {
   // never the component's own domain. Empty for aggregates and process
   // managers, which subscribe to nothing.
   string input_domain = 2;
-  // Domain this component issues commands (or facts) to: a saga's one
+  // Domain this component issues commands to: a saga's one
   // destination (required for SAGA). Must be empty for every other kind: a
   // process manager sends no commands (decision 14.31).
   string output_domain = 3;
@@ -108,11 +105,9 @@ message ComponentOptions {
 
 // Marks a message as a COMMAND or FACT payload. Generates one strict
 // handler method on the component that owns it, taking the typed message
-// as input. It is owned by exactly one component: an aggregate, whose
-// handler decides a command (and may reject it) or ingests a fact, or a
-// process manager, whose every entry is a FACT: its handler records the
-// fact and is infallible (decision 14.31). A process manager takes no
-// commands.
+// as input. It is owned by exactly one component, an aggregate or a
+// process manager (a domain too; decision 14.31), whose handler decides a
+// command (and may reject it) or ingests a fact (infallibly).
 message CommandOptions {
   // The anchor message of the component that handles this command. Resolved
   // against the compiled descriptor set; generation fails on an unknown or
@@ -128,15 +123,16 @@ message CommandOptions {
   // sequence or meta; output that sets any of them is refused (see
   // CommandHandlerService.Handle).
   repeated string emits = 2;
-  // PROCESS_MANAGER only: this fact type may START an instance. A fact for
-  // a correlation with no PM instance starts one only if its entry sets
-  // starts; any other fact for an unknown correlation is skipped, silently
-  // (ruling B1 of 2026-10-26, adapted to facts by the owner on 2026-10-28;
-  // decision 14.31; see ProcessManagerService, Starting an instance). The
-  // generator advertises the starting facts in the PM's descriptor
-  // (ComponentDescriptor.starting_types). Setting starts on an aggregate's
-  // entry fails generation. A PM that declares no starting fact can never
-  // start an instance, so the generator warns about it.
+  // PROCESS_MANAGER only: this command or fact type may START an
+  // instance. An input for a correlation with no PM instance starts one
+  // only if its entry sets starts; any other is not delivered: a fact is
+  // skipped silently, and a command refused (the command case PROPOSED;
+  // ruling B1, adapted; decision 14.31; see process_manager.proto,
+  // Starting an instance). The generator advertises the starting inputs
+  // in the PM's descriptor (ComponentDescriptor.starting_types). Setting
+  // starts on an aggregate's entry fails generation. A PM that declares no
+  // starting input can never start an instance, so the generator warns
+  // about it.
   bool starts = 3;
 }
 
@@ -164,8 +160,7 @@ extend google.protobuf.MessageOptions {
   CommandOptions command = 50104;
   // Repeated: one entry per consuming component.
   repeated EventConsumer event = 50105;
-  // On an aggregate's event-sourced STATE message (a process manager's
-  // commands carry no Handling, so its state lists none):
+  // On an aggregate's or a process manager's event-sourced STATE message:
   // the conflict resolutions it supports BEYOND the implicit base of STRICT
   // and AGGREGATE_HANDLES (StateOptions, in types.proto). No option means
   // exactly the base. Listing CONFLICT_RESOLUTION_COMMUTATIVE turns on the
@@ -404,5 +399,44 @@ extend google.protobuf.FieldOptions {
   // from one by descend) as a conflict unit; see the conflict_units region.
   // Unmarked fields of such messages conflict with everything.
   ConflictUnit conflict = 50107;
+}
+// endregion
+
+// region on_refused
+// Declares a saga's ON-REFUSED CALLBACK (decision 14.31, amending 2.2;
+// SagaService in saga.proto, Refusals). Carried by the FACT message the
+// callback returns, which is a fact of the saga's own source domain (its
+// (command) entry names that domain's aggregate or process manager). The
+// generator gives the saga one handler per entry,
+//   on_refused_<Command>(Refusal { event, command, response })
+//     -> <this fact>
+// (Refusal in saga.proto)
+// and advertises the command type in the saga's descriptor
+// (ComponentDescriptor.refusal_types). Generation fails when the saga is
+// not a SAGA, the command's component does not own the saga's
+// output_domain, this fact's (command) component does not own its
+// input_domain, or two entries name the same (saga, command). The name
+// on_refused is PROPOSED (flagged).
+//
+//   // In the source domain's protos:
+//   message HoldFundsRefused {
+//     option (io.angzarr.v1.command) = {component: "examples.v1.BuyInState"};
+//     option (io.angzarr.v1.on_refused) = {
+//       saga: "examples.v1.BuyInPlayerSaga"
+//       command: "examples.v1.HoldFunds"
+//     };
+//     ...
+//   }
+message RefusalCallback {
+  // The anchor (marker) message of the saga whose callback this is.
+  string saga = 1;
+  // The fully-qualified type of the saga's command whose refusal this
+  // fact records.
+  string command = 2;
+}
+
+extend google.protobuf.MessageOptions {
+  // Repeated: one fact type may record the refusals of several commands.
+  repeated RefusalCallback on_refused = 50108;
 }
 // endregion

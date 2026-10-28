@@ -2,6 +2,7 @@ syntax = "proto3";
 package io.angzarr.v1;
 
 import "google/api/annotations.proto";
+import "google/protobuf/any.proto";
 import "io/angzarr/v1/types.proto";
 
 option csharp_namespace = "Angzarr";
@@ -10,72 +11,114 @@ option java_multiple_files = true;
 option java_package = "io.angzarr";
 option ruby_package = "Angzarr";
 
-// SagaService: stateless translation from source events to commands, or
-// to facts for a process manager.
+// SagaService: stateless translation from source events to commands.
 //
 // A saga translates between exactly two domains: events of its one source
-// domain (input_domain) into commands (or facts) for its one destination
-// domain (output_domain). One saga per (source domain, destination domain)
-// pair: every reaction from one domain's events to another domain is part
-// of that pair's single saga, and anything needing several destinations is
-// a process manager (see ComponentOptions in options.proto).
+// domain (input_domain) into commands for its one destination domain
+// (output_domain). One saga per (source domain, destination domain) pair:
+// every reaction from one domain's events to another domain's commands is
+// part of that pair's single saga, and anything needing several
+// destinations is a process manager (see ComponentOptions in
+// options.proto).
 //
-// Sagas are how a process manager's decisions reach other domains: a PM
-// sends no commands (decision 14.31), so it records events carrying the
-// data each command needs, and the saga for (the PM's domain, the target
-// domain) builds the commands from those events, like any other saga.
-// Sagas are also how other domains' events reach a process manager: a PM
-// subscribes to nothing and takes facts only, so the saga for (that
-// domain, the PM's domain) turns the events the PM must know about into
-// facts addressed to it.
+// The destination may be an aggregate's domain or a process manager's: a
+// process manager is a domain (decision 14.31), so a saga's commands reach
+// it like any other domain's. Sagas are how other domains' events reach a
+// process manager (a PM subscribes to nothing), and how a PM's decisions
+// reach other domains (a PM sends no commands: it records events carrying
+// the data each command needs, and the saga for (the PM's domain, the
+// target domain) builds the commands from those events).
 //
-// What a saga emits depends on its destination (decision 14.31, as the
-// owner revised it on 2026-10-28; a change to the saga contract, which
-// until then said a saga emits Commands, never Facts):
-//   - destination an aggregate's domain: Commands only;
-//   - destination a process manager's domain: Facts only, each addressed
-//     to the PM instance its trigger's correlation names (cover root = the
-//     trigger's correlation_id; types.proto, the command_identity region).
-// The generated handler returns the right kind (options.proto,
-// ComponentOptions), and the destination refuses the wrong one: a PM's
-// coordinator refuses a Command, and an aggregate's refuses a Fact that
-// carries a causation_id; either refusal is a saga bug, dead-lettered and
-// alerted.
-//
-// The saga's coordinator stamps each emitted command's or fact's identity:
-// CommandPage.causation_id (the event being reacted to) and the trigger's
-// correlation_id on both; a command's derived command_id; and a fact's
-// reaction origin (fact_origin.external_id "angzarr-reaction:" + the
-// reaction name) with the fact id derived from it (types.proto, the
-// derived_ids region, Reaction facts). It carries no Handling (see
+// Every command a saga's business code emits is a Command (never a Fact).
+// Its coordinator stamps CommandPage.causation_id (the event being reacted
+// to), the derived command_id and the trigger's correlation_id
+// (types.proto, the command_identity region). It carries no Handling (see
 // Handling): the destination always stamps its head before business code,
 // conflict resolution never applies, and delivery mode (which coordinator
 // RPC delivers it) comes from the saga's configuration.
 //
-// Sagas carry choreographed flows, including their refusals: a target that
-// must refuse records the refusal as a domain event, and a saga subscribed
-// to that domain translates it into the commands (or the facts for a
-// process manager) that respond to it. There
-// is no compensation channel back to a saga (sagas own no stream). A hard
-// rejection of a saga's command is retried when retryable and otherwise
-// dead-lettered.
+// Refusals (decision 2.2, as amended by 14.31; the owner's ruling of
+// 2026-10-28: "saga calls foreign command handler directly with a callback
+// for on refusal. On refusal, callback, it gets the event, the command
+// sent, and the response and can craft its rejection fact"). A target, an aggregate
+// or a process manager alike, refuses a saga's command the way it refuses
+// any command: a business rejection (FAILED_PRECONDITION), and it records
+// NOTHING. The refusal then goes to the saga's ON-REFUSED CALLBACK:
+//   - The callback is the saga's own handler, declared in proto by an
+//     (on_refused) option (options.proto) on the fact message it returns,
+//     naming the saga and the refused command type. The generator gives
+//     the saga one handler per declaration, taking ONE struct,
+//       on_refused_<Command>(Refusal { event, command, response }) -> <Fact>
+//     so that a field can be added to Refusal later without breaking saga
+//     code; and the saga's descriptor advertises the command types that
+//     have one (ComponentDescriptor.refusal_types).
+//   - On the refusal, the saga's coordinator calls SagaService.OnRefused
+//     with a Refusal: the triggering event, the command as sent and the
+//     target's refusal response (its status message and details). The
+//     callback returns
+//     the rejection FACT, addressed to the saga's OWN source domain
+//     (input_domain), normally the stream of the triggering event. That
+//     domain's fact handler, infallible, decides what the refusal means
+//     (release a hold, fail a process) and records its own events. The
+//     saga stays stateless: the callback's inputs carry everything.
+//   - The coordinator stamps the fact as it stamps a command: causation_id
+//     (the refused command's, the triggering event), the trigger's
+//     correlation_id and edition, and fact_origin.external_id =
+//     "angzarr-refusal:" + the refused command's reaction name, with the
+//     fact's id derived from it (types.proto, derived_ids region, Refusal
+//     facts). The callback leaves them unset; a fact for any domain but the
+//     saga's input_domain, or one that sets Handling, is a saga bug.
+//   - Distributed: the coordinator invokes the callback when the outbox
+//     relay receives the refusal, and writes the crafted fact as a new
+//     outbox entry in the same transaction that clears the command's entry.
+//     A crash before that commit retries the whole step (the command, or
+//     the callback); deduplication is by the command's derived id at the
+//     target and by the fact's id at the source, so a retry records
+//     nothing twice. annals makes the same calls directly, in the chain.
+//   - The fact is unrefusable, so compensation cannot loop.
+//   - Only a business rejection (FAILED_PRECONDITION) reaches the
+//     callback. A retryable failure is retried; any other terminal failure
+//     (INVALID_ARGUMENT, PERMISSION_DENIED, NOT_FOUND, INTERNAL, ...) is a
+//     bug, dead-lettered and alerted.
+//   - PROPOSED (flagged): a refused command whose type has NO callback is
+//     dead-lettered for a human (with the refusal) and
+//     alerted; nothing is recorded anywhere. A callback that FAILS (an
+//     error status, or a fact refused as malformed) is a saga bug: the
+//     refusal is dead-lettered and alerted, as for any handler failure. A
+//     rejection fact the source cannot ingest (NO_FACT_HANDLER, or its
+//     fact handler failing) is dead-lettered and alerted at the source.
+//   - No context object rides with the command (considered and deferred,
+//     decision 14.31): a stateless saga's event, command and response
+//     already carry everything it used, and data the saga used but left
+//     out of the command belongs in the command.
+//   - This is the one exception to "a saga never delivers a fact": a
+//     saga's business code emits Commands only, and its callbacks return
+//     the one fact each refusal yields, only for its own source domain.
 service SagaService {
-  // Translate source events into commands for an aggregate's domain, or
-  // facts for a process manager's.
+  // Translate source events into commands for the destination domain (an
+  // aggregate's or a process manager's).
   rpc Handle(EventBook) returns (SagaResponse);
+
+  // The on-refused callback (Refusals, above): craft the rejection fact
+  // for one refused command. Called by the saga's coordinator only, for a
+  // command type the saga's descriptor lists in refusal_types. Answers the
+  // fact; an error status, or a fact the coordinator refuses as malformed,
+  // is a saga bug (dead-lettered and alerted).
+  rpc OnRefused(Refusal) returns (RefusalFact);
 }
 
 // SagaCoordinatorService: orchestrates saga execution.
-// Stamps each emitted command's or fact's identity: causation_id (the
-// triggering event's EventRef) and correlation_id (the trigger's) on both;
-// a command's command_id (UUIDv5 of the trigger, the saga's registered
-// name and its index in the output; derived_ids region); a fact's
-// fact_origin and fact id (the reaction origin; derived_ids region,
-// Reaction facts). Records them in the transient outbox (see SagaResponse),
-// delivers them through the destination's coordinator
-// (CommandHandlerCoordinatorService, served by an aggregate's or a process
-// manager's coordinator alike) as a framework component, and retries
-// retryable failures.
+// Stamps each emitted command's identity: causation_id (the triggering
+// event's EventRef), command_id (UUIDv5 of the trigger, the saga's
+// registered name and the command's index in the output; derived_ids
+// region) and correlation_id (the trigger's). Records them in the
+// transient outbox (see SagaResponse), delivers
+// them through the destination's coordinator
+// (CommandHandlerCoordinatorService) as a framework component, and
+// retries retryable failures. On a business rejection it calls the saga's
+// on-refused callback (SagaService.OnRefused) and delivers the fact it
+// returns, through the outbox, to the saga's own source domain (SagaService,
+// Refusals).
 service SagaCoordinatorService {
   // Execute saga: translate source events → commands, deliver to targets.
   // The request is the source EventBook; the saga's configuration, not the
@@ -96,14 +139,15 @@ service SagaCoordinatorService {
 
 // Response from saga - commands for other aggregates.
 //
-// Transient outbox. A saga's commands go through the transient outbox
+// Transient outbox. A saga's commands, and its rejection facts, go through
+// the transient outbox
 // (decision 5.6, as amended by 14.31). The outbox is not a saga mechanism:
 // it is ONE transactional outbox, a capability that names no component
 // kind. Any component whose output leaves its own stream (output that is
 // not an append to a stream the component owns) uses it, under the same
 // rules. Today the saga is the only such kind, so it is the only user; a
 // process manager needs none today, because its only output is its own
-// events (see ProcessManagerService, No outbox needed). A kind that later
+// events (a PM is a domain; see process_manager.proto). A kind that later
 // emits output leaving its stream uses this outbox, with no new design.
 // The rules, for whichever component uses it: the coordinator stores the
 // output atomically with the component's source checkpoint (its position
@@ -113,25 +157,60 @@ service SagaCoordinatorService {
 // command ids re-sent are the ones first stamped and the destinations
 // deduplicate them. Components using it therefore carry NO purity or
 // determinism requirement: one run's output is recorded once and re-sent
-// as recorded.
+// as recorded. A
+// rejection fact is put into the outbox, as a new entry, in the same
+// transaction that clears its refused command's entry (SagaService,
+// Refusals), and dispatched and retried the same way.
 message SagaResponse {
-  // The saga's output, all for its one destination: Commands when that is
-  // an aggregate's domain, Facts when it is a process manager's (decision
-  // 14.31; SagaService). Each carries NO Handling: handling is left unset
-  // (or empty). One that sets any Handling field (expected_sequence or
+  // Commands for the one destination domain (an aggregate's or a process
+  // manager's), each carrying NO Handling: handling is left unset (or
+  // empty). A command that sets any Handling field (expected_sequence or
   // conflict_resolution) is a saga bug, refused loudly: dead-lettered and
   // alerted, never delivered, never silently stripped (see Handling).
-  // command_id, causation_id, correlation_id and fact_origin are likewise
-  // left unset for the coordinator to stamp; a value that differs from the
-  // stamp is refused the same way, as is output mixing Commands and Facts.
-  // A Fact's cover root names the PM instance, which is its trigger's
-  // correlation_id; any other root is refused the same way. One whose
-  // cover names a domain other than the
-  // saga's one destination (ComponentOptions.output_domain) is a saga bug
-  // refused by the client library before it answers: SagaService.Handle
-  // fails INTERNAL with no commands, and the coordinator dead-letters the
-  // trigger and alerts, as for any terminal failure of a reaction. Delivery
-  // mode comes from the saga's configuration, never from the command. The
-  // field keeps its name: a Fact rides a CommandBook too.
+  // command_id, causation_id and correlation_id are likewise left unset for
+  // the coordinator to stamp; a value that differs from the stamp is
+  // refused the same way, as is a Fact or a fact_origin (a saga's business
+  // code never emits a Fact; its rejection facts come from its on-refused
+  // callbacks; SagaService, Refusals). A command for a process manager
+  // names the instance its trigger's correlation names (cover root = the
+  // trigger's correlation_id; types.proto, the command_identity region);
+  // any other root is refused the same way. A command whose cover names a
+  // domain other than the saga's one destination
+  // (ComponentOptions.output_domain) is a saga bug refused by the client
+  // library before it answers: SagaService.Handle fails INTERNAL with no
+  // commands, and the coordinator dead-letters the trigger and alerts, as
+  // for any terminal failure of a reaction. Delivery mode comes from the
+  // saga's configuration, never from the command.
   repeated CommandBook commands = 1;
+}
+
+// The on-refused callback's one argument (SagaService, Refusals): the
+// three things a stateless saga needs to craft its rejection fact. One
+// struct, so a field (a context object, say; considered and deferred by
+// decision 14.31) can be added later without breaking saga code. The name
+// Refusal is PROPOSED (flagged).
+message Refusal {
+  // The triggering event: a book of the source stream holding the one
+  // event the saga reacted to (the refused command's causation_id).
+  EventBook event = 1;
+  // The refused command, as it was delivered (identity stamped).
+  CommandBook command = 2;
+  // The target's refusal response.
+  RefusalResponse response = 3;
+}
+
+// A target's refusal of a command: the status message of its
+// FAILED_PRECONDITION and its status details, verbatim (typically a
+// google.rpc.ErrorInfo naming the business reason).
+message RefusalResponse {
+  string message = 1;
+  repeated google.protobuf.Any details = 2;
+}
+
+// The on-refused callback's answer: the rejection fact.
+message RefusalFact {
+  // A CommandBook whose page body is a Fact, addressed to the saga's own
+  // source domain (input_domain): payloads only, as for a command; the
+  // coordinator stamps its identity (SagaService, Refusals).
+  CommandBook fact = 1;
 }
