@@ -1,6 +1,7 @@
 syntax = "proto3";
 package io.angzarr.examples.v1;
 
+import "io/angzarr/examples/v1/player.proto";
 import "io/angzarr/v1/options.proto";
 
 option csharp_namespace = "Angzarr.Examples";
@@ -20,8 +21,8 @@ option ruby_package = "Angzarr::Examples";
 // State is keyed by the correlation id: the PM's root is the correlation id
 // itself, unchanged (process_manager.proto, Stream). A process manager is
 // a domain (decision 14.31): it takes commands, which sagas from the table
-// and the wallet send it, and facts (the rejection facts its own sagas'
-// on-refused callbacks craft); it sends no commands. Each step it decides
+// and the wallet send it, and facts (the refusal facts its own sagas
+// deliver); it sends no commands. Each step it decides
 // is a PM event carrying the data the next command needs, and a saga from
 // "buy-in" builds that command. Flow:
 //
@@ -35,41 +36,60 @@ option ruby_package = "Angzarr::Examples";
 // starts; ruling B1, adapted, decision 14.31): it alone starts an instance
 // for a correlation the PM has not seen. Any other command for a
 // correlation with no buy-in instance is refused by the PM's coordinator
-// before the handler (PM_NO_INSTANCE). Neither saga-table-buy-in nor
-// saga-player-buy-in declares an on-refused callback, so such a refusal
-// is dead-lettered and alerted, for a human (decision 14.31).
+// before the handler (PM_NO_INSTANCE). saga-table-buy-in and
+// saga-player-buy-in declare no refusal path (their sends lists are
+// unset), so such a refusal is dead-lettered and alerted, for a human
+// (decision 14.31).
 //
-// One refusal, end to end (decision 2.2, as amended by 14.31). The wallet
-// cannot fund the buy-in:
+// Two refusals, end to end, one in each mode (decision 2.2, as amended by
+// 14.31; SagaService in saga.proto, Refusals). The mode is the generator's
+// choice (angzarr-cli's refusal switch); these are the protos' defaults.
+//
+// PASS-THROUGH: the wallet cannot fund the buy-in.
 //   1. BuyInStarted -> saga-buy-in-player sends HoldFunds to the wallet;
 //   2. the wallet refuses it (FAILED_PRECONDITION,
 //      INSUFFICIENT_AVAILABLE_FUNDS) and records NOTHING;
-//   3. saga-buy-in-player's coordinator calls its on-refused callback
-//      on_refused_HoldFunds(Refusal{event = BuyInStarted, command = the
-//      HoldFunds sent, response = the refusal}), declared by the
-//      (on_refused) option on
-//      HoldFundsRefused; it returns HoldFundsRefused{hold_id, reason},
-//      addressed to its own source: the buy-in stream whose BuyInStarted
-//      it reacted to (this PM instance, root = the correlation). The
-//      coordinator stamps it (causation_id = BuyInStarted, the
-//      correlation, and the fact id derived from "angzarr-refusal:" + the
-//      HoldFunds reaction name) and writes it to the outbox in the same
-//      transaction that clears HoldFunds' entry;
-//   4. the PM's HoldFundsRefused fact handler (infallible) records
-//      BuyInFailed{reason}, phase AWAITING_HOLD -> FAILED;
+//   3. saga-buy-in-player's coordinator calls OnRefused; its sends entry
+//      for HoldFunds names no refusal_fact, so its generated code, with no
+//      user code, forwards the standard CommandRefused{command = the
+//      HoldFunds sent, response, trigger = BuyInStarted's EventRef} to its
+//      own source: the buy-in stream of BuyInStarted (this PM instance).
+//      The coordinator stamps it (its command_id = HoldFunds' command_id,
+//      causation_id = BuyInStarted, the correlation) and writes it to the
+//      outbox in the same transaction that clears HoldFunds' entry;
+//   4. BuyInState lists HoldFunds in its refusals, so its generated
+//      on_refused_HoldFunds(refusal, state) (infallible; this file imports
+//      player.proto for HoldFunds) records BuyInFailed{reason}, phase
+//      AWAITING_HOLD -> FAILED;
 //   5. BuyInFailed -> saga-buy-in-table sends ReleaseSeat to the table,
 //      which records SeatReleased.
-// A redelivered or re-run step is deduplicated by HoldFunds' derived
-// command id at the wallet and by the refusal fact's id at the PM. The
-// event and the command carry all the fact needs (hold_id is in the
-// command). The table refusing ConfirmSeat (the hold is gone, or the
-// player took another seat) would run the same way, through an on-refused
-// callback of saga-buy-in-table,
-// with the PM releasing the wallet's hold (ReleaseHold through
-// saga-buy-in-player); which refusals the table and the wallet answer that
-// way, and which are bugs, is still the buy-in refusal ruling (R2) in
-// docs/design/blackjack-latest-proto-rulings.md, so that branch is not
-// declared here.
+//
+// TRANSLATE: the table cannot confirm the seat (the hold is gone, or the
+// player took another seat meanwhile).
+//   1. BuyInFundsHeld -> saga-buy-in-table sends ConfirmSeat to the table;
+//   2. the table refuses it (FAILED_PRECONDITION, SEAT_HOLD_NOT_FOUND or
+//      PLAYER_ALREADY_SEATED) and records NOTHING;
+//   3. saga-buy-in-table's sends entry for ConfirmSeat names refusal_fact
+//      SeatConfirmationRefused, so its callback
+//      on_refused_ConfirmSeat(Refusal{event = BuyInFundsHeld, command = the
+//      ConfirmSeat sent, response}) returns SeatConfirmationRefused
+//      {buy_in_id, reason}, a buy-in fact: the buy-in domain never refers
+//      to the table's ConfirmSeat. Stamped and written as above (its
+//      command_id = ConfirmSeat's command_id);
+//   4. the PM's SeatConfirmationRefused fact handler records
+//      BuyInSeatLost{reason}, phase AWAITING_SEAT -> FAILED;
+//   5. BuyInSeatLost -> saga-buy-in-player sends ReleaseHold to the
+//      wallet, which records HoldReleased.
+//
+// In both, the refused command's id is the refusal fact's id: never
+// applied in the target's stream, recorded once in the buy-in stream, so a
+// redelivered or re-run step is deduplicated at both ends. Which refusals
+// the table and the wallet answer this way, and which are bugs, is still
+// the buy-in refusal ruling (R2) in
+// docs/design/blackjack-latest-proto-rulings.md. CaptureFunds, ReleaseHold
+// and ReleaseSeat have no refusal path (their refusal is a bug), so the
+// generator warns about them by design; such a refusal is dead-lettered and
+// alerted.
 //
 // The command handlers never refuse a step of their own buy-in: a command
 // whose id field (buy_in_id, or hold_id from the wallet, which equals the
@@ -127,18 +147,14 @@ message RecordFundsCaptured {
   int64 amount = 3;
 }
 
-// The wallet refused HoldFunds: the FACT that saga-buy-in-player's
-// on-refused callback returns (decision 14.31; SagaService in saga.proto,
-// Refusals). A fact of the PM's own domain, so its handler is infallible;
-// the (on_refused) option declares the callback that crafts it.
-message HoldFundsRefused {
+// The table refused ConfirmSeat: the DOMESTIC fact that
+// saga-buy-in-table's translating callback returns (TRANSLATE mode;
+// decision 14.31). A fact of the PM's own domain, so its handler is
+// infallible, and the buy-in domain needs no table proto for it.
+message SeatConfirmationRefused {
   option (io.angzarr.v1.command) = {component: "io.angzarr.examples.v1.BuyInState"};
-  option (io.angzarr.v1.on_refused) = {
-    saga: "io.angzarr.examples.v1.BuyInPlayerSaga"
-    command: "io.angzarr.examples.v1.HoldFunds"
-  };
-  bytes hold_id = 1; // The refused HoldFunds' hold_id (= the buy_in_id)
-  string reason = 2; // The refusal's reason, e.g. INSUFFICIENT_AVAILABLE_FUNDS
+  bytes buy_in_id = 1; // The refused ConfirmSeat's buy_in_id
+  string reason = 2; // The refusal's reason, e.g. SEAT_HOLD_NOT_FOUND
 }
 
 // -----------------------------------------------------------------------------
@@ -198,9 +214,10 @@ message BuyInCompleted {
   bytes buy_in_id = 1;
 }
 
-// The buy-in failed: the PM recorded the refusal fact of a step it asked
-// for. saga-buy-in-table sends ReleaseSeat{buy_in_id, reason} to
-// table_root, freeing the held seat.
+// The buy-in failed: the wallet refused HoldFunds (the pass-through
+// CommandRefused, handled by on_refused_HoldFunds). saga-buy-in-table
+// sends ReleaseSeat{buy_in_id, reason} to table_root, freeing the held
+// seat.
 message BuyInFailed {
   option (io.angzarr.v1.event) = {
     component: "io.angzarr.examples.v1.BuyInState"
@@ -214,10 +231,28 @@ message BuyInFailed {
   string reason = 3; // The refusal's reason, e.g. INSUFFICIENT_AVAILABLE_FUNDS
 }
 
+// The buy-in failed: the table refused ConfirmSeat (the translated
+// SeatConfirmationRefused). saga-buy-in-player sends
+// ReleaseHold{hold_id = buy_in_id, reason} to player_root, freeing the
+// held funds.
+message BuyInSeatLost {
+  option (io.angzarr.v1.event) = {
+    component: "io.angzarr.examples.v1.BuyInState"
+  };
+  option (io.angzarr.v1.event) = {
+    component: "io.angzarr.examples.v1.BuyInPlayerSaga"
+    domain: "buy-in"
+  };
+  bytes buy_in_id = 1;
+  bytes player_root = 2; // The saga's target root (a saga never looks one up)
+  string reason = 3; // The refusal's reason, e.g. SEAT_HOLD_NOT_FOUND
+}
+
 // The BuyInProcessManager. Owns the "buy-in" stream and subscribes to
 // nothing: its inputs are the four commands above, from saga-table-buy-in
-// and saga-player-buy-in, and the HoldFundsRefused fact of
-// saga-buy-in-player's on-refused callback. It
+// and saga-player-buy-in, the standard CommandRefused for HoldFunds
+// (pass-through, from saga-buy-in-player) and SeatConfirmationRefused
+// (translated, from saga-buy-in-table). It
 // sends no commands; its events feed saga-buy-in-player and
 // saga-buy-in-table.
 message BuyInState {
@@ -225,6 +260,8 @@ message BuyInState {
     kind: COMPONENT_KIND_PROCESS_MANAGER
     domain: "buy-in"
     name: "BuyInProcessManager"
+    // Pass-through refusals it handles: generates on_refused_HoldFunds.
+    refusals: "io.angzarr.examples.v1.HoldFunds"
   };
   enum Phase {
     PHASE_UNSPECIFIED = 0; // No buy-in started under this correlation
@@ -232,7 +269,7 @@ message BuyInState {
     PHASE_AWAITING_SEAT = 2;
     PHASE_AWAITING_CAPTURE = 3;
     PHASE_COMPLETED = 4;
-    PHASE_FAILED = 5; // A step the buy-in asked for was refused (BuyInFailed)
+    PHASE_FAILED = 5; // A step was refused (BuyInFailed or BuyInSeatLost)
   }
   bytes buy_in_id = 1;
   bytes player_root = 2;
@@ -258,17 +295,22 @@ message BuyInState {
 //   - correlation_id left empty; the saga's coordinator stamps the PM
 //     event's correlation (the buy-in's), so the targets' replies reach the
 //     PM under it;
-//   - a business refusal of HoldFunds comes back to the buy-in instance as
-//     the HoldFundsRefused fact its on-refused callback crafts (the
-//     refusal flow above); the others have no callback yet (R2);
+//   - each lists the commands it sends (sends), with its refusal path:
+//     HoldFunds passes through (CommandRefused to the buy-in), ConfirmSeat
+//     is translated (SeatConfirmationRefused), and the rest have none (the
+//     refusal flows above);
 //   - type URLs come from generated code only.
 
-// saga-buy-in-player: BuyInStarted -> HoldFunds; BuyInSeated -> CaptureFunds.
+// saga-buy-in-player: BuyInStarted -> HoldFunds; BuyInSeated ->
+// CaptureFunds; BuyInSeatLost -> ReleaseHold.
 message BuyInPlayerSaga {
   option (io.angzarr.v1.component) = {
     kind: COMPONENT_KIND_SAGA
     input_domain: "buy-in"
     output_domain: "player"
+    sends: {command: "io.angzarr.examples.v1.HoldFunds"} // pass-through
+    sends: {command: "io.angzarr.examples.v1.CaptureFunds"}
+    sends: {command: "io.angzarr.examples.v1.ReleaseHold"}
   };
 }
 
@@ -279,6 +321,11 @@ message BuyInTableSaga {
     kind: COMPONENT_KIND_SAGA
     input_domain: "buy-in"
     output_domain: "table"
+    sends: {
+      command: "io.angzarr.examples.v1.ConfirmSeat"
+      refusal_fact: "io.angzarr.examples.v1.SeatConfirmationRefused" // translate
+    }
+    sends: {command: "io.angzarr.examples.v1.ReleaseSeat"}
   };
 }
 
@@ -291,9 +338,10 @@ message BuyInTableSaga {
 // ordinary sagas emitting reaction commands (decision 14.31): each command
 // is addressed to the buy-in instance its source event's correlation names
 // (cover domain "buy-in", root = that correlation), with no Handling, and
-// deduplicated by its derived command id. They declare no on-refused
-// callback: the PM refuses none of them except a non-starting command for
-// an unknown buy-in, which is dead-lettered for a human.
+// deduplicated by its derived command id. They declare no sends, so no
+// refusal path: the PM refuses none of their commands except a
+// non-starting command for an unknown buy-in, which is dead-lettered for a
+// human.
 
 // saga-table-buy-in: SeatHeld -> StartBuyIn; PlayerSeated ->
 // RecordPlayerSeated.

@@ -91,10 +91,10 @@ message EnrollLoyalty {
 // Earmark funds for a buy-in. hold_id is the buy_in_id. How a hold the
 // wallet cannot fund (INSUFFICIENT_AVAILABLE_FUNDS) or that reuses a hold
 // id for another amount (HOLD_CONFLICT) is answered: the wallet refuses it
-// (FAILED_PRECONDITION) and records nothing, and saga-buy-in-player's
-// on-refused callback crafts a HoldFundsRefused fact for the buy-in
-// instance, which records BuyInFailed (decision 14.31; the refusal flow in
-// buy_in.proto).
+// (FAILED_PRECONDITION) and records nothing, and saga-buy-in-player
+// passes the refusal through as the standard CommandRefused fact to the
+// buy-in instance, whose on_refused_HoldFunds records BuyInFailed
+// (decision 14.31; the refusal flows in buy_in.proto).
 // Whether HOLD_CONFLICT is a refusal or a bug is still the buy-in refusal
 // ruling (R2).
 message HoldFunds {
@@ -110,7 +110,8 @@ message CaptureFunds {
   bytes hold_id = 1;
 }
 
-// Close an open hold without spending it.
+// Close an open hold without spending it. saga-buy-in-player sends it on
+// BuyInSeatLost (the table refused ConfirmSeat; see buy_in.proto).
 message ReleaseHold {
   option (io.angzarr.v1.command) = {component: "io.angzarr.examples.v1.PlayerState"};
   bytes hold_id = 1;
