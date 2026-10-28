@@ -19,11 +19,13 @@ blackjack spec ported from `feat/blackjack-spec`. Context:
 > refusal fact to its own source domain, passed through (the standard
 > `CommandRefused`) or translated into a domestic fact. That settles R2's
 > mechanism, and both branches are ported, one per mode: the wallet
-> refusing `HoldFunds` reaches the buy-in as `CommandRefused`, handled by
-> its generated `on_refused_HoldFunds`, which records `BuyInFailed`, and
-> the seat is released (EU-1562); the table refusing `ConfirmSeat` is
-> translated into `SeatConfirmationRefused`, the PM records
-> `BuyInSeatLost`, and the hold is released (EU-1563). R2 still decides
+> refuses `HoldFunds` with the typed refusal object `InsufficientFunds`,
+> which reaches the buy-in packed in `CommandRefused` and is unpacked by
+> its `on_refused_HoldFunds`, which records `BuyInFailed`, and the seat is
+> released (EU-1562); the table refuses `ConfirmSeat` with
+> `SeatNotConfirmable`, which saga-buy-in-table's callback translates into
+> `SeatConfirmationRefused` (translate selected by the build config), the
+> PM records `BuyInSeatLost`, and the hold is released (EU-1563). R2 still decides
 > which refusals the table and the wallet answer that way and which are
 > bugs.
 

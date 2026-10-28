@@ -178,40 +178,48 @@ dead-lettering from core is PR-6.
 **OB-7** [core, clients, router, project] **Refusal wiring.**
 - What (core): when the outbox relay receives a business rejection
   (`FAILED_PRECONDITION`) of a saga command, call
-  `SagaService.OnRefused(Refusal { event, command, response })`; check the
-  answered fact is for the saga's `input_domain` and sets no Handling;
-  stamp its `command_id` = the refused command's `command_id`,
+  `SagaService.OnRefused(Refusal { event, command, response })`, with
+  `response` = `RefusalResponse { reason, message, refusal }` taken from
+  the rejection's status (the typed refusal object from its details);
+  check the answered fact is for the saga's `input_domain` and sets no
+  Handling; stamp its `command_id` = the refused command's `command_id`,
   `fact_origin.external_id` = that id's canonical text, `causation_id`,
   correlation and edition; and write it as a new outbox entry in the
-  transaction that clears the command's entry. Every coordinator accepts a
-  `Fact` with `causation_id` only for the domain of the stream it names,
-  and takes the refused command's id as such a fact's id. A pass-through
-  fact the source cannot handle (`NO_FACT_HANDLER`) and a failing
-  translating callback are dead-lettered and alerted.
-- What (clients, router): the saga's generated code answers `OnRefused`,
-  with the standard `CommandRefused { command, response, trigger }`
-  (pass-through) or the user's translating callback's domestic fact; an
-  aggregate's or PM's generated dispatch routes `CommandRefused` by the
-  refused command's type to `on_refused_<Command>(refusal, state)`. annals
-  makes the same calls directly in its chain.
-- What (angzarr-cli): generate both paths from `ComponentOptions.sends`
-  (SAGA, `SagaSend { command, refusal_fact }`) and
-  `ComponentOptions.refusals` (AGGREGATE, PROCESS_MANAGER); check that every
-  sent command has exactly one refusal path (two is an error, none a lint
-  warning); and add the compile-time refusal switch, as a flag and a
-  build-config entry, per saga or per saga command, overriding the proto
-  default (a `refusal_fact` means translate). Two CLIs generate today:
-  the Go CLI on angzarr-cli `main` (`codegen/*.go`: C++, C#, Go, Java,
-  Python and TypeScript, plus `codegen/lint.go`) and the Rust CLI on
-  branch `rust-cli` (`crates/angzarr-codegen`, Rust only, used by
-  `angzarr-build`). The switch, the generation and the lint go into both,
-  each for the languages it generates.
-- Why: decision 14.31, amending 2.2 (plan ruling 7, "REFUSAL WIRING");
-  `SagaService` (Refusals), `Refusal` and `OnRefused` in `saga.proto`,
-  `CommandRefused` in `types.proto`, the refusals region of
-  `options.proto`.
-- Settled when: scenarios C-0608 to C-0610, C-0612, C-0613 to C-0623 and
-  EU-1562 to EU-1563 pass.
+  transaction that clears the command's entry. Every coordinator accepts
+  a `Fact` with `causation_id` only for the domain of the stream it names,
+  and takes the refused command's id as such a fact's id. A refusal with
+  no path (a pass-through `CommandRefused` the source answers
+  `NO_FACT_HANDLER`) and a failing translating callback are
+  dead-lettered and alerted: coverage is checked only at run time.
+- What (clients, router): a command handler's generated result is its
+  events or one of its `refused_with` refusal objects, packed into the
+  rejection's status details; the saga's generated code answers
+  `OnRefused` with `CommandRefused { command, refusal, trigger, reason,
+  message }` (pass-through) or the user's translating callback's
+  domestic fact; an aggregate's or PM's dispatch routes `CommandRefused`
+  by the refused command's type to the `on_refused_<Command>(refusal,
+  state)` handlers it defines (inferred, no declaration). annals makes
+  the same calls directly in its chain.
+- What (angzarr-cli): the refusal switch, the CLI's only (no proto
+  option): pass-through or translate, per saga or per saga command, as a
+  flag and as a build-config entry, pass-through the default; translate
+  makes the saga's `on_refused_<Command>(Refusal)` required, so a missing
+  callback fails generation. Generate both modes' code, the
+  `refused_with`-shaped command handler results, and the source's
+  `on_refused_<Command>` dispatch; lint a `refused_with` type outside the
+  command's domain. There is no refusal-coverage lint (nothing declares
+  what a saga sends). Two CLIs generate today, and both need the work, each
+  for its languages: the Go CLI on angzarr-cli `main` (`codegen/*.go`:
+  C++, C#, Go, Java, Python and TypeScript, with `codegen/lint.go`) and
+  the Rust CLI on branch `rust-cli` (`crates/angzarr-codegen`, Rust only,
+  used by `angzarr-build`).
+- Why: decision 14.31, amending 2.2 (plan ruling 7, "REFUSAL WIRING",
+  and the owner's rulings of 2026-10-28); `SagaService` (Refusals),
+  `Refusal` and `OnRefused` in `saga.proto`, `CommandRefused` and
+  `RefusalResponse` in `types.proto`, `CommandOptions.refused_with` and
+  the refusals region of `options.proto`.
+- Settled when: scenarios C-0608 to C-0610, C-0612, C-0613 to C-0619,
+  C-0621 to C-0626 and EU-1562 to EU-1563 pass.
 
 **OB-3** [core] **Co-locate checkpoints and outboxes.**
 - What: the position store and the outbox must share a transaction, so the

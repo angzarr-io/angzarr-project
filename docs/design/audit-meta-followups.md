@@ -242,13 +242,15 @@ event onwards, every removal reserves its number and name (see
     `EventMeta.triggering_event`, `ProcessManagerCoordinatorService` and
     `EventConsumer.applies` are deleted.
   - **Refusals (2.2 amended):** a saga's target refuses and records
-    nothing; the saga delivers one refusal fact, with the refused command's
-    id, to its own source domain, written to the outbox in the transaction
-    that clears the command: by default the standard `CommandRefused`,
-    which the source handles in a generated `on_refused_<Command>`; opted
-    in per command, a domestic fact its callback translates `Refusal {
-    event, command, response }` into. The mode is an angzarr-cli switch at
-    code generation. A context object was considered and deferred. The
+    nothing, returning an optional typed refusal object (`refused_with`);
+    the saga builds one refusal fact, with the refused command's id, for
+    its own source domain, written to the outbox in the transaction that
+    clears the command: by default the standard `CommandRefused`, the
+    refusal object packed, which the source handles in its
+    `on_refused_<Command>`; where angzarr-cli selects translate, a domestic
+    fact its callback builds from `Refusal { event, command, response }`.
+    Nothing declares what a saga sends, so a missing handler is a run-time
+    dead letter. A context object was considered and deferred. The
     outbox is one kind-agnostic capability, used today by sagas; a PM
     needs none.
 
