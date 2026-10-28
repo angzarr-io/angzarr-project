@@ -12,7 +12,12 @@
 //!   `pages[0].sequence` (`append_refuses_a_stale_first_sequence`).
 //! - **RULED(3) A missing stream** reads as an empty slice at 0; `head` is
 //!   provided.
-//! - **RULED(4) `find_triggered`** is required.
+//! - **RULED(4), then withdrawn: no `find_triggered`.** The PM model is
+//!   facts only (2026-10-28): a PM's only input is facts addressed to it,
+//!   sagas turn foreign events into facts, and there are no triggers. A
+//!   fact's events carry its derived command id as their cause, so
+//!   `find_command` is the fact lookup too, and no `find_fact` is needed
+//!   (`find_command_finds_a_retried_facts_events_by_its_id`).
 //! - **RULED(5) Snapshots** are a separate `SnapshotStore`, last written
 //!   kept, the caller judging.
 //! - **RULED(6) Positions** are the next sequence, `u64`, 0 when never put,

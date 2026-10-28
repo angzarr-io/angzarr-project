@@ -13,9 +13,7 @@ use std::future::Future;
 use std::sync::Arc;
 
 use angzarr_proto::uuid::Uuid;
-use angzarr_proto::v1::{
-    Cover, CreateEditionRequest, Edition, EventBook, EventPage, EventRef, Snapshot,
-};
+use angzarr_proto::v1::{Cover, CreateEditionRequest, Edition, EventBook, EventPage, Snapshot};
 use prost_types::{Any, Timestamp};
 
 use crate::error::StoreError;
@@ -68,19 +66,14 @@ pub trait EventStore: MaybeSend + MaybeSync {
     }
 
     /// The pages of `stream` caused by the command `command_id`, in
-    /// sequence order: the dedup lookup.
+    /// sequence order: the dedup lookup, for commands and facts alike. A
+    /// fact's events carry its derived command id
+    /// (`fact_command_id(external_id)`) as their cause, so a process
+    /// manager, which takes facts only, deduplicates here by the fact's id.
     fn find_command(
         &self,
         stream: StreamRef<'_>,
         command_id: Uuid,
-    ) -> impl Future<Output = Result<Vec<EventPage>, StoreError>> + MaybeSend;
-
-    /// The pages of `stream` caused by the triggering event `trigger`, in
-    /// sequence order: a process manager's dedup lookup (13.2).
-    fn find_triggered(
-        &self,
-        stream: StreamRef<'_>,
-        trigger: &EventRef,
     ) -> impl Future<Output = Result<Vec<EventPage>, StoreError>> + MaybeSend;
 
     /// Every stream of `domain` holding at least one page of its own, in
@@ -170,12 +163,6 @@ pub trait Unit: MaybeSend {
         &mut self,
         stream: StreamRef<'_>,
         command_id: Uuid,
-    ) -> impl Future<Output = Result<Vec<EventPage>, StoreError>> + MaybeSend;
-
-    fn find_triggered(
-        &mut self,
-        stream: StreamRef<'_>,
-        trigger: &EventRef,
     ) -> impl Future<Output = Result<Vec<EventPage>, StoreError>> + MaybeSend;
 
     fn covers(
@@ -428,13 +415,6 @@ impl<T: EventStore + ?Sized> EventStore for Arc<T> {
         command_id: Uuid,
     ) -> impl Future<Output = Result<Vec<EventPage>, StoreError>> + MaybeSend {
         (**self).find_command(stream, command_id)
-    }
-    fn find_triggered(
-        &self,
-        stream: StreamRef<'_>,
-        trigger: &EventRef,
-    ) -> impl Future<Output = Result<Vec<EventPage>, StoreError>> + MaybeSend {
-        (**self).find_triggered(stream, trigger)
     }
     fn covers(
         &self,

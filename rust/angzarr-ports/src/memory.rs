@@ -15,7 +15,7 @@
 use std::sync::{Arc, Mutex};
 
 use angzarr_proto::uuid::Uuid;
-use angzarr_proto::v1::{Cover, CreateEditionRequest, EventBook, EventPage, EventRef, Snapshot};
+use angzarr_proto::v1::{Cover, CreateEditionRequest, EventBook, EventPage, Snapshot};
 use prost_types::Timestamp;
 
 use crate::error::StoreError;
@@ -86,14 +86,6 @@ impl EventStore for MemoryStore {
         let _ = (stream, command_id);
         todo!("{STUB}")
     }
-    async fn find_triggered(
-        &self,
-        stream: StreamRef<'_>,
-        trigger: &EventRef,
-    ) -> Result<Vec<EventPage>, StoreError> {
-        let _ = (stream, trigger);
-        todo!("{STUB}")
-    }
     async fn covers(&self, domain: &str) -> Result<Vec<Cover>, StoreError> {
         let _ = domain;
         todo!("{STUB}")
@@ -161,14 +153,6 @@ impl Unit for MemoryUnit {
         command_id: Uuid,
     ) -> Result<Vec<EventPage>, StoreError> {
         let _ = (stream, command_id);
-        todo!("{STUB}")
-    }
-    async fn find_triggered(
-        &mut self,
-        stream: StreamRef<'_>,
-        trigger: &EventRef,
-    ) -> Result<Vec<EventPage>, StoreError> {
-        let _ = (stream, trigger);
         todo!("{STUB}")
     }
     async fn covers(&mut self, domain: &str) -> Result<Vec<Cover>, StoreError> {

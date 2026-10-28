@@ -35,10 +35,11 @@
 
 use std::future::Future;
 
+use angzarr_proto::ids::fact_command_id;
 use angzarr_proto::uuid::Uuid;
 use angzarr_proto::v1::event_meta::Causation;
 use angzarr_proto::v1::{
-    Cover, CreateEditionRequest, EventBook, EventMeta, EventPage, EventRef, Snapshot,
+    Cover, CreateEditionRequest, EventBook, EventMeta, EventPage, FactOrigin, Snapshot,
 };
 use prost_types::{Any, Timestamp};
 
@@ -84,20 +85,6 @@ pub fn correlated(sequence: u64, n: u8, c: u8) -> EventPage {
     stamped(sequence, Causation::CommandId(command(n).into()), c)
 }
 
-/// A process manager's event at `sequence`, written in reaction to
-/// `trigger`: no command (13.2).
-pub fn triggered(sequence: u64, trigger: &EventRef) -> EventPage {
-    stamped(sequence, Causation::TriggeringEvent(trigger.clone()), 0xC0)
-}
-
-/// The event at `sequence` of `stream`, as a trigger.
-pub fn event_ref(stream: StreamRef<'_>, sequence: u64) -> EventRef {
-    EventRef {
-        stream: Some(stream.to_cover()),
-        sequence,
-    }
-}
-
 /// A snapshot after event `sequence`, under `rules`.
 pub fn snapshot(sequence: u64, rules: &str) -> Snapshot {
     Snapshot {
@@ -108,6 +95,29 @@ pub fn snapshot(sequence: u64, rules: &str) -> Snapshot {
         }),
         rules_version: rules.to_string(),
     }
+}
+
+/// The id a fact with `external_id` deduplicates under: its derived
+/// command id (`angzarr_proto::ids::fact_command_id`).
+pub fn fact_id(external_id: &str) -> Uuid {
+    Uuid::try_from(&fact_command_id(external_id)).expect("a derived id is 16 bytes")
+}
+
+/// The event at `sequence` produced by the fact `external_id`: caused by
+/// the fact's id, and carrying its origin.
+pub fn fact_page(sequence: u64, external_id: &str) -> EventPage {
+    let mut page = stamped(
+        sequence,
+        Causation::CommandId(fact_id(external_id).into()),
+        0xC0,
+    );
+    if let Some(meta) = page.meta.as_mut() {
+        meta.fact = Some(FactOrigin {
+            external_id: external_id.to_string(),
+            description: "contract".to_string(),
+        });
+    }
+    page
 }
 
 /// Outbox entry `n` from `origin`, its message `body`.
@@ -426,47 +436,49 @@ pub async fn find_command_finds_a_commands_events_on_its_stream<S: Store>(store:
     );
 }
 
-pub async fn find_triggered_finds_a_process_managers_events_by_trigger<S: Store>(store: S) {
+/// A process manager takes facts only, and deduplicates by the fact's id
+/// (the PM model ruled 2026-10-28: facts in, no triggers). A fact's events
+/// carry `causation.command_id` = the fact's derived command id
+/// (`fact_command_id(external_id)`), so `find_command` is the fact lookup
+/// too: a fact retried under the same id finds the first delivery's events.
+pub async fn find_command_finds_a_retried_facts_events_by_its_id<S: Store>(store: S) {
     let pm = main_stream("shipping", 1);
-    let order = main_stream("order", 7);
-    let (first, second) = (event_ref(order, 0), event_ref(order, 1));
     store
         .append(
             pm,
             0,
             &[
-                triggered(0, &first),
-                triggered(1, &first),
-                triggered(2, &second),
-                page(3, 9),
+                fact_page(0, "order-7-paid"),
+                fact_page(1, "order-7-paid"),
+                page(2, 9),
+                fact_page(3, "order-8-paid"),
             ],
         )
         .await
         .unwrap();
     assert_eq!(
-        store.find_triggered(pm, &first).await,
-        Ok(vec![triggered(0, &first), triggered(1, &first)])
+        store.find_command(pm, fact_id("order-7-paid")).await,
+        Ok(vec![
+            fact_page(0, "order-7-paid"),
+            fact_page(1, "order-7-paid")
+        ]),
+        "the retried fact's events, whole, its origin included"
     );
     assert_eq!(
-        store.find_triggered(pm, &second).await,
-        Ok(vec![triggered(2, &second)])
+        store.find_command(pm, fact_id("order-8-paid")).await,
+        Ok(vec![fact_page(3, "order-8-paid")])
     );
     assert_eq!(
-        store.find_triggered(pm, &event_ref(order, 2)).await,
+        store.find_command(pm, fact_id("order-9-paid")).await,
         Ok(vec![]),
-        "another sequence of the same stream"
+        "a fact never delivered"
     );
     assert_eq!(
         store
-            .find_triggered(pm, &event_ref(edition_stream("order", 7, "what-if"), 0))
+            .find_command(main_stream("shipping", 2), fact_id("order-7-paid"))
             .await,
         Ok(vec![]),
-        "the same root and sequence in another edition"
-    );
-    assert_eq!(
-        store.find_command(pm, command(9)).await,
-        Ok(vec![page(3, 9)]),
-        "a command's event on a PM's stream is still found by command"
+        "per stream"
     );
 }
 
@@ -679,17 +691,19 @@ pub async fn a_unit_of_work_lists_its_pending_streams<S: Store>(store: S) {
     );
 }
 
-pub async fn a_unit_of_work_finds_its_pending_commands_and_triggers<S: Store>(store: S) {
+pub async fn a_unit_of_work_finds_its_pending_commands_and_facts<S: Store>(store: S) {
     let s = main_stream("account", 1);
     let pm = main_stream("shipping", 1);
-    let trigger = event_ref(s, 0);
     let mut unit = store.begin().await.unwrap();
     unit.append(s, 0, &[page(0, 1)]).await.unwrap();
-    unit.append(pm, 0, &[triggered(0, &trigger)]).await.unwrap();
+    unit.append(pm, 0, &[fact_page(0, "order-7-paid")])
+        .await
+        .unwrap();
     assert_eq!(unit.find_command(s, command(1)).await, Ok(vec![page(0, 1)]));
     assert_eq!(
-        unit.find_triggered(pm, &trigger).await,
-        Ok(vec![triggered(0, &trigger)])
+        unit.find_command(pm, fact_id("order-7-paid")).await,
+        Ok(vec![fact_page(0, "order-7-paid")]),
+        "a pending fact, by its id"
     );
     assert_eq!(
         store.find_command(s, command(1)).await,
@@ -1737,7 +1751,7 @@ macro_rules! store_contract {
             a_stream_is_domain_edition_and_root,
             covers_orders_main_first_then_by_edition_and_root,
             find_command_finds_a_commands_events_on_its_stream,
-            find_triggered_finds_a_process_managers_events_by_trigger,
+            find_command_finds_a_retried_facts_events_by_its_id,
             a_store_keeps_the_newest_snapshot_per_stream,
             a_position_is_zero_until_put_then_the_last_put,
             positions_are_per_handler_and_per_stream,
@@ -1746,7 +1760,7 @@ macro_rules! store_contract {
             an_aborted_unit_of_work_lands_nothing,
             a_unit_of_work_checks_and_reads_its_pending_appends,
             a_unit_of_work_lists_its_pending_streams,
-            a_unit_of_work_finds_its_pending_commands_and_triggers,
+            a_unit_of_work_finds_its_pending_commands_and_facts,
             a_unit_of_work_puts_positions_with_its_appends,
             a_second_begin_on_a_handle_serves_or_refuses_never_waits,
         );

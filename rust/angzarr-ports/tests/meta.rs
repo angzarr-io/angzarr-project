@@ -21,9 +21,8 @@ use std::panic::AssertUnwindSafe;
 use std::sync::atomic::{AtomicI64, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
-use angzarr_ports::angzarr_proto::v1::event_meta::Causation;
 use angzarr_ports::angzarr_proto::v1::{
-    Cover, CreateEditionRequest, EventBook, EventPage, EventRef, Snapshot,
+    Cover, CreateEditionRequest, EventBook, EventPage, Snapshot,
 };
 use angzarr_ports::contract;
 use angzarr_ports::memory::{MemoryRead, MemoryStore, MemoryUnit};
@@ -67,8 +66,8 @@ enum Bug {
     // ---- dedup
     /// It finds a command's events on every stream of the domain.
     FindsAcrossStreams,
-    /// It finds a trigger's events by the trigger's stream alone.
-    TriggerIgnoresSequence,
+    /// It indexes a command's events but not a fact's.
+    FactsUnindexed,
     // ---- snapshots and positions
     /// It keeps the snapshot of the highest sequence, not the last written.
     KeepsHighestSnapshot,
@@ -360,28 +359,11 @@ impl EventStore for Broken {
             }
             return Ok(found);
         }
-        self.inner.find_command(stream, command_id).await
-    }
-
-    async fn find_triggered(
-        &self,
-        stream: StreamRef<'_>,
-        trigger: &EventRef,
-    ) -> Result<Vec<EventPage>, StoreError> {
-        if self.is(Bug::TriggerIgnoresSequence) {
-            let all = self.inner.read(stream, 0, None).await?;
-            return Ok(all
-                .pages
-                .into_iter()
-                .filter(|p| {
-                    matches!(
-                        p.meta.as_ref().and_then(|m| m.causation.as_ref()),
-                        Some(Causation::TriggeringEvent(t)) if t.stream == trigger.stream
-                    )
-                })
-                .collect());
+        let mut found = self.inner.find_command(stream, command_id).await?;
+        if self.is(Bug::FactsUnindexed) {
+            found.retain(|p| p.meta.as_ref().is_none_or(|m| m.fact.is_none()));
         }
-        self.inner.find_triggered(stream, trigger).await
+        Ok(found)
     }
 
     async fn covers(&self, domain: &str) -> Result<Vec<Cover>, StoreError> {
@@ -543,17 +525,6 @@ impl Unit for BrokenUnit {
             return self.store.find_command(stream, command_id).await;
         }
         self.inner.find_command(stream, command_id).await
-    }
-
-    async fn find_triggered(
-        &mut self,
-        stream: StreamRef<'_>,
-        trigger: &EventRef,
-    ) -> Result<Vec<EventPage>, StoreError> {
-        if self.store.is(Bug::UnitIsBlind) {
-            return self.store.find_triggered(stream, trigger).await;
-        }
-        self.inner.find_triggered(stream, trigger).await
     }
 
     async fn covers(&mut self, domain: &str) -> Result<Vec<Cover>, StoreError> {
@@ -994,9 +965,9 @@ fn the_dedup_checks_catch_lookups_too_wide() {
         FindsAcrossStreams
     );
     catches!(
-        find_triggered_finds_a_process_managers_events_by_trigger,
+        find_command_finds_a_retried_facts_events_by_its_id,
         broken,
-        TriggerIgnoresSequence
+        FactsUnindexed
     );
 }
 
@@ -1050,7 +1021,7 @@ fn the_unit_checks_catch_writes_through_lost_commits_and_blindness() {
         UnitIsBlind
     );
     catches!(
-        a_unit_of_work_finds_its_pending_commands_and_triggers,
+        a_unit_of_work_finds_its_pending_commands_and_facts,
         broken,
         UnitIsBlind
     );
@@ -1253,7 +1224,7 @@ fn an_honest_broken_store_passes_every_check() {
         a_stream_is_domain_edition_and_root,
         covers_orders_main_first_then_by_edition_and_root,
         find_command_finds_a_commands_events_on_its_stream,
-        find_triggered_finds_a_process_managers_events_by_trigger,
+        find_command_finds_a_retried_facts_events_by_its_id,
         a_store_keeps_the_newest_snapshot_per_stream,
         a_position_is_zero_until_put_then_the_last_put,
         positions_are_per_handler_and_per_stream,
@@ -1262,7 +1233,7 @@ fn an_honest_broken_store_passes_every_check() {
         an_aborted_unit_of_work_lands_nothing,
         a_unit_of_work_checks_and_reads_its_pending_appends,
         a_unit_of_work_lists_its_pending_streams,
-        a_unit_of_work_finds_its_pending_commands_and_triggers,
+        a_unit_of_work_finds_its_pending_commands_and_facts,
         a_unit_of_work_puts_positions_with_its_appends,
         a_second_begin_on_a_handle_serves_or_refuses_never_waits,
         a_purge_deletes_a_streams_events_snapshot_and_command_ids,

@@ -12,7 +12,7 @@
 
 use std::rc::Rc;
 
-use angzarr_ports::angzarr_proto::v1::{Cover, EventPage, EventRef, Snapshot};
+use angzarr_ports::angzarr_proto::v1::{Cover, EventPage, Snapshot};
 use angzarr_ports::memory::{MemoryStore, MemoryUnit};
 use angzarr_ports::{
     EventStore, PositionKey, PositionStore, Slice, SnapshotStore, StoreError, StreamRef, Unit,
@@ -49,13 +49,6 @@ impl EventStore for RcStore {
         command_id: Uuid,
     ) -> Result<Vec<EventPage>, StoreError> {
         self.0.find_command(stream, command_id).await
-    }
-    async fn find_triggered(
-        &self,
-        stream: StreamRef<'_>,
-        trigger: &EventRef,
-    ) -> Result<Vec<EventPage>, StoreError> {
-        self.0.find_triggered(stream, trigger).await
     }
     async fn covers(&self, domain: &str) -> Result<Vec<Cover>, StoreError> {
         self.0.covers(domain).await
@@ -117,13 +110,6 @@ impl Unit for RcUnit {
         command_id: Uuid,
     ) -> Result<Vec<EventPage>, StoreError> {
         self.0.find_command(stream, command_id).await
-    }
-    async fn find_triggered(
-        &mut self,
-        stream: StreamRef<'_>,
-        trigger: &EventRef,
-    ) -> Result<Vec<EventPage>, StoreError> {
-        self.0.find_triggered(stream, trigger).await
     }
     async fn covers(&mut self, domain: &str) -> Result<Vec<Cover>, StoreError> {
         self.0.covers(domain).await

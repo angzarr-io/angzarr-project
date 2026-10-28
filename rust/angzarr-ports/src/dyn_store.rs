@@ -16,7 +16,7 @@ use std::future::Future;
 use std::pin::Pin;
 
 use angzarr_proto::uuid::Uuid;
-use angzarr_proto::v1::{Cover, CreateEditionRequest, EventBook, EventPage, EventRef, Snapshot};
+use angzarr_proto::v1::{Cover, CreateEditionRequest, EventBook, EventPage, Snapshot};
 use prost_types::Timestamp;
 
 use crate::error::StoreError;
@@ -55,11 +55,6 @@ pub trait DynEventStore: MaybeSend + MaybeSync {
         &'a self,
         stream: StreamRef<'a>,
         command_id: Uuid,
-    ) -> BoxFuture<'a, Result<Vec<EventPage>, StoreError>>;
-    fn find_triggered<'a>(
-        &'a self,
-        stream: StreamRef<'a>,
-        trigger: &'a EventRef,
     ) -> BoxFuture<'a, Result<Vec<EventPage>, StoreError>>;
     fn covers<'a>(&'a self, domain: &'a str) -> BoxFuture<'a, Result<Vec<Cover>, StoreError>>;
     fn commit_position<'a>(&'a self) -> BoxFuture<'a, Result<u64, StoreError>>;
@@ -158,11 +153,6 @@ pub trait DynUnit<'s>: MaybeSend + 's {
         stream: StreamRef<'a>,
         command_id: Uuid,
     ) -> BoxFuture<'a, Result<Vec<EventPage>, StoreError>>;
-    fn find_triggered<'a>(
-        &'a mut self,
-        stream: StreamRef<'a>,
-        trigger: &'a EventRef,
-    ) -> BoxFuture<'a, Result<Vec<EventPage>, StoreError>>;
     fn covers<'a>(&'a mut self, domain: &'a str) -> BoxFuture<'a, Result<Vec<Cover>, StoreError>>;
     fn read_snapshot<'a>(
         &'a mut self,
@@ -232,14 +222,6 @@ impl<T: EventStore> DynEventStore for T {
         command_id: Uuid,
     ) -> BoxFuture<'a, Result<Vec<EventPage>, StoreError>> {
         let _ = (stream, command_id);
-        todo!("{DYN}")
-    }
-    fn find_triggered<'a>(
-        &'a self,
-        stream: StreamRef<'a>,
-        trigger: &'a EventRef,
-    ) -> BoxFuture<'a, Result<Vec<EventPage>, StoreError>> {
-        let _ = (stream, trigger);
         todo!("{DYN}")
     }
     fn covers<'a>(&'a self, domain: &'a str) -> BoxFuture<'a, Result<Vec<Cover>, StoreError>> {
@@ -383,14 +365,6 @@ impl<'s, U: Unit + 's> DynUnit<'s> for U {
         let _ = (stream, command_id);
         todo!("{DYN}")
     }
-    fn find_triggered<'a>(
-        &'a mut self,
-        stream: StreamRef<'a>,
-        trigger: &'a EventRef,
-    ) -> BoxFuture<'a, Result<Vec<EventPage>, StoreError>> {
-        let _ = (stream, trigger);
-        todo!("{DYN}")
-    }
     fn covers<'a>(&'a mut self, domain: &'a str) -> BoxFuture<'a, Result<Vec<Cover>, StoreError>> {
         let _ = domain;
         todo!("{DYN}")
@@ -470,13 +444,6 @@ impl EventStore for dyn DynStore + '_ {
     ) -> Result<Vec<EventPage>, StoreError> {
         DynEventStore::find_command(self, stream, command_id).await
     }
-    async fn find_triggered(
-        &self,
-        stream: StreamRef<'_>,
-        trigger: &EventRef,
-    ) -> Result<Vec<EventPage>, StoreError> {
-        DynEventStore::find_triggered(self, stream, trigger).await
-    }
     async fn covers(&self, domain: &str) -> Result<Vec<Cover>, StoreError> {
         DynEventStore::covers(self, domain).await
     }
@@ -543,13 +510,6 @@ impl<'s> Unit for Box<dyn DynUnit<'s> + 's> {
         command_id: Uuid,
     ) -> Result<Vec<EventPage>, StoreError> {
         (**self).find_command(stream, command_id).await
-    }
-    async fn find_triggered(
-        &mut self,
-        stream: StreamRef<'_>,
-        trigger: &EventRef,
-    ) -> Result<Vec<EventPage>, StoreError> {
-        (**self).find_triggered(stream, trigger).await
     }
     async fn covers(&mut self, domain: &str) -> Result<Vec<Cover>, StoreError> {
         (**self).covers(domain).await
