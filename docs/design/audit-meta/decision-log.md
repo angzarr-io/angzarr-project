@@ -1813,7 +1813,11 @@ correlation is a 16-byte `UUID` since 9.1. Owner ruling, 2026-10-27.
   needing two instances of the same PM under one correlation cannot have
   them.
 - Aligns with: MassTransit's saga state machines, whose instance key is
-  the `Guid` `CorrelationId`.
+  the `Guid` `CorrelationId` ("Saga instances are identified by a unique
+  identifier (`Guid`), represented by the `CorrelationId` on the saga
+  instance";
+  <https://masstransit.massient.com/documentation/patterns/saga>, where
+  masstransit.io's saga documentation now redirects).
 
 ## Corrections
 
