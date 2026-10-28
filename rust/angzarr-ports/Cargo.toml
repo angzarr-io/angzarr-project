@@ -1,0 +1,29 @@
+[package]
+name = "angzarr-ports"
+version = "0.1.0"
+edition = "2021"
+license = "AGPL-3.0-only"
+description = "angzarr's shared storage contract: the event, snapshot and position stores, the unit of work, their errors, and the conformance suite every backend runs"
+repository = "https://github.com/angzarr-io/angzarr-project"
+publish = false
+
+# Standalone: angzarr-project has no Cargo workspace of its own.
+[workspace]
+
+[features]
+# The conformance suite: `angzarr_ports::contract` and `store_contract!`.
+# A backend enables it for its own tests (under dev-dependencies).
+contract = []
+
+[dependencies]
+# The wire types the ports speak (Cover, EventPage, EventRef, Snapshot,
+# Edition, CreateEditionRequest), and `uuid` through its re-export.
+angzarr-proto = { path = "../angzarr-proto" }
+# `Timestamp`, as angzarr-proto's messages hold it.
+prost-types = "0.14"
+# Nothing else: no async runtime, no proc macro. The traits use native
+# return-position `impl Future`; the dyn adapter boxes with std alone.
+
+[dev-dependencies]
+# The tests' runtime only: the suite itself is runtime-agnostic.
+tokio = { version = "1", features = ["macros", "rt", "rt-multi-thread"] }

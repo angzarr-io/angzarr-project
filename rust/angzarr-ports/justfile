@@ -1,0 +1,27 @@
+# angzarr-ports: the shared storage contract and its conformance suite.
+# Needs protoc on PATH (or PROTOC set, for angzarr-proto) and the
+# wasm32-unknown-unknown target.
+
+# Format check, build, lint and test natively, then the wasm32 builds
+check: fmt-check build lint test wasm
+
+fmt:
+    cargo fmt
+
+fmt-check:
+    cargo fmt --check
+
+build:
+    cargo build --locked --all-features
+
+lint:
+    cargo clippy --locked --all-targets --all-features -- -D warnings
+
+# The tests are the suite run against the reference backend: they need it
+test:
+    cargo test --locked --all-features
+
+# The contract must build for the browser, suite included
+wasm:
+    cargo build --locked --target wasm32-unknown-unknown
+    cargo build --locked --target wasm32-unknown-unknown --features contract
