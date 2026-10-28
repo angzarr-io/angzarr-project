@@ -130,10 +130,10 @@ For complex scenarios (DLQ routing, escalation webhooks, RevocationResponse flag
 
 A saga emits **commands** for its one destination, an aggregate's domain or a process manager's (a process manager is a domain; decision 14.31). Its business code never emits a fact.
 
-When a target **refuses** one of its commands, the target records nothing, and the saga's **on-refused callback** (declared with `(on_refused)` on the fact it returns) gets one `Refusal { event, command, response }` and crafts a **rejection fact** for the saga's own source domain. That is the only fact a saga delivers.
+When a target **refuses** one of its commands, the target records nothing, and the saga delivers one **refusal fact** to its own source domain, whose id is the refused command's id. By default its generated code passes the standard `CommandRefused { command, response, trigger }` through, and the source domain handles it in a generated `on_refused_<Command>(refusal, state)`. A command may opt in to translation: the saga's callback turns `Refusal { event, command, response }` into a fact of the source domain, so the source never refers to the target's protos. The mode is chosen when the code is generated (the `angzarr` CLI's refusal switch). That refusal fact is the only fact a saga delivers.
 
 :::caution[Example code predates the contract]
-The `FactBook` example below injects a fact into an aggregate, which the current contract refuses; a saga's only fact is its on-refused callback's rejection fact, for its own source domain. This page is due for a rewrite (backlog DOC-2).
+The `FactBook` example below injects a fact into an aggregate, which the current contract refuses; a saga's only fact is a refusal fact, for its own source domain. This page is due for a rewrite (backlog DOC-2).
 :::
 
 ```python title="illustrative"

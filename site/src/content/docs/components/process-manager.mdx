@@ -126,7 +126,7 @@ A PM declares which of its command and fact types are **starting** inputs (`star
 | | What it is | Who sends it |
 |-|-----------|--------------|
 | **Input: a command** | A request the PM may refuse | A saga from another domain (turning that domain's event into a command), or a client |
-| **Input: a fact** | Something that already happened, never refused | A timer or webhook, or the on-refused callback of a saga from the PM's domain |
+| **Input: a fact** | Something that already happened, never refused | A timer or webhook, or a refusal fact from a saga from the PM's domain |
 | **Output: its own events** | What the PM decided, with the data the next step needs | Sagas from the PM's domain turn them into commands |
 
 ```python title="illustrative"
@@ -174,15 +174,25 @@ On restart, the PM rebuilds state by replaying its own events.
 
 A PM tracks the replies to the steps it starts. Its event carries the instance's correlation ID, so the saga's command built from it carries that correlation, and so do the target's events. The saga from the target's domain to the PM's domain turns the replies the PM needs into commands to the instance under that correlation.
 
-A target that **refuses** a saga's command records nothing. The saga's **on-refused callback** gets one `Refusal { event, command, response }` (the triggering event, the command sent, the refusal) and crafts a **rejection fact** for the saga's own source domain. When the saga's source is the PM, that fact reaches the PM, which decides the next step from its own state:
+A target that **refuses** a saga's command records nothing. The saga delivers one **refusal fact** to its own source domain; when that source is the PM, the PM decides the next step from its own state. The fact's id is the refused command's id. Two modes, chosen per command when the code is generated (the `angzarr` CLI's refusal switch; the proto gives the default):
 
-```python title="illustrative"
-# Declared in proto: (on_refused) = {saga: "BuyInPlayerSaga", command: "HoldFunds"}
-# on the PM's fact HoldFundsRefused.
-def on_refused_hold_funds(refusal: Refusal) -> HoldFundsRefused:
-    return HoldFundsRefused(hold_id=refusal.command.hold_id,
-                            reason=refusal.response.message)
-```
+- **Pass-through (default).** The saga's generated code forwards the standard `CommandRefused { command, response, trigger }`. The PM lists the foreign command in its `refusals` and gets a generated handler:
+
+  ```python title="illustrative"
+  # BuyInState: refusals: "examples.v1.HoldFunds"
+  def on_refused_hold_funds(refusal: CommandRefused, state: BuyInState):
+      return BuyInFailed(buy_in_id=state.buy_in_id,
+                         reason=refusal.response.message)
+  ```
+
+- **Translate (opt-in).** The saga's `sends` entry names a domestic `refusal_fact`, and the saga's callback translates the refusal, so the PM never refers to the foreign protos:
+
+  ```python title="illustrative"
+  # BuyInTableSaga: sends {command: "ConfirmSeat", refusal_fact: "SeatConfirmationRefused"}
+  def on_refused_confirm_seat(refusal: Refusal) -> SeatConfirmationRefused:
+      return SeatConfirmationRefused(buy_in_id=refusal.command.buy_in_id,
+                                     reason=refusal.response.message)
+  ```
 
 The refusal fact is unrefusable, so compensation cannot loop. There is no notification or compensation channel. A hard failure of the saga's command (anything but a business rejection) is retried when retryable and otherwise dead-lettered, as for any saga command.
 
@@ -205,7 +215,7 @@ See [Roadmap](../roadmap#process-manager-timeouts) for details.
 | **State** | Stateless | Stateful (own event stream) |
 | **Identity** | None | correlation_id |
 | **Input** | Events of its one source domain | Commands and facts addressed to it (subscribes to no domain) |
-| **Output** | Commands for its one destination (an aggregate's or a PM's domain); a rejection fact for its own source when one is refused | Its own events only |
+| **Output** | Commands for its one destination (an aggregate's or a PM's domain); a refusal fact for its own source when one is refused | Its own events only |
 | **Owned stream** | None (`domain` must be empty) | Its own workflow domain (`domain` required) |
 | **Persistence** | No | Yes (workflow events) |
 | **Timeouts** | No | Planned |

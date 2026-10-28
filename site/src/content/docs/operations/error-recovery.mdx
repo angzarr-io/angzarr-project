@@ -202,15 +202,15 @@ Dead letters require manual review. Common actions:
 
 ## Saga Refusals
 
-A target that refuses a saga's command (a business rejection) records nothing. The saga's coordinator calls the saga's **on-refused callback** with `Refusal { event, command, response }`; it returns a rejection fact for the saga's own source domain, which the coordinator writes to the outbox in the same transaction that clears the command's entry. The source records the fact and decides what it means.
+A target that refuses a saga's command (a business rejection) records nothing. The saga's coordinator calls `OnRefused`; the saga's generated code answers one refusal fact for the saga's own source domain, either the standard `CommandRefused` passed through (the default) or a domestic fact its callback translates the refusal into (opt-in, chosen at code generation). The fact's id is the refused command's id. The coordinator writes it to the outbox in the same transaction that clears the command's entry. The source records the fact and decides what it means.
 
-| What happened | What the coordinator does |
-|---------------|---------------------------|
-| A business rejection, with a callback | Calls the callback; delivers its fact to the saga's source, retried, deduplicated by fact id |
-| A business rejection, no callback | Dead-letters the command with its refusal for a human, and alerts |
-| The callback fails | Dead-letters the refusal and alerts |
-| A retryable failure | Retries the command |
-| Any other terminal failure | Dead-letters the command and alerts: a bug |
+| What happened | What happens |
+|---------------|--------------|
+| A business rejection | The refusal fact goes to the saga's source, retried, deduplicated by the refused command's id |
+| A pass-through refusal the source has no handler for | The fact is refused `NO_FACT_HANDLER`, dead-lettered for a human, and alerted (the generator warns about the missing path) |
+| The translating callback fails | The refusal is dead-lettered and alerted |
+| A retryable failure | The command is retried |
+| Any other terminal failure | The command is dead-lettered and alerted: a bug |
 
 ## Process Manager Failures
 
@@ -227,7 +227,7 @@ A process manager is a domain, so its failures are an aggregate's: a refused com
 ## Saga Compensation
 
 :::caution[Removed from the contract]
-The compensation and notification path below is deleted from the current contract (backlog RM-2). A target that refuses records nothing; the saga's on-refused callback turns the refusal into a fact for the saga's own source domain (see Saga Refusals, above). This section describes the prior implementation until the page is rewritten (backlog DOC-2).
+The compensation and notification path below is deleted from the current contract (backlog RM-2). A target that refuses records nothing; the saga delivers a refusal fact to its own source domain (see Saga Refusals, above). This section describes the prior implementation until the page is rewritten (backlog DOC-2).
 :::
 
 When a saga-issued command is rejected, angzarr notifies the original aggregate so it can emit compensation events.

@@ -248,7 +248,7 @@ flowchart LR
 - Handles complex multi-step processes
 - Is a domain: sagas turn other domains' events into commands to it, which it may refuse; it also takes facts (timeouts, webhooks), which it never refuses
 - Sends no commands: it records the data each next step needs, and a saga from its domain builds the command
-- Hears of a target's refusal as a fact, crafted by the saga's on-refused callback, and decides the next step from its own state
+- Hears of a target's refusal as a fact from the saga that asked (passed through, or translated), and decides the next step from its own state
 - Used sparingly—adds complexity
 
 [Learn more →](/components/process-manager)
@@ -266,7 +266,7 @@ flowchart LR
 | **Event Store** | Append-only database of events. The source of truth. |
 | **Projection** | Read-optimized view derived from events. Eventually consistent. |
 | **Projector** | Component that builds projections from event streams. |
-| **Saga** | Stateless service bridging events in one domain to commands in another; when a command is refused, its callback turns the refusal into a fact for its own domain. |
+| **Saga** | Stateless service bridging events in one domain to commands in another; when a command is refused, it delivers a fact of the refusal to its own domain. |
 | **Process Manager** | Stateful workflow coordinator across multiple domains, and a domain like any other: it takes commands (from sagas) and facts, and records its own events; sagas carry its decisions to other domains. |
 | **Snapshot** | Cached aggregate state for replay optimization. |
 | **Correlation ID** | Identifier linking related events across domains. |
