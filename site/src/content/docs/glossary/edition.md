@@ -7,28 +7,12 @@ An identifier for diverged timelines. Editions enable branching scenarios like s
 
 ## Concepts
 
-**Main timeline:** Empty edition name (`""`)
-**Branch:** Named edition diverging from main
+**Main timeline:** no edition name (`Cover.edition` unset)
+**Edition:** a named set of per-stream forks (decision 14.32)
 
-## Divergence Types
+## Forks
 
-### Implicit Divergence
-Diverges from the first event in the edition:
-```protobuf
-Edition { name: "what-if-scenario" }
-```
-
-### Explicit Divergence
-Per-domain divergence points:
-```protobuf
-Edition {
-  name: "historical-branch",
-  divergences: [
-    { domain: "order", sequence: 100 },
-    { domain: "inventory", sequence: 50 }
-  ]
-}
-```
+Creating an edition forks an origin stream: an `EditionForked` event is appended to the stream's edition version at main's next sequence. That stream reads main's events below its fork sequence, then the edition's own. angzarr propagates the fork downstream through the same data flow as any event (eventually consistent); a stream nothing has reached is forked on demand by its first command in the edition. A time-based fork at one global commit position is an option. There is no edition registry: listing editions queries the fork events.
 
 ## Use Cases
 
@@ -49,7 +33,4 @@ Editions are an Angzarr-specific concept not found in standard event sourcing. T
 
 ## Cleanup
 
-Edition events can be deleted when no longer needed:
-```protobuf
-DeleteEditionEvents { domain: "order", edition: "test-branch" }
-```
+`EditionAdminService.DeleteEdition` removes every row of an edition in every store. Main cannot be deleted.

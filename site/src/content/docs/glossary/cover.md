@@ -23,7 +23,7 @@ message Cover {
 | `domain` | Bounded context | `"order"`, `"inventory"` |
 | `root` | Aggregate instance | UUID |
 | `correlation_id` | Workflow tracking | `"checkout-123"` |
-| `edition` | Timeline branching | Main or diverged |
+| `edition` | Timeline branching | Main (unset) or an edition's per-stream fork |
 
 ## Addressing Patterns
 

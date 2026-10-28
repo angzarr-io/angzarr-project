@@ -209,22 +209,18 @@ print(f"Balance at {yesterday}: {state.bankroll}")
 |----------|-----|
 | **What-if analysis** | Branch at sequence N, apply hypothetical commands |
 | **Historical branches** | Explore alternative histories |
-| **Saga coordination** | Coordinate writes across domains with explicit divergence |
+| **Saga coordination** | Reactions stay in their trigger's edition; forks propagate downstream |
 | **Speculative execution** | Execute commands speculatively, merge or discard |
 
-**Two modes:**
+**Two modes** (decision 14.32):
 
-1. **Implicit divergence** — First event in edition determines divergence point
-2. **Explicit divergence** — Per-domain divergence points specified upfront
+1. **Per-stream forks (default)** — Forking an origin stream starts the edition; angzarr propagates the fork downstream, each stream diverging at its own head
+2. **Time-based** — Every stream diverges at one global commit position, for a consistent snapshot
 
 ```python
-# Create a what-if branch
-edition = Edition(name="bonus-scenario")
-cover = Cover(
-    domain="player",
-    root=player_id,
-    edition=edition,
-)
+# Create a what-if branch by forking the player's stream
+cover = Cover(domain="player", root=player_id, edition="bonus-scenario")
+admin.fork_stream(cover)
 
 # Commands on this cover write to the branch, not main timeline
 cmd = CommandBook(cover=cover, page=...)  # exactly one command per book

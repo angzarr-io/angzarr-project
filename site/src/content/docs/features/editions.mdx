@@ -7,7 +7,7 @@ title: Temporal Branching with Editions
 
 ## The Concept
 
-An **edition** is a branch of history. The main timeline (empty edition name) continues undisturbed while you explore an alternate path—a simulation, a what-if analysis, a training scenario.
+An **edition** is a branch of history, made of per-stream forks. The main timeline (no edition name) continues undisturbed while you explore an alternate path—a simulation, a what-if analysis, a training scenario.
 
 When you're done, delete the branch. Editions are for exploration, not migration—there is no merge operation. Events build upon each other; merging branch events into the main timeline would corrupt that timeline by inserting events that reference different prior state. The event stream is immutable by design.
 
@@ -37,63 +37,44 @@ Preview the effects of a command before committing. "Show me what the order woul
 
 ## How It Works
 
-Every event lives in an edition.
+An edition is a set of **per-stream forks** (decision 14.32). There is no edition registry: an edition exists exactly as far as its fork events do.
 
-To branch, specify an edition name:
+**Forking a stream.** Creating edition `X` forks an origin stream: an `EditionForked` event is appended to the stream's `X` version at the sequence main would have used next. That event is the first event of `X`'s version of the stream, and its sequence marks main's end and `X`'s start for that stream.
 
-```python title="illustrative - speculative edition"
-# Simulate what would happen with different pricing
-edition = Edition(name="pricing-experiment-2024-03")
+```python title="illustrative - create an edition by forking an origin stream"
+admin.fork_stream(Cover(domain="orders", root=order_id, edition="pricing-experiment"))
 
-result = speculate(
-    command=ApplyDiscount(order_id=order_id, percent=20),
-    edition=edition,
-)
-
-# result.events shows what would happen
-# Main timeline unchanged
+# Commands on the edition write to the branch, not main
+send(Cover(domain="orders", root=order_id, edition="pricing-experiment"),
+     ApplyDiscount(order_id=order_id, percent=20))
 ```
+
+**Reading a stream in an edition.** Each stream reads main's events below its **own** fork sequence, then the edition's own events. Main's later events never reach it.
+
+**Propagation.** angzarr carries the fork downstream for you, through the same data flow as any event: the streams the forked stream's reactions feed are forked in the edition as the propagation reaches them. It is eventually consistent, not lazy. A stream no propagation reaches is forked on demand by the first command sent to it in the edition; a query of it reads main's version and forks nothing.
+
+**The time-based option.** Fork at one global commit position instead, and every stream the edition forks diverges at that same moment, for a consistent snapshot.
 
 ---
 
-## Divergence Points
+## Listing and Cleanup
 
-By default, an edition diverges implicitly from its first event. For precise control, specify explicit divergence points:
-
-```python title="illustrative - explicit divergence points"
-edition = Edition(
-    name="backtest-q4",
-    divergences=[
-        DomainDivergence(domain="orders", sequence=1000),
-        DomainDivergence(domain="inventory", sequence=500),
-    ],
-)
-```
-
-This says: "Branch from sequence 1000 in orders, sequence 500 in inventory." Events before those points are shared with the main timeline.
-
----
-
-## Cleanup
-
-Edition events accumulate. When you're done with a simulation, delete them:
+`ListEditions` lists editions from their fork events. When you're done with a simulation, delete it:
 
 ```python title="illustrative - edition cleanup"
-delete_edition_events(
-    domain="orders",
-    edition="pricing-experiment-2024-03",
-)
+admin.delete_edition("pricing-experiment")
 ```
 
-The main timeline is unaffected. Only the branch disappears.
+Every row of the edition, in every store, is removed. The main timeline is unaffected. An edition with no fork event left is unknown, and commands or queries naming it are refused `NOT_FOUND`.
 
 ---
 
 ## Example: Backtesting a Trading Strategy
 
 ```python title="illustrative - backtesting"
-# Create edition for backtest
-edition = Edition(name=f"backtest-{strategy_id}-{date}")
+# Create the edition by forking the trading stream
+edition = f"backtest-{strategy_id}-{date}"
+admin.fork_stream(Cover(domain="trading", root=book_id, edition=edition))
 
 # Replay historical market data through new strategy
 for market_event in historical_feed(start_date, end_date):
@@ -111,7 +92,7 @@ performance = calculate_sharpe_ratio(edition)
 print(f"Strategy {strategy_id}: Sharpe = {performance}")
 
 # Cleanup
-delete_edition_events(domain="trading", edition=edition.name)
+admin.delete_edition(edition)
 ```
 
 ---
@@ -122,7 +103,8 @@ delete_edition_events(domain="trading", edition=edition.name)
 # Generate training data from alternate game outcomes
 for hand_id in sample_hands(n=10000):
     for alternate_action in possible_actions(hand_id):
-        edition = Edition(name=f"train-{hand_id}-{alternate_action}")
+        edition = f"train-{hand_id}-{alternate_action}"
+        admin.fork_stream(Cover(domain="hand", root=hand_id, edition=edition))
 
         result = speculate(
             command=PlayerAction(
@@ -137,7 +119,7 @@ for hand_id in sample_hands(n=10000):
         dataset.append(training_sample)
 
         # Cleanup this branch
-        delete_edition_events(domain="hand", edition=edition.name)
+        admin.delete_edition(edition)
 ```
 
 ---
