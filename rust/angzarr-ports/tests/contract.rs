@@ -18,6 +18,11 @@
 //!   fact's events carry its derived command id as their cause, so
 //!   `find_command` is the fact lookup too, and no `find_fact` is needed
 //!   (`find_command_finds_a_retried_facts_events_by_its_id`).
+//!   A refusal fact (14.31, the merged spec) takes the REFUSED command's
+//!   `command_id` as its id, no derivation, and lands on the exact stream
+//!   of the saga's trigger; `find_command` finds it there and only there
+//!   (`find_command_finds_a_refusal_fact_on_the_trigger_stream_by_the_refused_id`).
+//!   A process manager is a domain: it keeps no reactor position.
 //! - **RULED(5) Snapshots** are a separate `SnapshotStore`, last written
 //!   kept, the caller judging.
 //! - **RULED(6) Positions** are the next sequence, `u64`, 0 when never put,

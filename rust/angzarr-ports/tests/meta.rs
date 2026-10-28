@@ -21,6 +21,8 @@ use std::panic::AssertUnwindSafe;
 use std::sync::atomic::{AtomicI64, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
+use angzarr_ports::angzarr_proto::ids::fact_command_id;
+use angzarr_ports::angzarr_proto::v1::event_meta::Causation;
 use angzarr_ports::angzarr_proto::v1::{
     Cover, CreateEditionRequest, Edition, EventBook, EventPage, Snapshot,
 };
@@ -67,6 +69,9 @@ enum Bug {
     FindsAcrossStreams,
     /// It indexes a command's events but not a fact's.
     FactsUnindexed,
+    /// It keys a fact's events by the derivation from its external id,
+    /// not by their cause: a refusal fact's id is no derivation.
+    FactKeyDerived,
     // ---- snapshots and positions
     /// It keeps the snapshot of the highest sequence, not the last written.
     KeepsHighestSnapshot,
@@ -369,6 +374,25 @@ impl EventStore for Broken {
             return Ok(found);
         }
         let mut found = self.inner.find_command(stream, command_id).await?;
+        if self.is(Bug::FactKeyDerived) {
+            let all = self.inner.read(stream, 0, None).await?;
+            return Ok(all
+                .pages
+                .into_iter()
+                .filter(|p| match p.meta.as_ref() {
+                    Some(m) => match &m.fact {
+                        Some(f) => {
+                            Uuid::try_from(&fact_command_id(&f.external_id)).ok() == Some(command_id)
+                        }
+                        None => matches!(
+                            &m.causation,
+                            Some(Causation::CommandId(id)) if Uuid::try_from(id).ok() == Some(command_id)
+                        ),
+                    },
+                    None => false,
+                })
+                .collect());
+        }
         if self.is(Bug::FactsUnindexed) {
             found.retain(|p| p.meta.as_ref().is_none_or(|m| m.fact.is_none()));
         }
@@ -995,6 +1019,11 @@ fn the_dedup_checks_catch_lookups_too_wide() {
         broken,
         FactsUnindexed
     );
+    catches!(
+        find_command_finds_a_refusal_fact_on_the_trigger_stream_by_the_refused_id,
+        broken,
+        FactKeyDerived
+    );
 }
 
 #[test]
@@ -1262,6 +1291,7 @@ fn an_honest_broken_store_passes_every_check() {
         covers_orders_main_first_then_by_edition_and_root,
         find_command_finds_a_commands_events_on_its_stream,
         find_command_finds_a_retried_facts_events_by_its_id,
+        find_command_finds_a_refusal_fact_on_the_trigger_stream_by_the_refused_id,
         a_store_keeps_the_newest_snapshot_per_stream,
         a_position_is_zero_until_put_then_the_last_put,
         positions_are_per_handler_and_per_stream,

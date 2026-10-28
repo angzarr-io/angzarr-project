@@ -121,6 +121,25 @@ pub fn fact_page(sequence: u64, external_id: &str) -> EventPage {
     page
 }
 
+/// The event at `sequence` recording a refusal (14.31): a refusal fact,
+/// whose id IS the refused command's `command_id` (no derivation), its
+/// `fact_origin.external_id` that id's canonical text, addressed to the
+/// exact stream of the saga's triggering event.
+pub fn refusal_page(sequence: u64, refused: Uuid) -> EventPage {
+    let mut page = stamped(sequence, Causation::CommandId(refused.into()), 0xC0);
+    page.payload = Some(Any {
+        type_url: "/io.angzarr.v1.CommandRefused".to_string(),
+        value: Vec::new(),
+    });
+    if let Some(meta) = page.meta.as_mut() {
+        meta.fact = Some(FactOrigin {
+            external_id: refused.to_string(),
+            description: "refusal".to_string(),
+        });
+    }
+    page
+}
+
 /// Outbox entry `n` from `origin`, its message `body`.
 pub fn entry(n: u8, origin: &str, body: u8) -> OutboxEntry {
     OutboxEntry {
@@ -416,6 +435,50 @@ pub async fn covers_orders_main_first_then_by_edition_and_root<S: Store>(store: 
 
 // ----------------------------------------------------------- base: dedup
 
+/// 14.31: a saga's command refused by its target comes back as a refusal
+/// fact on the EXACT stream of the saga's trigger (domain, root and
+/// edition), its id the refused command's `command_id` itself. A refusal
+/// retried under that id is found there by `find_command`, and only there:
+/// not on main's stream of the same root, and not on the refusing target,
+/// which never applied the command.
+pub async fn find_command_finds_a_refusal_fact_on_the_trigger_stream_by_the_refused_id<S>(store: S)
+where
+    S: Store,
+{
+    let refused = command(0x42);
+    let source = edition_stream("order", 1, "what-if");
+    let target = main_stream("wallet", 2);
+    store.append(source, 0, &[page(0, 1)]).await.unwrap();
+    store
+        .append(main_stream("order", 1), 0, &[page(0, 1)])
+        .await
+        .unwrap();
+    store.append(target, 0, &[page(0, 3)]).await.unwrap();
+    store
+        .append(
+            source,
+            1,
+            &[refusal_page(1, refused), refusal_page(2, refused)],
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        store.find_command(source, refused).await,
+        Ok(vec![refusal_page(1, refused), refusal_page(2, refused)]),
+        "the refusal, retried under the refused command's id: found, whole"
+    );
+    assert_eq!(
+        store.find_command(main_stream("order", 1), refused).await,
+        Ok(vec![]),
+        "main's stream of the same root is another stream"
+    );
+    assert_eq!(
+        store.find_command(target, refused).await,
+        Ok(vec![]),
+        "the refusing target never applied it"
+    );
+}
+
 pub async fn find_command_finds_a_commands_events_on_its_stream<S: Store>(store: S) {
     let s = main_stream("account", 1);
     store
@@ -437,8 +500,8 @@ pub async fn find_command_finds_a_commands_events_on_its_stream<S: Store>(store:
     );
 }
 
-/// A process manager takes facts only, and deduplicates by the fact's id
-/// (the PM model ruled 2026-10-28: facts in, no triggers). A fact's events
+/// A process manager is a domain that takes facts only, and deduplicates
+/// by the fact's id (14.31: facts in, no triggers). A fact's events
 /// carry `causation.command_id` = the fact's derived command id
 /// (`fact_command_id(external_id)`), so `find_command` is the fact lookup
 /// too: a fact retried under the same id finds the first delivery's events.
@@ -1804,6 +1867,7 @@ macro_rules! store_contract {
             covers_orders_main_first_then_by_edition_and_root,
             find_command_finds_a_commands_events_on_its_stream,
             find_command_finds_a_retried_facts_events_by_its_id,
+            find_command_finds_a_refusal_fact_on_the_trigger_stream_by_the_refused_id,
             a_store_keeps_the_newest_snapshot_per_stream,
             a_position_is_zero_until_put_then_the_last_put,
             positions_are_per_handler_and_per_stream,
