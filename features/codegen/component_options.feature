@@ -118,30 +118,51 @@ Feature: Component declarations - lint warnings and errors
     And lint exits with status 0
 
   @C-0612
-  Scenario: An (on_refused) option generates the saga's callback and lists the command in its descriptor
-    # Decision 14.31: a saga's on-refused callback takes one Refusal
-    # { event, command, response } and returns the fact the option sits on.
+  Scenario Outline: The generator gives each refusal path its handler
+    # Decision 14.31: pass-through generates the source domain's
+    # on_refused_<Command>(refusal, state); translate generates the saga's
+    # on_refused_<Command>(Refusal) returning the domestic fact.
     Given an aggregate "InventoryState" owning domain "inventory" with command "inventory.ReserveStock"
     And an aggregate "OrderState" owning domain "order" with fact "order.StockUnavailable"
-    And a SAGA component "OrderToInventory" triggered by domain "order" with output_domain "inventory"
-    And "order.StockUnavailable" carries (on_refused) naming saga "OrderToInventory" and command "inventory.ReserveStock"
-    When the saga's handler interface is generated
-    Then the saga has a handler on_refused_ReserveStock taking a Refusal and returning "order.StockUnavailable"
-    And the saga's descriptor lists refusal type "/inventory.ReserveStock"
-
-  @C-0620
-  Scenario Outline: A mismatched (on_refused) option is a lint error
-    Given an aggregate "InventoryState" owning domain "inventory" with command "inventory.ReserveStock"
-    And an aggregate "OrderState" owning domain "order" with fact "order.StockUnavailable"
-    And an aggregate "ShippingState" owning domain "shipping" with fact "shipping.Lost"
-    And a SAGA component "OrderToInventory" triggered by domain "order" with output_domain "inventory"
-    And <message> carries (on_refused) naming <saga> and command <command>
-    When the protos are linted
-    Then lint reports an error naming the (on_refused) option
-    And lint exits with a non-zero status
+    And a SAGA component "OrderToInventory" from "order" to "inventory" whose sends entry for "inventory.ReserveStock" <refusal_fact>
+    And "OrderState" <refusals>
+    When the handler interfaces are generated
+    Then <generated>
 
     Examples:
-      | message                  | saga                      | command                   |
-      | "shipping.Lost"          | saga "OrderToInventory"   | "inventory.ReserveStock"  |
-      | "order.StockUnavailable" | aggregate "InventoryState" | "inventory.ReserveStock" |
-      | "order.StockUnavailable" | saga "OrderToInventory"   | "order.PlaceOrder"        |
+      | refusal_fact                                | refusals                                   | generated                                                                                                         |
+      | names no refusal_fact                       | lists "inventory.ReserveStock" in refusals | "OrderState" has a handler on_refused_ReserveStock taking the CommandRefused and its state, returning events      |
+      | names refusal_fact "order.StockUnavailable" | lists no refusals                          | "OrderToInventory" has a callback on_refused_ReserveStock taking a Refusal and returning "order.StockUnavailable" |
+
+  @C-0620
+  Scenario Outline: Every command a saga sends has exactly one refusal path
+    Given an aggregate "InventoryState" owning domain "inventory" with command "inventory.ReserveStock"
+    And an aggregate "OrderState" owning domain "order" with fact "order.StockUnavailable"
+    And a SAGA component "OrderToInventory" from "order" to "inventory" whose sends entry for "inventory.ReserveStock" <refusal_fact>
+    And "OrderState" <refusals>
+    When the protos are linted
+    Then lint reports <diagnostic>
+    And lint exits with <status>
+
+    Examples:
+      | refusal_fact                                | refusals                                   | diagnostic                                                         | status            |
+      | names no refusal_fact                       | lists no refusals                          | a warning naming "inventory.ReserveStock": no refusal path         | status 0          |
+      | names refusal_fact "order.StockUnavailable" | lists "inventory.ReserveStock" in refusals | an error naming "inventory.ReserveStock": two refusal paths        | a non-zero status |
+      | names refusal_fact "inventory.ReserveStock" | lists no refusals                          | an error: the refusal fact is not a fact of the source domain      | a non-zero status |
+
+  @C-0623
+  Scenario Outline: The CLI's refusal switch selects the mode at generation time
+    # "cli may have to have that switch, as it's compile time" (the owner,
+    # 2026-10-28). The proto's refusal_fact is the default; the switch
+    # overrides it, per saga or per saga command.
+    Given an aggregate "InventoryState" owning domain "inventory" with command "inventory.ReserveStock"
+    And an aggregate "OrderState" owning domain "order" with fact "order.StockUnavailable" that lists "inventory.ReserveStock" in refusals
+    And a SAGA component "OrderToInventory" from "order" to "inventory" whose sends entry for "inventory.ReserveStock" <refusal_fact>
+    When the handler interfaces are generated with the refusal switch <switch>
+    Then <outcome>
+
+    Examples:
+      | refusal_fact                                | switch                                                         | outcome                                                                                       |
+      | names refusal_fact "order.StockUnavailable" | unset                                                          | the saga's callback on_refused_ReserveStock is generated (translate)                          |
+      | names refusal_fact "order.StockUnavailable" | pass-through for saga "OrderToInventory"                       | the saga forwards CommandRefused and "OrderState"'s on_refused_ReserveStock is used           |
+      | names no refusal_fact                       | translate for command "inventory.ReserveStock" of the saga     | generation fails naming "inventory.ReserveStock": translate needs a refusal_fact              |

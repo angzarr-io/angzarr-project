@@ -2,9 +2,9 @@ Feature: Fact injection
 
   A process manager is a domain (decision 14.31): facts reach it as they
   reach an aggregate (timeouts, webhooks). A saga's business code never
-  emits a fact; the one fact a saga delivers is the rejection fact its
-  on-refused callback crafts, for its own source domain only
-  (saga_refusal.feature).
+  emits a fact; the one fact a saga delivers is a refusal fact (the
+  standard CommandRefused, or a domestic fact its callback translates the
+  refusal into), for its own source domain only (saga_refusal.feature).
 
   Retired with decision 14.31: C-0184, C-0188, C-0189 and C-0493, which had
   a saga inject facts into an aggregate (C-0610 now refuses that).
@@ -64,7 +64,7 @@ Feature: Fact injection
 
   @C-0609
   Scenario: A fact carrying a causation_id is accepted only by its trigger's domain
-    # The one fact with a causation_id is a saga's rejection fact, for the
+    # The one fact with a causation_id is a saga's refusal fact, for the
     # saga's own source domain (decision 14.31).
     Given an "order" aggregate "order-1" that declares fact DeliveryRefused
     When a framework component sends a DeliveryRefused fact to "order" root "order-1" whose causation_id names an event of "order" aggregate "order-1"

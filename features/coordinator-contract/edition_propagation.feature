@@ -8,7 +8,7 @@
 #
 # A process manager is a domain (decision 14.31): its inputs are commands
 # (from sagas, in their trigger's edition) and facts, and its events land
-# in its input's edition, like any domain's. A saga's rejection fact keeps
+# in its input's edition, like any domain's. A saga's refusal fact keeps
 # its trigger's edition.
 #
 # Coverage in core: Rust unit tests in
@@ -88,12 +88,12 @@ Feature: Edition propagation across cross-domain emissions
     And the command is refused INTERNAL
 
   @C-0608
-  Scenario: A saga's rejection fact carries its trigger's edition
-    Given a saga "OrderToInventory" translating from "order" to "inventory" with an on-refused callback for ReserveStock
+  Scenario: A saga's refusal fact carries its trigger's edition
+    Given a saga "OrderToInventory" translating from "order" to "inventory" that sends ReserveStock in pass-through mode
     And the source event has edition "speculative"
     And the inventory aggregate refuses ReserveStock
     When an OrderCreated event is dispatched to the saga
-    Then the rejection fact's cover has edition "speculative"
+    Then the refusal fact's cover has edition "speculative"
 
   # ---------------------------------------------------------------
   # Main timeline: "" , unset and "angzarr" are one timeline

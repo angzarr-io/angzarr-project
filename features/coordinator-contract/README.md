@@ -17,9 +17,9 @@ implement it.
 | `rules_version.feature` | The reported build version stamped in full on events and snapshots; the state returned with every answer stored per policy and offered unchanged; which snapshot is offered (registered state type, the default major.minor rule, exact match for non-semantic versions, a domain's accept and reject patterns) |
 | `fact_flow.feature` | Fact injection: 0-based sequencing, `external_deferred.external_id` idempotency, failure handling; a fact carrying a causation_id accepted only by its trigger's domain |
 | `state_building.feature` | Aggregate state reconstruction from snapshot + pages, `next_sequence` arithmetic |
-| `edition_propagation.feature` | Source/trigger edition stamped onto every saga emission, a rejection fact included; a PM's events in its input's edition; main-timeline aliases (`""`, unset, `"angzarr"`) |
+| `edition_propagation.feature` | Source/trigger edition stamped onto every saga emission, a refusal fact included; a PM's events in its input's edition; main-timeline aliases (`""`, unset, `"angzarr"`) |
 | `temporal_query.feature` | `TemporalQuery` as_of_sequence / as_of_time and when a snapshot may start the result |
-| `saga_refusal.feature` | A refused saga command: the target records nothing, the saga's on-refused callback crafts a fact for its own source domain, through the outbox; no callback, a failing callback, a fact for another domain |
+| `saga_refusal.feature` | A refused saga command: the target records nothing; the saga passes the standard CommandRefused through to its source's generated handler, or translates it into a domestic fact; the refused command's id is the fact's id; one outbox transaction; no path, a failing callback, a fact for another domain |
 | `sync_modes.feature` | ASYNC, DECISION, SIMPLE, CASCADE, ISOLATED and the per-command `PageHeader.sync_mode` (caller's mode is a floor) |
 | `dead_letter_queue.feature` | `angzarr.dlq.{domain}` routing and `AngzarrDeadLetter` contents per failure source |
 

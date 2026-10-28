@@ -20,10 +20,11 @@ Feature: Buying in
 
   A refusal reaches the buy-in as a fact: the side that refuses records
   nothing, and the buy-in hears of it from the saga that asked (decision
-  14.31). One failure is specified: the wallet cannot fund the buy-in, so
-  the buy-in fails and the held seat is released. The other failures (the
-  table refusing the seat) wait on the buy-in refusal ruling in
-  docs/design/blackjack-latest-proto-rulings.md.
+  14.31). Two failures are specified: the wallet cannot fund the buy-in,
+  so the buy-in fails and the held seat is released; and the table cannot
+  confirm the seat, so the buy-in fails and the held money is released.
+  Which refusals are business refusals, and which are bugs, waits on the
+  buy-in refusal ruling in docs/design/blackjack-latest-proto-rulings.md.
 
   # ==========================================================================
   # The happy path
@@ -70,6 +71,15 @@ Feature: Buying in
     Then the wallet of "Alice" records nothing for buy-in "B1"
     And buy-in "B1" has failed because the funds were insufficient
     And table "Main" is asked to release seat 0 for buy-in "B1"
+
+  @EU-1563
+  Scenario: A table that cannot confirm the seat fails the buy-in and frees the money
+    Given buy-in "B1" for "Alice" at seat 0 of table "Main" is waiting for the seat
+    And seat 0 of table "Main" is no longer held for buy-in "B1"
+    When table "Main" refuses to confirm buy-in "B1"
+    Then table "Main" records nothing for buy-in "B1"
+    And buy-in "B1" has failed because the seat could not be confirmed
+    And the wallet of "Alice" is asked to release the hold for buy-in "B1"
 
   # ==========================================================================
   # Robustness
