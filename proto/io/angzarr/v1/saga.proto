@@ -130,8 +130,9 @@ service SagaService {
   // modes: the saga's generated code builds the pass-through
   // CommandRefused, packing the typed refusal object, or calls the user's
   // translating callback. Needed in both modes because the saga, not the
-  // coordinator, builds the fact (the owner's ruling). An error status, or a fact the coordinator refuses as
-  // malformed, is a saga bug (dead-lettered and alerted).
+  // coordinator, builds the fact (the owner's ruling). An error status,
+  // or a fact the coordinator refuses as malformed, is a saga bug
+  // (dead-lettered and alerted).
   rpc OnRefused(Refusal) returns (OnRefusedResponse);
 }
 
