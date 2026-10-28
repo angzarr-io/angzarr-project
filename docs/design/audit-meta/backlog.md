@@ -962,44 +962,46 @@ and of `EventMeta`'s `causation` oneof, `correlation_id` and `fact`.
   `FAILED_PRECONDITION`); `ListEditions` answers `EditionSummary` rows
   derived from the fork events of every event store; `DeleteEdition`
   removes every row of the edition in every store (events, fork events,
-  snapshots, projector output, the saga coordinators' outbox entries and
-  reaction edges), idempotently. Delete the edition registry and its
+  snapshots, projector output and the saga coordinators' outbox entries),
+  idempotently. Delete the edition registry and its
   `Edition` records; map edition names to stores in configuration.
   Retire core's `DeleteEditionEvents` storage method.
 - Why: `meta.proto`; decision 14.32.
 - Settled when: scenarios C-0410, C-0628, C-0636 and C-0637 pass.
 
-**EA-2** [core] **The per-stream read rule, and refusing unknown editions.**
+**EA-2** [core] **The per-stream read rule, and refusing unknown or
+unforked targets.**
 - What: load (D, X, R) as main's events below its fork sequence, then
-  X's own events; read a stream not yet forked in a known X as main, and
-  fork it ON DEMAND (at main's head, or the time-based option's commit
-  position) before the first command or fact addressed to it in X
-  (PROPOSED). Refuse a command, query or subscription naming an edition
-  with no fork event anywhere (`NOT_FOUND`); cache positive existence
-  answers. Remove the "unknown edition falls back to the default store"
-  path.
+  X's own events; read a stream not forked in a known X as main, forking
+  nothing. Refuse a command or fact that is not a saga's, addressed in X
+  to a stream with no fork in X, `FAILED_PRECONDITION` reason
+  `EDITION_NOT_FORKED` (PROPOSED code). Refuse a command, query or
+  subscription naming an edition with no fork event anywhere
+  (`NOT_FOUND`); cache positive existence answers. Remove the "unknown
+  edition falls back to the default store" path.
 - Why: decision 14.32 (and D5: a misspelt edition must never get
   storage).
 - Settled when: scenarios C-0629, C-0633, C-0634 and C-0635 pass.
 
-**EA-3** [core, router] **Automated fork propagation; the time-based
+**EA-3** [core, router] **The fork travels with the data; the time-based
 option.**
-- What: saga coordinators keep reaction edges, one row per (saga, source
-  stream, target stream), beside the outbox (PROPOSED); on `EditionForked`
-  for (D, X, R) they fork in X every target with an edge from (D, main, R),
-  at its head, with `propagated_from` set, idempotently (derived step ids;
-  an already-forked stream is skipped), bounded by a hop limit (default 8)
-  and alerting past a fan-out limit (default 1,000), and only while the
-  upstream fork still exists. The client library never hands
-  `EditionForked` to business code. The time-based option forks every
-  stream at the origin fork's commit position, which needs the store
+- What: when a saga's command in X (it carries a causation_id) reaches a
+  stream with no fork in X, append `EditionForked` at the stream's head
+  (or X's commit position), with `propagated_from` = the fork of the
+  causation_id's stream in X and `forked_by` = the command's id, with a
+  framework-derived `command_id` of its own, then handle the command; a
+  concurrent arrival that loses the append finds the stream forked. Before
+  forking, re-check that `propagated_from` still exists; if not, refuse
+  `NOT_FOUND`, and have the saga's coordinator discard (not dead-letter) a
+  `NOT_FOUND` for a deleted edition (PROPOSED). The client library never
+  hands `EditionForked` to business code. The time-based option forks
+  every stream at the origin fork's commit position, which needs the store
   contract's global commit position (the 2026-10-27 ruling, now this
   option). Supersedes this item's earlier "make the whole-system
   divergence point exact" (decision 14.32).
 - Why: decision 14.32, the `editions` region of `types.proto`.
-- Settled when: scenarios C-0630 to C-0632, C-0638 and C-0639 pass, and
-  a fork reaches every stream its recorded edges lead to within the hop
-  bound.
+- Settled when: scenarios C-0630, C-0631, C-0638, C-0639 and C-0640
+  pass.
 
 **EA-4** [clients, site, project] **What-if callers fork a stream first.**
 - What: client helpers for `ForkStream`, `ListEditions` and

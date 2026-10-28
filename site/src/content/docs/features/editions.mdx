@@ -51,7 +51,9 @@ send(Cover(domain="orders", root=order_id, edition="pricing-experiment"),
 
 **Reading a stream in an edition.** Each stream reads main's events below its **own** fork sequence, then the edition's own events. Main's later events never reach it.
 
-**Propagation.** angzarr carries the fork downstream for you, through the same data flow as any event: the streams the forked stream's reactions feed are forked in the edition as the propagation reaches them. It is eventually consistent, not lazy. A stream no propagation reaches is forked on demand by the first command sent to it in the edition; a query of it reads main's version and forks nothing.
+**The fork travels with the data.** You don't propagate forks yourself. When a saga's command in the edition reaches a stream that isn't forked yet, that arrival forks it (at the stream's own head), and then the command is handled. Streams the edition's activity never touches are never forked. It is eventually consistent, not lazy.
+
+A command you send yourself to a stream the edition hasn't reached is refused (`FAILED_PRECONDITION`, `EDITION_NOT_FORKED`) until propagation forks it, or until you fork it with `ForkStream`. A query of such a stream reads main's version and forks nothing.
 
 **The time-based option.** Fork at one global commit position instead, and every stream the edition forks diverges at that same moment, for a consistent snapshot.
 

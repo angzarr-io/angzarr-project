@@ -257,8 +257,9 @@ event onwards, every removal reserves its number and name (see
     needs none.
   - **Editions are per-stream forks** (14.32): forking an origin stream
     appends `EditionForked` at main's next sequence; each stream reads main
-    below its own fork, then the edition; angzarr propagates forks
-    downstream, eventually consistent; a time-based fork is an option; no
+    below its own fork, then the edition; the fork travels with the data
+    (a saga command's arrival forks its target; outside inputs to an
+    unforked stream are refused), eventually consistent; a time-based fork is an option; no
     registry (`ForkStream`, `ListEditions`, `DeleteEdition`).
 
 ### Worked example: hatpick's `ListState`
@@ -395,9 +396,9 @@ markers can go wrong.
     14.32 there is no registry: an edition whose fork events are all
     evicted becomes unknown).
 - **Editions as per-stream forks** (14.32, the drafter's proposals, open):
-  propagation along recorded reaction edges and its bounds; on-demand forks
-  for streams no propagation reached; deletion not propagated; existence
-  checked by querying every store's fork events. (The whole-system
+  the `EDITION_NOT_FORKED` code for an outside input to an unforked stream;
+  a saga command racing `DeleteEdition` refused `NOT_FOUND` and discarded;
+  `EditionForked.forked_by`. (The whole-system
   divergence point this item used to track is now the time-based
   option.)
 - **Per-event saga causation** (W3a, backlog OB-6); it now covers a
