@@ -104,9 +104,9 @@ message ComponentOptions {
   string domain = 7;
 }
 
-// Marks a message as a COMMAND or FACT payload. Generates one strict
-// handler method on the component that owns it, taking the typed message
-// as input. It is owned by exactly one component, an aggregate or a
+// Marks a message as a COMMAND or FACT payload (CommandOptions.fact says
+// which). Generates one strict handler method on the component that owns
+// it, taking the typed message as input. It is owned by exactly one component, an aggregate or a
 // process manager (a domain too; decision 14.31), whose handler decides a
 // command (and may reject it) or ingests a fact (infallibly).
 message CommandOptions {
@@ -147,8 +147,21 @@ message CommandOptions {
   // details as a google.protobuf.Any, and the refused policy receives it as
   // RefusalResponse.refusal (types.proto). Generation fails on a refuses
   // type that does not resolve, or that is not a message of the command's
-  // own domain (the refusals region).
+  // own domain (the refusals region). Set on a FACT (fact, below),
+  // generation fails: a fact cannot be refused.
   repeated string refuses = 4;
+  // Whether this input is a FACT (decision 14.34, the owner's ruling of
+  // 2026-10-28). Unset (false): a COMMAND, which its handler decides and
+  // may refuse; the scaffold writes #[handles_cmd]. Set: a FACT, something
+  // that already happened, which its handler records and cannot refuse
+  // (its handler is infallible); the scaffold writes #[handles_fact], and
+  // the generator checks a component's markup against this field (a
+  // #[handles_cmd] on a fact, or a #[handles_fact] on a command, fails
+  // generation). A fact is delivered as a CommandPage whose body is a Fact,
+  // a command as one whose body is a Command (types.proto). refuses on a
+  // fact fails generation; starts applies to both (a process manager may
+  // start from a command or from a fact); emits applies to both.
+  bool fact = 5;
 }
 
 // Marks a message as an EVENT consumed by ONE component. The extension is

@@ -767,3 +767,31 @@ fn the_standard_refusal_fact_carries_the_refused_command_its_typed_refusal_and_t
     };
     assert_eq!(round_trip(&response), response);
 }
+
+/// Decision 14.34: `CommandOptions.fact` (field 5, a bool) says whether a
+/// `(command)` message is a command (unset: refusable) or a fact (set:
+/// unrefusable), beside the fields before it.
+#[test]
+fn command_options_say_command_or_fact_in_field_5() {
+    use angzarr_proto::v1::CommandOptions;
+    let fact = CommandOptions {
+        component: "io.angzarr.examples.v1.BuyInState".into(),
+        starts: true,
+        fact: true,
+        ..CommandOptions::default()
+    };
+    assert_eq!(
+        CommandOptions::decode(&*fact.encode_to_vec()).unwrap(),
+        fact
+    );
+    let only_fact = CommandOptions {
+        fact: true,
+        ..CommandOptions::default()
+    };
+    assert_eq!(
+        only_fact.encode_to_vec(),
+        [5 << 3, 1],
+        "field 5, varint true"
+    );
+    assert!(!CommandOptions::default().fact, "unset: a command");
+}

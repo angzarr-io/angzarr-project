@@ -165,7 +165,10 @@ message RecordFundsCaptured {
 // decision 14.31). A fact of the PM's own domain, so its handler is
 // infallible, and the buy-in domain needs no table proto for it.
 message SeatConfirmationRefused {
-  option (io.angzarr.v1.command) = {component: "io.angzarr.examples.v1.BuyInState"};
+  option (io.angzarr.v1.command) = {
+    component: "io.angzarr.examples.v1.BuyInState"
+    fact: true
+  };
   bytes buy_in_id = 1; // The refused ConfirmSeat's buy_in_id
   string reason = 2; // The refusal's reason, e.g. SEAT_HOLD_NOT_FOUND
 }

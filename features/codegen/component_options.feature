@@ -180,3 +180,52 @@ Feature: Component declarations - lint warnings and errors
     When the protos are linted
     Then lint reports an error naming "player.HoldFunds" and the unresolved refuses type "player.NoSuchRefusal"
     And lint exits with a non-zero status
+
+  @C-0648
+  Scenario Outline: The (command) annotation's fact field picks the handler the scaffold writes
+    # Decision 14.34, the owner's ruling: a command is refusable, a fact is not.
+    Given a process manager "BuyInState" owning domain "buy-in" with input "buy-in.<input>"
+    And the input "buy-in.<input>" for "BuyInState" has (command).fact <fact>
+    When angzarr-cli scaffolds the component
+    Then its handler for "buy-in.<input>" is marked <markup>
+    And that handler <may> refuse
+
+    Examples:
+      | input                   | fact  | markup            | may     |
+      | RecordFundsHeld         | false | #[handles_cmd]    | may     |
+      | SeatConfirmationRefused | true  | #[handles_fact]   | may not |
+
+  @C-0649
+  Scenario: A refuses annotation on a fact fails generation
+    Given a process manager "BuyInState" owning domain "buy-in" with input "buy-in.SeatConfirmationRefused"
+    And the input "buy-in.SeatConfirmationRefused" for "BuyInState" has (command).fact true
+    And its (command).refuses lists "buy-in.SomeRefusal"
+    When the protos are linted
+    Then lint reports an error naming "buy-in.SeatConfirmationRefused": a fact cannot be refused
+    And lint exits with a non-zero status
+
+  @C-0650
+  Scenario Outline: Markup that contradicts the proto's command or fact fails generation
+    Given a process manager "BuyInState" owning domain "buy-in" with input "buy-in.<input>"
+    And the input "buy-in.<input>" for "BuyInState" has (command).fact <fact>
+    And the component's handler for it is marked <markup>
+    When the generator checks the markup against the protos
+    Then it reports an error naming "buy-in.<input>"
+
+    Examples:
+      | input                   | fact  | markup          |
+      | RecordFundsHeld         | false | #[handles_fact] |
+      | SeatConfirmationRefused | true  | #[handles_cmd]  |
+
+  @C-0651
+  Scenario Outline: A process manager may start from a command or from a fact
+    Given a process manager "BuyInState" owning domain "buy-in" with input "buy-in.<input>"
+    And the input "buy-in.<input>" for "BuyInState" has (command).fact <fact> and (command).starts true
+    When the protos are linted
+    Then lint reports no error for "buy-in.<input>"
+    And the PM's descriptor lists "buy-in.<input>" among its starting types
+
+    Examples:
+      | input       | fact  |
+      | StartBuyIn  | false |
+      | BuyInLapsed | true  |

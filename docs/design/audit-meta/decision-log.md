@@ -2374,6 +2374,25 @@ coordinator canon calls a saga is angzarr's process manager, a domain
 - Why: one word per concept, matching the literature: a saga keeps state
   across steps; this component never does.
 
+**14.34 The proto says whether an input is a command or a fact.** Owner
+ruling, 2026-10-28. `CommandOptions.fact` (`options.proto`, field 5, a
+bool): unset, the `(command)` message is a COMMAND, which its handler
+decides and may refuse; set, it is a FACT, something that already
+happened, which its handler records and cannot refuse.
+- Why: angzarr-cli's scaffold writes `#[handles_cmd]` or `#[handles_fact]`
+  from it, and the generator checks a component's markup against the
+  proto (a `#[handles_cmd]` on a fact, or a `#[handles_fact]` on a
+  command, fails generation), so the proto is the one statement of it.
+- `refuses` on a fact fails generation: a fact cannot be refused.
+  `starts` applies to both: a process manager may start from a command or
+  from a fact. `emits` applies to both.
+- Flagged: a bool rather than an enum (`InputKind { COMMAND, FACT }`): two
+  values, with command the default, need no third; an enum would leave
+  room for a kind not yet known.
+- The examples mark the buy-in's `SeatConfirmationRefused` (its translated
+  refusal fact) as a fact. The buy-in example declares no timeout or
+  expiry input yet.
+
 ## Corrections
 
 Facts the earlier passes or the design note got wrong:
