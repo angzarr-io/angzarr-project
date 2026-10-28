@@ -240,12 +240,16 @@ The **stateful orchestrator**. Tracks long-running workflows across multiple dom
 
 ```mermaid
 flowchart LR
-    E["Events<br/>(multiple domains)"] --> PM[Process Manager] --> C[Commands]
+    E["Events<br/>(multiple domains)"] --> PM[Process Manager]
+    K["Commands to the PM"] --> PM
+    PM --> P["Its own events"] --> S[Sagas] --> C[Commands]
 ```
 
 - Maintains workflow state via correlation ID
 - Handles complex multi-step processes
-- Can implement compensation (rollback) logic
+- Takes facts in and puts facts out: it records its triggers, and commands addressed to it, as its own events, and never refuses one
+- Sends no commands: it records the data each next step needs, and a saga from its domain builds the command
+- Handles a target's refusal as a reply event, and decides the next step from its own state
 - Used sparingly—adds complexity
 
 [Learn more →](/components/process-manager)
@@ -264,7 +268,7 @@ flowchart LR
 | **Projection** | Read-optimized view derived from events. Eventually consistent. |
 | **Projector** | Component that builds projections from event streams. |
 | **Saga** | Stateless service bridging events in one domain to commands in another. |
-| **Process Manager** | Stateful workflow coordinator across multiple domains. |
+| **Process Manager** | Stateful workflow coordinator across multiple domains. Records its inputs as its own events; sagas carry its decisions to other domains. |
 | **Snapshot** | Cached aggregate state for replay optimization. |
 | **Correlation ID** | Identifier linking related events across domains. |
 
