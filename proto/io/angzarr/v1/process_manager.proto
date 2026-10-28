@@ -61,6 +61,31 @@ option ruby_package = "Angzarr";
 // (INVALID_ARGUMENT to a client; a reaction command is dead-lettered and
 // alerted as a reactor bug).
 //
+// Starting an instance (ruling B1, 2026-10-26, for triggers only;
+// decision 14.31). A PM instance exists once its stream holds an event (in
+// the trigger's edition, as read there; see Cover.edition).
+//   - A trigger for a correlation with no instance starts one only if the
+//     PM declares that trigger as a STARTING trigger ((event) entry with
+//     starts set, in options.proto; advertised to the coordinator as
+//     Target.starting_types in the ComponentDescriptor). It is then
+//     delivered with an empty process_state.
+//   - Any other trigger for a correlation with no instance is SKIPPED: the
+//     coordinator does not run the handler, appends nothing, and advances
+//     its position past the trigger. A skip is not a failure: nothing is
+//     dead-lettered or alerted, and the trigger's source is not refused
+//     (ProcessManagerCoordinatorService.Handle answers OK with no process
+//     events).
+//   - A trigger for a correlation whose instance exists is delivered
+//     whether or not it is a starting trigger.
+//   - A COMMAND addressed to a PM always starts an instance when none
+//     exists: it is delivered with an empty process_state, like any
+//     command (Delivery of commands, below). B1 governs triggers only.
+// "The trigger" is the trigger event named by the trigger's EventRef, and
+// its type is that event's type URL as delivered (after upcasting;
+// decision 14.25). The check runs in the coordinator, before
+// deduplication and before the handler; business code never sees a
+// skipped trigger.
+//
 // Replies. A PM tracks the replies to the steps it starts: its event
 // carries the trigger's correlation_id, so the saga's command built from
 // it carries that correlation (stamped by the saga's coordinator; see the
@@ -93,7 +118,8 @@ option ruby_package = "Angzarr";
 // a Fact alike are recorded infallibly. A Fact keeps its own rules
 // (fact_origin required, its derived command_id; see the command_identity
 // region of types.proto). A command to a PM stream that holds no events is
-// delivered like any other, with an empty process_state.
+// delivered like any other, with an empty process_state: a command starts
+// an instance (Starting an instance, above).
 //
 // No outbox needed. A PM's whole output is its process_events, appended
 // to its own stream, so its stream is the record of what it did. Its
@@ -156,8 +182,10 @@ service ProcessManagerService {
 
 // ProcessManagerCoordinatorService: orchestrates PM execution
 service ProcessManagerCoordinatorService {
-  // Full orchestration of one trigger: deduplicate it on the PM's stream,
-  // call ProcessManagerService.Handle, and persist the process events.
+  // Full orchestration of one trigger: skip it if it is not a starting
+  // trigger and the PM has no instance for its correlation (Starting an
+  // instance, above), deduplicate it on the PM's stream, call
+  // ProcessManagerService.Handle, and persist the process events.
   // The request is the triggering EventBook. Commands addressed to the PM
   // do not come here: they arrive through CommandHandlerCoordinatorService
   // (see ProcessManagerService, Delivery of commands). A trigger entry

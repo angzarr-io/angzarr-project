@@ -1280,6 +1280,15 @@ message AngzarrDeadLetter {
 // Topology edges derived from inputs: if A subscribes to domain X, edge X→A exists.
 message Target {
   string domain = 1;
+  // PROCESS_MANAGER only: the type URLs of the events from this domain that
+  // are the PM's STARTING triggers, generated from its (event) entries
+  // with starts set (options.proto). A trigger for a correlation with no PM
+  // instance is delivered only if its type is listed here; otherwise the
+  // coordinator skips it (ruling B1; see ProcessManagerService, Starting
+  // an instance). Empty for every other kind: a descriptor of another kind
+  // that sets it is refused, as one with an empty rules_version is (see
+  // ComponentService, Refusal).
+  repeated string starting_types = 2;
 }
 
 // ComponentKind identifies a kind of dispatch component: in a component

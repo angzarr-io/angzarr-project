@@ -47,7 +47,8 @@ option ruby_package = "Angzarr";
 //     command_handler.proto), and queued and reaction deliveries stay
 //     queued.
 //   - Refusal: a descriptor with an empty rules_version (see
-//     ComponentDescriptor) is refused. The coordinator does not hold it,
+//     ComponentDescriptor), or one whose kind is not PROCESS_MANAGER and
+//     that lists starting triggers (Target.starting_types), is refused. The coordinator does not hold it,
 //     delivers nothing, logs an error naming the business process and the
 //     component, and raises an alert. It answers the business process
 //     nothing (the coordinator is the caller): the refusal is visible as

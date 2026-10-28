@@ -70,7 +70,8 @@ option ruby_package = "Angzarr";
 // ordinary (event) entries. A process manager also handles commands
 // addressed to its own domain: (command) entries whose component is the
 // PM's state message, each generating an infallible handler (it records
-// the command and never rejects it; decision 14.31).
+// the command and never rejects it; decision 14.31). A PM's trigger entries
+// say which triggers may start an instance (EventConsumer.starts).
 message ComponentOptions {
   ComponentKind kind = 1;
   // Domain this component subscribes to: the saga's single source domain, or
@@ -136,6 +137,19 @@ message EventConsumer {
   // (an applier); false (with a `domain`) marks it as a cross-domain trigger
   // reaction. Aggregates always apply; saga/projector always react.
   bool applies = 3;
+  // PROCESS_MANAGER trigger only (a `domain` set, applies false): this
+  // trigger may START an instance. A trigger for a correlation with no PM
+  // instance starts one only if its entry sets starts; any other trigger
+  // for an unknown correlation is skipped, and its source is not refused
+  // (ruling B1, 2026-10-26, for triggers only; decision 14.31; see
+  // ProcessManagerService, Starting an instance). A command addressed to
+  // the PM always starts an instance and needs no declaration. The
+  // generator advertises the starting triggers in the PM's descriptor
+  // (Target.starting_types). Setting starts on any other entry (an
+  // aggregate's, a saga's or a projector's, or a PM's own applier) fails
+  // generation. A PM may declare no starting trigger: only a command then
+  // starts it.
+  bool starts = 4;
 }
 
 extend google.protobuf.MessageOptions {

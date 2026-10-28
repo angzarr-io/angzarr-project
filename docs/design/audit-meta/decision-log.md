@@ -1845,6 +1845,23 @@ protos had never carried. Amends 13.1 and 13.2, 5.6 and 14.24.
   malformed), and a failing handler is a bug, so the command is
   dead-lettered and its sender answered `PARKED`. The answer is `APPLIED`
   or `DUPLICATE`, never a rejection.
+- **Which inputs start an instance (owner's ruling, 2026-10-28, writing
+  in annals ruling B1 of 2026-10-26 for triggers only).** A PM instance
+  exists once its stream (in the trigger's edition) holds an event. A
+  TRIGGER for a correlation with no instance starts one only if the PM
+  declares that trigger as a starting trigger: `EventConsumer.starts` (4)
+  on its `(event)` entry, advertised to the coordinator as
+  `Target.starting_types` (2) in the PM's `ComponentDescriptor`. Any other
+  trigger for an unknown correlation is skipped: the coordinator runs no
+  handler, appends nothing and advances its position, nothing is
+  dead-lettered or alerted, and the trigger's source is not refused. A
+  trigger for an existing instance is delivered whether or not it starts
+  one. A COMMAND addressed to a PM always starts an instance when none
+  exists, with an empty `process_state`; B1 does not govern commands. The
+  check runs in the coordinator, before deduplication and the handler.
+  `starts` on any entry but a PM trigger fails generation, and a
+  descriptor of another kind listing `starting_types` is refused like one
+  with an empty `rules_version`.
 - **Outputs are the PM's own events.** `ProcessManagerHandleResponse.commands`
   (2) is deleted, unreserved (6.6). A PM sends no commands. To act on
   another domain it records an event carrying that command's data, and the
@@ -1909,7 +1926,17 @@ protos had never carried. Amends 13.1 and 13.2, 5.6 and 14.24.
     unset, is given its cover's root, and a different set value is
     malformed, so 14.30 holds for every event on a PM stream;
   - a command to a PM stream that holds no events is delivered like any
-    other, with an empty `process_state` (no "start" gate);
+    other, with an empty `process_state`: a command starts an instance
+    (B1's start gate is for triggers only, as the owner ruled);
+  - for B1: the names `EventConsumer.starts` and `Target.starting_types`
+    and their field numbers; advertising starting triggers per source
+    domain in `Target` rather than in a new descriptor field; a starting
+    trigger is matched by its type URL as delivered (after upcasting,
+    14.25); the check runs in the coordinator, before deduplication; a
+    skip is silent (no dead letter, no alert, no metric named); a PM may
+    declare no starting trigger, so that only commands start it, with no
+    generator warning; and a non-PM descriptor listing `starting_types`
+    is refused;
   - a failing PM handler for a trigger is dead-lettered and alerted;
   - deleting `output_domains` rather than leaving it unused;
   - the saga names and placing them in `buy_in.proto`.
