@@ -1,6 +1,11 @@
-Feature: Fact injection from sagas and process managers
+Feature: Fact injection
 
-  Sagas and process managers can emit facts (events) that are injected
+  A process manager emits no facts and no commands (decision 14.31): its
+  only output is its own events, and the sagas from its domain build what
+  other domains receive. A Fact may be addressed to a process manager,
+  which records it on its own stream like any command addressed to it.
+
+  Sagas can emit facts (events) that are injected
   directly into target aggregates without going through command handling.
   Facts ARE sequenced and persisted to the event store - they differ from
   commands only in that they bypass validation and cannot be rejected.
@@ -54,13 +59,13 @@ Feature: Fact injection from sagas and process managers
     Then the fact is persisted at the order's next sequence
     And no rejection is produced
 
-  @C-0187
-  Scenario: Process manager injects a fact alongside its commands
-    Given a process manager "Fulfillment" with sources "order" and targets "inventory"
-    And the PM handles OrderCreated by emitting a ReserveStock command and a StockHoldRequested fact
-    When an OrderCreated trigger is dispatched to the PM
-    Then the ReserveStock command is delivered to "inventory"
-    And a StockHoldRequested fact is persisted in the "inventory" aggregate
+  @C-0591
+  Scenario: A fact addressed to a process manager is recorded on its stream and never refused
+    Given a process manager "Fulfillment" owning domain "fulfillment" with an instance for correlation "0192a6b0-0000-7000-8000-000000000001"
+    When a CarrierAssigned fact with external_id "carrier-C1" is sent to "fulfillment" root "0192a6b0-0000-7000-8000-000000000001"
+    Then the process manager's events for it are appended to that instance's stream
+    And each of those events records the fact's command_id as its causation and the fact's origin
+    And the sender is answered APPLIED
 
   # ---------------------------------------------------------------------------
   # Fact metadata requirements

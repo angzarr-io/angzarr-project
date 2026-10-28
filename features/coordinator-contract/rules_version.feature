@@ -283,9 +283,8 @@ Feature: Rules version - recording who decided, and choosing snapshots
   @C-0559
   Scenario: A process manager answer reporting another version is refused
     Given a process manager "Fulfillment" registered with rules version "2.0.1"
-    When the process manager reacts to an OrderPlaced event with a FulfillmentStarted event and a ShipOrder command, reporting rules version "2.0.2"
+    When the process manager reacts to an OrderPlaced event with a FulfillmentStarted event, reporting rules version "2.0.2"
     Then no FulfillmentStarted event is persisted
-    And no ShipOrder command is sent
     And the trigger is dead-lettered and an alert is raised
 
   # ===========================================================================

@@ -17,8 +17,8 @@ Feature: Conflict resolution - how the coordinator treats a stale command
   COMMUTATIVE where supported and STRICT otherwise.
 
   A command without an expected sequence is decided against the head, so it
-  is never stale. Reaction commands (from sagas and process managers) never
-  carry an expected sequence or a resolution.
+  is never stale. Reaction commands (from sagas; a process manager sends
+  none, decision 14.31) never carry an expected sequence or a resolution.
 
   Background:
     Given an "order" aggregate whose registered state supports COMMUTATIVE

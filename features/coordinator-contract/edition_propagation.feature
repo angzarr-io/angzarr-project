@@ -1,16 +1,22 @@
 # Coordinator-contract feature: edition propagation across cross-domain
 # emissions. When a saga or process-manager handler receives an event in
 # edition X, the coordinator stamps edition X onto every outgoing
-# CommandBook / EventBook (commands, events, facts, process_events) before
-# persistence or dispatch. The full Edition (name + divergences) propagates
-# verbatim, and always overrides whatever edition the handler set.
+# CommandBook / EventBook (a saga's commands and events, a process
+# manager's process_events) before persistence or dispatch. The full
+# Edition (name + divergences) propagates verbatim, and always overrides
+# whatever edition the handler set.
+#
+# A process manager sends no commands (decision 14.31): its only output is
+# process_events on its own stream, in the trigger's edition, and the sagas
+# from its domain carry that edition on to the commands they build (the
+# saga scenarios below).
 #
 # Main timeline: canonical name "angzarr" (DEFAULT_EDITION); "" and an
 # unset Edition denote the same timeline.
 #
 # Coverage in core: Rust unit tests in
 # src/orchestration/saga/local/tests.rs (C-0138..C-0142) and
-# src/orchestration/process_manager/local/tests.rs (C-0143..C-0145).
+# src/orchestration/process_manager/local/tests.rs (C-0144; C-0590 is new).
 Feature: Edition propagation across cross-domain emissions
   As a saga / process-manager author
   I want the framework to guarantee that emitted commands and events
@@ -61,31 +67,27 @@ Feature: Edition propagation across cross-domain emissions
     Then the emitted command's cover has edition "speculative" with divergence at "order"=5
 
   # ---------------------------------------------------------------
-  # Process Manager: trigger event → outgoing commands / process_events
+  # Process Manager: trigger event → process_events
   # ---------------------------------------------------------------
-
-  @C-0143
-  Scenario: PM propagates trigger edition to outgoing commands
-    Given a process manager "Fulfillment" with sources "order" and targets "shipping"
-    And the trigger event has edition "speculative"
-    When an OrderCreated trigger is dispatched to the PM
-    Then the emitted command's cover has edition "speculative"
 
   @C-0144
   Scenario: PM propagates trigger edition to every emitted process_events book
-    Given a process manager "Fulfillment" with sources "order" and targets "shipping"
-    And the PM also emits an OrderTracked process_event on OrderCreated
+    Given a process manager "Fulfillment" with sources "order"
+    And the PM emits an OrderTracked process_event on OrderCreated
     And the trigger event has edition "speculative"
     When an OrderCreated trigger is dispatched to the PM
     Then every emitted process_events book's cover has edition "speculative"
 
-  @C-0145
-  Scenario: Coordinator always overrides handler-set edition with trigger edition
-    Given a process manager "Fulfillment" with sources "order" and targets "shipping"
+  @C-0590
+  Scenario: A PM's process_events book naming another edition is refused
+    # A process_events book's cover is the PM's own stream (or empty); any
+    # other cover, another edition included, is a PM bug.
+    Given a process manager "Fulfillment" with sources "order"
     And the trigger event has edition "alpha"
-    And the PM handler sets outgoing edition "beta"
+    And the PM handler sets the edition "beta" on its OrderTracked process_events book
     When an OrderCreated trigger is dispatched to the PM
-    Then the persisted command's cover has edition "alpha"
+    Then no OrderTracked event is persisted
+    And the trigger is dead-lettered and an alert is raised
 
   # ---------------------------------------------------------------
   # Main timeline: "" , unset and "angzarr" are one timeline

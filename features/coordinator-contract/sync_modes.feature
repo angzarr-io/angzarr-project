@@ -13,8 +13,8 @@ Feature: Sync modes - how much downstream work a command waits for
   - ISOLATED: nothing downstream runs, sync or async; events are not
     published to the bus.
 
-  An unset sync_mode (SYNC_MODE_UNSPECIFIED) is ASYNC. DECISION exists for callers (typically process
-  managers) that need only the accept/reject outcome synchronously.
+  An unset sync_mode (SYNC_MODE_UNSPECIFIED) is ASYNC. DECISION exists for
+  callers that need only the accept/reject outcome synchronously.
   PageHeader.sync_mode on a CommandPage is that command's own mode. The
   caller's mode is a floor for everything its command sets off: a reaction
   command runs with the stronger of the caller's mode and its own
@@ -92,54 +92,9 @@ Feature: Sync modes - how much downstream work a command waits for
     Then the command fails with the handler's rejection reason
     And no events are persisted
 
-  @C-0434
-  Scenario: A per-command sync_mode stronger than the caller's applies to that command
-    Given a process manager "Fulfillment" emitting a ReserveStock command with PageHeader.sync_mode DECISION
-    And the inventory aggregate rejects ReserveStock
-    When the PM is triggered by an OrderCreated event delivered with sync_mode ASYNC
-    Then the rejection of ReserveStock is returned synchronously to the PM coordinator
-    And the PM's rejection handling runs before the PM coordinator returns
-
-  @C-0435
-  Scenario: Without a per-command sync_mode the request's mode applies
-    Given a process manager "Fulfillment" emitting a ReserveStock command with no PageHeader.sync_mode
-    When the PM is triggered by an OrderCreated event delivered with sync_mode CASCADE
-    Then the ReserveStock command is handled with sync_mode CASCADE
-
-  @C-0507
-  Scenario: A caller asking for CASCADE observes the whole chain whatever ordered mode the reaction commands ask for
-    Given a process manager "Fulfillment" reacting to OrderCreated with a ReserveStock command for "inventory" with PageHeader.sync_mode ASYNC
-    And a projector "StockLevels" subscribed to "inventory"
-    When a CreateOrder command is handled with sync_mode CASCADE
-    Then the ReserveStock command has been handled by "inventory" when the response is returned
-    And the StockLevels projector has processed the StockReserved event when the response is returned
-
-  @C-0508
-  Scenario Outline: A reaction command runs with the stronger of the caller's mode and its own
-    Given a process manager "Fulfillment" emitting a ReserveStock command with PageHeader.sync_mode <own>
-    When the PM is triggered by an OrderCreated event delivered with sync_mode <caller>
-    Then the ReserveStock command is handled with sync_mode <effective>
-
-    Examples:
-      | caller   | own      | effective |
-      | ASYNC    | DECISION | DECISION  |
-      | DECISION | ASYNC    | DECISION  |
-      | DECISION | SIMPLE   | SIMPLE    |
-      | SIMPLE   | DECISION | SIMPLE    |
-      | SIMPLE   | CASCADE  | CASCADE   |
-      | CASCADE  | ASYNC    | CASCADE   |
-      | CASCADE  | DECISION | CASCADE   |
-      | CASCADE  | SIMPLE   | CASCADE   |
-      | ASYNC    | ISOLATED | ISOLATED  |
-      | DECISION | ISOLATED | ISOLATED  |
-      | SIMPLE   | ISOLATED | ISOLATED  |
-      | CASCADE  | ISOLATED | ISOLATED  |
-
-  @C-0512
-  Scenario: An isolated reaction command ends the chain even under a CASCADE caller
-    Given a process manager "Fulfillment" reacting to OrderCreated with a ReserveStock command for "inventory" with PageHeader.sync_mode ISOLATED
-    And a projector "StockLevels" subscribed to "inventory"
-    When a CreateOrder command is handled with sync_mode CASCADE
-    Then the ReserveStock command has been handled by "inventory" when the response is returned
-    And the StockReserved event is not published to the bus
-    And the StockLevels projector never receives the StockReserved event
+  # The scenarios that were here (C-0434, C-0435, C-0507, C-0508, C-0512)
+  # had a process manager emit reaction commands with their own
+  # PageHeader.sync_mode. A process manager sends no commands (decision
+  # 14.31), so they are retired. What a saga's reaction command waits for
+  # comes from the saga's configuration, never from the command (backlog
+  # MD-5); the rest of this file awaits the rewrite in backlog DOC-5.
