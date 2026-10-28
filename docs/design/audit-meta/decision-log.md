@@ -470,6 +470,8 @@ domains. `Query.correlation_id` stays within one domain.
 - Backend indexes (a correlation index per backend) are backlog CQ-1.
 - Aligns with: KurrentDB's `$by_correlation_id` system projection.
 
+> **Superseded by 14.32 (pass 14):** editions are per-stream forks: creating one appends a fork event to an origin stream (`ForkStream`), and angzarr propagates it downstream; there is no registry, no `CreateEdition` and no `Edition` record. An unknown edition is one with no fork event left. `DeleteEdition` stays, removing the edition's rows.
+
 **6.5 Editions need an explicit, administrative create (D5).** A new
 `EditionAdminService` in `meta.proto` has `CreateEdition` and
 `DeleteEdition`. They are administrative operations: no domain command, no
@@ -1346,6 +1348,8 @@ payloads only. Resolves PM2; closes PR-3 (implementation: PR-4).
 - Rejected: a `command_id` derived from the trigger and PM name at a
   reserved index (backlog PR-3's suggestion), for the reason above.
 
+> **Amended by 14.32 (pass 14, PROPOSED):** a saga's coordinator keeps coarse stream-to-stream reaction edges, one row per (saga, source stream, target stream), for edition-fork propagation only; per-event causation stays in traces.
+
 **13.3 No command-causation on events.** `EventMeta.causation_id` (15) is
 deleted. The triggering event of a reaction command (the events' "grand
 cause") is not stored on events; that edge goes to OpenTelemetry traces and
@@ -2167,6 +2171,98 @@ and 14.30.
     (<https://masstransit.massient.com/documentation/patterns/saga>).
   The IDDD, Akka and EventFlow alignment is the survey's reading, not
   re-verified for this entry.
+
+**14.32 Editions are per-stream forks.** Owner ruling, 2026-10-28 (plan
+ruling 14). Supersedes 6.5's administrative create and edition record,
+EA-3's whole-system divergence default, and the owner's 2026-10-27
+commit-order ruling for EA-3 (a global commit position in the store
+contract), which becomes the time-based option below.
+- **An edition is a set of per-stream forks.** Creating edition X forks an
+  origin stream S = (D, main, R): an `EditionForked { edition,
+  parent_sequence, commit_position, propagated_from, on_demand }` event
+  (`types.proto`, the `editions` region) is appended to (D, X, R) at S's
+  NEXT sequence. It is the first event of X's version of S, and its
+  sequence (the fork sequence) marks main's end and X's start for that
+  stream.
+- **Read rule, per stream.** (D, X, R) reads main's events below its own
+  fork sequence, then X's own events. Main's later events never reach it.
+- **Propagation is automated and eventually consistent, not lazy.** The
+  owner: "it's not lazy, but it is eventually consistent. Edition creation
+  events propagate on the same system as data flows", and "that can likely
+  be angzarr automated". The fork event flows like any event (a framework
+  event: no business code ever sees it), and angzarr, not saga authors,
+  carries it to the streams the forked stream's reactions feed, appending
+  a fork event to each target in X as the propagation reaches it.
+- **No metadata store.** The edition registry is deleted: `Edition`,
+  `CreateEditionRequest` and `CreateEdition`. `EditionAdminService`
+  (`meta.proto`) is reshaped: `ForkStream` (append an origin fork; the
+  first one creates the edition), `ListEditions` (a query over the fork
+  events, answered as derived `EditionSummary` rows), and `DeleteEdition`
+  (remove X's rows everywhere). An edition is known while any fork event
+  of it exists; one never created, or deleted, is refused `NOT_FOUND`.
+  Where an edition's rows live is configuration (a name or pattern mapped
+  to a store), since nothing is recorded.
+- **The time-based option.** `ForkStreamRequest.commit_position` forks at
+  one global commit position: every stream the edition forks, by
+  propagation or on demand, diverges at the same moment, for a consistent
+  snapshot. This is EA-3's former whole-system behaviour and the
+  2026-10-27 commit-order ruling, kept as an option, not the default; it
+  needs the store contract's global commit position.
+- **Proposals on the hard questions (the drafter's, all FLAGGED):**
+  - *Which downstream streams propagation forks.* Along RECORDED REACTION
+    EDGES: a saga's coordinator keeps, beside its outbox, one deduplicated
+    row per (saga, source stream, target stream) for every reaction command
+    it delivers. When `EditionForked` reaches it for (D, X, R), it forks in
+    X every target it has an edge to from (D, main, R), at that target's
+    own head (or the option's commit position), with `propagated_from` set;
+    each such fork is an event, so propagation continues hop by hop. A fork
+    event has no business payload, and a saga maps events to target roots
+    from their payloads, so only the recorded edges know the roots.
+    Weighed and rejected: forking every stream sharing a correlation with S
+    (exact for one workflow, unbounded for a long-lived stream that carries
+    many correlations); re-running the saga against the fork point (no
+    payload to run on, and it would emit real commands); forking every
+    stream of every downstream domain (unbounded); on-demand only (lazy,
+    ruled out). Cost: the edge rows put a coarse stream-to-stream record
+    in the store, which 13.3 kept in traces; they serve propagation only.
+  - *Fan-out bounds.* A propagation stops after a configured number of hops
+    from its origin fork (default 8) and alerts when one fork fans out past
+    a configured number of streams (default 1,000); anything not reached is
+    forked on demand. Idempotence ends cycles: a stream already forked in X
+    is not forked again, and each propagation step's id is derived from
+    (the fork reaching it, the saga, the target), so a redelivery appends
+    nothing.
+  - *A command to a not-yet-forked stream* (the owner asked: wait, refuse
+    UNAVAILABLE, or fork on demand). FORK ON DEMAND: the coordinator appends
+    `EditionForked` (`on_demand`) at main's head (or the option's commit
+    position), then handles the input. Waiting, or a retryable
+    `UNAVAILABLE`, could never end for a stream no propagation reaches,
+    which a what-if routinely addresses; forking at first use is the same
+    eventual consistency propagation gives. A later propagated fork finds
+    the stream forked and appends nothing. A query or subscription of such
+    a stream reads main's version (identical so far) and forks nothing.
+  - *Deletion propagation.* None: `DeleteEdition` removes every row of X in
+    every store. A propagation step forks a target only after reading that
+    its `propagated_from` event still exists, so propagation stops at a
+    deleted edition; a step racing the delete can leave an orphan fork,
+    which a repeated, idempotent `DeleteEdition` sweeps.
+  - *Process managers.* A PM is a domain (14.31): its instance streams are
+    forked when sagas into its domain carry the fork there, and the
+    propagation continues through its outbound sagas. Nothing is
+    PM-specific.
+  - *Knowing an edition exists* without a registry means a query over the
+    fork events of every event store in the deployment; coordinators may
+    cache a positive answer.
+- Why: an edition forks only what it touches, when it touches it, at that
+  stream's own point, with no second source of truth beside the events.
+- Cost: an edition's streams diverge at slightly different moments
+  (eventually consistent) unless the time-based option is used;
+  propagation needs the saga coordinators' edge rows; existence checks
+  query the stores; an edition grows by propagation, bounded by
+  configuration.
+- Aligns with: copy-on-write branching of event streams (a fork is the
+  stream's first event in the branch), and with angzarr's own rule that a
+  reaction stays in its trigger's edition.
 
 ## Corrections
 

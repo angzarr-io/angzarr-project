@@ -14,9 +14,11 @@
 //! the `options.proto` option messages (`ConflictUnit` for COMMUTATIVE
 //! conflict units, `ComponentOptions`, `CommandOptions`, `EventConsumer`;
 //! prost skips the `extend` declarations, so option values are read from
-//! descriptors), the edition registry's messages from `meta.proto`
-//! (`CreateEditionRequest`, `DeleteEditionRequest` and the `Edition`
-//! record; `EditionAdminService` itself is not generated), plus
+//! descriptors), the edition administration messages from `meta.proto`
+//! (`ForkStreamRequest`, `ListEditionsRequest`/`Response`,
+//! `EditionSummary` and `DeleteEditionRequest`; editions are per-stream
+//! forks, and the fork event `EditionForked` is in `types.proto`;
+//! `EditionAdminService` itself is not generated), plus
 //! `sererr.v1`, which `types.proto` imports. Every
 //! message implements [`prost::Name`] with no type-name domain, so
 //! `prost_types::Any::from_msg` yields type URLs of the form

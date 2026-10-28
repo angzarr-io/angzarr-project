@@ -181,35 +181,53 @@ message Cover {
   // (here and in EventRef.stream), so an edition's events can never be
   // mistaken for, or copied as, main-timeline events.
   //
-  // Explicit create. A non-main edition exists only once it has been created
-  // with EditionAdminService.CreateEdition (meta.proto), an administrative
-  // operation, never a domain command or event. Using a name that was never
-  // created (in a command, a query or a subscription) is refused loudly
-  // (NOT_FOUND), never silently given storage: a misspelt edition cannot
-  // write anywhere. The edition record (Edition in meta.proto) holds
-  // everything about an edition that is not wire data: its divergence point
-  // (where it branches from main; reads fall through to main up to it,
-  // recorded at create, by default main's head at that moment) and its
-  // store.
+  // Per-stream forks (decision 14.32, the owner's ruling of 2026-10-28).
+  // An edition is a set of per-stream FORKS, and nothing else: there is no
+  // edition registry and no separate metadata store. Stream (D, X, R)
+  // exists in edition X from its fork: an EditionForked event (below, the
+  // editions region) at the sequence main's version (D, main, R) would
+  // have used next. That event is the first of X's version of the stream,
+  // and its sequence marks main's end and X's start for that stream.
+  //   - Read rule, per stream: (D, X, R) reads main's events BELOW ITS OWN
+  //     fork sequence, then X's own events (the fork event first). Main's
+  //     later events never reach it.
+  //   - Creating X forks an origin stream (EditionAdminService.ForkStream,
+  //     meta.proto). angzarr then PROPAGATES the fork, eventually
+  //     consistent and not lazy, through the same data flow as any event,
+  //     to the streams downstream of it (EditionForked, Propagation).
+  //   - A stream in X that no fork has reached yet is forked ON DEMAND by
+  //     the first command or fact addressed to it in X, at main's head then
+  //     (the drafter's proposal, FLAGGED; EditionForked, Unforked streams).
+  //     A query or subscription of such a stream reads main's version (it
+  //     is identical so far) and forks nothing.
+  //   - The time-based OPTION forks every stream at one global commit
+  //     position instead of each at its own head (EA-3's former default,
+  //     now an option; ForkStreamRequest.commit_position).
+  //   - Unknown edition: an edition is known while any fork event of it
+  //     exists. A command, query or subscription naming an edition that was
+  //     never created, or was deleted, is refused loudly (NOT_FOUND), never
+  //     silently given storage: a misspelt edition cannot write anywhere.
   //
   // What-if execution. A what-if is a command run in an edition: send an
   // ordinary CommandBook whose cover names the edition. There is no
   // separate speculative RPC. Reactions (sagas) stay in the edition of the
-  // event they react to, and so do the facts they send a process manager.
+  // event they react to, and so do the commands and refusal facts they
+  // send.
   //
-  // Storage. CreateEdition may name a non-default edition store; a created
-  // edition with no store named uses the configured default edition store,
-  // which may be in memory, redis, another persistent store, or the existing
-  // production database (the edition is part of the storage key, and the
-  // edition column stays in every database schema so the existing database
-  // can host editions). Placement never changes the wire contract. Projector
-  // output follows the edition's storage: an in-memory edition's projections
-  // are kept in memory.
+  // Storage. Where an edition's rows live is configuration (an edition
+  // name, or pattern, mapped to a store; otherwise the configured default
+  // edition store), which may be in memory, redis, another persistent
+  // store, or the existing production database (the edition is part of the
+  // storage key, and the edition column stays in every database schema so
+  // the existing database can host editions). Nothing is recorded about
+  // placement: there is no record. Placement never changes the wire
+  // contract. Projector output follows the edition's storage: an in-memory
+  // edition's projections are kept in memory.
   //
   // Lifetime follows the backend: memory lives as long as the process, redis
   // as long as its TTL, a database persists. EditionAdminService.DeleteEdition
-  // (meta.proto) discards a named edition explicitly; main cannot be named,
-  // so it can never be deleted.
+  // (meta.proto) removes a named edition's rows explicitly; main cannot be
+  // named, so it can never be deleted.
   optional string edition = 4;
 }
 // endregion
@@ -583,6 +601,99 @@ message FactOrigin {
   string description = 2; // Human-readable origin (e.g. "Stripe webhook"); audit only, not part of the derivation
 }
 
+// region editions
+// The fork event (decision 14.32; Cover.edition). Appended to (D, X, R) at
+// the sequence main's version of that stream would have used next: the
+// first event of X's version of the stream, whose sequence (the FORK
+// SEQUENCE) marks main's end and X's start. A framework event: it carries
+// no business payload, the client library never hands it to business code
+// (no applier, saga or projector handler sees it), and it is stamped like
+// any event (EventMeta.causation.command_id: the ForkStream call's, or the
+// propagation step's derived id; recorded_at; correlation). It flows like
+// any event, through the same bus, which is how it propagates.
+//
+// Propagation (the owner: "it's not lazy, but it is eventually consistent.
+// Edition creation events propagate on the same system as data flows";
+// "that can likely be angzarr automated"). angzarr, never saga business
+// code, carries a fork downstream. The drafter's proposal (FLAGGED):
+//   - ALONG RECORDED REACTION EDGES. A saga's coordinator already knows,
+//     when it delivers a reaction command, the edge from the trigger's
+//     stream to the command's target stream; it keeps those edges, one row
+//     per (saga, source stream, target stream), deduplicated, beside its
+//     outbox. When EditionForked reaches it for (D, X, R), it forks in X
+//     every target stream it has an edge to from (D, main, R): it appends
+//     EditionForked to each (D', X, R') at that stream's own head (or at
+//     the time-based option's commit position), with propagated_from = the
+//     fork event that reached it. Each of those fork events is itself an
+//     event, so propagation continues from it, hop by hop. A process
+//     manager is a domain: its instance streams are forked when sagas into
+//     its domain carry the fork there, and they propagate on through its
+//     outbound sagas; nothing is PM-specific.
+//   - Idempotent, so it terminates: a stream already forked in X is not
+//     forked again (cycles end there), and the propagation step's id is
+//     derived from (the fork event reaching it, the saga, the target), so
+//     a redelivery appends nothing new.
+//   - Bounded: a propagation stops after a configured number of hops from
+//     the origin fork (default 8) and alerts when one fork fans out to more
+//     than a configured number of streams (default 1,000); anything it did
+//     not reach is forked on demand.
+//   - Rejected alternatives: (a) forking every stream that shares a
+//     correlation with the origin stream: exact for one workflow, but a
+//     long-lived stream carries many correlations, so the fan-out is
+//     unbounded; (b) re-running the saga against the fork point: a fork
+//     has no business payload, and re-running reactions would emit real
+//     commands; (c) forking every stream of every downstream domain:
+//     unbounded; (d) on-demand only: lazy, which the owner ruled out.
+//   - Cost: the edge rows are a store-side record of stream-to-stream
+//     edges, which decision 13.3 kept in traces; they are coarse (no
+//     per-event causation), kept by the saga coordinator for propagation
+//     only, and amend 13.3 narrowly (FLAGGED).
+//
+// Unforked streams (the drafter's proposal, FLAGGED). A command or fact
+// addressed in a known edition X to a stream no fork has reached yet FORKS
+// IT ON DEMAND: the coordinator appends EditionForked (propagated_from
+// unset, on_demand set) at main's head (or the time-based option's commit
+// position), then handles the input as usual. Why, rather than waiting:
+// a what-if routinely addresses streams the propagation never reaches
+// (nothing downstream of the origin leads there), so waiting, or
+// answering UNAVAILABLE for a retry, could never end; and forking at the
+// moment of first use is the same eventual consistency the propagation
+// itself gives. A later propagated fork for that stream finds it forked
+// and appends nothing.
+//
+// Deletion (the drafter's proposal, FLAGGED). DeleteEdition removes every
+// row of X in every store; it is not propagated. A propagation step forks
+// a target only after reading that its propagated_from event still exists,
+// so a propagation stops at a deleted edition; a step that read it just
+// before the delete can leave an orphan fork, which a repeated, idempotent
+// DeleteEdition sweeps. An edition with no fork event left is unknown.
+//
+// The time-based option. With ForkStreamRequest.commit_position set, the
+// origin fork and every propagated or on-demand fork of the edition fork at
+// that one global commit position, not at each stream's head: each stream
+// reads main's events committed at or before it. This is EA-3's former
+// whole-system behaviour and the 2026-10-27 commit-order ruling, kept as an
+// option; it needs the store contract's global commit position.
+message EditionForked {
+  // The edition (also the stream's Cover.edition; repeated here so the
+  // payload describes itself). Required, non-empty.
+  string edition = 1;
+  // The fork sequence: main's next sequence for this stream when it was
+  // forked, equal to this event's own EventPage.sequence. The stream reads
+  // main's events below it.
+  uint64 parent_sequence = 2;
+  // The time-based option's global commit position; 0 for a per-stream
+  // fork.
+  uint64 commit_position = 3;
+  // The fork event upstream whose propagation forked this stream; unset
+  // for an origin fork (ForkStream) and an on-demand fork.
+  EventRef propagated_from = 4;
+  // True for a fork made on demand by a command or fact (Unforked
+  // streams, above).
+  bool on_demand = 5;
+}
+// endregion
+
 // region refusal_facts
 // The standard refusal fact (decision 14.31; SagaService in saga.proto,
 // Refusals). The SAGA builds it: in PASS-THROUGH mode, the default chosen
@@ -895,7 +1006,8 @@ message Projection {
 // A client's malformed command is answered INVALID_ARGUMENT, by every
 // coordinator RPC (HandleAsync included: it validates before enqueueing).
 // causation_id from a caller not authenticated as a framework component is
-// refused PERMISSION_DENIED, and a never-created edition NOT_FOUND (see the
+// refused PERMISSION_DENIED, and an unknown edition (no fork event of it
+// exists: never created, or deleted) NOT_FOUND (see the
 // entry_points region in command_handler.proto). A reaction command has no
 // caller to answer, so it is dead-lettered as a reactor bug (and alerted),
 // never delivered.
@@ -1183,8 +1295,10 @@ message TemporalQuery {
 }
 
 // Selects events within one domain. cover.domain is required, and
-// cover.edition picks the timeline (unset = main; a set name must have been
-// created, see Cover.edition). For every event of one correlation across
+// cover.edition picks the timeline (unset = main; a set name must be a
+// known edition, see Cover.edition, and each stream is read by its fork:
+// main below its fork sequence, then the edition's own events; a stream
+// not yet forked reads as main). For every event of one correlation across
 // all domains, use EventQueryService.GetCorrelatedEvents (CorrelationQuery).
 //   By stream:       cover { domain, root }
 //   By correlation:  cover { domain } + correlation_id; every stream of the
@@ -1240,9 +1354,10 @@ message CorrelationQuery {
   // Required: INVALID_ARGUMENT when unset or not 16 bytes.
   UUID correlation_id = 1;
   // The timeline, as Cover.edition: unset = main; a set name must be
-  // non-empty (a set "" is refused INVALID_ARGUMENT) and must have been
-  // created, and is read as the edition reads it (its own events, and
-  // main's up to its divergence point).
+  // non-empty (a set "" is refused INVALID_ARGUMENT) and must be a known
+  // edition (Cover.edition), and each stream is read as the edition reads
+  // it (main's events below that stream's fork sequence, then its own; a
+  // stream not yet forked reads as main).
   optional string edition = 2;
 }
 // endregion
