@@ -2,13 +2,13 @@ Feature: Saga refusals - a refused command becomes one fact for the saga's own s
   A saga's target, an aggregate or a process manager alike, refuses a
   saga's command the way it refuses any command, optionally with a typed
   refusal object of its own domain, and records nothing. The saga then
-  builds one unrefusable refusal fact for its own source domain (decision
-  2.2, as amended by 14.31). By default its generated code passes the
-  standard CommandRefused { command, refusal, trigger, reason, message }
-  through, the typed refusal object packed, and the source's
+  builds one unrefusable refusal fact for the exact stream of its
+  triggering event (decision 2.2, as amended by 14.31). By default its
+  generated code passes the standard CommandRefused { command, refusal,
+  trigger } through, the typed refusal object packed, and the source's
   on_refused_<Command> handles it; where angzarr-cli selects translate,
   the saga's callback turns Refusal { event, command, response } into a
-  domestic fact. The refusal fact's id is the refused command's id. Both
+  domestic fact, so the source need not unpack a foreign object. The refusal fact's id is the refused command's id. Both
   calls go through the outbox.
 
   Background:
@@ -24,7 +24,7 @@ Feature: Saga refusals - a refused command becomes one fact for the saga's own s
     And player "p-1" has too little available to hold 500
     When "BuyIn" records BuyInStarted for 500 from player "p-1" under correlation "0192a6b0-0000-7000-8000-000000000020"
     Then player "p-1" refuses HoldFunds and records nothing
-    And the saga, not the coordinator, builds a CommandRefused fact carrying the HoldFunds sent, the InsufficientFunds refusal object packed, the BuyInStarted event's EventRef and the reason
+    And the saga, not the coordinator, builds a CommandRefused fact carrying only the HoldFunds sent, the InsufficientFunds refusal object packed and the BuyInStarted event's EventRef
     And it is delivered to "buy-in" root "0192a6b0-0000-7000-8000-000000000020"
     And "BuyIn"'s on_refused_HoldFunds handler unpacks InsufficientFunds and records its own events for it
 
@@ -102,13 +102,21 @@ Feature: Saga refusals - a refused command becomes one fact for the saga's own s
 
   @saga_refusal
   @C-0621
-  Scenario: A refusal fact for any domain but the saga's source is refused
+  Scenario Outline: A refusal fact for any stream but its trigger's is refused
+    # A refusal fact is accepted only by the exact stream its trigger
+    # EventRef names: domain, root and edition (decision 14.31).
     Given "BuyInToPlayer" was generated with HoldFunds in translate mode, its callback returning the "buy-in" fact HoldFundsDeclined
-    And "BuyInToPlayer"'s callback returns a fact addressed to domain "table"
+    And "BuyInToPlayer"'s callback returns a fact addressed to <stream>
     And player "p-1" has too little available to hold 500
-    When "BuyIn" records BuyInStarted for 500 from player "p-1"
+    When "BuyIn" records BuyInStarted for 500 from player "p-1" under correlation "0192a6b0-0000-7000-8000-000000000023"
     Then the fact is refused as malformed, dead-lettered and alerted
-    And nothing is recorded in "table"
+    And nothing is recorded in <stream>
+
+    Examples:
+      | stream                                                                   |
+      | domain "table"                                                           |
+      | "buy-in" root "0192a6b0-0000-7000-8000-000000000099"                     |
+      | "buy-in" root "0192a6b0-0000-7000-8000-000000000023" in edition "what-if" |
 
   @saga_refusal
   @C-0622
@@ -128,5 +136,5 @@ Feature: Saga refusals - a refused command becomes one fact for the saga's own s
     And player "p-1" has 120 available and is asked to hold 500
     When "BuyIn" records BuyInStarted for 500 from player "p-1"
     Then player "p-1"'s HoldFunds handler returns the refusal object InsufficientFunds with available 120 and requested 500
-    And the refused response the saga receives carries reason INSUFFICIENT_AVAILABLE_FUNDS and that InsufficientFunds as its refusal
+    And the refused response the saga receives carries that InsufficientFunds as its refusal, and the rejection's status message
     And the CommandRefused fact's refusal unpacks to InsufficientFunds with available 120 and requested 500

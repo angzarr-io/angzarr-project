@@ -63,9 +63,9 @@ Feature: Fact injection
     And the sender is answered APPLIED
 
   @C-0609
-  Scenario: A fact carrying a causation_id is accepted only by its trigger's domain
+  Scenario: A fact carrying a causation_id is accepted by its trigger's own stream
     # The one fact with a causation_id is a saga's refusal fact, for the
-    # saga's own source domain (decision 14.31).
+    # exact stream of the saga's triggering event (decision 14.31).
     Given an "order" aggregate "order-1" that declares fact DeliveryRefused
     When a framework component sends a DeliveryRefused fact to "order" root "order-1" whose causation_id names an event of "order" aggregate "order-1"
     Then the fact is recorded at the order's next sequence

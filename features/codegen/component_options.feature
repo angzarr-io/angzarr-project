@@ -156,17 +156,29 @@ Feature: Component declarations - lint warnings and errors
       | and no on_refused_ReserveStock callback          | translate for saga "OrderToInventory"                      | generation fails naming "inventory.ReserveStock": translate needs its callback |
 
   @C-0625
-  Scenario: A command's typed refusal objects shape its generated handler
+  Scenario: A command's <Command>Refusal oneof shapes its generated handler
+    # No annotation: the generator finds the refusal objects by name
+    # (decision 14.31; the convention is the drafter's proposal).
     Given an aggregate "PlayerState" owning domain "player" with command "player.HoldFunds"
-    And "player.HoldFunds" declares refused_with "player.InsufficientFunds"
+    And the message "player.HoldFundsRefusal" with oneof refusal holding "player.InsufficientFunds"
     When the handler interfaces are generated
-    Then the HoldFunds handler returns either its events or an InsufficientFunds refusal
+    Then the HoldFunds handler returns either its events or a HoldFundsRefusal
+    And the client library packs the chosen InsufficientFunds, not the HoldFundsRefusal, into the rejection
 
   @C-0626
-  Scenario: A refused_with type from another domain is a lint error
+  Scenario: A <Command>Refusal member from another domain is a lint error
     Given an aggregate "PlayerState" owning domain "player" with command "player.HoldFunds"
     And an aggregate "TableState" owning domain "table" with message "table.SeatNotConfirmable"
-    And "player.HoldFunds" declares refused_with "table.SeatNotConfirmable"
+    And the message "player.HoldFundsRefusal" with oneof refusal holding "table.SeatNotConfirmable"
     When the protos are linted
-    Then lint reports an error naming "player.HoldFunds" and its refused_with type
+    Then lint reports an error naming "player.HoldFundsRefusal" and its member "table.SeatNotConfirmable"
     And lint exits with a non-zero status
+
+  @C-0627
+  Scenario: A <Command>Refusal with no matching command is a lint warning
+    Given an aggregate "PlayerState" owning domain "player" with command "player.HoldFunds"
+    And the message "player.WithdrawFundsRefusal" with oneof refusal holding "player.InsufficientFunds"
+    And no command "player.WithdrawFunds"
+    When the protos are linted
+    Then lint reports a warning naming "player.WithdrawFundsRefusal": no command WithdrawFunds
+    And lint exits with status 0
