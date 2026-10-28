@@ -22,13 +22,17 @@ option ruby_package = "Angzarr";
 // stream: it appends an EditionForked event to (D, X, R). The fork then
 // travels with the data: each saga command in X that reaches a stream with
 // no fork in X forks it on arrival (types.proto, EditionForked). Listing
-// editions is a query over the fork events; deleting one removes its rows.
+// editions is a query over X's own fork and deletion events; deleting one
+// appends tombstones that travel the same way. Everything of an edition's
+// lifecycle lives in the edition's own streams and store: main knows
+// nothing of it.
 //
 // These operations are authorised as operator actions from the call's
 // credentials, and who performed one goes to the deployment's security log,
-// never into the data (types.proto, security_logs region). ForkStream
-// writes an event (the fork) to an edition stream, never to main; nothing
-// here writes to main, and main can be neither forked into nor deleted.
+// never into the data (types.proto, security_logs region). ForkStream and
+// DeleteEdition write events (the fork, the tombstones) to edition streams
+// only; nothing here writes to, records in or indexes against main, and
+// main can be neither forked into nor deleted.
 
 // region edition_admin
 // EditionAdminService: forks origin streams into editions, lists editions,
@@ -55,20 +59,26 @@ service EditionAdminService {
       body: "*"
     };
   }
-  // List the editions: a query over the fork events of every event store
-  // the deployment has (no record is kept anywhere else).
+  // List the editions: a query over the edition stores' fork and deletion
+  // events (no record is kept anywhere else, and main is never read for
+  // it). An edition whose every stream ends in a tombstone is not listed.
   rpc ListEditions(ListEditionsRequest) returns (ListEditionsResponse) {
     option (google.api.http) = {get: "/v1/admin/editions"};
   }
-  // Delete an edition: remove every row stored under it in every store
-  // (its events, fork events included, snapshots, projector output and
-  // its saga coordinators' outbox entries). Main is never touched.
-  // Idempotent: a repeat sweeps an orphan fork that a saga command racing
-  // the delete wrote (see EditionForked, Deletion).
+  // Delete an edition: append an EditionDeleted tombstone to each of its
+  // origin fork streams (in the edition, never in main), at that stream's
+  // next sequence. The tombstone travels the same saga flows the fork did,
+  // in sequence, so it takes effect in each stream after the work in
+  // flight before it; each stream that receives it removes its edition
+  // rows below it and keeps the tombstone (types.proto, the editions
+  // region, Deletion). Answers once the origin tombstones are appended;
+  // the deletion then completes in order, eventually consistent. A
+  // deletion that genuinely fails is dead-lettered and alerted. Main is
+  // never touched.
   //   INVALID_ARGUMENT  name is empty (a name is required; main is unnamed
   //                     and can never be deleted);
-  //   NOT_FOUND         no fork event of the edition exists (never created,
-  //                     or already deleted).
+  //   NOT_FOUND         the edition is unknown (no stream of it is forked
+  //                     and not yet deleted).
   rpc DeleteEdition(DeleteEditionRequest) returns (google.protobuf.Empty) {
     option (google.api.http) = {delete: "/v1/admin/editions/{name}"};
   }
