@@ -4,18 +4,18 @@ Feature: Editions are per-stream forks, and the fork travels with the data
   meta-event (io.angzarr.v1.meta) to (D, X, R) at main's next sequence for
   that stream; (D, X, R) reads
   main's events below that fork sequence, then X's own. The fork travels
-  with the data: a saga's command in X that reaches a stream with no fork
+  with the data: a policy's command in X that reaches a stream with no fork
   in X forks it on arrival. A command from outside to an unforked stream is
   refused until propagated. There is no edition registry: an edition is
   known while any creation event of it exists. Deletion is an event too:
   each stream it reaches records an EditionDeleted meta-event in sequence,
-  the event propagates onward through the saga flows, and only then are
+  the event propagates onward through the policy flows, and only then are
   that stream's rows of the edition removed, the event included. Main
   knows nothing of an edition.
 
   Background:
     Given a "player" aggregate "p-1" with 5 events on the main timeline
-    And a saga "PlayerToTable" translating from "player" to "table" that sends SeatPlayer to "table" "t-1" on PlayerReady
+    And a policy "PlayerToTable" translating from "player" to "table" that sends SeatPlayer to "table" "t-1" on PlayerReady
     And a "table" aggregate "t-1" with 3 events on the main timeline
 
   @editions
@@ -38,7 +38,7 @@ Feature: Editions are per-stream forks, and the fork travels with the data
 
   @editions
   @C-0630
-  Scenario: A saga command arriving at an unforked stream forks it, then is handled
+  Scenario: A policy command arriving at an unforked stream forks it, then is handled
     Given "player" "p-1" is forked into edition "what-if" at sequence 5
     And "table" "t-1" has no fork in edition "what-if"
     When "player" "p-1" records PlayerReady in edition "what-if"
@@ -46,7 +46,7 @@ Feature: Editions are per-stream forks, and the fork travels with the data
     And its propagated_from names the fork event of "player" "p-1" in edition "what-if"
     And its forked_by is the SeatPlayer command's command_id
     And the SeatPlayer command is then handled in edition "what-if"
-    And no saga business code was called for either fork event
+    And no policy business code was called for either fork event
 
   @editions
   @C-0631
@@ -108,7 +108,7 @@ Feature: Editions are per-stream forks, and the fork travels with the data
   @C-0637
   Scenario: A delete is recorded after the in-flight work before it, in the origin's own domain
     Given "player" "p-1" is forked into edition "what-if"
-    And "player" "p-1" recorded PlayerReady in edition "what-if", and its SeatPlayer is still in the saga's outbox
+    And "player" "p-1" recorded PlayerReady in edition "what-if", and its SeatPlayer is still in the policy's outbox
     When DeleteEdition deletes "what-if"
     Then "player" "p-1" in edition "what-if" records an EditionDeleted event after PlayerReady
     And the SeatPlayer command reaches "table" "t-1" before any deletion does, forking it and being handled in "what-if"
@@ -118,7 +118,7 @@ Feature: Editions are per-stream forks, and the fork travels with the data
   @C-0640
   Scenario: After a delete, a later arrival in the edition is refused and re-creates nothing
     Given edition "what-if" was deleted and no row of it remains
-    When a saga command in edition "what-if" arrives at "table" "t-1"
+    When a policy command in edition "what-if" arrives at "table" "t-1"
     Then the command is refused NOT_FOUND
     And "table" "t-1" holds no event in edition "what-if"
     And ListEditions does not list edition "what-if"
@@ -144,8 +144,8 @@ Feature: Editions are per-stream forks, and the fork travels with the data
     Examples:
       | part                          |
       | streams                       |
-      | saga outbox entries           |
-      | saga and projector positions  |
+      | policy outbox entries           |
+      | policy and projector positions  |
       | projections                   |
 
   @editions
@@ -172,7 +172,7 @@ Feature: Editions are per-stream forks, and the fork travels with the data
   @C-0639
   Scenario: A process manager's instance stream is forked like any domain's
     Given a process manager "BuyIn" owning domain "buy-in" with an instance for correlation "0192a6b0-0000-7000-8000-000000000030"
-    And a saga "PlayerToBuyIn" that sends a command to "buy-in" "0192a6b0-0000-7000-8000-000000000030" on PlayerReady
+    And a policy "PlayerToBuyIn" that sends a command to "buy-in" "0192a6b0-0000-7000-8000-000000000030" on PlayerReady
     And "player" "p-1" is forked into edition "what-if"
     When "player" "p-1" records PlayerReady in edition "what-if"
     Then "buy-in" "0192a6b0-0000-7000-8000-000000000030" in edition "what-if" first gains an EditionCreated event
@@ -183,7 +183,7 @@ Feature: Editions are per-stream forks, and the fork travels with the data
   Scenario: While an edition is being deleted, an arrival at a removed stream is refused
     Given "player" "p-1" and "table" "t-1" are forked into edition "what-if"
     And both have recorded their EditionDeleted events, and "player" "p-1" in edition "what-if" has been removed
-    When a saga step in edition "what-if" writes its position on "player" "p-1", or a saga command arrives at it
+    When a policy step in edition "what-if" writes its position on "player" "p-1", or a policy command arrives at it
     Then it is refused NOT_FOUND
     And "player" "p-1" holds no event in edition "what-if"
 
@@ -194,8 +194,8 @@ Feature: Editions are per-stream forks, and the fork travels with the data
     And a SeatPlayer command has forked "table" "t-1" in edition "what-if"
     When DeleteEdition deletes "what-if"
     Then "player" "p-1" in edition "what-if" records an EditionDeleted event
-    And the saga "PlayerToTable" carries it to "table" "t-1", which records its own EditionDeleted event in edition "what-if"
-    And the rows of "player" "p-1" in edition "what-if" are removed only after that saga step and its outbox entries have completed
+    And the policy "PlayerToTable" carries it to "table" "t-1", which records its own EditionDeleted event in edition "what-if"
+    And the rows of "player" "p-1" in edition "what-if" are removed only after that policy step and its outbox entries have completed
     And the rows of "table" "t-1" in edition "what-if" are removed only after its EditionDeleted has propagated onward
     And no row of edition "what-if" remains, the EditionDeleted events included
     And ListEditions no longer lists edition "what-if"
@@ -205,7 +205,7 @@ Feature: Editions are per-stream forks, and the fork travels with the data
   Scenario: A stream's rows are never removed before its EditionDeleted has propagated onward
     Given "player" "p-1" is forked into edition "what-if"
     And "player" "p-1" in edition "what-if" has recorded an EditionDeleted event
-    And the saga step carrying it onward still has an outbox entry pending
+    And the policy step carrying it onward still has an outbox entry pending
     When the removal of "player" "p-1" in edition "what-if" is attempted
     Then nothing is removed
     And the removal happens once the outbox entry has been delivered
@@ -214,7 +214,7 @@ Feature: Editions are per-stream forks, and the fork travels with the data
   @C-0646
   Scenario: A stream the delete cannot reach keeps its rows, and the edition stays listed
     Given "player" "p-1" is forked into edition "what-if"
-    And "table" "t-9" was forked into edition "what-if" with ForkStream, and no saga flow leads to it from "player"
+    And "table" "t-9" was forked into edition "what-if" with ForkStream, and no policy flow leads to it from "player"
     When DeleteEdition deletes "what-if" through the origin "player" "p-1" only
     Then the rows of "player" "p-1" in edition "what-if" are removed
     And "table" "t-9" in edition "what-if" keeps its rows

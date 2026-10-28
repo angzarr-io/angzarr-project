@@ -32,7 +32,7 @@
 //! [`ids`] adds the boundary helpers for the wire `UUID`: canonical text
 //! through `Display`/`FromStr`, conversions to and from `[u8; 16]` and
 //! [`uuid::Uuid`] (re-exported), and the UUIDv5 derivations
-//! [`ids::compute_root`], [`ids::reaction_command_id`],
+//! [`ids::compute_root`], [`ids::policy_command_id`],
 //! [`ids::fact_command_id`] and [`ids::fact_correlation`].
 //!
 //! [`protos`] embeds the `.proto` sources themselves, for dependents whose

@@ -5,7 +5,7 @@ Feature: Executing commands against aggregates
   send without waiting (handle_async), wait for the decision (handle), or
   also wait for the synchronous projectors (handle_sync); these are named
   after the coordinator RPCs HandleAsync, Handle and HandleSync. No mode
-  waits for sagas or process managers.
+  waits for policies or process managers.
 
   Without command execution, the system cannot accept user actions or
   change aggregate state.

@@ -1,6 +1,6 @@
 Feature: Component discovery - the coordinator asks the business process what it is
   One coordinator serves one business process, and a business process is
-  one component: one aggregate, saga, process manager or projector. The
+  one component: one aggregate, policy, process manager or projector. The
   coordinator learns which component by asking the business process, over
   the same connection it uses to deliver work. The answer describes the
   component: its name, its kind, the domains it reacts to, its state type
@@ -37,7 +37,7 @@ Feature: Component discovery - the coordinator asks the business process what it
       | a command from a caller who waits   | the caller is answered with UNAVAILABLE status            |
       | a fact from a caller who waits      | the caller is answered with UNAVAILABLE status            |
       | a command sent without waiting      | the command stays queued until the aggregate is registered |
-      | a saga's command                    | the command stays queued until the aggregate is registered |
+      | a policy's command                    | the command stays queued until the aggregate is registered |
 
   @discovery
   @C-0563

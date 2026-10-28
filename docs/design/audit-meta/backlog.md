@@ -163,7 +163,7 @@ their commands and, since 14.31, their refusal facts.
   it, with no knowledge of the component's kind. Wire sagas to it: a
   `SagaResponse`'s commands, and their refusal facts (OB-7). Today saga commands are sent directly, with
   `SyncMode::Async` hardcoded in `handlers/core/saga.rs`.
-- Why: `saga.proto`, the transient outbox text; decision 14.31.
+- Why: `policy.proto`, the transient outbox text; decision 14.31.
 - Settled when: in a crash-injection test (crash after store, before
   dispatch), the restart re-sends byte-identical commands with the same
   command ids, and the saga is not re-run for that trigger; and the
@@ -217,7 +217,7 @@ dead-lettering from core is PR-6.
   used by `angzarr-build`).
 - Why: decision 14.31, amending 2.2 (plan ruling 7, "REFUSAL WIRING",
   and the owner's rulings of 2026-10-28); `SagaService` (Refusals),
-  `Refusal` and `OnRefused` in `saga.proto`, `CommandRefused` and
+  `Refusal` and `OnRefused` in `policy.proto`, `CommandRefused` and
   `RefusalResponse` in `types.proto`, `CommandOptions.refuses` and the
   refusals region of `options.proto`.
 - Settled when: scenarios C-0608 to C-0610, C-0612, C-0613 to C-0619,
@@ -1272,7 +1272,7 @@ no-op implementations only.
   fails `INTERNAL` with no commands, and the coordinator dead-letters the
   trigger and alerts.
 - Why: decision 14.24; `ComponentOptions` (`options.proto`), `SagaResponse`
-  (`saga.proto`).
+  (`policy.proto`).
 - Settled when: scenarios C-0582, C-0583, C-0604 and C-0605 pass (C-0581
   is retired). C-0604 also needs angzarr-cli to refuse an `(event)` entry
   naming a PM with a `domain`.

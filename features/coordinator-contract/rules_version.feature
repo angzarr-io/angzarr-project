@@ -277,13 +277,13 @@ Feature: Rules version - recording who decided, and choosing snapshots
       | awaiting the decision     |               | the caller is answered with INTERNAL status         |
       | awaiting the projections  | 1.4.2+build.8 | the caller is answered with INTERNAL status         |
       | without waiting           | 1.5.0+build.9 | the command is dead-lettered and an alert is raised |
-      | by a saga                 | 1.5.0+build.9 | the command is dead-lettered and an alert is raised |
+      | by a policy                 | 1.5.0+build.9 | the command is dead-lettered and an alert is raised |
 
   @rules_version
   @C-0559
   Scenario: A process manager answer reporting another version is refused
     Given a process manager "Fulfillment" registered with rules version "2.0.1"
-    When a saga's StartFulfillment command is answered by the process manager with a FulfillmentStarted event, reporting rules version "2.0.2"
+    When a policy's StartFulfillment command is answered by the process manager with a FulfillmentStarted event, reporting rules version "2.0.2"
     Then no FulfillmentStarted event is persisted
     And the command is dead-lettered and an alert is raised
 

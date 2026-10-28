@@ -17,7 +17,7 @@ Feature: Component declarations - lint warnings and errors
     And lint exits with status 0
 
   @C-0515
-  Scenario Outline: A saga targeting a domain no aggregate owns is a lint warning
+  Scenario Outline: A policy targeting a domain no aggregate owns is a lint warning
     # A process manager declares no output domain (decision 14.31; C-0605).
     Given an aggregate "OrderState" owning domain "order"
     And a <kind> component "Fulfillment" triggered by domain "order" with output_domain "inventory"
@@ -27,10 +27,10 @@ Feature: Component declarations - lint warnings and errors
 
     Examples:
       | kind            |
-      | SAGA            |
+      | POLICY            |
 
   @C-0516
-  Scenario Outline: A saga triggering on a domain no aggregate produces is a lint warning
+  Scenario Outline: A policy triggering on a domain no aggregate produces is a lint warning
     # The process manager's case, which declares no output domain, is C-0604.
     Given an aggregate "InventoryState" owning domain "inventory"
     And a <kind> component "Fulfillment" triggered by domain "order" with output_domain "inventory"
@@ -40,12 +40,12 @@ Feature: Component declarations - lint warnings and errors
 
     Examples:
       | kind            |
-      | SAGA            |
+      | POLICY            |
 
   @C-0604
   Scenario: A process manager subscribing to another domain's events is a lint error
     # A process manager has no triggers; other domains' events reach it as
-    # facts through sagas (decision 14.31).
+    # facts through policies (decision 14.31).
     Given an aggregate "OrderState" owning domain "order"
     And a PROCESS_MANAGER component "Fulfillment" owning domain "fulfillment"
     And an (event) entry for "order.OrderPlaced" naming "Fulfillment" with domain "order"
@@ -64,17 +64,17 @@ Feature: Component declarations - lint warnings and errors
       | kind            |
       | AGGREGATE       |
       | PROCESS_MANAGER |
-      | SAGA            |
+      | POLICY            |
       | PROJECTOR       |
 
-  # C-0581 (a saga declaring several destinations through output_domains)
+  # C-0581 (a policy declaring several destinations through output_domains)
   # is retired: ComponentOptions.output_domains is deleted (decision
   # 14.31), so no declaration can name several destinations.
 
   @C-0605
   Scenario: A process manager declaring an output domain is a lint error
     # A process manager sends no commands; its decisions reach other
-    # domains through sagas from its domain (decision 14.31).
+    # domains through policies from its domain (decision 14.31).
     Given aggregates owning domains "order" and "shipping"
     And a PROCESS_MANAGER component "Fulfillment" owning domain "fulfillment" with output_domain "shipping"
     When the protos are linted
@@ -82,9 +82,9 @@ Feature: Component declarations - lint warnings and errors
     And lint exits with a non-zero status
 
   @C-0582
-  Scenario: A saga declaring no destination domain is a lint error
+  Scenario: A policy declaring no destination domain is a lint error
     Given aggregates owning domains "order" and "inventory"
-    And a SAGA component "Fulfillment" triggered by domain "order" with no output_domain
+    And a POLICY component "Fulfillment" triggered by domain "order" with no output_domain
     When the protos are linted
     Then lint reports an error naming "Fulfillment" and its missing output_domain
     And lint exits with a non-zero status
@@ -119,13 +119,13 @@ Feature: Component declarations - lint warnings and errors
 
   @C-0612
   Scenario Outline: The generator gives each refusal mode its handler
-    # Decision 14.31: pass-through generates the saga's CommandRefused
+    # Decision 14.31: pass-through generates the policy's CommandRefused
     # builder and, in the source domain, the dispatch to the
     # on_refused_<Command> handlers it defines; translate requires the
-    # saga's callback.
+    # policy's callback.
     Given an aggregate "InventoryState" owning domain "inventory" with command "inventory.ReserveStock"
     And an aggregate "OrderState" owning domain "order" with fact "order.StockUnavailable"
-    And a SAGA component "OrderToInventory" triggered by domain "order" with output_domain "inventory"
+    And a POLICY component "OrderToInventory" triggered by domain "order" with output_domain "inventory"
     When the handler interfaces are generated with ReserveStock in <mode> mode for "OrderToInventory"
     Then <generated>
 
@@ -135,8 +135,8 @@ Feature: Component declarations - lint warnings and errors
       | translate    | "OrderToInventory" must implement on_refused_ReserveStock taking a Refusal and returning a fact of "order"                 |
 
   # C-0620 (exactly one refusal path per sent command) is retired: nothing
-  # declares what a saga sends (decision 14.31), so coverage is checked at
-  # run time (saga_refusal.feature, C-0618).
+  # declares what a policy sends (decision 14.31), so coverage is checked at
+  # run time (policy_refusal.feature, C-0618).
 
   @C-0623
   Scenario Outline: The CLI's refusal switch selects the mode at generation time, and nothing else does
@@ -145,15 +145,15 @@ Feature: Component declarations - lint warnings and errors
     # CLI's default.
     Given an aggregate "InventoryState" owning domain "inventory" with command "inventory.ReserveStock"
     And an aggregate "OrderState" owning domain "order" with fact "order.StockUnavailable"
-    And a SAGA component "OrderToInventory" triggered by domain "order" with output_domain "inventory" <callback>
+    And a POLICY component "OrderToInventory" triggered by domain "order" with output_domain "inventory" <callback>
     When the handler interfaces are generated with the refusal switch <switch>
     Then <outcome>
 
     Examples:
       | callback                                         | switch                                                     | outcome                                                                         |
       | and no on_refused_ReserveStock callback          | unset                                                      | ReserveStock's refusals pass through as CommandRefused                          |
-      | with an on_refused_ReserveStock callback         | translate for command "inventory.ReserveStock" of the saga | ReserveStock's refusals are translated by the callback                          |
-      | and no on_refused_ReserveStock callback          | translate for saga "OrderToInventory"                      | generation fails naming "inventory.ReserveStock": translate needs its callback |
+      | with an on_refused_ReserveStock callback         | translate for command "inventory.ReserveStock" of the policy | ReserveStock's refusals are translated by the callback                          |
+      | and no on_refused_ReserveStock callback          | translate for policy "OrderToInventory"                      | generation fails naming "inventory.ReserveStock": translate needs its callback |
 
   @C-0625
   Scenario: A command's refuses annotation shapes its generated handler

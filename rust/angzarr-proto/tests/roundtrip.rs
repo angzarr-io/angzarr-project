@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 use std::hash::Hash;
 
-use angzarr_proto::ids::{fact_command_id, reaction_command_id};
+use angzarr_proto::ids::{fact_command_id, policy_command_id};
 use angzarr_proto::v1::{
     angzarr_dead_letter, command_page, event_meta, AngzarrDeadLetter, Command, CommandBook,
     CommandPage, CommandRefused, ComponentDescriptor, ComponentKind, ConflictResolution,
@@ -51,17 +51,17 @@ enum Kind {
     /// A client Command: a client-supplied (or minted) id, no causation.
     Client,
     /// A reaction Command: a derived id and the triggering event.
-    Reaction,
+    Policy,
     /// A Fact: a derived id and its source.
     Fact,
 }
 
-const KINDS: [Kind; 3] = [Kind::Client, Kind::Reaction, Kind::Fact];
+const KINDS: [Kind; 3] = [Kind::Client, Kind::Policy, Kind::Fact];
 
 fn command_id(kind: Kind) -> Uuid {
     match kind {
         Kind::Client => uuid(0x5e),
-        Kind::Reaction => reaction_command_id(&cause(), "list-to-draw", 2).unwrap(),
+        Kind::Policy => policy_command_id(&cause(), "list-to-draw", 2).unwrap(),
         Kind::Fact => fact_command_id("pi_1234"),
     }
 }
@@ -82,7 +82,7 @@ fn command_page(kind: Kind) -> CommandPage {
         body: Some(body(kind)),
         command_id: Some(command_id(kind)),
         correlation_id: Some(uuid(0xc0)),
-        causation_id: matches!(kind, Kind::Reaction).then(cause),
+        causation_id: matches!(kind, Kind::Policy).then(cause),
         fact_origin: matches!(kind, Kind::Fact).then(fact_origin),
     }
 }
@@ -156,7 +156,7 @@ fn command_page_round_trips_each_kind_with_its_identity() {
         assert_eq!(page.command_id, Some(command_id(kind)), "{kind:?}");
         assert_eq!(page.correlation_id, Some(uuid(0xc0)), "{kind:?}");
         // causation_id only on reactions, fact_origin only on facts.
-        assert_eq!(page.causation_id.is_some(), matches!(kind, Kind::Reaction));
+        assert_eq!(page.causation_id.is_some(), matches!(kind, Kind::Policy));
         assert_eq!(page.fact_origin.is_some(), matches!(kind, Kind::Fact));
     }
 }
@@ -195,10 +195,7 @@ fn page_identity_fields_have_their_numbers() {
         out
     };
     assert_eq!(tags(&command_page(Kind::Client)), [0x1a, 0x42, 0x4a]);
-    assert_eq!(
-        tags(&command_page(Kind::Reaction)),
-        [0x1a, 0x42, 0x4a, 0x52]
-    );
+    assert_eq!(tags(&command_page(Kind::Policy)), [0x1a, 0x42, 0x4a, 0x52]);
     assert_eq!(tags(&command_page(Kind::Fact)), [0x22, 0x42, 0x4a, 0x5a]);
 }
 
@@ -217,7 +214,7 @@ fn event_meta_records_the_command_as_causation_not_its_trigger() {
         assert!(meta.recorded_at.is_some());
     }
     // The reaction page does carry a trigger; its event meta does not.
-    assert!(command_page(Kind::Reaction).causation_id.is_some());
+    assert!(command_page(Kind::Policy).causation_id.is_some());
 }
 
 #[test]
@@ -455,7 +452,7 @@ fn event_refs_nest_a_cover_with_its_edition() {
     assert_eq!(decoded.sequence, u64::MAX);
 
     // Nested deeper: command page -> causation_id -> cover.
-    let page = round_trip(&book(Kind::Reaction, None)).page.unwrap();
+    let page = round_trip(&book(Kind::Policy, None)).page.unwrap();
     let causation = page.causation_id.unwrap();
     assert_eq!(
         causation.stream.unwrap().edition.as_deref(),
@@ -661,12 +658,12 @@ fn dead_letter_names_its_component_kind_and_takes_the_cover_from_its_payload() {
             rejected.clone(),
         )),
         source_component: "list-to-draw".into(),
-        source_component_kind: ComponentKind::Saga as i32,
+        source_component_kind: ComponentKind::Policy as i32,
         ..AngzarrDeadLetter::default()
     };
     let decoded = round_trip(&original);
     assert_eq!(decoded, original);
-    assert_eq!(decoded.source_component_kind(), ComponentKind::Saga);
+    assert_eq!(decoded.source_component_kind(), ComponentKind::Policy);
     match decoded.payload {
         Some(angzarr_dead_letter::Payload::RejectedCommand(b)) => {
             assert_eq!(b.cover, rejected.cover)
@@ -703,7 +700,7 @@ fn type_names_are_io_angzarr_v1() {
         "sererr.v1.CapturedError"
     );
 
-    let p = page(Kind::Reaction);
+    let p = page(Kind::Policy);
     let packed = prost_types::Any::from_msg(&p).expect("pack");
     assert_eq!(packed.type_url, "/io.angzarr.v1.EventPage");
     assert_eq!(packed.to_msg::<EventPage>().expect("unpack"), p);
@@ -743,10 +740,10 @@ fn a_process_manager_descriptor_lists_its_starting_facts() {
 
 #[test]
 fn the_standard_refusal_fact_carries_the_refused_command_its_typed_refusal_and_trigger() {
-    // Decision 14.31: the saga builds CommandRefused { command, refusal (the
+    // Decision 14.31: the policy builds CommandRefused { command, refusal (the
     // foreign domain's typed refusal object, packed), trigger } and nothing
     // else; its id is the refused command's id.
-    let refused = book(Kind::Reaction, None);
+    let refused = book(Kind::Policy, None);
     let typed = any(
         "/io.angzarr.examples.v1.InsufficientFunds",
         &[8, 100, 16, 200, 3],
@@ -763,7 +760,7 @@ fn the_standard_refusal_fact_carries_the_refused_command_its_typed_refusal_and_t
         decoded.command.unwrap().page.unwrap().command_id,
         refused.page.unwrap().command_id
     );
-    // The refused saga receives the same typed object in RefusalResponse.
+    // The refused policy receives the same typed object in RefusalResponse.
     let response = RefusalResponse {
         refusal: Some(typed),
         message: "insufficient funds".into(),

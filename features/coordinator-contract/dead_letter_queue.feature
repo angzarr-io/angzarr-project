@@ -5,13 +5,13 @@ Feature: Dead letter queue routing
   either the rejected command (rejected_command) or the events that failed
   (rejected_events), a human-readable rejection_reason, exactly one
   rejection_details variant, occurred_at, and the producing component's
-  name and type ("aggregate" | "saga" | "projector" | "process_manager").
+  name and type ("aggregate" | "policy" | "projector" | "process_manager").
   The cover's correlation_id is the failed message's correlation_id.
 
   Sources of dead letters:
   - queued commands whose own expected sequence is stale (sequence_mismatch
     details)
-  - saga / PM / projector handler failures once retries are exhausted
+  - policy / PM / projector handler failures once retries are exhausted
     (event_processing_failed details)
   - claim-check payloads that cannot be retrieved
     (payload_retrieval_failed details)
@@ -33,15 +33,15 @@ Feature: Dead letter queue routing
     And the dead letter has occurred_at set
 
   @C-0444
-  Scenario: A saga that keeps failing is dead-lettered with the events it could not process
-    Given a saga "OrderFulfillment" subscribed to "order" whose handler fails with "inventory service down"
-    And the saga's retry budget is 3 attempts
-    When an OrderCreated event for "order-1" is delivered to the saga
-    Then the saga handler is attempted 3 times
+  Scenario: A policy that keeps failing is dead-lettered with the events it could not process
+    Given a policy "OrderFulfillment" subscribed to "order" whose handler fails with "inventory service down"
+    And the policy's retry budget is 3 attempts
+    When an OrderCreated event for "order-1" is delivered to the policy
+    Then the policy handler is attempted 3 times
     And a dead letter is published to "angzarr.dlq.order"
     And the dead letter carries the OrderCreated event as rejected_events
     And the dead letter's event_processing_failed details have error "inventory service down" and retry_count 3
-    And the dead letter's source_component is "OrderFulfillment" with source_component_type "saga"
+    And the dead letter's source_component is "OrderFulfillment" with source_component_type "policy"
 
   @C-0445
   Scenario: A projector that keeps failing is dead-lettered
@@ -53,22 +53,22 @@ Feature: Dead letter queue routing
 
   @C-0446
   Scenario: A non-transient handler failure is dead-lettered without retries
-    Given a saga "OrderFulfillment" subscribed to "order" whose handler fails permanently with "unknown event version"
-    When an OrderCreated event for "order-1" is delivered to the saga
-    Then the saga handler is attempted once
+    Given a policy "OrderFulfillment" subscribed to "order" whose handler fails permanently with "unknown event version"
+    When an OrderCreated event for "order-1" is delivered to the policy
+    Then the policy handler is attempted once
     And the dead letter's event_processing_failed details have is_transient false and retry_count 0
 
   @C-0447
   Scenario: An unretrievable claim-check payload is dead-lettered
     Given an OrderCreated event for "order-1" whose payload is a PayloadReference to "s3://payloads/abc.bin"
     And the payload store cannot return "s3://payloads/abc.bin"
-    When the event is delivered to the saga "OrderFulfillment"
+    When the event is delivered to the policy "OrderFulfillment"
     Then a dead letter is published to "angzarr.dlq.order"
     And the dead letter's payload_retrieval_failed details have storage_type S3 and uri "s3://payloads/abc.bin"
 
   @C-0448
   Scenario: A compensation handler can send the rejected command to the dead letter queue
-    Given a saga "OrderFulfillment" whose ReserveStock command for "inventory" is rejected with reason "out of stock"
+    Given a policy "OrderFulfillment" whose ReserveStock command for "inventory" is rejected with reason "out of stock"
     And the order aggregate's compensation handler answers with a RevocationResponse requesting send_to_dead_letter_queue
     When the rejection is delivered to the "order" aggregate
     Then a dead letter is published to "angzarr.dlq.inventory"
@@ -77,6 +77,6 @@ Feature: Dead letter queue routing
 
   @C-0449
   Scenario: A dead letter is not published when processing succeeds
-    Given a saga "OrderFulfillment" subscribed to "order" whose handler succeeds
-    When an OrderCreated event for "order-1" is delivered to the saga
+    Given a policy "OrderFulfillment" subscribed to "order" whose handler succeeds
+    When an OrderCreated event for "order-1" is delivered to the policy
     Then no dead letter is published

@@ -3,7 +3,7 @@ Feature: Process manager delivery - a process manager is a domain, behind its ow
   behind its own coordinator, exactly as an aggregate is (decision 14.31).
   Its inputs are commands, which it may refuse, and facts, which it never
   refuses; its root is the instance's correlation. It subscribes to no
-  domain: sagas turn other domains' events into commands to it. It records
+  domain: policies turn other domains' events into commands to it. It records
   only its own events and sends no commands. The correlation ids below are
   UUIDs, as in every scenario (decision 14.18).
 
@@ -11,7 +11,7 @@ Feature: Process manager delivery - a process manager is a domain, behind its ow
   @C-0578
   Scenario: Two process managers told of one event each get their own delivery and state
     Given process managers "Fulfillment" and "Billing", each behind its own coordinator
-    And a saga from "order" to "Fulfillment"'s domain and a saga from "order" to "Billing"'s domain, each turning OrderPlaced into a command
+    And a policy from "order" to "Fulfillment"'s domain and a policy from "order" to "Billing"'s domain, each turning OrderPlaced into a command
     And "Fulfillment" has state "awaiting stock" and "Billing" has state "awaiting payment" for the order's correlation
     When an OrderPlaced event is recorded for order "order-1"
     Then "Fulfillment"'s coordinator delivers its command to "Fulfillment" with its state "awaiting stock"
@@ -111,41 +111,41 @@ Feature: Process manager delivery - a process manager is a domain, behind its ow
     And the client is answered OK with delivery PARKED and no events
 
   # ===========================================================================
-  # Sagas in and out
+  # Policies in and out
   # ===========================================================================
 
-  @process_manager @pm_saga_in
+  @process_manager @pm_policy_in
   @C-0600
-  Scenario: Another domain's event reaches a process manager only through a saga
+  Scenario: Another domain's event reaches a process manager only through a policy
     Given a process manager "Fulfillment" owning domain "fulfillment" whose StartFulfillment command is a starting input
-    And no saga translates from "order" to "fulfillment"
+    And no policy translates from "order" to "fulfillment"
     When an OrderPlaced event with correlation "0192a6b0-0000-7000-8000-000000000018" is recorded for order "order-1"
     Then "Fulfillment" is not called
 
-  @process_manager @pm_saga_in
+  @process_manager @pm_policy_in
   @C-0601
-  Scenario: A saga's command reaches the instance its trigger's correlation names
+  Scenario: A policy's command reaches the instance its trigger's correlation names
     Given a process manager "Fulfillment" owning domain "fulfillment" whose StartFulfillment command is a starting input
-    And a saga "OrderToFulfillment" translating from "order" to "fulfillment" that builds StartFulfillment from OrderPlaced
+    And a policy "OrderToFulfillment" translating from "order" to "fulfillment" that builds StartFulfillment from OrderPlaced
     When an OrderPlaced event with correlation "0192a6b0-0000-7000-8000-000000000019" is recorded for order "order-1"
     Then "Fulfillment" handles StartFulfillment on stream "fulfillment" root "0192a6b0-0000-7000-8000-000000000019"
     And the events record the command's derived command_id as their causation
 
   @process_manager @pm_dedup
   @C-0602
-  Scenario: A saga re-run sends the same command id, which the process manager answers DUPLICATE
+  Scenario: A policy re-run sends the same command id, which the process manager answers DUPLICATE
     Given a process manager "Fulfillment" owning domain "fulfillment" whose StartFulfillment command is a starting input
-    And a saga "OrderToFulfillment" translating from "order" to "fulfillment" that builds StartFulfillment from OrderPlaced
-    And "Fulfillment" has applied the saga's command for the OrderPlaced event at sequence 0 of order "order-1"
-    When the saga is run again over that OrderPlaced event
-    Then the saga's command carries the same command_id as before
+    And a policy "OrderToFulfillment" translating from "order" to "fulfillment" that builds StartFulfillment from OrderPlaced
+    And "Fulfillment" has applied the policy's command for the OrderPlaced event at sequence 0 of order "order-1"
+    When the policy is run again over that OrderPlaced event
+    Then the policy's command carries the same command_id as before
     And "Fulfillment" is not called
 
   @process_manager @pm_output
   @C-0603
-  Scenario: A process manager's decision reaches another domain through a saga
+  Scenario: A process manager's decision reaches another domain through a policy
     Given a process manager "Fulfillment" owning domain "fulfillment" that records ShipmentRequested on StartFulfillment
-    And a saga "FulfillmentToShipping" translating from "fulfillment" to "shipping" that builds a CreateShipment command from ShipmentRequested
+    And a policy "FulfillmentToShipping" translating from "fulfillment" to "shipping" that builds a CreateShipment command from ShipmentRequested
     When a StartFulfillment command with correlation "0192a6b0-0000-7000-8000-00000000001a" is sent to "fulfillment" root "0192a6b0-0000-7000-8000-00000000001a"
     Then "Fulfillment" sends no command
     And "FulfillmentToShipping" delivers CreateShipment to "shipping" with correlation "0192a6b0-0000-7000-8000-00000000001a"

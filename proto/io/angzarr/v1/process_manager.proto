@@ -18,8 +18,8 @@ option ruby_package = "Angzarr";
 // request and response messages are deleted, unreserved (policy 6.6). What
 // sets a PM apart from an aggregate is written here, and nothing else.
 //
-// WARNING: Only use when saga + queries is insufficient. Consider:
-// - Can a simple saga + destination queries solve this?
+// WARNING: Only use when policy + queries is insufficient. Consider:
+// - Can a simple policy + destination queries solve this?
 // - Is the "state" you want to track already derivable from existing aggregates?
 // - Are you adding Process Manager because the workflow is genuinely complex?
 //
@@ -28,21 +28,21 @@ option ruby_package = "Angzarr";
 // - You need to query workflow status independently ("show all pending fulfillments")
 // - Timeout/scheduling logic is complex enough to merit its own aggregate
 // - The workflow gathers what happened in SEVERAL domains (each reaches
-//   the PM as commands, through a saga from that domain)
+//   the PM as commands, through a policy from that domain)
 // - You must track the replies to the steps you start (see below)
 //
 // Inputs. Like any domain, a PM takes:
 //   - COMMANDS, which it may refuse (a business rejection, recording
-//     nothing). Most come from sagas: a PM subscribes to no domain and has
-//     no triggers, so the saga for (another domain, the PM's domain) turns
+//     nothing). Most come from policies: a PM subscribes to no domain and has
+//     no triggers, so the policy for (another domain, the PM's domain) turns
 //     that domain's events into commands to the PM. A client may also
 //     command it (an operator's cancel, say).
 //   - FACTS, which it never refuses: timeouts, webhooks, other external
-//     inputs, and the refusal facts that the sagas whose source is the
-//     PM's domain deliver when their commands are refused (SagaService in
-//     saga.proto, Refusals): the standard CommandRefused, handled by a
+//     inputs, and the refusal facts that the policies whose source is the
+//     PM's domain deliver when their commands are refused (PolicyService in
+//     policy.proto, Refusals): the standard CommandRefused, handled by a
 //     generated on_refused_<Command> (inferred from its handlers), or a
-//     domestic fact a saga translates the refusal into.
+//     domestic fact a policy translates the refusal into.
 // Its (command) entries name both (options.proto); the handler
 // registration says which is a command and which a fact, as for an
 // aggregate.
@@ -50,12 +50,12 @@ option ruby_package = "Angzarr";
 // Outputs. A PM's only output is its own events, on its own stream (ruling
 // P1): it sends NO commands and no facts. To act on another domain it
 // records an event carrying the data that domain's command needs, and the
-// saga for (the PM's domain, that domain) builds the command. Its events
+// policy for (the PM's domain, that domain) builds the command. Its events
 // are ordinary stored events, published like an aggregate's.
 //
 // Stream. A PM instance's stream is (the PM's domain, an edition, the
 // instance's correlation_id): domain is the one the PM owns
-// (ComponentOptions.domain), the edition is the input's cover's (a saga's
+// (ComponentOptions.domain), the edition is the input's cover's (a policy's
 // command carries its trigger's edition; see Cover.edition), and the root
 // IS the instance's correlation_id, unchanged (decision 14.30, as amended
 // by 14.31). There is no derivation (no hash, no UUIDv5) and no text
@@ -64,8 +64,8 @@ option ruby_package = "Angzarr";
 // names the instance in its cover (domain = the PM's, root = the
 // instance's correlation_id), and its correlation_id must agree: one that
 // is unset is given its cover's root, and one that is set and differs from
-// its cover's root is malformed (INVALID_ARGUMENT to a client; a saga's
-// command is dead-lettered and alerted as a saga bug). A saga addressing a
+// its cover's root is malformed (INVALID_ARGUMENT to a client; a policy's
+// command is dead-lettered and alerted as a policy bug). A policy addressing a
 // PM therefore names the instance its trigger's correlation names. This
 // is the one pipeline rule a PM's coordinator adds to an aggregate's.
 //
@@ -83,7 +83,7 @@ option ruby_package = "Angzarr";
 //   - a COMMAND is refused (owner's ruling; decision 14.31):
 //     FAILED_PRECONDITION, with a google.rpc.ErrorInfo of reason
 //     PM_NO_INSTANCE, recording nothing, as any business rejection. A
-//     saga's refused command then yields its refusal fact to the saga's
+//     policy's refused command then yields its refusal fact to the policy's
 //     source, which decides what an unstarted process means for it. The
 //     alternative, a silent skip answered APPLIED with no events, would
 //     tell the sender a command took effect that did not.
@@ -92,14 +92,14 @@ option ruby_package = "Angzarr";
 // first: inputs from different domains arrive in no guaranteed order.
 //
 // Replies and refusals. A PM tracks the replies to the steps it starts:
-// its event carries the instance's correlation_id, so the saga's command
+// its event carries the instance's correlation_id, so the policy's command
 // built from it carries that correlation, so the target's events carry it
-// too, and the saga from the target's domain to the PM's domain turns the
+// too, and the policy from the target's domain to the PM's domain turns the
 // replies the PM needs into commands to the instance that correlation
-// names. A target that REFUSES the saga's command records nothing; the
-// saga delivers a refusal fact to the PM (the saga's source domain), and
+// names. A target that REFUSES the policy's command records nothing; the
+// policy delivers a refusal fact to the PM (the policy's source domain), and
 // the PM's fact handler decides the next step
-// (decision 2.2, as amended by 14.31; SagaService in saga.proto,
+// (decision 2.2, as amended by 14.31; PolicyService in policy.proto,
 // Refusals). There is no compensation or notification channel.
 //
 // Handlers. A PM's handlers follow the aggregate's: a command handler may
@@ -121,5 +121,5 @@ option ruby_package = "Angzarr";
 // No outbox needed. A PM's whole output is its own events, appended to its
 // own stream like any domain's, and it consumes no stream, so it has no
 // checkpoint. The outbox is one capability for any component whose output
-// leaves its own stream (see SagaResponse in saga.proto, Transient
+// leaves its own stream (see PolicyResponse in policy.proto, Transient
 // outbox); a PM would use that same outbox if it ever emitted such output.

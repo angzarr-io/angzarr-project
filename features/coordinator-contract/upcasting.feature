@@ -7,7 +7,7 @@ Feature: Upcasting - readers only ever see current event shapes
   publishing carries only newly appended events, already in the current
   shape, so old shapes reach subscribers through stored history. It does so by asking its own
   business process, whose component's upcasters know the old shapes.
-  Sagas, process managers and projectors reading another component's
+  Policies, process managers and projectors reading another component's
   stream never see an old shape and have no upcasters of their own.
 
   Background:

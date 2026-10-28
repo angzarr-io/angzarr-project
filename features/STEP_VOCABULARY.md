@@ -11,13 +11,13 @@ and a **bad** example. When a reviewer cites a rule, they cite the number.
 
 ## 1. Entities are quoted proper nouns
 
-Name aggregates, sagas, domains, tables, players as quoted strings.
+Name aggregates, policies, domains, tables, players as quoted strings.
 
 **Rationale:** easy to grep; consistent parameterization; avoids collisions
 between step words and identifiers.
 
-- Good: `player "Alice"`, `table "Main"`, `saga "OrderFulfillment"`
-- Bad: `player Alice`, `the Main table`, `saga OrderFulfillment`
+- Good: `player "Alice"`, `table "Main"`, `policy "OrderFulfillment"`
+- Bad: `player Alice`, `the Main table`, `policy OrderFulfillment`
 
 ## 2. Types are unquoted, in the code's native casing
 
@@ -58,8 +58,8 @@ Keep the style consistent within one feature file.
 - `has` — observable state reflects this
 - `triggers` — cross-domain chain occurred (acceptance)
 
-- Good: `Then the saga emits a RecordRoundResult command`, `Then Alice has stack 495`
-- Bad: `Then Alice emits stack 495`, `Then the saga has a RecordRoundResult`
+- Good: `Then the policy emits a RecordRoundResult command`, `Then Alice has stack 495`
+- Bad: `Then Alice emits stack 495`, `Then the policy has a RecordRoundResult`
 
 ## 7. Tables use `|` with a key column first
 
@@ -90,8 +90,8 @@ scenarios in main without a tracking issue.
 
 ## 11. Scenario titles are present-tense behavior claims
 
-- Good: `Saga produces a command for the target domain`
-- Bad: `Producing a command for the target domain` / `Test saga output`
+- Good: `Policy produces a command for the target domain`
+- Bad: `Producing a command for the target domain` / `Test policy output`
 
 ## 12. Domain vocabulary is tier-bound
 

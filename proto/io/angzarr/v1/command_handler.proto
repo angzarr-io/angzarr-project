@@ -52,11 +52,11 @@ service CommandHandlerService {
   // (options.proto), which the client library packs into the status
   // details as a google.protobuf.Any; the generated handler returns its
   // events or one of those refusals (decision 14.31). The
-  // coordinator passes the status on unchanged, and a saga whose command
+  // coordinator passes the status on unchanged, and a policy whose command
   // was refused receives it as RefusalResponse (types.proto). There is no
-  // compensation input: when a saga's command is refused, the saga delivers
+  // compensation input: when a policy's command is refused, the policy delivers
   // a refusal fact to its own source domain, which decides how to respond
-  // (decision 14.31; SagaService in saga.proto, Refusals).
+  // (decision 14.31; PolicyService in policy.proto, Refusals).
   //
   // Business output is payloads, plus the post-command state, and nothing
   // else. The returned EventBook carries pages with only a payload set, and
@@ -120,8 +120,8 @@ message CommandHandlerResponse {
 //
 // Impact ordering (lowest to highest): ASYNC < DECISION < SIMPLE.
 //
-// No mode waits for reactions. Sagas always run asynchronously, after the
-// command's events are persisted; the commands sagas emit (to aggregates
+// No mode waits for reactions. Policies always run asynchronously, after the
+// command's events are persisted; the commands policies emit (to aggregates
 // and process managers alike), and their refusal facts, are separate
 // commands with their own outcomes (a process manager reacts to nothing
 // directly and emits no commands; decision 14.31). Every mode
@@ -158,7 +158,7 @@ message CommandHandlerResponse {
 // expected_sequence that is ABORTED is dead-lettered with
 // SequenceMismatchDetails, since resending it verbatim cannot succeed.
 //
-// Reaction commands and refusal facts (saga output) are delivered by
+// Reaction commands and refusal facts (policy output) are delivered by
 // framework components through these same RPCs; the delivering component's
 // configuration chooses the mode, never the message.
 //
@@ -239,16 +239,16 @@ service CommandHandlerCoordinatorService {
 // Framework components and clients use the SAME RPCs. What differs is what
 // a caller may send, decided by who the caller is, never by the message.
 //
-// A framework component (a saga coordinator delivering reaction
+// A framework component (a policy coordinator delivering reaction
 // commands and refusal facts, the outbox dispatcher, the DLQ replayer, a
 // coordinator delivering triggers) authenticates with its mTLS identity,
 // issued to framework components only. Only such a caller may send:
 //   - CommandPage.causation_id (with the derived command_id of a reaction
 //     command, or the refused command's id on a refusal fact; the
 //     receiving coordinator trusts them from this caller);
-//   - a caller-supplied trigger EventBook to SagaCoordinatorService.Execute
+//   - a caller-supplied trigger EventBook to PolicyCoordinatorService.Execute
 //     (whose stamping copies the trigger's correlation and EventRef onto
-//     the saga's commands and refusal facts).
+//     the policy's commands and refusal facts).
 // Any other caller is a client. A client that sends a causation_id is
 // refused PERMISSION_DENIED, as is a client call to a trigger entry point:
 // the request is well formed, but the caller is not allowed to make it

@@ -16,7 +16,7 @@
 //!   cause, so `find_command` is the fact lookup too
 //!   (`find_command_finds_a_retried_facts_events_by_its_id`). A refusal
 //!   fact (14.31) takes the REFUSED command's `command_id` as its id and
-//!   lands on the exact stream of the saga's trigger
+//!   lands on the exact stream of the policy's trigger
 //!   (`find_command_finds_a_refusal_fact_on_the_trigger_stream_by_the_refused_id`).
 //!   A process manager is a domain: it keeps no reactor position.
 //! - **RULED(5) Snapshots** are a separate `SnapshotStore`, last written
@@ -52,7 +52,7 @@
 //! - **RULED(D2) Deletion is an event that exists in its domains:** per
 //!   stream, `EditionDeleted` is RECORDED like any event
 //!   (`an_edition_deletion_is_recorded_like_any_event`), PROPAGATED onward
-//!   through the saga flows, and only then is the stream REMOVED
+//!   through the policy flows, and only then is the stream REMOVED
 //!   (`a_deleted_stream_is_removed_only_after_its_deletion_has_propagated`,
 //!   `a_deleted_stream_is_removed_with_every_row_of_it`,
 //!   `a_deletion_is_recorded_and_removed_stream_by_stream`, which also pins

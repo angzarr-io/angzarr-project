@@ -12,7 +12,7 @@ Feature: Translations between wallet and table
   - there is one translator per direction: everything the table asks of
     the wallet goes through the table-to-wallet translator
 
-  The table-to-wallet translator (saga-table-player) turns a settled round
+  The table-to-wallet translator (policy-table-player) turns a settled round
   into, for each seat, a round result and loyalty points (one point per
   chip wagered).
 

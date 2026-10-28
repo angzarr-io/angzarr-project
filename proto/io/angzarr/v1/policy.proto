@@ -11,53 +11,53 @@ option java_multiple_files = true;
 option java_package = "io.angzarr";
 option ruby_package = "Angzarr";
 
-// SagaService: stateless translation from source events to commands.
+// PolicyService: stateless translation from source events to commands.
 //
-// A saga translates between exactly two domains: events of its one source
+// A policy translates between exactly two domains: events of its one source
 // domain (input_domain) into commands for its one destination domain
-// (output_domain). One saga per (source domain, destination domain) pair:
+// (output_domain). One policy per (source domain, destination domain) pair:
 // every reaction from one domain's events to another domain's commands is
-// part of that pair's single saga, and anything needing several
+// part of that pair's single policy, and anything needing several
 // destinations is a process manager (see ComponentOptions in
 // options.proto).
 //
 // The destination may be an aggregate's domain or a process manager's: a
-// process manager is a domain (decision 14.31), so a saga's commands reach
-// it like any other domain's. Sagas are how other domains' events reach a
+// process manager is a domain (decision 14.31), so a policy's commands reach
+// it like any other domain's. Policies are how other domains' events reach a
 // process manager (a PM subscribes to nothing), and how a PM's decisions
 // reach other domains (a PM sends no commands: it records events carrying
-// the data each command needs, and the saga for (the PM's domain, the
+// the data each command needs, and the policy for (the PM's domain, the
 // target domain) builds the commands from those events).
 //
-// Every command a saga's business code emits is a Command (never a Fact).
+// Every command a policy's business code emits is a Command (never a Fact).
 // Its coordinator stamps CommandPage.causation_id (the event being reacted
 // to), the derived command_id and the trigger's correlation_id
 // (types.proto, the command_identity region). It carries no Handling (see
 // Handling): the destination always stamps its head before business code,
 // conflict resolution never applies, and delivery mode (which coordinator
-// RPC delivers it) comes from the saga's configuration.
+// RPC delivers it) comes from the policy's configuration.
 //
 // Refusals (decision 2.2, as amended by 14.31; plan ruling 7, "REFUSAL
 // WIRING", and the owner's rulings of 2026-10-28). A target, an aggregate
-// or a process manager alike, refuses a saga's command the way it refuses
+// or a process manager alike, refuses a policy's command the way it refuses
 // any command: a business rejection (FAILED_PRECONDITION) carrying a
 // message and, optionally, a business-specific TYPED refusal object of its
 // own domain (one of the command's CommandOptions.refuses types,
 // options.proto; e.g. InsufficientFunds { available, requested }), and
-// it records NOTHING. The refusal then comes back to the SAGA, which
+// it records NOTHING. The refusal then comes back to the POLICY, which
 // builds the one unrefusable fact of it for its OWN source: the exact
 // stream of its triggering event. In the owner's words: "the base
-// CommandRefused fact is created by the saga. It will have an Any type to
+// CommandRefused fact is created by the policy. It will have an Any type to
 // pack the foreign refusal object into. The
 // foreign refusal object is business-specific code. The refusal object is
-// passed back to the saga by the command-refused return type."
-//   - The saga's coordinator calls SagaService.OnRefused with a Refusal
+// passed back to the policy by the command-refused return type."
+//   - The policy's coordinator calls PolicyService.OnRefused with a Refusal
 //     { event, command, response }: the triggering event, the command as
 //     sent, and the target's RefusalResponse { refusal, message }, whose
 //     refusal is the typed refusal object as an Any (types.proto).
-//     It does so in BOTH modes, because the saga, not the coordinator,
+//     It does so in BOTH modes, because the policy, not the coordinator,
 //     builds the fact.
-//   - PASS-THROUGH (the default): the saga's generated code, with no user
+//   - PASS-THROUGH (the default): the policy's generated code, with no user
 //     code, answers the standard CommandRefused { command, refusal (the
 //     typed refusal object, still packed), trigger (the triggering
 //     event's EventRef) } (types.proto, the refusal_facts region), and
@@ -68,25 +68,25 @@ option ruby_package = "Angzarr";
 //     where its author writes the reaction and unpacks the typed refusal
 //     object; it is an ordinary, infallible fact handler, and the source
 //     imports the foreign command's and refusal object's protos.
-//   - TRANSLATE: the saga's own callback,
+//   - TRANSLATE: the policy's own callback,
 //       on_refused_<Command>(Refusal { event, command, response })
 //         -> <a fact type of the source domain>,
 //     reads the typed refusal object and returns a DOMESTIC fact, so the
-//     source never refers to the foreign protos (the saga already does).
+//     source never refers to the foreign protos (the policy already does).
 //     This is WHY translate exists: CommandRefused carries only the
 //     foreign object, so a domain that does not want to unpack it, or
-//     import the foreign protos, has the saga unpack it there and hand
+//     import the foreign protos, has the policy unpack it there and hand
 //     over a domestic fact. Refusal is one struct, so a field can be
-//     added later without breaking saga code; no context object rides
+//     added later without breaking policy code; no context object rides
 //     with the command (considered and deferred, decision 14.31).
-//   - The mode is chosen per saga or per saga command by angzarr-cli's
+//   - The mode is chosen per policy or per policy command by angzarr-cli's
 //     refusal switch, at code generation, and nowhere else (no proto
 //     option); pass-through is the CLI's default, and selecting translate
 //     makes the callback required, so a missing one fails generation (or
 //     the build). Nothing about the mode is decided or visible at run
 //     time beyond which fact type arrives (options.proto, the refusals
 //     region).
-//   - Nothing declares which commands a saga sends, or which refusals a
+//   - Nothing declares which commands a policy sends, or which refusals a
 //     domain handles: the source's on_refused_<Command> dispatch is
 //     inferred from the handlers it defines. So the generator cannot check
 //     that every refusal has a path; one with none (a pass-through
@@ -103,10 +103,10 @@ option ruby_package = "Angzarr";
 //     and edition). One id
 //     therefore appears in two streams by design: never applied in the
 //     foreign (target) stream, which recorded nothing, and recorded as the
-//     refusal fact in the domestic (source) stream. The saga leaves these
+//     refusal fact in the domestic (source) stream. The policy leaves these
 //     unset, its cover included; a fact for any other stream than the
 //     trigger's (domain, root or edition), or one that sets Handling, is a
-//     saga bug, and every coordinator refuses such a fact.
+//     policy bug, and every coordinator refuses such a fact.
 //   - Distributed: the coordinator calls OnRefused when the outbox relay
 //     receives the refusal, and writes the fact as a new outbox entry in
 //     the same transaction that clears the command's entry. A crash before
@@ -120,67 +120,67 @@ option ruby_package = "Angzarr";
 //     bug, dead-lettered and alerted.
 //   - Owner's rulings (decision 14.31): a refusal with no path is
 //     dead-lettered for a human and alerted; a translating callback that
-//     FAILS (an error status, or a malformed fact) is a saga bug,
+//     FAILS (an error status, or a malformed fact) is a policy bug,
 //     dead-lettered and alerted; a fact whose handler fails at the source
 //     is dead-lettered and alerted there.
-//   - This is the one exception to "a saga never delivers a fact": a
-//     saga's business code emits Commands only, and the one fact each
+//   - This is the one exception to "a policy never delivers a fact": a
+//     policy's business code emits Commands only, and the one fact each
 //     refusal yields goes only to its own source domain.
-service SagaService {
+service PolicyService {
   // Translate source events into commands for the destination domain (an
   // aggregate's or a process manager's).
-  rpc Handle(EventBook) returns (SagaResponse);
+  rpc Handle(EventBook) returns (PolicyResponse);
 
-  // One refusal of the saga's command (Refusals, above): answer the fact
-  // for the saga's own source domain. Called by the saga's coordinator
+  // One refusal of the policy's command (Refusals, above): answer the fact
+  // for the policy's own source domain. Called by the policy's coordinator
   // only, for every business rejection of one of its commands, in both
-  // modes: the saga's generated code builds the pass-through
+  // modes: the policy's generated code builds the pass-through
   // CommandRefused, packing the typed refusal object, or calls the user's
-  // translating callback. Needed in both modes because the saga, not the
+  // translating callback. Needed in both modes because the policy, not the
   // coordinator, builds the fact (the owner's ruling). An error status,
-  // or a fact the coordinator refuses as malformed, is a saga bug
+  // or a fact the coordinator refuses as malformed, is a policy bug
   // (dead-lettered and alerted).
   rpc OnRefused(Refusal) returns (OnRefusedResponse);
 }
 
-// SagaCoordinatorService: orchestrates saga execution.
+// PolicyCoordinatorService: orchestrates policy execution.
 // Stamps each emitted command's identity: causation_id (the triggering
-// event's EventRef), command_id (UUIDv5 of the trigger, the saga's
+// event's EventRef), command_id (UUIDv5 of the trigger, the policy's
 // registered name and the command's index in the output; derived_ids
 // region) and correlation_id (the trigger's). Records them in the
-// transient outbox (see SagaResponse), delivers them through the
+// transient outbox (see PolicyResponse), delivers them through the
 // destination's coordinator (CommandHandlerCoordinatorService) as a
 // framework component, and retries retryable failures. On a business
-// rejection it calls SagaService.OnRefused and delivers the refusal fact
-// it answers, through the outbox, to the saga's own source domain
-// (SagaService, Refusals).
-service SagaCoordinatorService {
-  // Execute saga: translate source events → commands, deliver to targets.
-  // The request is the source EventBook; the saga's configuration, not the
+// rejection it calls PolicyService.OnRefused and delivers the refusal fact
+// it answers, through the outbox, to the policy's own source domain
+// (PolicyService, Refusals).
+service PolicyCoordinatorService {
+  // Execute policy: translate source events → commands, deliver to targets.
+  // The request is the source EventBook; the policy's configuration, not the
   // request, sets how its commands are delivered. A trigger entry point:
   // callers authenticated as framework components only; a client is
   // refused PERMISSION_DENIED (see the entry_points region of
   // command_handler.proto).
-  rpc Execute(EventBook) returns (SagaResponse) {
+  rpc Execute(EventBook) returns (PolicyResponse) {
     option (google.api.http) = {
-      post: "/v1/saga/execute"
+      post: "/v1/policy/execute"
       body: "*"
     };
   }
 }
 
-// Sagas are pure translators: source events → commands. The request is the
+// Policies are pure translators: source events → commands. The request is the
 // source EventBook and carries no destination state or sequences.
 
-// Response from saga - commands for other aggregates.
+// Response from policy - commands for other aggregates.
 //
-// Transient outbox. A saga's commands, and its refusal facts, go through
+// Transient outbox. A policy's commands, and its refusal facts, go through
 // the transient outbox
-// (decision 5.6, as amended by 14.31). The outbox is not a saga mechanism:
+// (decision 5.6, as amended by 14.31). The outbox is not a policy mechanism:
 // it is ONE transactional outbox, a capability that names no component
 // kind. Any component whose output leaves its own stream (output that is
 // not an append to a stream the component owns) uses it, under the same
-// rules. Today the saga is the only such kind, so it is the only user; a
+// rules. Today the policy is the only such kind, so it is the only user; a
 // process manager needs none today, because its only output is its own
 // events (a PM is a domain; see process_manager.proto). A kind that later
 // emits output leaving its stream uses this outbox, with no new design.
@@ -194,39 +194,39 @@ service SagaCoordinatorService {
 // determinism requirement: one run's output is recorded once and re-sent
 // as recorded. A
 // refusal fact is put into the outbox, as a new entry, in the same
-// transaction that clears its refused command's entry (SagaService,
+// transaction that clears its refused command's entry (PolicyService,
 // Refusals), and dispatched and retried the same way.
-message SagaResponse {
+message PolicyResponse {
   // Commands for the one destination domain (an aggregate's or a process
   // manager's), each carrying NO Handling: handling is left unset (or
   // empty). A command that sets any Handling field (expected_sequence or
-  // conflict_resolution) is a saga bug, refused loudly: dead-lettered and
+  // conflict_resolution) is a policy bug, refused loudly: dead-lettered and
   // alerted, never delivered, never silently stripped (see Handling).
   // command_id, causation_id and correlation_id are likewise left unset for
   // the coordinator to stamp; a value that differs from the stamp is
-  // refused the same way, as is a Fact or a fact_origin (a saga's business
+  // refused the same way, as is a Fact or a fact_origin (a policy's business
   // code never emits a Fact; its refusal facts come from OnRefused;
-  // SagaService, Refusals). A command for a process manager names the
+  // PolicyService, Refusals). A command for a process manager names the
   // instance its trigger's correlation names (cover root = the
   // trigger's correlation_id; types.proto, the command_identity region);
   // any other root is refused the same way. A command whose cover names a
-  // domain other than the saga's one destination
-  // (ComponentOptions.output_domain) is a saga bug refused by the client
-  // library before it answers: SagaService.Handle fails INTERNAL with no
+  // domain other than the policy's one destination
+  // (ComponentOptions.output_domain) is a policy bug refused by the client
+  // library before it answers: PolicyService.Handle fails INTERNAL with no
   // commands, and the coordinator dead-letters the trigger and alerts, as
   // for any terminal failure of a reaction. Delivery mode comes from the
-  // saga's configuration, never from the command.
+  // policy's configuration, never from the command.
   repeated CommandBook commands = 1;
 }
 
-// The input to SagaService.OnRefused, and the one argument of a
-// translating callback (SagaService, Refusals): the three things a
-// stateless saga needs. One struct, so a field (a context object, say;
+// The input to PolicyService.OnRefused, and the one argument of a
+// translating callback (PolicyService, Refusals): the three things a
+// stateless policy needs. One struct, so a field (a context object, say;
 // considered and deferred by decision 14.31) can be added later without
-// breaking saga code.
+// breaking policy code.
 message Refusal {
   // The triggering event: a book of the source stream holding the one
-  // event the saga reacted to (the refused command's causation_id).
+  // event the policy reacted to (the refused command's causation_id).
   EventBook event = 1;
   // The refused command, as it was delivered (identity stamped).
   CommandBook command = 2;
@@ -235,11 +235,11 @@ message Refusal {
   RefusalResponse response = 3;
 }
 
-// OnRefused's answer: the refusal fact for the saga's own source domain.
+// OnRefused's answer: the refusal fact for the policy's own source domain.
 message OnRefusedResponse {
   // A CommandBook whose page body is a Fact (a CommandRefused in
   // pass-through mode, the domestic fact in translate mode): payloads
   // only, its cover left empty; the coordinator addresses it to the
-  // trigger's stream and stamps its identity (SagaService, Refusals).
+  // trigger's stream and stamps its identity (PolicyService, Refusals).
   CommandBook fact = 1;
 }

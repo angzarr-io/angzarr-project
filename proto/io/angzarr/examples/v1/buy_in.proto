@@ -20,43 +20,43 @@ option ruby_package = "Angzarr::Examples";
 //
 // State is keyed by the correlation id: the PM's root is the correlation id
 // itself, unchanged (process_manager.proto, Stream). A process manager is
-// a domain (decision 14.31): it takes commands, which sagas from the table
-// and the wallet send it, and facts (the refusal facts its own sagas
+// a domain (decision 14.31): it takes commands, which policies from the table
+// and the wallet send it, and facts (the refusal facts its own policies
 // deliver); it sends no commands. Each step it decides
-// is a PM event carrying the data the next command needs, and a saga from
+// is a PM event carrying the data the next command needs, and a policy from
 // "buy-in" builds that command. Flow:
 //
-//   source event          saga -> command to the PM                  phase change                      PM event        saga -> command
-//   table  SeatHeld       saga-table-buy-in  -> StartBuyIn           (new) -> AWAITING_HOLD            BuyInStarted    saga-buy-in-player -> player HoldFunds
-//   player FundsHeld      saga-player-buy-in -> RecordFundsHeld      AWAITING_HOLD -> AWAITING_SEAT    BuyInFundsHeld  saga-buy-in-table  -> table  ConfirmSeat
-//   table  PlayerSeated   saga-table-buy-in  -> RecordPlayerSeated   AWAITING_SEAT -> AWAITING_CAPTURE BuyInSeated     saga-buy-in-player -> player CaptureFunds
-//   player FundsCaptured  saga-player-buy-in -> RecordFundsCaptured  AWAITING_CAPTURE -> COMPLETED     BuyInCompleted  —
+//   source event          policy -> command to the PM                  phase change                      PM event        policy -> command
+//   table  SeatHeld       policy-table-buy-in  -> StartBuyIn           (new) -> AWAITING_HOLD            BuyInStarted    policy-buy-in-player -> player HoldFunds
+//   player FundsHeld      policy-player-buy-in -> RecordFundsHeld      AWAITING_HOLD -> AWAITING_SEAT    BuyInFundsHeld  policy-buy-in-table  -> table  ConfirmSeat
+//   table  PlayerSeated   policy-table-buy-in  -> RecordPlayerSeated   AWAITING_SEAT -> AWAITING_CAPTURE BuyInSeated     policy-buy-in-player -> player CaptureFunds
+//   player FundsCaptured  policy-player-buy-in -> RecordFundsCaptured  AWAITING_CAPTURE -> COMPLETED     BuyInCompleted  —
 //
 // StartBuyIn is the PM's one starting input (its (command) entry sets
 // starts; ruling B1, adapted, decision 14.31): it alone starts an instance
 // for a correlation the PM has not seen. Any other command for a
 // correlation with no buy-in instance is refused by the PM's coordinator
-// before the handler (PM_NO_INSTANCE). saga-table-buy-in and
-// saga-player-buy-in pass such a refusal through to the table or the
+// before the handler (PM_NO_INSTANCE). policy-table-buy-in and
+// policy-player-buy-in pass such a refusal through to the table or the
 // wallet, which define no on_refused handler for these commands, so it is
 // dead-lettered and alerted, for a human, at run time (decision 14.31).
 //
 // Two refusals, end to end, one in each mode (decision 2.2, as amended by
-// 14.31; SagaService in saga.proto, Refusals). The mode is angzarr-cli's
+// 14.31; PolicyService in policy.proto, Refusals). The mode is angzarr-cli's
 // choice at code generation: pass-through is its default, and this
-// example's build config selects translate for saga-buy-in-table's
+// example's build config selects translate for policy-buy-in-table's
 // ConfirmSeat. No proto declares it.
 //
 // PASS-THROUGH: the wallet cannot fund the buy-in.
-//   1. BuyInStarted -> saga-buy-in-player sends HoldFunds to the wallet;
+//   1. BuyInStarted -> policy-buy-in-player sends HoldFunds to the wallet;
 //   2. the wallet refuses it (FAILED_PRECONDITION,
 //      INSUFFICIENT_AVAILABLE_FUNDS) with its typed refusal object
 //      InsufficientFunds{available, requested} (HoldFunds' refuses,
 //      player.proto), and records NOTHING;
-//   3. saga-buy-in-player's coordinator calls OnRefused with Refusal{event
+//   3. policy-buy-in-player's coordinator calls OnRefused with Refusal{event
 //      = BuyInStarted, command = the HoldFunds sent, response =
 //      RefusalResponse{refusal = InsufficientFunds as an Any, message}};
-//      the saga's generated code, with no user code, answers the standard
+//      the policy's generated code, with no user code, answers the standard
 //      CommandRefused{command = the HoldFunds, refusal = the packed
 //      InsufficientFunds, trigger = BuyInStarted's EventRef}, and nothing
 //      else. The coordinator addresses it to the exact stream of
@@ -70,18 +70,18 @@ option ruby_package = "Angzarr::Examples";
 //      unpacks InsufficientFunds and records BuyInFailed{reason,
 //      available, requested}, phase AWAITING_HOLD -> FAILED. (Had the
 //      buy-in not wanted the player's protos, the build would select
-//      translate for HoldFunds, and the saga would unpack InsufficientFunds
+//      translate for HoldFunds, and the policy would unpack InsufficientFunds
 //      and hand over a buy-in fact: the reason translate exists);
-//   5. BuyInFailed -> saga-buy-in-table sends ReleaseSeat to the table,
+//   5. BuyInFailed -> policy-buy-in-table sends ReleaseSeat to the table,
 //      which records SeatReleased.
 //
 // TRANSLATE: the table cannot confirm the seat (the hold is gone, or the
 // player took another seat meanwhile).
-//   1. BuyInFundsHeld -> saga-buy-in-table sends ConfirmSeat to the table;
+//   1. BuyInFundsHeld -> policy-buy-in-table sends ConfirmSeat to the table;
 //   2. the table refuses it (FAILED_PRECONDITION) with its typed refusal
 //      object SeatNotConfirmable{reason} (ConfirmSeat's refuses,
 //      table.proto), and records NOTHING;
-//   3. translate is selected for ConfirmSeat, so saga-buy-in-table's
+//   3. translate is selected for ConfirmSeat, so policy-buy-in-table's
 //      callback on_refused_ConfirmSeat(Refusal{event = BuyInFundsHeld,
 //      command = the ConfirmSeat sent, response}) reads
 //      SeatNotConfirmable and returns SeatConfirmationRefused{buy_in_id,
@@ -90,7 +90,7 @@ option ruby_package = "Angzarr::Examples";
 //      ConfirmSeat's command_id);
 //   4. the PM's SeatConfirmationRefused fact handler records
 //      BuyInSeatLost{reason}, phase AWAITING_SEAT -> FAILED;
-//   5. BuyInSeatLost -> saga-buy-in-player sends ReleaseHold to the
+//   5. BuyInSeatLost -> policy-buy-in-player sends ReleaseHold to the
 //      wallet, which records HoldReleased.
 //
 // In both, the refused command's id is the refusal fact's id: never
@@ -116,7 +116,7 @@ option ruby_package = "Angzarr::Examples";
 // FundsCaptured(B, X).
 
 // -----------------------------------------------------------------------------
-// The PM's commands: what the table and the wallet report, as the sagas
+// The PM's commands: what the table and the wallet report, as the policies
 // into "buy-in" build them. Each is addressed to the buy-in instance its
 // source event's correlation names (cover root = that correlation).
 // -----------------------------------------------------------------------------
@@ -160,7 +160,7 @@ message RecordFundsCaptured {
 }
 
 // The table refused ConfirmSeat: the DOMESTIC fact that
-// saga-buy-in-table's translating callback returns from the table's
+// policy-buy-in-table's translating callback returns from the table's
 // SeatNotConfirmable (TRANSLATE mode, selected by the build config;
 // decision 14.31). A fact of the PM's own domain, so its handler is
 // infallible, and the buy-in domain needs no table proto for it.
@@ -174,14 +174,14 @@ message SeatConfirmationRefused {
 // The PM's events
 // -----------------------------------------------------------------------------
 
-// Starts a buy-in. saga-buy-in-player sends HoldFunds{hold_id = buy_in_id,
+// Starts a buy-in. policy-buy-in-player sends HoldFunds{hold_id = buy_in_id,
 // table_root, amount} to player_root.
 message BuyInStarted {
   option (io.angzarr.v1.event) = {
     component: "io.angzarr.examples.v1.BuyInState"
   };
   option (io.angzarr.v1.event) = {
-    component: "io.angzarr.examples.v1.BuyInPlayerSaga"
+    component: "io.angzarr.examples.v1.BuyInPlayerPolicy"
     domain: "buy-in"
   };
   bytes buy_in_id = 1;
@@ -191,33 +191,33 @@ message BuyInStarted {
   int64 amount = 5;
 }
 
-// The wallet holds the funds. saga-buy-in-table sends
+// The wallet holds the funds. policy-buy-in-table sends
 // ConfirmSeat{buy_in_id} to table_root.
 message BuyInFundsHeld {
   option (io.angzarr.v1.event) = {
     component: "io.angzarr.examples.v1.BuyInState"
   };
   option (io.angzarr.v1.event) = {
-    component: "io.angzarr.examples.v1.BuyInTableSaga"
+    component: "io.angzarr.examples.v1.BuyInTablePolicy"
     domain: "buy-in"
   };
   bytes buy_in_id = 1;
-  bytes table_root = 2; // The saga's target root (a saga never looks one up)
+  bytes table_root = 2; // The policy's target root (a policy never looks one up)
 }
 
-// The player is seated. saga-buy-in-player sends
+// The player is seated. policy-buy-in-player sends
 // CaptureFunds{hold_id = buy_in_id} to player_root.
 message BuyInSeated {
   option (io.angzarr.v1.event) = {
     component: "io.angzarr.examples.v1.BuyInState"
   };
   option (io.angzarr.v1.event) = {
-    component: "io.angzarr.examples.v1.BuyInPlayerSaga"
+    component: "io.angzarr.examples.v1.BuyInPlayerPolicy"
     domain: "buy-in"
   };
   bytes buy_in_id = 1;
   int64 stack = 2;
-  bytes player_root = 3; // The saga's target root (a saga never looks one up)
+  bytes player_root = 3; // The policy's target root (a policy never looks one up)
 }
 
 message BuyInCompleted {
@@ -229,7 +229,7 @@ message BuyInCompleted {
 
 // The buy-in failed: the wallet refused HoldFunds (the pass-through
 // CommandRefused, handled by on_refused_HoldFunds, which unpacks the
-// wallet's InsufficientFunds). saga-buy-in-table
+// wallet's InsufficientFunds). policy-buy-in-table
 // sends ReleaseSeat{buy_in_id, reason} to table_root, freeing the held
 // seat.
 message BuyInFailed {
@@ -237,18 +237,18 @@ message BuyInFailed {
     component: "io.angzarr.examples.v1.BuyInState"
   };
   option (io.angzarr.v1.event) = {
-    component: "io.angzarr.examples.v1.BuyInTableSaga"
+    component: "io.angzarr.examples.v1.BuyInTablePolicy"
     domain: "buy-in"
   };
   bytes buy_in_id = 1;
-  bytes table_root = 2; // The saga's target root (a saga never looks one up)
+  bytes table_root = 2; // The policy's target root (a policy never looks one up)
   string reason = 3; // The refusal's reason, e.g. INSUFFICIENT_AVAILABLE_FUNDS
   int64 available = 4; // From the wallet's InsufficientFunds
   int64 requested = 5; // From the wallet's InsufficientFunds
 }
 
 // The buy-in failed: the table refused ConfirmSeat (the translated
-// SeatConfirmationRefused). saga-buy-in-player sends
+// SeatConfirmationRefused). policy-buy-in-player sends
 // ReleaseHold{hold_id = buy_in_id, reason} to player_root, freeing the
 // held funds.
 message BuyInSeatLost {
@@ -256,22 +256,22 @@ message BuyInSeatLost {
     component: "io.angzarr.examples.v1.BuyInState"
   };
   option (io.angzarr.v1.event) = {
-    component: "io.angzarr.examples.v1.BuyInPlayerSaga"
+    component: "io.angzarr.examples.v1.BuyInPlayerPolicy"
     domain: "buy-in"
   };
   bytes buy_in_id = 1;
-  bytes player_root = 2; // The saga's target root (a saga never looks one up)
+  bytes player_root = 2; // The policy's target root (a policy never looks one up)
   string reason = 3; // The refusal's reason, e.g. SEAT_HOLD_NOT_FOUND
 }
 
 // The BuyInProcessManager. Owns the "buy-in" stream and subscribes to
-// nothing: its inputs are the four commands above, from saga-table-buy-in
-// and saga-player-buy-in, the standard CommandRefused for HoldFunds
-// (pass-through, from saga-buy-in-player; handled by its
+// nothing: its inputs are the four commands above, from policy-table-buy-in
+// and policy-player-buy-in, the standard CommandRefused for HoldFunds
+// (pass-through, from policy-buy-in-player; handled by its
 // on_refused_HoldFunds) and SeatConfirmationRefused (translated, from
-// saga-buy-in-table). It
-// sends no commands; its events feed saga-buy-in-player and
-// saga-buy-in-table.
+// policy-buy-in-table). It
+// sends no commands; its events feed policy-buy-in-player and
+// policy-buy-in-table.
 message BuyInState {
   option (io.angzarr.v1.component) = {
     kind: COMPONENT_KIND_PROCESS_MANAGER
@@ -296,18 +296,18 @@ message BuyInState {
 }
 
 // =============================================================================
-// saga-buy-in-player, saga-buy-in-table — the buy-in's commands
+// policy-buy-in-player, policy-buy-in-table — the buy-in's commands
 // =============================================================================
 //
-// The two sagas from "buy-in", one per destination domain (one saga per
+// The two policies from "buy-in", one per destination domain (one policy per
 // (source domain, destination domain) pair). Each takes its target root from
 // a field of the PM event (never from a lookup) and emits reaction commands:
 //   - no Handling; the destination stamps its own head and deduplicates on
-//     the command id derived from the PM event, the saga's registered name
+//     the command id derived from the PM event, the policy's registered name
 //     and the command's index;
 //   - delivered in DECISION mode (the coordinator's Handle), chosen by the
-//     saga's configuration;
-//   - correlation_id left empty; the saga's coordinator stamps the PM
+//     policy's configuration;
+//   - correlation_id left empty; the policy's coordinator stamps the PM
 //     event's correlation (the buy-in's), so the targets' replies reach the
 //     PM under it;
 //   - a refusal of one of them comes back to the buy-in as one fact:
@@ -316,33 +316,33 @@ message BuyInState {
 //     build config); the refusal flows above;
 //   - type URLs come from generated code only.
 
-// saga-buy-in-player: BuyInStarted -> HoldFunds; BuyInSeated ->
+// policy-buy-in-player: BuyInStarted -> HoldFunds; BuyInSeated ->
 // CaptureFunds; BuyInSeatLost -> ReleaseHold.
-message BuyInPlayerSaga {
+message BuyInPlayerPolicy {
   option (io.angzarr.v1.component) = {
-    kind: COMPONENT_KIND_SAGA
+    kind: COMPONENT_KIND_POLICY
     input_domain: "buy-in"
     output_domain: "player"
   };
 }
 
-// saga-buy-in-table: BuyInFundsHeld -> ConfirmSeat; BuyInFailed ->
+// policy-buy-in-table: BuyInFundsHeld -> ConfirmSeat; BuyInFailed ->
 // ReleaseSeat.
-message BuyInTableSaga {
+message BuyInTablePolicy {
   option (io.angzarr.v1.component) = {
-    kind: COMPONENT_KIND_SAGA
+    kind: COMPONENT_KIND_POLICY
     input_domain: "buy-in"
     output_domain: "table"
   };
 }
 
 // =============================================================================
-// saga-table-buy-in, saga-player-buy-in — the buy-in is told, by command
+// policy-table-buy-in, policy-player-buy-in — the buy-in is told, by command
 // =============================================================================
 //
-// One saga per (source domain, destination domain) pair, so one from each
+// One policy per (source domain, destination domain) pair, so one from each
 // of "table" and "player" into "buy-in". The PM is a domain, so these are
-// ordinary sagas emitting reaction commands (decision 14.31): each command
+// ordinary policies emitting reaction commands (decision 14.31): each command
 // is addressed to the buy-in instance its source event's correlation names
 // (cover domain "buy-in", root = that correlation), with no Handling, and
 // deduplicated by its derived command id. The PM refuses none of their
@@ -350,21 +350,21 @@ message BuyInTableSaga {
 // pass-through refusal has no handler at the table or the wallet, so it is
 // dead-lettered for a human.
 
-// saga-table-buy-in: SeatHeld -> StartBuyIn; PlayerSeated ->
+// policy-table-buy-in: SeatHeld -> StartBuyIn; PlayerSeated ->
 // RecordPlayerSeated.
-message TableBuyInSaga {
+message TableBuyInPolicy {
   option (io.angzarr.v1.component) = {
-    kind: COMPONENT_KIND_SAGA
+    kind: COMPONENT_KIND_POLICY
     input_domain: "table"
     output_domain: "buy-in"
   };
 }
 
-// saga-player-buy-in: FundsHeld -> RecordFundsHeld; FundsCaptured ->
+// policy-player-buy-in: FundsHeld -> RecordFundsHeld; FundsCaptured ->
 // RecordFundsCaptured.
-message PlayerBuyInSaga {
+message PlayerBuyInPolicy {
   option (io.angzarr.v1.component) = {
-    kind: COMPONENT_KIND_SAGA
+    kind: COMPONENT_KIND_POLICY
     input_domain: "player"
     output_domain: "buy-in"
   };

@@ -17,7 +17,7 @@ Feature: Conflict resolution - how the coordinator treats a stale command
   COMMUTATIVE where supported and STRICT otherwise.
 
   A command without an expected sequence is decided against the head, so it
-  is never stale. Reaction commands (from sagas; a process manager sends
+  is never stale. Reaction commands (from policies; a process manager sends
   none, decision 14.31) never carry an expected sequence or a resolution.
 
   Background:
@@ -168,7 +168,7 @@ Feature: Conflict resolution - how the coordinator treats a stale command
   @reaction
   @C-0458
   Scenario: A reaction command is decided against the head
-    Given a saga-emitted AddItem command with no expected sequence and no conflict resolution
+    Given a policy-emitted AddItem command with no expected sequence and no conflict resolution
     When the coordinator processes the command
     Then the command succeeds
     And an ItemAdded event is persisted at sequence 3
@@ -176,7 +176,7 @@ Feature: Conflict resolution - how the coordinator treats a stale command
   @reaction
   @C-0552
   Scenario: A reaction command that names an expected sequence is a reactor bug
-    Given a saga-emitted AddItem command targeting sequence 1
+    Given a policy-emitted AddItem command targeting sequence 1
     When the coordinator processes the command
     Then the command is not delivered to business code
     And the command is dead-lettered and an alert is raised
@@ -185,7 +185,7 @@ Feature: Conflict resolution - how the coordinator treats a stale command
   @reaction
   @C-0459
   Scenario: A reaction command is guarded only by the destination's own decision
-    Given a saga-emitted AddItem command with no expected sequence and no conflict resolution
+    Given a policy-emitted AddItem command with no expected sequence and no conflict resolution
     And business code rejects the command with reason "order is closed"
     When the coordinator processes the command
     Then the command fails with the business rejection reason "order is closed"
@@ -194,7 +194,7 @@ Feature: Conflict resolution - how the coordinator treats a stale command
   @reaction
   @C-0460
   Scenario: A redelivered reaction command is applied once
-    Given a saga-emitted AddItem command
+    Given a policy-emitted AddItem command
     When the coordinator processes the command
     And the coordinator processes the same command again
     Then exactly one ItemAdded event is persisted

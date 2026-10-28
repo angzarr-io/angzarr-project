@@ -4,7 +4,7 @@
 //! examples documented in the proto.
 
 use angzarr_proto::ids::{
-    compute_root, fact_command_id, fact_correlation, reaction_command_id, UuidError,
+    compute_root, fact_command_id, fact_correlation, policy_command_id, UuidError,
     COMMAND_NAMESPACE, FACT_CORRELATION_NAMESPACE, ROOT_NAMESPACE,
 };
 use angzarr_proto::uuid::Uuid as RustUuid;
@@ -150,10 +150,10 @@ fn trigger(edition: Option<&str>) -> EventRef {
 }
 
 #[test]
-fn reaction_command_id_matches_the_documented_worked_examples() {
+fn policy_command_id_matches_the_documented_worked_examples() {
     // Expected values computed independently with Python's uuid.uuid5 over
     // the netstring names (types.proto, derived_ids region).
-    let id = reaction_command_id(&trigger(None), "reminders", 0).unwrap();
+    let id = policy_command_id(&trigger(None), "reminders", 0).unwrap();
     assert_eq!(id.to_string(), "45764676-e6e4-56fe-8c80-d782423577ee");
     assert_eq!(id.value[6] >> 4, 5);
     assert_eq!(id.value[8] >> 6, 0b10);
@@ -178,7 +178,7 @@ fn reaction_command_id_matches_the_documented_worked_examples() {
         (None, "a,b:c", 0, "27ccb6bf-e37e-54bd-b0f0-9eac56ff5f93"),
     ] {
         assert_eq!(
-            reaction_command_id(&trigger(edition), component, index)
+            policy_command_id(&trigger(edition), component, index)
                 .unwrap()
                 .to_string(),
             expected,
@@ -190,7 +190,7 @@ fn reaction_command_id_matches_the_documented_worked_examples() {
     let mut wide = trigger(None);
     wide.sequence = u64::MAX;
     assert_eq!(
-        reaction_command_id(&wide, "reminders", u32::MAX)
+        policy_command_id(&wide, "reminders", u32::MAX)
             .unwrap()
             .to_string(),
         "2803d9f5-d632-58a2-9c28-539bff683295"
@@ -198,39 +198,39 @@ fn reaction_command_id_matches_the_documented_worked_examples() {
 }
 
 #[test]
-fn reaction_command_id_separates_every_input() {
-    let base = reaction_command_id(&trigger(None), "reminders", 0).unwrap();
+fn policy_command_id_separates_every_input() {
+    let base = policy_command_id(&trigger(None), "reminders", 0).unwrap();
     let mut later = trigger(None);
     later.sequence = 8;
     let mut other_domain = trigger(None);
     other_domain.stream.as_mut().unwrap().domain = "lists".into();
     for other in [
-        reaction_command_id(&later, "reminders", 0),
-        reaction_command_id(&other_domain, "reminders", 0),
-        reaction_command_id(&trigger(Some("x")), "reminders", 0),
-        reaction_command_id(&trigger(None), "reminder", 0),
-        reaction_command_id(&trigger(None), "reminders", 1),
+        policy_command_id(&later, "reminders", 0),
+        policy_command_id(&other_domain, "reminders", 0),
+        policy_command_id(&trigger(Some("x")), "reminders", 0),
+        policy_command_id(&trigger(None), "reminder", 0),
+        policy_command_id(&trigger(None), "reminders", 1),
     ] {
         assert_ne!(other.unwrap(), base);
     }
     // Deterministic, and never the fact id or root of the same text.
     assert_eq!(
-        reaction_command_id(&trigger(None), "reminders", 0).unwrap(),
+        policy_command_id(&trigger(None), "reminders", 0).unwrap(),
         base
     );
     assert_ne!(base, fact_command_id("reminders"));
 }
 
 #[test]
-fn reaction_command_id_refuses_malformed_triggers() {
+fn policy_command_id_refuses_malformed_triggers() {
     assert_eq!(
-        reaction_command_id(&EventRef::default(), "reminders", 0),
+        policy_command_id(&EventRef::default(), "reminders", 0),
         Err(UuidError::MissingTrigger)
     );
     let mut rootless = trigger(None);
     rootless.stream.as_mut().unwrap().root = None;
     assert_eq!(
-        reaction_command_id(&rootless, "reminders", 0),
+        policy_command_id(&rootless, "reminders", 0),
         Err(UuidError::MissingTrigger)
     );
     let mut short = trigger(None);
@@ -238,15 +238,15 @@ fn reaction_command_id_refuses_malformed_triggers() {
         value: vec![1; 15].into(),
     });
     assert_eq!(
-        reaction_command_id(&short, "reminders", 0),
+        policy_command_id(&short, "reminders", 0),
         Err(UuidError::Length(15))
     );
     assert_eq!(
-        reaction_command_id(&trigger(Some("")), "reminders", 0),
+        policy_command_id(&trigger(Some("")), "reminders", 0),
         Err(UuidError::EmptyEdition)
     );
     assert_eq!(
-        reaction_command_id(&trigger(None), "", 0),
+        policy_command_id(&trigger(None), "", 0),
         Err(UuidError::EmptyComponent)
     );
 }

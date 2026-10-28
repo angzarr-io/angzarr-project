@@ -149,7 +149,7 @@ async fn core_reads_are_served_through_dyn() {
     assert_eq!(all.list_streams().await, Ok(vec![s.to_cover()]));
 }
 
-/// Core's saga coordinator writes its step's outbox entries through the
+/// Core's policy coordinator writes its step's outbox entries through the
 /// dyn store's write, and its relay drains them through
 /// `Arc<dyn DynOutbox>`.
 #[tokio::test]
@@ -159,12 +159,12 @@ async fn the_outbox_is_written_and_drained_through_dyn() {
     let relay: Arc<dyn DynOutbox> = Arc::new(store);
     let positions = [(
         PositionKey {
-            handler: "saga",
+            handler: "policy",
             stream: main_stream("order", 1),
         },
         1,
     )];
-    let entries = [entry(1, "saga", 1)];
+    let entries = [entry(1, "policy", 1)];
     DynEventStore::write(
         &*writer,
         Write {
@@ -175,6 +175,6 @@ async fn the_outbox_is_written_and_drained_through_dyn() {
     )
     .await
     .unwrap();
-    assert_eq!(relay.pending(10).await, Ok(vec![entry(1, "saga", 1)]));
+    assert_eq!(relay.pending(10).await, Ok(vec![entry(1, "policy", 1)]));
     assert_eq!(relay.clear(&[command(1)]).await, Ok(1));
 }

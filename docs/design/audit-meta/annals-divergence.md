@@ -104,7 +104,7 @@ behaves differently under the two runtimes. This is accepted.
   split across units) applies equally; see
   [the developer guide](../../guide/state-and-conflicts.md).
 - **The same command ids**: a client-supplied id or a minted UUIDv7; reaction
-  ids from `angzarr_proto::ids::reaction_command_id`; fact ids from
+  ids from `angzarr_proto::ids::policy_command_id`; fact ids from
   `angzarr_proto::ids::fact_command_id`. Correlation, when absent, is the
   command id (a fact's derived one included).
 - Stream identity is (domain, edition, root), and main is the unset edition

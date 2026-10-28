@@ -19,7 +19,7 @@ Feature: Buying in
   moves on.
 
   A refusal reaches the buy-in as a fact: the side that refuses records
-  nothing, and the buy-in hears of it from the saga that asked (decision
+  nothing, and the buy-in hears of it from the policy that asked (decision
   14.31). Two failures are specified: the wallet cannot fund the buy-in,
   so the buy-in fails and the held seat is released; and the table cannot
   confirm the seat, so the buy-in fails and the held money is released.

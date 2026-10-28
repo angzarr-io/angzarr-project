@@ -84,7 +84,7 @@ message UUID {
 //     = cfe936c0-2912-5ca9-96e6-f37c0b441759
 //
 // Reaction command ids (see the command_identity region). The command a
-// saga emits as the index-th command (0-based, in emission order) of its
+// policy emits as the index-th command (0-based, in emission order) of its
 // reaction to the trigger event T has (a process manager emits no
 // commands; decision 14.31)
 //   command_id = UUIDv5(ANGZARR_COMMAND_NAMESPACE, name)
@@ -121,7 +121,7 @@ message UUID {
 //
 // Refusal facts take no derivation (decision 14.31): a refusal fact's
 // command_id IS the refused command's command_id, which is already a
-// reaction command id derived above (SagaService in saga.proto, Refusals;
+// reaction command id derived above (PolicyService in policy.proto, Refusals;
 // the command_identity region).
 //
 // Three namespaces, not one: "{domain}:{key}" is also a valid external_id,
@@ -193,12 +193,12 @@ message Cover {
   //     later events never reach it.
   //   - Creating X forks an origin stream (EditionAdminService.ForkStream,
   //     meta.proto).
-  //   - The fork TRAVELS WITH THE DATA (the owner's ruling): when a saga's
+  //   - The fork TRAVELS WITH THE DATA (the owner's ruling): when a policy's
   //     command in X reaches a stream with no fork in X, that arrival is
   //     the propagation; the coordinator forks the stream then, and handles
   //     the command (meta.EditionCreated, Propagation). Streams X's activity
   //     never touches are never forked.
-  //   - A command or fact from outside (not a saga's) addressed in X to a
+  //   - A command or fact from outside (not a policy's) addressed in X to a
   //     stream with no fork in X is REFUSED until propagation forks it:
   //     FAILED_PRECONDITION, google.rpc.ErrorInfo reason EDITION_NOT_FORKED
   //     (the owner's ruling). Fork it with ForkStream to address it
@@ -215,14 +215,14 @@ message Cover {
   //     (NOT_FOUND), never silently given storage: a misspelt edition
   //     cannot write anywhere.
   //   - Deleting X is an event too (meta.EditionDeleted): recorded in each
-  //     stream it reaches, propagated onward through the saga flows, and
+  //     stream it reaches, propagated onward through the policy flows, and
   //     only then are that stream's rows of X removed, the event included.
   //   - Main knows nothing of an edition: its lifecycle lives only in the
   //     edition's streams and store (the editions region).
   //
   // What-if execution. A what-if is a command run in an edition: send an
   // ordinary CommandBook whose cover names the edition. There is no
-  // separate speculative RPC. Reactions (sagas) stay in the edition of the
+  // separate speculative RPC. Reactions (policies) stay in the edition of the
   // event they react to, and so do the commands and refusal facts they
   // send.
   //
@@ -474,7 +474,7 @@ message EventRef {
 // addressed to a process manager's stream is the exception to all of
 // these: its correlation is its cover's root (the PM instance's
 // correlation; decision 14.30), set when absent, and a set correlation_id
-// that differs from the root is malformed (a saga addressing a PM
+// that differs from the root is malformed (a policy addressing a PM
 // therefore names the instance its trigger's correlation names). A
 // process manager's events carry their command's or fact's correlation,
 // like any domain's.
@@ -486,13 +486,13 @@ message EventRef {
 // EventStreamFilter select by it.
 //
 // causation_id: the command message's own causation, as the standard
-// defines it: the EventRef of the event a saga reacted to, always the
+// defines it: the EventRef of the event a policy reacted to, always the
 // triggering event (a process manager emits nothing but its own events,
-// so it stamps no causation_id; decision 14.31). Set by a saga's
+// so it stamps no causation_id; decision 14.31). Set by a policy's
 // coordinator only: on reaction commands, where it is the input the
 // reaction command_id is derived from, and on refusal facts, where it is
 // the refused command's own causation_id, so it names the very stream the
-// fact is addressed to (SagaService in saga.proto, Refusals).
+// fact is addressed to (PolicyService in policy.proto, Refusals).
 // It is transport and trace metadata, NOT persisted on the events the
 // command produces: their causation is the command itself
 // (EventMeta.causation.command_id). The coordinators record the trigger
@@ -513,7 +513,7 @@ message EventRef {
 //             refusal fact (decision 14.31), the only Fact with a
 //             causation_id: it is accepted only by the exact stream
 //             causation_id names, domain, root and edition alike (the
-//             stream of the saga's triggering event); its command_id is
+//             stream of the policy's triggering event); its command_id is
 //             the refused command's, not a derivation, and its
 //             fact_origin.external_id is that command_id's canonical
 //             text. The same id is thus in two
@@ -641,11 +641,11 @@ message FactOrigin {
 // endregion
 
 // region refusal_facts
-// The standard refusal fact (decision 14.31; SagaService in saga.proto,
-// Refusals). The SAGA builds it: in PASS-THROUGH mode, the default chosen
-// by angzarr-cli, the saga's generated code answers it from
-// SagaService.OnRefused when the saga's command is refused, addressed to
-// the exact stream of the saga's triggering event (domain, root and
+// The standard refusal fact (decision 14.31; PolicyService in policy.proto,
+// Refusals). The POLICY builds it: in PASS-THROUGH mode, the default chosen
+// by angzarr-cli, the policy's generated code answers it from
+// PolicyService.OnRefused when the policy's command is refused, addressed to
+// the exact stream of the policy's triggering event (domain, root and
 // edition). The source domain handles it by a generated dispatch on the
 // refused command's type, on_refused_<Command>(refusal, state) -> events,
 // inferred from the handlers it defines; with none for that type it
@@ -657,10 +657,10 @@ message FactOrigin {
 // It carries the refused command, the foreign domain's TYPED refusal
 // object (packed), and the trigger, and nothing else: no reason code or
 // message. A source that handles it unpacks the foreign object, so it
-// imports the foreign domain's protos. That is the REASON the saga's
+// imports the foreign domain's protos. That is the REASON the policy's
 // translate mode exists: a domain that does not want to unpack a foreign
 // object, or import foreign protos, has angzarr-cli select translate for
-// that command, and the saga unpacks the object there and hands over a
+// that command, and the policy unpacks the object there and hands over a
 // domestic fact instead.
 message CommandRefused {
   // The refused command, as it was delivered (identity stamped): its
@@ -673,13 +673,13 @@ message CommandRefused {
   // business-specific, unpacked by the source's handler. Unset when the
   // target refused without one.
   google.protobuf.Any refusal = 2;
-  // The saga's triggering event (the refused command's causation_id),
+  // The policy's triggering event (the refused command's causation_id),
   // which is also the stream this fact is addressed to.
   EventRef trigger = 3;
 }
 
-// A target's refusal of a command, as the refused saga receives it
-// (Refusal.response in saga.proto), built by the saga's coordinator from
+// A target's refusal of a command, as the refused policy receives it
+// (Refusal.response in policy.proto), built by the policy's coordinator from
 // the business rejection (FAILED_PRECONDITION) the target answered.
 message RefusalResponse {
   // The typed refusal object the handler returned: one of the command's
@@ -689,7 +689,7 @@ message RefusalResponse {
   google.protobuf.Any refusal = 1;
   // The rejection's status message. Kept because the transport always
   // carries one (a gRPC status has a message even when no refusal object
-  // is returned), and the saga's translating callback and the dead letter
+  // is returned), and the policy's translating callback and the dead letter
   // of an unhandled refusal may need it. It is never forwarded into
   // CommandRefused: a domestic domain that wants it, or anything else not
   // in the typed object, gets it through translate mode. (The ErrorInfo
@@ -942,7 +942,7 @@ message Projection {
 //   - a command or Fact addressed to a process manager whose set
 //     correlation_id differs from its cover's root (process_manager.proto);
 //   - a Fact with causation_id addressed to any stream but the one its
-//     causation_id names (domain, root and edition: a saga's refusal fact
+//     causation_id names (domain, root and edition: a policy's refusal fact
 //     goes only to the stream of its triggering event);
 //   - a Fact without fact_origin, or with an empty external_id, or with a
 //     command_id other than its derivation (a refusal fact excepted: its
@@ -958,7 +958,7 @@ message Projection {
 // caller to answer, so it is dead-lettered as a reactor bug (and alerted),
 // never delivered.
 //
-// Reaction commands (emitted by sagas; a process manager emits none) carry
+// Reaction commands (emitted by policies; a process manager emits none) carry
 // NO Handling at all: expected_sequence and conflict_resolution are both
 // forbidden. A reactor never knows the destination's state, so the
 // destination always stamps expected_sequence, and with a stamped sequence
@@ -1021,13 +1021,13 @@ message Handling {
 //
 // The arm says what kind of payload this is; fact_origin says where a fact
 // came from. They must agree: a Fact requires fact_origin, and a Command
-// never has one. A saga's business code never injects a fact: it emits
+// never has one. A policy's business code never injects a fact: it emits
 // Commands with a causation_id, and one that emits a Fact is refused
-// (dead-lettered and alerted). The one fact a saga delivers is the
+// (dead-lettered and alerted). The one fact a policy delivers is the
 // refusal fact of a refused command (the standard CommandRefused, or a
 // domestic fact its callback translates the refusal into), and only to
-// the saga's own source domain (decision 14.31, amending 2.2;
-// SagaService in saga.proto, Refusals).
+// the policy's own source domain (decision 14.31, amending 2.2;
+// PolicyService in policy.proto, Refusals).
 message CommandPage {
   oneof body {
     Command command = 3; // Asks the aggregate to decide; may be rejected
@@ -1041,7 +1041,7 @@ message CommandPage {
   // The workflow correlation; set by the coordinator when absent. Copied
   // onto every event (EventMeta.correlation_id).
   UUID correlation_id = 9;
-  // A saga's output only (reaction commands, and refusal facts): the
+  // A policy's output only (reaction commands, and refusal facts): the
   // command's own causation, its triggering event. Framework-authenticated
   // callers only. The reaction command_id is derived from it, and a refusal
   // fact must be addressed to the exact stream it names (domain, root and
@@ -1274,7 +1274,7 @@ message Query {
 // edition, root) holding that stream's pages with this correlation, in
 // sequence order. The order of books is unspecified.
 //
-// Forward causation, from the result alone. Every reaction (a saga's
+// Forward causation, from the result alone. Every reaction (a policy's
 // commands, their events, a process manager's events, and refusal facts
 // and their events) carries its trigger's correlation (see the
 // command_identity region), so everything event E led to is in the result.
@@ -1282,17 +1282,17 @@ message Query {
 // 13.3):
 //   - Events of a refusal fact are linked EXACTLY: their
 //     causation.command_id is the refused command's id, derived from E,
-//     the saga and the command's index (derived_ids region; decision
+//     the policy and the command's index (derived_ids region; decision
 //     14.31).
 //   - Events of reaction commands are linked only COARSELY, by
 //     correlation: the pages of one command share its
 //     causation.command_id, but the command's trigger (its causation_id)
 //     is not on its events. The exact trigger edge (E -> the commands a
-//     saga emitted for it -> their events) is in the traces and
+//     policy emitted for it -> their events) is in the traces and
 //     logs the coordinators write (OpenTelemetry), not in the store.
 // Accepted cost: the event store alone answers "what belongs to this
 // workflow", but not "which events did
-// this saga's reaction to E produce"; that question goes to the traces,
+// this policy's reaction to E produce"; that question goes to the traces,
 // whose retention the deployment chooses. Rejected commands leave no
 // events, so they do not appear (see the attempt-audit sink in the design
 // record).
@@ -1330,7 +1330,7 @@ message SequenceMismatchDetails {
 }
 
 // Event processing failure details for DLQ entries.
-// Contains information about why a saga/projector failed to process events.
+// Contains information about why a policy/projector failed to process events.
 message EventProcessingFailedDetails {
   string error = 1; // Error message from the handler
   uint32 retry_count = 2; // Number of retry attempts before DLQ routing
@@ -1388,7 +1388,7 @@ message AngzarrDeadLetter {
     // FRESH_SEQUENCE clears handling.expected_sequence so the coordinator
     // stamps the current head.
     CommandBook rejected_command = 2;
-    EventBook rejected_events = 9; // Events that failed (saga/projector failures)
+    EventBook rejected_events = 9; // Events that failed (policy/projector failures)
   }
   string rejection_reason = 3; // Human-readable reason
   oneof rejection_details {
@@ -1422,7 +1422,7 @@ message Target {
 enum ComponentKind {
   COMPONENT_KIND_UNSPECIFIED = 0;
   COMPONENT_KIND_AGGREGATE = 1;
-  COMPONENT_KIND_SAGA = 2;
+  COMPONENT_KIND_POLICY = 2;
   COMPONENT_KIND_PROCESS_MANAGER = 3;
   COMPONENT_KIND_PROJECTOR = 4;
 }
@@ -1447,7 +1447,7 @@ message ComponentDescriptor {
   // CommandHandlerResponse.rules_version).
   string rules_version = 4;
   // The component's event-sourced state: set for AGGREGATE and
-  // PROCESS_MANAGER, unset for SAGA and PROJECTOR. Generated from the state
+  // PROCESS_MANAGER, unset for POLICY and PROJECTOR. Generated from the state
   // message's descriptor by the codegen (the client library fills it when
   // answering Describe; business code never writes it by hand).
   StateDescriptor state = 6;

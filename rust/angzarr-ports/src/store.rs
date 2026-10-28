@@ -34,7 +34,7 @@ use crate::stream::{Head, PositionKey, Slice, StreamRef};
 #[derive(Clone, Copy, Debug, Default)]
 pub struct Write<'a> {
     /// The step's events: ONE stream's pages at an expected length. `None`
-    /// for a step that writes no stream (a saga's, or a projector's:
+    /// for a step that writes no stream (a policy's, or a projector's:
     /// positions and outbox entries only).
     pub events: Option<Append<'a>>,
     /// The step's positions: each a handler's next sequence on a stream it
@@ -66,7 +66,7 @@ impl<'a> Write<'a> {
         }
     }
 
-    /// A write of positions alone: a saga's or a projector's step.
+    /// A write of positions alone: a policy's or a projector's step.
     pub fn positions(positions: &'a [(PositionKey<'a>, u64)]) -> Write<'a> {
         Write {
             positions,
@@ -360,7 +360,7 @@ pub trait ListStreams: MaybeSend + MaybeSync {
 
 // ================================================================= outbox
 
-/// One message a component sends beyond its own stream (a saga's command,
+/// One message a component sends beyond its own stream (a policy's command,
 /// today), kept until the relay has delivered it. Kind-agnostic: the store
 /// never decodes `message`, and `origin` is just the writer's name. Written
 /// only in a [`Write`], with the step's events and positions.

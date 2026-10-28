@@ -21,11 +21,11 @@ option ruby_package = "Angzarr";
 // edition registry and no separate metadata store: an edition exists
 // exactly as far as its fork events do. Creating edition X forks an origin
 // stream: it appends an EditionCreated meta-event to (D, X, R). It then
-// travels with the data: each saga command in X that reaches a stream with
+// travels with the data: each policy command in X that reaches a stream with
 // no fork in X forks it on arrival (meta.EditionCreated). Listing
 // editions is a query over X's own creation events. Deleting one is an
 // event too: EditionDeleted is recorded in X's origin streams, travels
-// onward through the saga flows like any event, and each stream's rows of
+// onward through the policy flows like any event, and each stream's rows of
 // X are removed only after its EditionDeleted has propagated onward.
 // Everything of an edition's lifecycle lives in the edition's own streams
 // and store: main knows nothing of it.
@@ -46,7 +46,7 @@ service EditionAdminService {
   // stream's domain, edition, root), creating the edition if no fork event
   // of it exists yet. From there the fork travels with the data
   // (meta.EditionCreated). Forking more origin streams into an
-  // existing edition is allowed, and is how a stream that saga commands
+  // existing edition is allowed, and is how a stream that policy commands
   // have not reached is addressed from outside. Answers the fork event's
   // EventRef.
   //   INVALID_ARGUMENT     edition is empty or unset (main is unnamed and
@@ -72,14 +72,14 @@ service EditionAdminService {
   // 2026-10-28): append EditionDeleted to each of X's origin streams, in
   // sequence after their earlier work. From there, per stream: the event
   // is RECORDED in the stream's own domain; it PROPAGATES onward through
-  // that domain's saga flows to the streams of X it reaches, each of which
+  // that domain's policy flows to the streams of X it reaches, each of which
   // records its own; and only once it has propagated onward (its outgoing
-  // saga steps and outbox entries have completed) are that stream's rows
+  // policy steps and outbox entries have completed) are that stream's rows
   // of X removed: events, the creation and deletion events included,
   // snapshots, projector output, outbox entries and positions. Nothing
-  // remains. A stream of X the deletion cannot reach through the saga
+  // remains. A stream of X the deletion cannot reach through the policy
   // flows keeps its rows and stays visible in ListEditions. Once X is
-  // deleted, a later arrival in it (a saga command, a step's position on a
+  // deleted, a later arrival in it (a policy command, a step's position on a
   // removed stream) is refused NOT_FOUND and re-creates nothing; only
   // ForkStream brings the name back. Answers once
   // the origins have recorded it. A removal that genuinely fails is
@@ -100,9 +100,9 @@ message ForkStreamRequest {
   // The TIME-BASED OPTION (decision 14.32; EA-3's former whole-system
   // behaviour and the 2026-10-27 commit-order ruling, kept as an option):
   // fork at this global commit position, so every stream the edition
-  // forks, at the origin or on a saga command's arrival, diverges at the
+  // forks, at the origin or on a policy command's arrival, diverges at the
   // same moment, for a consistent snapshot. Unset (0), the default: a
-  // per-stream fork at the origin stream's head, and each stream a saga
+  // per-stream fork at the origin stream's head, and each stream a policy
   // command reaches at its own head when it arrives.
   uint64 commit_position = 2;
 }

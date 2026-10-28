@@ -52,7 +52,7 @@ option ruby_package = "Angzarr::Examples";
 //                         from the same view exactly one lands; the other is
 //                         refused ABORTED (retryable) and is re-decided
 //                         against the new state.
-// ConfirmSeat and ReleaseSeat are reaction commands from saga-buy-in-table,
+// ConfirmSeat and ReleaseSeat are reaction commands from policy-buy-in-table,
 // built from pmg-buy-in's events (a PM sends no commands): they carry no
 // Handling, the table stamps its own head, and redelivery is
 // deduplicated on their derived command id.
@@ -78,7 +78,7 @@ message CreateTable {
 }
 
 // Hold a seat for a buy-in (SeatHeld), which starts pmg-buy-in through
-// saga-table-buy-in's StartBuyIn command.
+// policy-table-buy-in's StartBuyIn command.
 // buy_in_id = request_id. Refused when the seat is seated or held, the player
 // is already seated at this table, or amount is outside
 // [min_buy_in, max_buy_in]. A player may have buy-ins pending for several
@@ -131,14 +131,14 @@ message DoubleDown {
 }
 
 // -----------------------------------------------------------------------------
-// Commands — the buy-in (reaction commands from saga-buy-in-table)
+// Commands — the buy-in (reaction commands from policy-buy-in-table)
 // -----------------------------------------------------------------------------
 
 // Seat the player on a held seat with the buy-in as stack (PlayerSeated).
 // Repeating a confirmation already applied succeeds with no events. When
 // the hold is gone or the player took another seat meanwhile, the table
 // refuses it with SeatNotConfirmable and records nothing, and
-// saga-buy-in-table translates the refusal into the buy-in's
+// policy-buy-in-table translates the refusal into the buy-in's
 // SeatConfirmationRefused fact (decision 14.31;
 // the refusal flows in buy_in.proto). Which of these refusals are
 // business refusals is still the buy-in refusal ruling (R2).
@@ -158,7 +158,7 @@ message SeatNotConfirmable {
 }
 
 // Free a held seat (SeatReleased). Releasing a hold that no longer exists
-// succeeds with no events. saga-buy-in-table sends it on BuyInFailed (the
+// succeeds with no events. policy-buy-in-table sends it on BuyInFailed (the
 // wallet refused HoldFunds; see the refusal flow in buy_in.proto).
 message ReleaseSeat {
   option (io.angzarr.v1.command) = {component: "io.angzarr.examples.v1.TableState"};
@@ -197,12 +197,12 @@ message ShoeShuffled {
   repeated Card cards = 4;
 }
 
-// A seat is held for a buy-in. saga-table-buy-in turns it into the
+// A seat is held for a buy-in. policy-table-buy-in turns it into the
 // StartBuyIn command that starts pmg-buy-in (see buy_in.proto).
 message SeatHeld {
   option (io.angzarr.v1.event) = {component: "io.angzarr.examples.v1.TableState"};
   option (io.angzarr.v1.event) = {
-    component: "io.angzarr.examples.v1.TableBuyInSaga"
+    component: "io.angzarr.examples.v1.TableBuyInPolicy"
     domain: "table"
   };
   bytes buy_in_id = 1;
@@ -223,7 +223,7 @@ message SeatReleased {
 message PlayerSeated {
   option (io.angzarr.v1.event) = {component: "io.angzarr.examples.v1.TableState"};
   option (io.angzarr.v1.event) = {
-    component: "io.angzarr.examples.v1.TableBuyInSaga"
+    component: "io.angzarr.examples.v1.TableBuyInPolicy"
     domain: "table"
   };
   option (io.angzarr.v1.event) = {
@@ -237,7 +237,7 @@ message PlayerSeated {
 }
 
 // The player left with `amount` chips. How the wallet is credited waits on
-// the cash-out ruling (it was a fact injected by a saga, which the latest
+// the cash-out ruling (it was a fact injected by a policy, which the latest
 // contract forbids). cashout_id = UUIDv5(namespace = the table root read as a UUID,
 // name = "cashout/" + decimal sequence of this event), as 16 bytes, so replay
 // and redelivery always produce the same id.
@@ -353,12 +353,12 @@ message SeatOutcome {
 }
 
 // The round is over. house_delta = sum(wagers) - sum(returned). One event,
-// several consumers: the table folds it, saga-table-player reacts to it,
+// several consumers: the table folds it, policy-table-player reacts to it,
 // and the ledger projects it.
 message RoundSettled {
   option (io.angzarr.v1.event) = {component: "io.angzarr.examples.v1.TableState"};
   option (io.angzarr.v1.event) = {
-    component: "io.angzarr.examples.v1.TablePlayerSaga"
+    component: "io.angzarr.examples.v1.TablePlayerPolicy"
     domain: "table"
   };
   option (io.angzarr.v1.event) = {

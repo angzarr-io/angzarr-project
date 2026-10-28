@@ -1,15 +1,15 @@
 # Coordinator-contract feature: edition propagation across cross-domain
-# emissions. When a saga or process-manager handler receives an event in
+# emissions. When a policy or process-manager handler receives an event in
 # edition X, the coordinator stamps edition X onto every outgoing
-# CommandBook / EventBook (a saga's commands and events, a process
+# CommandBook / EventBook (a policy's commands and events, a process
 # manager's process_events) before persistence or dispatch. The edition
 # name propagates verbatim, and always overrides whatever edition the
 # handler set. How an edition's streams are forked, and how forks
 # propagate, is edition_forks.feature (decision 14.32).
 #
 # A process manager is a domain (decision 14.31): its inputs are commands
-# (from sagas, in their trigger's edition) and facts, and its events land
-# in its input's edition, like any domain's. A saga's refusal fact keeps
+# (from policies, in their trigger's edition) and facts, and its events land
+# in its input's edition, like any domain's. A policy's refusal fact keeps
 # its trigger's edition.
 #
 # Coverage in core: Rust unit tests in
@@ -17,45 +17,45 @@
 # src/orchestration/process_manager/local/tests.rs (C-0144, before decision
 # 14.31; C-0590 is new).
 Feature: Edition propagation across cross-domain emissions
-  As a saga / process-manager author
+  As a policy / process-manager author
   I want the framework to guarantee that emitted commands and events
   inherit the source / trigger cover's edition
   So that timeline consistency holds across cross-domain boundaries
   without requiring me to manually stamp every outgoing cover
 
   # ---------------------------------------------------------------
-  # Saga: source event → outgoing commands / events
+  # Policy: source event → outgoing commands / events
   # ---------------------------------------------------------------
 
   @C-0138
-  Scenario: Saga propagates source edition to outgoing commands
-    Given a saga "OrderFulfillment" translating from "order" to "inventory"
-    And the saga handles OrderCreated by emitting a ReserveStock command
+  Scenario: Policy propagates source edition to outgoing commands
+    Given a policy "OrderFulfillment" translating from "order" to "inventory"
+    And the policy handles OrderCreated by emitting a ReserveStock command
     And the source event has edition "speculative"
-    When an OrderCreated event is dispatched to the saga
+    When an OrderCreated event is dispatched to the policy
     Then the emitted command's cover has edition "speculative"
 
   @C-0139
-  Scenario: Saga propagates source edition to outgoing events
-    Given a saga "OrderAudit" translating from "order" to "audit"
-    And the saga handles OrderCreated by emitting an OrderObserved event
+  Scenario: Policy propagates source edition to outgoing events
+    Given a policy "OrderAudit" translating from "order" to "audit"
+    And the policy handles OrderCreated by emitting an OrderObserved event
     And the source event has edition "speculative"
-    When an OrderCreated event is dispatched to the saga
+    When an OrderCreated event is dispatched to the policy
     Then the emitted event's cover has edition "speculative"
 
   @C-0140
   Scenario: Coordinator always overrides handler-set edition with source edition
-    Given a saga "OrderFulfillment" translating from "order" to "inventory"
+    Given a policy "OrderFulfillment" translating from "order" to "inventory"
     And the source event has edition "alpha"
-    And the saga handler sets outgoing edition "beta"
-    When an OrderCreated event is dispatched to the saga
+    And the policy handler sets outgoing edition "beta"
+    When an OrderCreated event is dispatched to the policy
     Then the persisted command's cover has edition "alpha"
 
   @C-0141
-  Scenario: Saga propagates main-timeline (empty) edition unchanged
-    Given a saga "OrderFulfillment" translating from "order" to "inventory"
+  Scenario: Policy propagates main-timeline (empty) edition unchanged
+    Given a policy "OrderFulfillment" translating from "order" to "inventory"
     And the source event has no edition set
-    When an OrderCreated event is dispatched to the saga
+    When an OrderCreated event is dispatched to the policy
     Then the emitted command's cover has no edition set
 
   # C-0142 (an edition's divergences propagated) is retired: editions are
@@ -86,11 +86,11 @@ Feature: Edition propagation across cross-domain emissions
     And the command is refused INTERNAL
 
   @C-0608
-  Scenario: A saga's refusal fact carries its trigger's edition
-    Given a saga "OrderToInventory" translating from "order" to "inventory" generated with ReserveStock in pass-through mode
+  Scenario: A policy's refusal fact carries its trigger's edition
+    Given a policy "OrderToInventory" translating from "order" to "inventory" generated with ReserveStock in pass-through mode
     And the source event has edition "speculative"
     And the inventory aggregate refuses ReserveStock
-    When an OrderCreated event is dispatched to the saga
+    When an OrderCreated event is dispatched to the policy
     Then the refusal fact's cover has edition "speculative"
 
   # ---------------------------------------------------------------

@@ -132,7 +132,7 @@ pub fn fact_page(sequence: u64, external_id: &str) -> EventPage {
 /// The event at `sequence` recording a refusal (14.31): a refusal fact,
 /// whose id IS the refused command's `command_id` (no derivation), its
 /// `fact_origin.external_id` that id's canonical text, addressed to the
-/// exact stream of the saga's triggering event.
+/// exact stream of the policy's triggering event.
 pub fn refusal_page(sequence: u64, refused: Uuid) -> EventPage {
     let mut page = stamped(sequence, Causation::CommandId(refused.into()), 0xC0);
     page.payload = Some(Any {
@@ -169,7 +169,7 @@ pub fn entry_in(n: u8, origin: &str, body: u8, edition: &str) -> OutboxEntry {
     }
 }
 
-/// Write outbox `entries` alone (a saga step with no position to move).
+/// Write outbox `entries` alone (a policy step with no position to move).
 pub async fn put_outbox<S: EventStore>(store: &S, entries: &[OutboxEntry]) {
     store
         .write(Write {
@@ -236,7 +236,7 @@ pub fn created_page_at(sequence: u64, edition: &str, commit_position: u64) -> Ev
     )
 }
 
-/// A fork made by a saga command's arrival: propagated from the fork
+/// A fork made by a policy command's arrival: propagated from the fork
 /// `from`, by the command `by`.
 pub fn propagated_created_page(
     sequence: u64,
@@ -277,7 +277,7 @@ pub fn deleted_page(sequence: u64, edition: &str) -> EventPage {
     )
 }
 
-/// A deletion carried by a saga command's arrival: propagated from the
+/// A deletion carried by a policy command's arrival: propagated from the
 /// deletion `from`, by the command `by`.
 pub fn propagated_deleted_page(
     sequence: u64,
@@ -853,7 +853,7 @@ pub async fn a_refused_write_lands_nothing<S: Store>(store: S) {
     assert_eq!(store.read(s, 0, None).await.unwrap().pages, [page(0, 1)]);
 }
 
-/// A step that writes no stream (a saga's, a projector's): its positions
+/// A step that writes no stream (a policy's, a projector's): its positions
 /// alone, at once. It lands no event, so the commit position stands.
 pub async fn a_position_only_write_is_a_step_with_no_stream<S: Store>(store: S) {
     let (k1, k2) = (
@@ -1641,7 +1641,7 @@ where
     append(&store, e, 1, &[deleted_page(1, "what-if")])
         .await
         .unwrap();
-    // The saga's step carrying the deletion onward: its position past the
+    // The policy's step carrying the deletion onward: its position past the
     // deletion, and its command to the next domain, in the edition.
     let carry = [entry_in(1, "player-table", 1, "what-if")];
     let positions = [(key("player-table", e), 2)];
@@ -2099,12 +2099,12 @@ where
         "and its events"
     );
     let after = store.commit_position().await.unwrap();
-    // A saga's step: a position and its commands, no stream.
-    let saga_positions = [(key("order-wallet", main_stream("order", 1)), 2)];
+    // A policy's step: a position and its commands, no stream.
+    let policy_positions = [(key("order-wallet", main_stream("order", 1)), 2)];
     let commands = [entry(3, "order-wallet", 3)];
     store
         .write(Write {
-            positions: &saga_positions,
+            positions: &policy_positions,
             outbox: &commands,
             ..Write::default()
         })

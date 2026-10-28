@@ -12,9 +12,9 @@ option ruby_package = "Angzarr";
 
 // Custom options for declaring dispatch components in proto.
 //
-// A component (aggregate, saga, process manager, projector) is declared by
+// A component (aggregate, policy, process manager, projector) is declared by
 // annotating a MESSAGE — its state message for the stateful kinds, or a marker
-// message for the stateless saga — with (io.angzarr.v1.component). Its commands
+// message for the stateless policy — with (io.angzarr.v1.component). Its commands
 // and events are other messages carrying (io.angzarr.v1.command) /
 // (io.angzarr.v1.event) that point back at the anchor. There are no services
 // and no rpcs: the annotations ARE the declaration. Code generators read these
@@ -31,7 +31,7 @@ option ruby_package = "Angzarr";
 // Component declaration carried on a message. The annotated message is the
 // component's anchor: for AGGREGATE / PROCESS_MANAGER / PROJECTOR it is the
 // event-sourced state (or per-delivery projection) message the rebuilder folds
-// into; for the stateless SAGA it is an empty marker message naming the saga.
+// into; for the stateless POLICY it is an empty marker message naming the policy.
 //
 // Three independent domain roles, never overloaded:
 //   domain            — the stream the component OWNS (writes its events to)
@@ -42,36 +42,36 @@ option ruby_package = "Angzarr";
 //   kind             domain     input_domain               output_domain
 //   AGGREGATE        required   empty                      empty
 //   PROCESS_MANAGER  required   empty                      empty
-//   SAGA             forbidden  required                   required (its one
+//   POLICY             forbidden  required                   required (its one
 //                                                          destination)
 //   PROJECTOR        forbidden  optional (per-event dom.)  empty
 // An aggregate owns its domain's stream and subscribes to nothing. A
 // process manager is a domain too (decision 14.31): it owns its own
 // workflow stream (domain), subscribes to nothing, takes commands (most
-// from sagas of other domains) and facts, and sends no commands (its
-// decisions reach other domains through sagas from its domain). An
-// (event) entry naming a PM with a domain set fails generation. Sagas and
+// from policies of other domains) and facts, and sends no commands (its
+// decisions reach other domains through policies from its domain). An
+// (event) entry naming a PM with a domain set fails generation. Policies and
 // projectors own no stream.
 //
 // Each declaration is one component, served by its own business process
 // behind its own coordinator (see ComponentService in component.proto).
-// A saga is a translator between exactly two domains: one source
-// (input_domain) and one destination (output_domain). There is one saga per
+// A policy is a translator between exactly two domains: one source
+// (input_domain) and one destination (output_domain). There is one policy per
 // (source domain, destination domain) pair: every reaction that translates
 // events of one domain into commands for another belongs to that pair's
-// one saga, however many event types it reacts to; its destination may be
+// one policy, however many event types it reacts to; its destination may be
 // an aggregate's domain or a process manager's. Anything that needs
-// several destinations is a process manager, whose events the sagas for
-// (the PM's domain, each destination) translate. A saga declaring no
-// output_domain fails generation; at run time a saga command addressed to
+// several destinations is a process manager, whose events the policies for
+// (the PM's domain, each destination) translate. A policy declaring no
+// output_domain fails generation; at run time a policy command addressed to
 // any other domain is refused by the client library before it answers (see
-// SagaResponse in saga.proto).
+// PolicyResponse in policy.proto).
 //
 // There are no compensation declarations. A refusal in a choreographed flow
-// is a rejection plus a fact: the target refuses a saga's command and
-// records nothing, the saga delivers one refusal fact to its own source
+// is a rejection plus a fact: the target refuses a policy's command and
+// records nothing, the policy delivers one refusal fact to its own source
 // domain, and that domain's fact handler decides what it means (decision
-// 2.2, as amended by 14.31; SagaService in saga.proto, Refusals). The
+// 2.2, as amended by 14.31; PolicyService in policy.proto, Refusals). The
 // typed refusal objects a command's handler may return are named by the
 // command's annotation, CommandOptions.refuses, as its events are by
 // emits (the refusals region, below). A
@@ -80,14 +80,14 @@ option ruby_package = "Angzarr";
 // may start an instance (CommandOptions.starts).
 message ComponentOptions {
   ComponentKind kind = 1;
-  // Domain this component subscribes to: the saga's single source domain, or
+  // Domain this component subscribes to: the policy's single source domain, or
   // a projector's input filter when all of its handlers share one domain
   // (otherwise each (event).domain names the source). Subscriptions only —
   // never the component's own domain. Empty for aggregates and process
   // managers, which subscribe to nothing.
   string input_domain = 2;
-  // Domain this component issues commands to: a saga's one
-  // destination (required for SAGA). Must be empty for every other kind: a
+  // Domain this component issues commands to: a policy's one
+  // destination (required for POLICY). Must be empty for every other kind: a
   // process manager sends no commands (decision 14.31).
   string output_domain = 3;
   // Generated handler/dispatch base name. Optional; defaults to the anchor
@@ -97,7 +97,7 @@ message ComponentOptions {
   // Domain of the event stream this component owns: the aggregate's domain,
   // or the process manager's own workflow domain (its events are persisted
   // there and its state is rebuilt from it). Required for AGGREGATE and
-  // PROCESS_MANAGER; must be empty for SAGA and PROJECTOR, which own no
+  // PROCESS_MANAGER; must be empty for POLICY and PROJECTOR, which own no
   // stream. Deployment discovery advertises it: an aggregate's
   // angzarr.io/domain label and a process manager's angzarr.io/pm label
   // carry this value.
@@ -144,7 +144,7 @@ message CommandOptions {
   // raw refusal payload (google.protobuf.Any), or with a message only.
   // Either way the client library packs the chosen refusal object (the
   // concrete message, e.g. InsufficientFunds) into the rejection's status
-  // details as a google.protobuf.Any, and the refused saga receives it as
+  // details as a google.protobuf.Any, and the refused policy receives it as
   // RefusalResponse.refusal (types.proto). Generation fails on a refuses
   // type that does not resolve, or that is not a message of the command's
   // own domain (the refusals region).
@@ -153,15 +153,15 @@ message CommandOptions {
 
 // Marks a message as an EVENT consumed by ONE component. The extension is
 // repeated, so an event consumed by several components (e.g. folded into its
-// aggregate AND triggering a saga) carries one (event) entry per consumer. For
+// aggregate AND triggering a policy) carries one (event) entry per consumer. For
 // an AGGREGATE or a PROCESS_MANAGER an entry generates a state applier
 // (folded during rebuild): a PM consumes only its own events, never another
-// domain's (decision 14.31). For a SAGA / PROJECTOR it generates a reaction
+// domain's (decision 14.31). For a POLICY / PROJECTOR it generates a reaction
 // handler. The component's kind selects which.
 message EventConsumer {
   // The anchor message of the component that consumes this event.
   string component = 1;
-  // Source domain: the saga / projector input filter. Unset for an
+  // Source domain: the policy / projector input filter. Unset for an
   // aggregate's or a process manager's own applied events; set on a PM's
   // entry, it fails generation (a PM has no triggers).
   string domain = 2;
@@ -419,7 +419,7 @@ extend google.protobuf.FieldOptions {
 
 // region refusals
 // Refusals (decision 14.31, amending 2.2; plan ruling 7, "REFUSAL
-// WIRING"; SagaService in saga.proto, Refusals).
+// WIRING"; PolicyService in policy.proto, Refusals).
 //
 // The refusing side. A command handler refuses with a business rejection
 // (FAILED_PRECONDITION) carrying a message and, optionally, a TYPED
@@ -442,9 +442,9 @@ extend google.protobuf.FieldOptions {
 // refuses type that does not resolve, or that is not a message of the
 // command's own domain, fails generation.
 //
-// The saga's side. When a saga's command is refused, the saga's
-// coordinator calls SagaService.OnRefused, and the saga's generated code
-// delivers ONE fact of the refusal to the saga's own source domain, by one
+// The policy's side. When a policy's command is refused, the policy's
+// coordinator calls PolicyService.OnRefused, and the policy's generated code
+// delivers ONE fact of the refusal to the policy's own source domain, by one
 // of two paths:
 //   - PASS-THROUGH (the default): the generated code builds the standard
 //     CommandRefused { command, refusal (the typed refusal object, as an
@@ -453,31 +453,31 @@ extend google.protobuf.FieldOptions {
 //       on_refused_<Command>(refusal: CommandRefused, state) -> events,
 //     where its author writes the reaction (unpacking the typed refusal
 //     object, whose proto it imports with the foreign command's).
-//   - TRANSLATE: the saga's own callback,
+//   - TRANSLATE: the policy's own callback,
 //       on_refused_<Command>(Refusal { event, command, response })
 //         -> <a fact type of the source domain>,
 //     reads the typed refusal object and returns a DOMESTIC fact, so the
-//     source never refers to the foreign protos (the saga already does).
+//     source never refers to the foreign protos (the policy already does).
 //     That is why translate exists: CommandRefused carries only the
 //     foreign object, so a domain that does not want to unpack it, or
-//     import the foreign protos, has the saga unpack it and hand over a
+//     import the foreign protos, has the policy unpack it and hand over a
 //     domestic fact.
 //
 // The switch is angzarr-cli's ONLY ("cli may have to have that switch, as
 // it's compile time": the owner, 2026-10-28). The CLI selects pass-through
-// or translate per saga or per saga command, as a flag and as a
+// or translate per policy or per policy command, as a flag and as a
 // build-config entry; pass-through is its default. Selecting translate
-// makes the generated saga interface require on_refused_<Command> for that
+// makes the generated policy interface require on_refused_<Command> for that
 // command, so a missing callback fails generation (or the build). No proto
 // option carries the mode, and nothing about it is visible at run time
 // beyond which fact type arrives.
 //
-// No declaration of what a saga sends ("declaring commands it may send is
+// No declaration of what a policy sends ("declaring commands it may send is
 // a mistake, period": the owner, 2026-10-28), and none of which refusals a
 // domain handles: the source domain's on_refused_<Command> dispatch is
 // inferred from the handlers it defines, as fact handlers are (the
 // handler registration is the declaration). Consequence: the generator
-// cannot check refusal coverage against what a saga sends; a refusal with
+// cannot check refusal coverage against what a policy sends; a refusal with
 // no path (a pass-through CommandRefused whose command type the source has
 // no handler for) is caught at RUN time: the source answers
 // NO_FACT_HANDLER, and the fact is dead-lettered and alerted. What the

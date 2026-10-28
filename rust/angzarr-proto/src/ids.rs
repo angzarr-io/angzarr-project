@@ -9,7 +9,7 @@
 //!
 //! Framework-derived values are UUIDv5 under three fixed namespaces:
 //! [`compute_root`] (`"{domain}:{key}"` under [`ROOT_NAMESPACE`]),
-//! [`reaction_command_id`] (the trigger, component and index as netstrings
+//! [`policy_command_id`] (the trigger, component and index as netstrings
 //! under [`COMMAND_NAMESPACE`]), and [`fact_command_id`] /
 //! [`fact_correlation`] (one value: `external_id` under
 //! [`FACT_CORRELATION_NAMESPACE`]).
@@ -31,7 +31,7 @@ pub const ROOT_NAMESPACE: uuid::Uuid = uuid::uuid!("d4741b1a-52cd-43cf-add1-3dbb
 pub const FACT_CORRELATION_NAMESPACE: uuid::Uuid =
     uuid::uuid!("e9ef0ae2-6fc6-4c14-b713-ef03971dd867");
 
-/// Namespace for reaction command ids:
+/// Namespace for policy command ids:
 /// `e2c9f744-9fe1-4b4b-bfee-ae514dde293b`. Generated once as a random
 /// UUIDv4; never changes (changing it would change every derived command id,
 /// and deduplication looks stored ids up).
@@ -47,12 +47,12 @@ pub enum UuidError {
     Text,
     /// A domain passed to [`compute_root`] contains `':'`, the separator.
     DomainContainsColon,
-    /// A trigger passed to [`reaction_command_id`] has no stream, or its
+    /// A trigger passed to [`policy_command_id`] has no stream, or its
     /// stream has no root.
     MissingTrigger,
     /// A trigger stream's edition is set but empty (main is unset).
     EmptyEdition,
-    /// A component name passed to [`reaction_command_id`] is empty.
+    /// A component name passed to [`policy_command_id`] is empty.
     EmptyComponent,
 }
 
@@ -182,16 +182,16 @@ fn netstring(name: &mut Vec<u8>, s: &[u8]) {
     name.push(b',');
 }
 
-/// The command id of the `index`-th command (0-based, in emission order) a
-/// saga or process manager named `component` emits in reaction to the event
-/// `trigger` (`types.proto`, `derived_ids` region):
+/// The command id of the `index`-th command (0-based, in emission order)
+/// the policy named `component` emits for the event `trigger` (a process
+/// manager is a domain and sends none) (`types.proto`, `derived_ids` region):
 /// UUIDv5([`COMMAND_NAMESPACE`], name), where name is six netstrings:
 /// the trigger's domain, edition (`""` for main), root (canonical lowercase
 /// text), sequence (decimal), then `component` and `index` (decimal).
 ///
 /// Refuses a trigger without a stream or root, a malformed root
 /// ([`UuidError::Length`]), a set empty edition and an empty component.
-pub fn reaction_command_id(
+pub fn policy_command_id(
     trigger: &v1::EventRef,
     component: &str,
     index: u32,

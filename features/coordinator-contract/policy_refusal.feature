@@ -1,22 +1,22 @@
-Feature: Saga refusals - a refused command becomes one fact for the saga's own source domain
-  A saga's target, an aggregate or a process manager alike, refuses a
-  saga's command the way it refuses any command, optionally with a typed
-  refusal object of its own domain, and records nothing. The saga then
+Feature: Policy refusals - a refused command becomes one fact for the policy's own source domain
+  A policy's target, an aggregate or a process manager alike, refuses a
+  policy's command the way it refuses any command, optionally with a typed
+  refusal object of its own domain, and records nothing. The policy then
   builds one unrefusable refusal fact for the exact stream of its
   triggering event (decision 2.2, as amended by 14.31). By default its
   generated code passes the standard CommandRefused { command, refusal,
   trigger } through, the typed refusal object packed, and the source's
   on_refused_<Command> handles it; where angzarr-cli selects translate,
-  the saga's callback turns Refusal { event, command, response } into a
+  the policy's callback turns Refusal { event, command, response } into a
   domestic fact, so the source need not unpack a foreign object. The refusal fact's id is the refused command's id. Both
   calls go through the outbox.
 
   Background:
     Given a "player" aggregate that refuses HoldFunds with FAILED_PRECONDITION reason INSUFFICIENT_AVAILABLE_FUNDS and the refusal object InsufficientFunds when funds are short
     And a process manager "BuyIn" owning domain "buy-in"
-    And a saga "BuyInToPlayer" translating from "buy-in" to "player" that builds HoldFunds from BuyInStarted
+    And a policy "BuyInToPlayer" translating from "buy-in" to "player" that builds HoldFunds from BuyInStarted
 
-  @saga_refusal
+  @policy_refusal
   @C-0613
   Scenario: A refused command is passed through as CommandRefused and handled by the source's generated handler
     Given "BuyInToPlayer" was generated with HoldFunds in pass-through mode
@@ -24,13 +24,13 @@ Feature: Saga refusals - a refused command becomes one fact for the saga's own s
     And player "p-1" has too little available to hold 500
     When "BuyIn" records BuyInStarted for 500 from player "p-1" under correlation "0192a6b0-0000-7000-8000-000000000020"
     Then player "p-1" refuses HoldFunds and records nothing
-    And the saga, not the coordinator, builds a CommandRefused fact carrying only the HoldFunds sent, the InsufficientFunds refusal object packed and the BuyInStarted event's EventRef
+    And the policy, not the coordinator, builds a CommandRefused fact carrying only the HoldFunds sent, the InsufficientFunds refusal object packed and the BuyInStarted event's EventRef
     And it is delivered to "buy-in" root "0192a6b0-0000-7000-8000-000000000020"
     And "BuyIn"'s on_refused_HoldFunds handler unpacks InsufficientFunds and records its own events for it
 
-  @saga_refusal
+  @policy_refusal
   @C-0614
-  Scenario: A refused command is translated into a domestic fact by the saga's callback
+  Scenario: A refused command is translated into a domestic fact by the policy's callback
     Given "BuyInToPlayer" was generated with HoldFunds in translate mode, its callback returning the "buy-in" fact HoldFundsDeclined
     And player "p-1" has too little available to hold 500
     When "BuyIn" records BuyInStarted for 500 from player "p-1" under correlation "0192a6b0-0000-7000-8000-000000000021"
@@ -38,7 +38,7 @@ Feature: Saga refusals - a refused command becomes one fact for the saga's own s
     And a HoldFundsDeclined fact is delivered to "buy-in" root "0192a6b0-0000-7000-8000-000000000021"
     And "BuyIn" handles it as an ordinary fact, with no reference to the player's protos
 
-  @saga_refusal
+  @policy_refusal
   @C-0615
   Scenario Outline: The refusal fact's id is the refused command's id, in either mode
     Given "BuyInToPlayer" was generated with HoldFunds in <mode> mode
@@ -55,18 +55,18 @@ Feature: Saga refusals - a refused command becomes one fact for the saga's own s
       | pass-through |
       | translate    |
 
-  @saga_refusal
+  @policy_refusal
   @C-0616
   Scenario: The refusal fact replaces the command's outbox entry in one transaction
     Given "BuyInToPlayer" was generated with HoldFunds in pass-through mode
     And "BuyIn" defines an on_refused_HoldFunds handler
     And player "p-1" has too little available to hold 500
-    And the saga's coordinator crashes after OnRefused answers and before its transaction commits
+    And the policy's coordinator crashes after OnRefused answers and before its transaction commits
     When the coordinator restarts
     Then HoldFunds is delivered again and refused again
     And "BuyIn" records the refusal once
 
-  @saga_refusal
+  @policy_refusal
   @C-0617
   Scenario Outline: Only a business rejection yields a refusal fact
     Given player "p-1" answers HoldFunds with <status>
@@ -80,7 +80,7 @@ Feature: Saga refusals - a refused command becomes one fact for the saga's own s
       | INVALID_ARGUMENT  | HoldFunds is dead-lettered and an alert is raised           |
       | INTERNAL          | HoldFunds is dead-lettered and an alert is raised           |
 
-  @saga_refusal
+  @policy_refusal
   @C-0618
   Scenario: A pass-through refusal with no handler at the source is dead-lettered for a human
     Given "BuyInToPlayer" was generated with HoldFunds in pass-through mode
@@ -90,7 +90,7 @@ Feature: Saga refusals - a refused command becomes one fact for the saga's own s
     Then the CommandRefused fact is refused NO_FACT_HANDLER, dead-lettered and alerted at run time
     And nothing is recorded in "buy-in" or "player"
 
-  @saga_refusal
+  @policy_refusal
   @C-0619
   Scenario: A failing translating callback is dead-lettered and alerted
     Given "BuyInToPlayer" was generated with HoldFunds in translate mode, its callback returning the "buy-in" fact HoldFundsDeclined
@@ -100,7 +100,7 @@ Feature: Saga refusals - a refused command becomes one fact for the saga's own s
     Then the refusal is dead-lettered and an alert is raised
     And nothing is recorded in "buy-in"
 
-  @saga_refusal
+  @policy_refusal
   @C-0621
   Scenario Outline: A refusal fact for any stream but its trigger's is refused
     # A refusal fact is accepted only by the exact stream its trigger
@@ -118,23 +118,23 @@ Feature: Saga refusals - a refused command becomes one fact for the saga's own s
       | "buy-in" root "0192a6b0-0000-7000-8000-000000000099"                     |
       | "buy-in" root "0192a6b0-0000-7000-8000-000000000023" in edition "what-if" |
 
-  @saga_refusal
+  @policy_refusal
   @C-0622
-  Scenario: The mechanism is the same when the saga's target is a process manager
+  Scenario: The mechanism is the same when the policy's target is a process manager
     Given a process manager "Fulfillment" owning domain "fulfillment" that refuses RecordStockReserved once completed
-    And a saga "InventoryToFulfillment" translating from "inventory" to "fulfillment", generated with RecordStockReserved in pass-through mode
+    And a policy "InventoryToFulfillment" translating from "inventory" to "fulfillment", generated with RecordStockReserved in pass-through mode
     And the "inventory" aggregate defines an on_refused_RecordStockReserved handler
     When "Fulfillment" refuses the RecordStockReserved built from StockReserved of item "sku-1"
     Then "Fulfillment" records nothing
     And a CommandRefused fact is delivered to "inventory" item "sku-1"
 
-  @saga_refusal
+  @policy_refusal
   @C-0624
-  Scenario: A command handler's typed refusal object reaches the saga's source, packed
+  Scenario: A command handler's typed refusal object reaches the policy's source, packed
     Given "BuyInToPlayer" was generated with HoldFunds in pass-through mode
     And "BuyIn" defines an on_refused_HoldFunds handler
     And player "p-1" has 120 available and is asked to hold 500
     When "BuyIn" records BuyInStarted for 500 from player "p-1"
     Then player "p-1"'s HoldFunds handler returns the refusal object InsufficientFunds with available 120 and requested 500
-    And the refused response the saga receives carries that InsufficientFunds as its refusal, and the rejection's status message
+    And the refused response the policy receives carries that InsufficientFunds as its refusal, and the rejection's status message
     And the CommandRefused fact's refusal unpacks to InsufficientFunds with available 120 and requested 500

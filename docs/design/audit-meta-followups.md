@@ -179,7 +179,7 @@ event onwards, every removal reserves its number and name (see
   - **Commands can be upcast**, discouraged (a migration aid with a planned
     removal).
   - The crate: `bytes::Bytes`, `Eq`/`Hash` on key types,
-    `ids::reaction_command_id` and `ids::fact_command_id` in place of
+    `ids::policy_command_id` and `ids::fact_command_id` in place of
     `ids::fingerprint`.
 - **Pass 13** (5850057): decisions 13.1–13.6, by the user, closing
   PM2/PR-3 and T8.

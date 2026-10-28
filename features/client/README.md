@@ -5,7 +5,7 @@ Client-surface cucumber, run by every `client-*-lang` repo.
 ## The rule: dispatch is specified by the router, not here
 
 Dispatch behaviour — routing by type, state rebuild, command/fact/
-rejection/compensation/undo dispatch, saga and process-manager handling —
+rejection/compensation/undo dispatch, policy and process-manager handling —
 is specified **only** by angzarr-router's conformance suite
 ([`angzarr-router/conformance`](https://github.com/angzarr-io/angzarr-router/tree/main/conformance)).
 Every client repo's CI must run that suite against its router binding.

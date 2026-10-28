@@ -1,5 +1,11 @@
 # Audit-meta decision log (passes 1–14)
 
+> **Renamed by 14.33 (2026-10-28):** where an entry below says "saga" for
+> the stateless event-to-command mapper (`SagaService`, `SagaResponse`,
+> `COMPONENT_KIND_SAGA`, `reaction_command_id`), read "policy"
+> (`PolicyService`, `PolicyResponse`, `COMPONENT_KIND_POLICY`,
+> `policy_command_id`). The entries keep their text.
+
 Part of the [audit-meta design record](../audit-meta-followups.md).
 
 Each entry gives the decision, why it was made, the cost accepted with it,
@@ -2340,6 +2346,33 @@ option below.
 >   and a position on a stream with no rows of the edition are refused in
 >   either case.
 > - Main is still never written: all of this lives in X.
+
+**14.33 The stateless event-to-command mapper is a POLICY, not a saga.**
+Owner ruling, 2026-10-28. Canon calls a saga stateful: what angzarr has
+called a saga (it reacts to one domain's events and builds commands for
+another, keeping no state of its own) is a POLICY, and the stateful
+coordinator canon calls a saga is angzarr's process manager, a domain
+(14.31). A mechanical rename, with no behaviour change:
+- `saga.proto` is `policy.proto`; `SagaService` is `PolicyService`,
+  `SagaCoordinatorService` `PolicyCoordinatorService`, `SagaResponse`
+  `PolicyResponse` (its HTTP binding `/v1/policy/execute`); `Refusal`,
+  `OnRefused` and `OnRefusedResponse` keep their names.
+- `ComponentKind.COMPONENT_KIND_SAGA` (2) is `COMPONENT_KIND_POLICY`, the
+  same number.
+- The examples' `sagas.proto` is `policies.proto`, and its `*Saga` state
+  messages are `*Policy` (`TablePlayerPolicy`, `BuyInPlayerPolicy`,
+  `BuyInTablePolicy`, `TableBuyInPolicy`, `PlayerBuyInPolicy`).
+- angzarr-proto's `ids::reaction_command_id` is `ids::policy_command_id`
+  ("reaction" stays out of code; the derivation and its namespace are
+  unchanged, so every derived id is the same).
+- Every comment, field note, region, feature (`policy_refusal.feature`,
+  the blackjack framework tier's `policy.feature`, the steps' "a policy")
+  and the ports' wording follows. `#[process_manager]` and the PM naming
+  stay as they are.
+- Earlier entries keep their text: where they say "saga" for the
+  stateless mapper, read "policy".
+- Why: one word per concept, matching the literature: a saga keeps state
+  across steps; this component never does.
 
 ## Corrections
 

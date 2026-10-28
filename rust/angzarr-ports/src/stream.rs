@@ -112,7 +112,7 @@ impl Slice {
 /// `(handler, domain, edition, root)` key (ruling S3).
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
 pub struct PositionKey<'a> {
-    /// The projector or saga whose position it is. (A process manager is
+    /// The projector or policy whose position it is. (A process manager is
     /// a domain: it keeps no reactor position.)
     pub handler: &'a str,
     /// The stream it consumes.

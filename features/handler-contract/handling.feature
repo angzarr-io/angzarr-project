@@ -74,7 +74,7 @@ Feature: Handling a delivered command - versions, upcasting and conflicts
     Examples:
       | kind            | name             |
       | aggregate       | payment          |
-      | saga            | OrderFulfillment |
+      | policy            | OrderFulfillment |
       | process manager | Fulfillment      |
       | projector       | OrderSummary     |
 
@@ -104,13 +104,13 @@ Feature: Handling a delivered command - versions, upcasting and conflicts
       | and writes a FulfillmentStarted event     |
       | without writing a process event           |
 
-  @saga
+  @policy
   @C-0583
-  Scenario: A saga's command for a domain other than its one destination is refused before it answers
-    Given an "OrderFulfillment" saga translating "order" events into "inventory" commands
+  Scenario: A policy's command for a domain other than its one destination is refused before it answers
+    Given an "OrderFulfillment" policy translating "order" events into "inventory" commands
     And its business code answers an OrderPlaced event with a ReserveStock command for "inventory" and a ShipOrder command for "shipping"
     When the OrderPlaced event is handled
-    Then the saga's answer fails with INTERNAL status
+    Then the policy's answer fails with INTERNAL status
     And the answer carries no commands
 
   # ===========================================================================

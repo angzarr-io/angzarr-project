@@ -3,12 +3,12 @@ Feature: Sync modes - how much downstream work a command waits for
   returns. Every mode persists the aggregate's events before returning (or
   returns the rejection). They differ in downstream work:
 
-  - ASYNC: projectors and sagas/PMs run asynchronously from the bus.
+  - ASYNC: projectors and policies/PMs run asynchronously from the bus.
   - DECISION: as ASYNC; the point is that acceptance or rejection is the
     synchronous answer.
   - SIMPLE: projectors run synchronously and their projections are in the
-    response; sagas/PMs run asynchronously.
-  - CASCADE: projectors and sagas/PMs run synchronously, recursively through
+    response; policies/PMs run asynchronously.
+  - CASCADE: projectors and policies/PMs run synchronously, recursively through
     the commands they emit.
   - ISOLATED: nothing downstream runs, sync or async; events are not
     published to the bus.
@@ -29,7 +29,7 @@ Feature: Sync modes - how much downstream work a command waits for
   Background:
     Given an "order" aggregate that accepts CreateOrder and rejects CancelOrder for unknown orders
     And a projector "OrderSummary" subscribed to "order"
-    And a saga "OrderFulfillment" translating OrderCreated into a ReserveStock command for "inventory"
+    And a policy "OrderFulfillment" translating OrderCreated into a ReserveStock command for "inventory"
 
   @C-0425
   Scenario: ASYNC returns after persisting, with no projections
@@ -37,7 +37,7 @@ Feature: Sync modes - how much downstream work a command waits for
     Then the response contains the OrderCreated event
     And the response contains no projections
     And the OrderCreated event is published to the bus
-    And the OrderSummary projector and the OrderFulfillment saga receive it from the bus
+    And the OrderSummary projector and the OrderFulfillment policy receive it from the bus
 
   @C-0426
   Scenario: An unset sync_mode behaves as ASYNC
@@ -63,11 +63,11 @@ Feature: Sync modes - how much downstream work a command waits for
     When a CreateOrder command is handled with sync_mode SIMPLE
     Then the response contains the OrderCreated event
     And the response contains the OrderSummary projection for the OrderCreated event
-    And the OrderFulfillment saga has not run when the response is returned
+    And the OrderFulfillment policy has not run when the response is returned
     And the OrderCreated event is published to the bus
 
   @C-0430
-  Scenario: CASCADE waits for projectors and sagas
+  Scenario: CASCADE waits for projectors and policies
     When a CreateOrder command is handled with sync_mode CASCADE
     Then the response contains the OrderSummary projection
     And the ReserveStock command has been handled by "inventory" when the response is returned
@@ -84,7 +84,7 @@ Feature: Sync modes - how much downstream work a command waits for
     Then the response contains the OrderCreated event
     And the response contains no projections
     And the OrderCreated event is not published to the bus
-    And neither the OrderSummary projector nor the OrderFulfillment saga ever receives it
+    And neither the OrderSummary projector nor the OrderFulfillment policy ever receives it
 
   @C-0433
   Scenario: ISOLATED still rejects invalid commands
@@ -95,6 +95,6 @@ Feature: Sync modes - how much downstream work a command waits for
   # The scenarios that were here (C-0434, C-0435, C-0507, C-0508, C-0512)
   # had a process manager emit reaction commands with their own
   # PageHeader.sync_mode. A process manager sends no commands (decision
-  # 14.31), so they are retired. What a saga's reaction command waits for
-  # comes from the saga's configuration, never from the command (backlog
+  # 14.31), so they are retired. What a policy's reaction command waits for
+  # comes from the policy's configuration, never from the command (backlog
   # MD-5); the rest of this file awaits the rewrite in backlog DOC-5.

@@ -1,13 +1,13 @@
 Feature: Fact injection
 
   A process manager is a domain (decision 14.31): facts reach it as they
-  reach an aggregate (timeouts, webhooks). A saga's business code never
-  emits a fact; the one fact a saga delivers is a refusal fact (the
+  reach an aggregate (timeouts, webhooks). A policy's business code never
+  emits a fact; the one fact a policy delivers is a refusal fact (the
   standard CommandRefused, or a domestic fact its callback translates the
-  refusal into), for its own source domain only (saga_refusal.feature).
+  refusal into), for its own source domain only (policy_refusal.feature).
 
   Retired with decision 14.31: C-0184, C-0188, C-0189 and C-0493, which had
-  a saga inject facts into an aggregate (C-0610 now refuses that).
+  a policy inject facts into an aggregate (C-0610 now refuses that).
 
   Facts (events) are injected
   directly into target aggregates without going through command handling.
@@ -64,8 +64,8 @@ Feature: Fact injection
 
   @C-0609
   Scenario: A fact carrying a causation_id is accepted by its trigger's own stream
-    # The one fact with a causation_id is a saga's refusal fact, for the
-    # exact stream of the saga's triggering event (decision 14.31).
+    # The one fact with a causation_id is a policy's refusal fact, for the
+    # exact stream of the policy's triggering event (decision 14.31).
     Given an "order" aggregate "order-1" that declares fact DeliveryRefused
     When a framework component sends a DeliveryRefused fact to "order" root "order-1" whose causation_id names an event of "order" aggregate "order-1"
     Then the fact is recorded at the order's next sequence
@@ -74,7 +74,7 @@ Feature: Fact injection
   Scenario: A fact carrying a causation_id addressed to another domain is refused
     Given an "order" aggregate "order-1" that declares fact ShipmentDispatched
     When a framework component sends a ShipmentDispatched fact to "order" root "order-1" whose causation_id names an event of the "shipping" domain
-    Then the fact is refused INVALID_ARGUMENT, and dead-lettered and alerted as a saga bug
+    Then the fact is refused INVALID_ARGUMENT, and dead-lettered and alerted as a policy bug
     And no event is persisted to "order" aggregate "order-1"
 
   # ---------------------------------------------------------------------------

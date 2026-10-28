@@ -13,15 +13,15 @@ option ruby_package = "Angzarr";
 // process is.
 //
 // One coordinator, one component, one business process. A component is one
-// aggregate, one saga, one process manager or one projector, and a
+// aggregate, one policy, one process manager or one projector, and a
 // business process hosts exactly one. (A projector may react to several
-// input domains, and a process manager may take commands from sagas of
+// input domains, and a process manager may take commands from policies of
 // several domains; that is still one component.) A
 // component's upcasters are part of it, not components of their own (see
 // upcaster.proto).
 //
 // Every business process serves ComponentService beside its kind service
-// (CommandHandlerService for an aggregate or a process manager, SagaService or
+// (CommandHandlerService for an aggregate or a process manager, PolicyService or
 // ProjectorService) and, if its component upcasts, UpcasterService. The
 // client library answers Describe from the component's generated
 // descriptor; business code never implements it.
