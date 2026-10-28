@@ -92,16 +92,29 @@ message EnrollLoyalty {
 // wallet cannot fund (INSUFFICIENT_AVAILABLE_FUNDS) or that reuses a hold
 // id for another amount (HOLD_CONFLICT) is answered: the wallet refuses it
 // (FAILED_PRECONDITION) and records nothing, and saga-buy-in-player
-// passes the refusal through as the standard CommandRefused fact to the
-// buy-in instance, whose on_refused_HoldFunds records BuyInFailed
-// (decision 14.31; the refusal flows in buy_in.proto).
+// passes the refusal, with its typed InsufficientFunds, through as the
+// standard CommandRefused fact to the buy-in instance, whose
+// on_refused_HoldFunds records BuyInFailed (decision 14.31; the refusal
+// flows in buy_in.proto).
 // Whether HOLD_CONFLICT is a refusal or a bug is still the buy-in refusal
 // ruling (R2).
 message HoldFunds {
-  option (io.angzarr.v1.command) = {component: "io.angzarr.examples.v1.PlayerState"};
+  option (io.angzarr.v1.command) = {
+    component: "io.angzarr.examples.v1.PlayerState"
+    refused_with: "io.angzarr.examples.v1.InsufficientFunds"
+  };
   bytes hold_id = 1;
   bytes table_root = 2;
   int64 amount = 3;
+}
+
+// The wallet's typed refusal of HoldFunds when available funds fall short
+// (INSUFFICIENT_AVAILABLE_FUNDS): a refusal object, never an event; it is
+// returned with the rejection and packed into CommandRefused.refusal
+// (decision 14.31).
+message InsufficientFunds {
+  int64 available = 1; // Funds available to hold
+  int64 requested = 2; // The amount asked for
 }
 
 // Spend an open buy-in hold: bankroll and the hold both drop by its amount.
