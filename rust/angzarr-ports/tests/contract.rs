@@ -76,6 +76,21 @@
 //!   wasm-bindgen-test-runner (pinned to Cargo.lock's wasm-bindgen) and
 //!   `just check` runs `just wasm-test`.
 //!
+//! - **RULED(D) Read units** carry `covers`, `read`, `head` and
+//!   `read_snapshot`, every one at the unit's moment and respecting
+//!   editions as the store does: a created edition falls through to main
+//!   below its divergence, its snapshot never does, an edition never created
+//!   is refused (`a_read_unit_heads_and_snapshots_as_it_began`,
+//!   `a_read_unit_refuses_heads_and_snapshots_in_an_edition_never_created`,
+//!   `a_read_unit_keeps_the_head_and_snapshot_of_a_stream_purged_after_it_began`,
+//!   `a_read_unit_heads_a_created_edition_through_to_main_but_not_its_snapshots`).
+//! - **RULED(G) `ListStreams`** stays an opt-in trait, REQUIRED of any
+//!   backend serving angzarr's `QueryService` (`GetAggregateRoots` lists
+//!   every stream across all domains); pinned equal to `covers` over every
+//!   domain, in domain order.
+//! - **RULED(O7) The dyn outbox:** a dyn unit writes the outbox only when
+//!   opened through `DynOutboxStore::begin_outbox`, beside `DynStore`.
+//!
 //! # Still open
 //!
 //! - **OPEN(C) Edition creation is an event; its home is pending the
@@ -84,13 +99,6 @@
 //!   history"), however it is recorded; `Editions` returns the wire
 //!   `Edition`, and the store-side `EditionRecord` is withdrawn. Where the
 //!   creation event lives (which stream, which message) is not designed yet.
-//! - **OPEN(D) Read units** carry annals' `covers` and `read` only; no
-//!   `head`, dedup lookups or snapshots.
-//! - **OPEN(G) `list_streams`** stays its own trait: `covers` needs a
-//!   domain, and the base contract has no list of domains. Pinned equal to
-//!   `covers` over every domain, in domain order.
-//! - **OPEN(O7) The dyn outbox:** a dyn unit writes the outbox only when
-//!   opened through `DynOutboxStore::begin_outbox`, beside `DynStore`.
 
 #![cfg(not(target_arch = "wasm32"))]
 

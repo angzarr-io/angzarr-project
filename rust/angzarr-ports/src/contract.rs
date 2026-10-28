@@ -1417,6 +1417,138 @@ where
     assert_eq!(later.covers("account").await, Ok(covers(&[kept])));
 }
 
+/// A read unit's head and snapshot are its moment's, like its reads: a
+/// write or snapshot landing after it began is not seen through it.
+pub async fn a_read_unit_heads_and_snapshots_as_it_began<S>((reader, writer): (S, S))
+where
+    S: Store + ReadStore,
+{
+    let s = main_stream("account", 1);
+    writer.append(s, 0, &[page(0, 1)]).await.unwrap();
+    writer.write_snapshot(s, &snapshot(0, "v1")).await.unwrap();
+    let mut reads = reader.begin_read().await.unwrap();
+    writer.append(s, 1, &[page(1, 2)]).await.unwrap();
+    writer.write_snapshot(s, &snapshot(1, "v1")).await.unwrap();
+    let head = reads.head(s).await.unwrap();
+    assert_eq!(
+        (head.next_sequence, head.last_recorded_at),
+        (1, Some(at(0))),
+        "the head as the unit began"
+    );
+    assert_eq!(
+        reads.read_snapshot(s).await,
+        Ok(Some(snapshot(0, "v1"))),
+        "the snapshot as the unit began"
+    );
+    assert_eq!(
+        reads.read_snapshot(main_stream("account", 2)).await,
+        Ok(None)
+    );
+    drop(reads);
+    let mut later = reader.begin_read().await.unwrap();
+    assert_eq!(later.head(s).await.unwrap().next_sequence, 2);
+    assert_eq!(later.read_snapshot(s).await, Ok(Some(snapshot(1, "v1"))));
+}
+
+/// EA-2 for a read unit's head and snapshot too: an edition never created
+/// is refused, not answered empty.
+pub async fn a_read_unit_refuses_heads_and_snapshots_in_an_edition_never_created<S>(
+    (reader, writer): (S, S),
+) where
+    S: Store + ReadStore,
+{
+    let uncreated = edition_stream("account", 1, "what-if");
+    writer.append(uncreated, 0, &[page(0, 1)]).await.unwrap();
+    writer
+        .write_snapshot(uncreated, &snapshot(0, "v1"))
+        .await
+        .unwrap();
+    let refused = || StoreError::UnknownEdition {
+        stream: uncreated.to_cover(),
+    };
+    let mut reads = reader.begin_read().await.unwrap();
+    assert_eq!(reads.head(uncreated).await, Err(refused()), "its head");
+    assert_eq!(
+        reads.read_snapshot(uncreated).await,
+        Err(refused()),
+        "its snapshot"
+    );
+}
+
+/// A stream purged after a read unit began keeps, through the unit, its
+/// head and its snapshot as well as its pages.
+pub async fn a_read_unit_keeps_the_head_and_snapshot_of_a_stream_purged_after_it_began<S>(
+    (reader, writer): (S, S),
+) where
+    S: Store + ReadStore + Purge,
+{
+    let s = main_stream("account", 1);
+    writer
+        .append(s, 0, &[page(0, 1), page(1, 2)])
+        .await
+        .unwrap();
+    writer.write_snapshot(s, &snapshot(1, "v1")).await.unwrap();
+    let mut reads = reader.begin_read().await.unwrap();
+    assert_eq!(writer.purge(s).await, Ok(2));
+    let head = reads.head(s).await.unwrap();
+    assert_eq!(
+        (head.next_sequence, head.last_recorded_at),
+        (2, Some(at(1)))
+    );
+    assert_eq!(reads.read_snapshot(s).await, Ok(Some(snapshot(1, "v1"))));
+    drop(reads);
+    let mut later = reader.begin_read().await.unwrap();
+    assert_eq!(later.head(s).await.unwrap().next_sequence, 0);
+    assert_eq!(later.read_snapshot(s).await, Ok(None));
+}
+
+/// A read unit heads a created edition through to main, as the store reads
+/// it (EA-3), but reads only the edition's OWN snapshot: snapshots never
+/// fall through (ruling B).
+pub async fn a_read_unit_heads_a_created_edition_through_to_main_but_not_its_snapshots<S>(store: S)
+where
+    S: Store + ReadStore + Editions,
+{
+    let main = main_stream("account", 1);
+    let fork = edition_stream("account", 1, "what-if");
+    store
+        .append(main, 0, &[page(0, 1), page(1, 1)])
+        .await
+        .unwrap();
+    store
+        .write_snapshot(main, &snapshot(1, "v1"))
+        .await
+        .unwrap();
+    store
+        .create_edition(&create("what-if"), at(10))
+        .await
+        .unwrap();
+    store.append(main, 2, &[page(2, 3)]).await.unwrap();
+    {
+        let mut reads = store.begin_read().await.unwrap();
+        let head = reads.head(fork).await.unwrap();
+        assert_eq!(
+            (head.next_sequence, head.last_recorded_at),
+            (2, Some(at(1))),
+            "main's history below the divergence"
+        );
+        assert_eq!(
+            reads.read_snapshot(fork).await,
+            Ok(None),
+            "main's snapshot is not the edition's"
+        );
+    }
+    store.append(fork, 2, &[page(2, 5)]).await.unwrap();
+    store
+        .write_snapshot(fork, &snapshot(2, "v2"))
+        .await
+        .unwrap();
+    let mut reads = store.begin_read().await.unwrap();
+    assert_eq!(reads.head(fork).await.unwrap().next_sequence, 3);
+    assert_eq!(reads.read_snapshot(fork).await, Ok(Some(snapshot(2, "v2"))));
+    assert_eq!(reads.read_snapshot(main).await, Ok(Some(snapshot(1, "v1"))));
+}
+
 /// A read unit reads a created edition as the store does: through to main.
 pub async fn a_read_unit_reads_a_created_edition_through_to_main<S>(store: S)
 where
@@ -1803,16 +1935,20 @@ macro_rules! store_contract {
         $crate::store_contract!(@each #[$t], $f;
             a_read_unit_sees_the_store_as_it_began,
             a_read_unit_refuses_an_edition_never_created,
+            a_read_unit_heads_and_snapshots_as_it_began,
+            a_read_unit_refuses_heads_and_snapshots_in_an_edition_never_created,
         );
     };
     (read_purge, #[$t:meta], $f:expr) => {
         $crate::store_contract!(@each #[$t], $f;
             a_read_unit_keeps_a_stream_purged_after_it_began,
+            a_read_unit_keeps_the_head_and_snapshot_of_a_stream_purged_after_it_began,
         );
     };
     (read_editions, #[$t:meta], $f:expr) => {
         $crate::store_contract!(@each #[$t], $f;
             a_read_unit_reads_a_created_edition_through_to_main,
+            a_read_unit_heads_a_created_edition_through_to_main_but_not_its_snapshots,
         );
     };
     (watch, #[$t:meta], $f:expr) => {

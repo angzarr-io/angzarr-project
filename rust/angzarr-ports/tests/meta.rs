@@ -140,6 +140,18 @@ enum Bug {
     ReadUnitAnyEdition,
     /// Its read units read an edition's own events alone.
     ReadUnitNoFallThrough,
+    /// Its read units' head is the live store's.
+    ReadUnitHeadIsLive,
+    /// Its read units' snapshot is the live store's, escaping the moment.
+    ReadUnitSnapshotIsLive,
+    /// Its read units head any edition, created or not.
+    ReadUnitHeadAnyEdition,
+    /// Its read units read any edition's snapshot, created or not.
+    ReadUnitSnapshotAnyEdition,
+    /// Its read units' head counts an edition's own events alone.
+    ReadUnitHeadNoFallThrough,
+    /// Its read units give an edition main's snapshot when it has none.
+    ReadUnitSnapshotFallsThrough,
     // ---- watch
     /// Its token never changes.
     TokenStandsStill,
@@ -772,6 +784,40 @@ impl ReadUnit for BrokenRead {
         }
         Ok(slice)
     }
+
+    async fn head(&mut self, stream: StreamRef<'_>) -> Result<Head, StoreError> {
+        let live = self.store.is(Bug::ReadUnitHeadIsLive)
+            || (self.store.is(Bug::ReadUnitHeadAnyEdition) && stream.edition.is_some());
+        if live {
+            return self.store.head(stream).await;
+        }
+        let mut head = ReadUnit::head(&mut self.inner, stream).await?;
+        if self.store.is(Bug::ReadUnitHeadNoFallThrough) && self.store.created_edition(stream).await
+        {
+            let all = self.inner.read(stream, 0, None).await?;
+            head.next_sequence = self.store.strip_history(stream, all).await.pages.len() as u64;
+        }
+        Ok(head)
+    }
+
+    async fn read_snapshot(
+        &mut self,
+        stream: StreamRef<'_>,
+    ) -> Result<Option<Snapshot>, StoreError> {
+        let live = self.store.is(Bug::ReadUnitSnapshotIsLive)
+            || (self.store.is(Bug::ReadUnitSnapshotAnyEdition) && stream.edition.is_some());
+        if live {
+            return self.store.read_snapshot(stream).await;
+        }
+        let own = self.inner.read_snapshot(stream).await?;
+        if own.is_none()
+            && self.store.is(Bug::ReadUnitSnapshotFallsThrough)
+            && self.store.created_edition(stream).await
+        {
+            return self.inner.read_snapshot(main_of(stream)).await;
+        }
+        Ok(own)
+    }
 }
 
 impl Watch for Broken {
@@ -1183,6 +1229,34 @@ fn the_edition_checks_catch_a_lax_registry_and_a_wrong_fall_through() {
 }
 
 #[test]
+fn the_read_unit_head_and_snapshot_checks_catch_a_live_or_lax_unit() {
+    catches!(
+        a_read_unit_heads_and_snapshots_as_it_began,
+        broken_pair,
+        ReadUnitHeadIsLive,
+        ReadUnitSnapshotIsLive,
+    );
+    catches!(
+        a_read_unit_refuses_heads_and_snapshots_in_an_edition_never_created,
+        broken_pair,
+        ReadUnitHeadAnyEdition,
+        ReadUnitSnapshotAnyEdition,
+    );
+    catches!(
+        a_read_unit_keeps_the_head_and_snapshot_of_a_stream_purged_after_it_began,
+        broken_pair,
+        ReadUnitHeadIsLive,
+        ReadUnitSnapshotIsLive,
+    );
+    catches!(
+        a_read_unit_heads_a_created_edition_through_to_main_but_not_its_snapshots,
+        broken,
+        ReadUnitHeadNoFallThrough,
+        ReadUnitSnapshotFallsThrough,
+    );
+}
+
+#[test]
 fn the_read_unit_checks_catch_a_live_unit_and_a_wrong_edition() {
     catches!(
         a_read_unit_sees_the_store_as_it_began,
@@ -1316,6 +1390,7 @@ fn an_honest_broken_store_passes_every_check() {
         deleting_an_edition_removes_it_and_its_streams_never_mains,
         deleting_an_edition_refuses_an_empty_or_unknown_name,
         a_read_unit_reads_a_created_edition_through_to_main,
+        a_read_unit_heads_a_created_edition_through_to_main_but_not_its_snapshots,
         a_change_token_changes_when_its_own_store_commits,
         read_until_time_is_the_prefix_recorded_by_then,
         read_by_correlation_gives_one_book_per_stream,
@@ -1333,6 +1408,9 @@ fn an_honest_broken_store_passes_every_check() {
         a_read_unit_sees_the_store_as_it_began,
         a_read_unit_refuses_an_edition_never_created,
         a_read_unit_keeps_a_stream_purged_after_it_began,
+        a_read_unit_heads_and_snapshots_as_it_began,
+        a_read_unit_refuses_heads_and_snapshots_in_an_edition_never_created,
+        a_read_unit_keeps_the_head_and_snapshot_of_a_stream_purged_after_it_began,
         a_change_token_changes_when_another_handle_commits,
     );
 }

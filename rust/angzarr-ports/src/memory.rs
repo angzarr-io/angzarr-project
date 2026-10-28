@@ -236,6 +236,13 @@ impl ReadUnit for MemoryRead {
         let _ = (stream, from, to);
         todo!("{STUB}")
     }
+    async fn read_snapshot(
+        &mut self,
+        stream: StreamRef<'_>,
+    ) -> Result<Option<Snapshot>, StoreError> {
+        let _ = stream;
+        todo!("{STUB}")
+    }
 }
 
 impl Watch for MemoryStore {

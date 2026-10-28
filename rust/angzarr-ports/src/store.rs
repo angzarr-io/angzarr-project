@@ -269,6 +269,10 @@ pub trait ReadStore: MaybeSend + MaybeSync {
 }
 
 /// A read-only unit: the store as it stood when it began. Ends when dropped.
+/// Every read through it respects editions as the store does: a created
+/// edition's stream falls through to main below its divergence (EA-3),
+/// except its snapshot, which never does (ruling B); an edition never
+/// created is refused ([`StoreError::UnknownEdition`]).
 pub trait ReadUnit: MaybeSend {
     fn covers(
         &mut self,
@@ -281,6 +285,21 @@ pub trait ReadUnit: MaybeSend {
         from: u64,
         to: Option<u64>,
     ) -> impl Future<Output = Result<Slice, StoreError>> + MaybeSend;
+
+    /// The stream's head at the unit's moment: by default a read past the
+    /// end.
+    fn head(
+        &mut self,
+        stream: StreamRef<'_>,
+    ) -> impl Future<Output = Result<Head, StoreError>> + MaybeSend {
+        async move { Ok(self.read(stream, u64::MAX, None).await?.head()) }
+    }
+
+    /// The stream's own snapshot at the unit's moment, never main's.
+    fn read_snapshot(
+        &mut self,
+        stream: StreamRef<'_>,
+    ) -> impl Future<Output = Result<Option<Snapshot>, StoreError>> + MaybeSend;
 }
 
 // ================================================================== watch
@@ -328,10 +347,11 @@ pub trait ReadByCorrelation: MaybeSend + MaybeSync {
     ) -> impl Future<Output = Result<Vec<EventBook>, StoreError>> + MaybeSend;
 }
 
-/// Opt-in: every stream of every domain. Not folded into
-/// [`EventStore::covers`]: that needs a domain, and the base contract has no
-/// list of domains. It answers exactly `covers(d)` over every domain `d`
-/// holding a stream, in domain order.
+/// Opt-in: every stream of every domain. REQUIRED of any backend serving
+/// angzarr's `QueryService`, whose `GetAggregateRoots` lists every stream
+/// across all domains. Not folded into [`EventStore::covers`]: that needs a
+/// domain, and the base contract has no list of domains. It answers exactly
+/// `covers(d)` over every domain `d` holding a stream, in domain order.
 pub trait ListStreams: MaybeSend + MaybeSync {
     fn list_streams(&self) -> impl Future<Output = Result<Vec<Cover>, StoreError>> + MaybeSend;
 }
