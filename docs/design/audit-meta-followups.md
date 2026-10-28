@@ -196,7 +196,7 @@ event onwards, every removal reserves its number and name (see
     version, so re-runs dedupe; checkpoint resets are for recovery; repairs
     are new commands; standard re-drive commands are backlog RD-1.
   - **No reacting-component field**: source control says what makes what.
-- **Pass 14** (this change): decisions 14.1–14.29, by the owner.
+- **Pass 14** (this change): decisions 14.1–14.31, by the owner.
   - **One coordinator, one component, one business process** (14.19):
     `Describe` returns one descriptor; each PM has its own coordinator; a
     query is judged by its coordinator's own registration; an upcaster is
@@ -228,6 +228,19 @@ event onwards, every removal reserves its number and name (see
   - **Unknown type after upcasting**: the message names the sent type URL,
     `ErrorInfo` metadata `upcast_type_url` the chain's final one; facts are
     upcast too.
+  - **A PM's root is its trigger's correlation id** (14.30), unchanged.
+  - **Process managers: facts in, facts out** (14.31): a PM takes
+    triggers and commands addressed to its own domain, records each as its
+    own events and never refuses one (no `Handling`; a failing command
+    handler answers `PARKED`, a failing trigger is dead-lettered); it sends
+    no commands, so sagas from its domain build them
+    (`ProcessManagerHandleResponse.commands` and `output_domains`
+    deleted); only a declared starting trigger starts an instance, and a
+    command always may (annals ruling B1, `EventConsumer.starts`,
+    `Target.starting_types`); deduplication runs before the handler. The
+    outbox is one kind-agnostic capability, used today by sagas; a PM
+    needs none. Proposed and flagged: a trigger book's trigger is its last
+    page.
 
 ### Worked example: hatpick's `ListState`
 
@@ -278,7 +291,10 @@ markers can go wrong.
   by one `command_id` per command, deduplicated on the events. See
   [idempotency.md](audit-meta/idempotency.md).
 - **Reactor nondeterminism** (pass 5): a transient outbox for all reactors,
-  with no purity contract.
+  with no purity contract. Since 14.31 the outbox is one kind-agnostic
+  capability, for any component whose output leaves its own stream; today
+  that is the saga, and a PM, whose only output is its own events, needs
+  none.
 - **The parked-fact answer** (pass 5): a `DeliveryOutcome` value, not an
   `Outcome` field.
 - **Where `rules_version` comes from** (pass 5, revised in passes 12 and
@@ -341,6 +357,10 @@ markers can go wrong.
   command's trigger goes to traces, not events (decision 13.3).
 - **Reactor re-runs** (pass 13, T8): no switch; same ids always dedupe;
   repairs are new commands (decision 13.4).
+- **Hard rejections of PM commands** (pass 14): dissolved; a PM sends no
+  commands (decision 14.31). The saga carrying a PM's step handles a hard
+  rejection like any saga command, and a refusal reaches the PM as an
+  event (backlog PR-2, closed).
 - **A reacting-component field** (pass 13): none; source control says what
   makes what (decision 13.5).
 
@@ -356,17 +376,20 @@ markers can go wrong.
 - **The exact default divergence point** (backlog EA-3): a create-time stamp
   can tie with a concurrent main append, and clocks differ across
   instances.
-- **Per-event saga causation** (W3a, backlog OB-6).
+- **Per-event saga causation** (W3a, backlog OB-6). Pass 14 proposes,
+  flagged and not ruled, that a trigger book's trigger is its last page
+  and each event of a write is its own trigger book (decision 14.31).
 - **The SIMPLE mode name** (W14): not renamed, with no decision recorded.
 - **Multi-instance affinity for in-memory editions.** An in-memory edition
   lives in one process. Options:
   - affinity: routing on the edition name;
   - a shared backend: falling back to redis;
   - a rule that in-memory editions are single-instance only.
-- **Hard rejections of saga and PM commands.** They are dead-lettered. Open:
-  whether a PM should also learn of them, through a framework-recorded event
-  on its own stream (backlog PR-2). With the attempt-audit sink (D3) an
-  operator can at least see them, once it exists.
+- **Hard rejections of saga commands.** They are dead-lettered. A PM
+  sends none (decision 14.31), so whether a PM should learn of one no
+  longer arises: the step's saga's command is dead-lettered, and a business
+  refusal reaches the PM as an event. With the attempt-audit sink (D3) an
+  operator can at least see dead-lettered commands, once it exists.
 - **Repeated parks of one fact.** One DLQ entry per command id, or one per
   attempt (backlog CI-8).
 - **Shipped re-drive commands** (backlog RD-1): their command types, where

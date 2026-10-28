@@ -6,6 +6,18 @@ blackjack spec ported from `feat/blackjack-spec`. Context:
 `docs/design/blackjack-mvp.plan.md` (on the blackjack-plan worktree), Stage 0.
 
 
+> **A process manager sends no commands (decision 14.31).** pmg-buy-in
+> records each step as a buy-in event carrying the next command's data,
+> and two sagas from "buy-in" build the commands: `BuyInPlayerSaga`
+> (saga-buy-in-player: `HoldFunds`, `CaptureFunds`) and `BuyInTableSaga`
+> (saga-buy-in-table: `ConfirmSeat`). `SeatHeld` is its one starting
+> trigger (ruling B1): a wallet or table event for a buy-in it has not
+> seen is skipped. Wherever this note says the PM sends or issues a
+> command, read "the PM records an event and a buy-in saga sends the
+> command". R2's options are unchanged by this: a refusal still reaches
+> the PM only as an event, and a hard rejection of the saga's command is
+> dead-lettered.
+
 > **One saga per (source, destination) pair (decision 14.23).** The
 > table -> player reactions (round history and loyalty, and settlement if
 > a ruling restores it) are one saga, `TablePlayerSaga`
@@ -113,14 +125,15 @@ the buy-in and released whichever half had gone through.
 
 **Why it cannot port.** A PM learns of a refusal only when the target records
 it as a domain event (`process_manager.proto`, "Replies"). A hard rejection
-of a PM's command is dead-lettered, and the seat or the hold would stay held.
+of a buy-in saga's command (the PM sends none; decision 14.31) is
+dead-lettered, and the seat or the hold would stay held.
 
 **Candidates.**
 - **(a) Refusal events.** The wallet records `FundsHoldRefused{hold_id,
   code}` instead of rejecting `HoldFunds`, and the table records
   `SeatConfirmationRefused{buy_in_id, code}`. pmg-buy-in subscribes to both
   as triggers. The failure branch then runs as before (`BuyInFailed`,
-  `ReleaseSeat`, `ReleaseHold`). EU-1414, EU-1416, EU-1451 and EU-1452 turn
+  with `ReleaseSeat` and `ReleaseHold` built by the buy-in sagas from it). EU-1414, EU-1416, EU-1451 and EU-1452 turn
   into recorded refusals.
 - **(b) As (a), but only for the refusals the flow must answer**
   (`INSUFFICIENT_AVAILABLE_FUNDS`, `PLAYER_ALREADY_SEATED`). The rest
@@ -380,8 +393,8 @@ These are mechanical: the latest contract has a direct equivalent.
 |--------------|-----------------|-------|
 | `MERGE_STRICT` | `CONFLICT_RESOLUTION_STRICT` (ABORTED, retryable) | table.proto Hit/Stand/DoubleDown; EA-0024 |
 | `MERGE_AGGREGATE_HANDLES` | `CONFLICT_RESOLUTION_AGGREGATE_HANDLES` (decide gets the window and must call `resolve_conflicts` with the nonce) | table.proto PlaceBet; EA-0022, EA-0023 |
-| `angzarr_deferred`, "deduplicated by provenance" | Reaction commands carry no Handling; the destination stamps its head; dedup on the derived command id | all saga and PM commands |
-| `SYNC_MODE_DECISION` on PM output | DECISION mode (`Handle`), chosen by the PM's configuration | buy_in.proto; EU-1550, EA-0026 |
+| `angzarr_deferred`, "deduplicated by provenance" | Reaction commands carry no Handling; the destination stamps its head; dedup on the derived command id | all saga commands (a PM sends none; 14.31) |
+| `SYNC_MODE_DECISION` on PM output | DECISION mode (`Handle`), chosen by the buy-in sagas' configuration (the PM sends no commands; 14.31) | buy_in.proto; EU-1550, EA-0026 |
 | Waiting for the read models (`SIMPLE`) | `HandleSync` | EA-0017 |
 | Routine snapshot every N events | Framework snapshot policy; the newest snapshot is kept | EU-1590, EU-1594, EA-0037 |
 | Tags `@sync-mode`, `@merge-strict`, `@merge-aggregate-handles` | `@command-mode`, `@conflict-strict`, `@conflict-aggregate-handles` | cluster.feature |

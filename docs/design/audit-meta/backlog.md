@@ -150,21 +150,32 @@ disposition:
 
 ## OB: transient reactor outbox (pass 5, W3)
 
-**OB-1** [core] **The saga transient outbox.**
-- What: store a `SagaResponse`'s commands atomically with the saga's source
-  checkpoint (position store), dispatch them, then clear the outbox. Today saga commands are sent directly, with
+The outbox is one capability, not a saga feature (decision 14.31, the
+owner's ruling of 2026-10-28: "if we need an outbox it should be
+polymorphic"). Build it once, naming no component kind: any component
+whose output leaves its own stream uses it. Today only sagas do.
+
+**OB-1** [core] **The transient outbox, kind-agnostic; sagas first.**
+- What: one outbox that stores a component's outbound output atomically
+  with its source checkpoint (position store), dispatches it, then clears
+  it, with no knowledge of the component's kind. Wire sagas to it: a
+  `SagaResponse`'s commands. Today saga commands are sent directly, with
   `SyncMode::Async` hardcoded in `handlers/core/saga.rs`.
-- Why: `saga.proto`, the transient outbox text.
+- Why: `saga.proto`, the transient outbox text; decision 14.31.
 - Settled when: in a crash-injection test (crash after store, before
   dispatch), the restart re-sends byte-identical commands with the same
-  command ids, and the saga is not re-run for that trigger.
+  command ids, and the saga is not re-run for that trigger; and the
+  outbox's interface names no component kind.
 
-**OB-2** [core] **The PM transient outbox.**
-- What: store a PM's `process_events` append, its commands and its checkpoint
-  in one transaction, then dispatch and clear. Remove any notion of reactor
-  determinism or nondeterminism dead-lettering.
-- Why: `process_manager.proto`, the transient outbox text.
-- Settled when: the OB-1 test passes for PMs, including process events.
+**OB-2** [core] **The PM commits its events and position atomically.**
+- What: a PM needs no outbox today (decision 14.31): its only output is
+  its `process_events`. Append them, and advance the PM's position past
+  the trigger, in one unit of work. Remove any notion of reactor
+  determinism or nondeterminism dead-lettering, and the PM's command
+  dispatch. (Rewritten by 14.31: this item was the PM outbox.)
+- Why: `process_manager.proto`, No outbox needed.
+- Settled when: a crash injected between the append and the position
+  update leaves neither, and the restart handles the trigger once.
 
 **OB-3** [core] **Co-locate checkpoints and outboxes.**
 - What: the position store and the outbox must share a transaction, so the
@@ -183,7 +194,8 @@ disposition:
 **OB-5** [core] **Outbox documentation.**
 - What: rewrite `src/bus/README.md` and the patterns docs, which describe a
   PM-only outbox.
-- Why: the outbox now covers all reactors.
+- Why: the outbox is one kind-agnostic capability, used today by sagas;
+  a PM needs none (decision 14.31).
 - Settled when: the docs match the protos.
 
 **OB-6** [core, router] **Per-event causation for saga output (W3a).**
@@ -198,6 +210,10 @@ disposition:
   `causation_id` is "always the triggering event" in the contract.
 - Settled when: re-chunked catch-up re-sends commands with identical
   command ids, and each command's `causation_id` names the event it answers.
+- Pass 14 proposes the first option (decision 14.31, flagged, not ruled):
+  the trigger is a trigger book's last page, and each event of a write is
+  delivered as its own book ending at it (the `event_ref` region of
+  `types.proto`).
 
 ## PS: provenance stamping and correlation (passes 1, 5 and 12, W4/W5)
 
@@ -386,8 +402,9 @@ disposition:
 - Settled when: no `EventRequest` remains.
 
 **MD-5** [core] **Reaction delivery mode comes from configuration.**
-- What: the PM outbox and saga delivery choose `Handle` or `HandleAsync`
-  from component configuration. Today `SyncMode::Async` is hardcoded in
+- What: saga delivery (from the outbox, OB-1) chooses `Handle` or
+  `HandleAsync` from component configuration. A PM sends no commands
+  (decision 14.31). Today `SyncMode::Async` is hardcoded in
   `handlers/core/saga.rs` and `handlers/core/process_manager.rs`. Reactions
   never use `HandleSync`.
 - Why: pass 4.
@@ -578,22 +595,23 @@ built.
 - Why: W14.
 - Settled when: the gateway serves the new path, and the old one is gone.
 
-## PR: process-manager replies (passes 2 and 5, W6)
+## PR: process-manager replies, process events and inputs (passes 2, 5, 13 and 14, W6)
 
 **PR-1** [core] **Route replies by correlation.**
-- What: route replies to the PM instance by `correlation_id`. A PM command's
-  `causation_id` is its trigger, never a PM process event.
+- What: route replies to the PM instance by `correlation_id`. A PM sends
+  no commands (decision 14.31): the saga from the PM's domain builds each
+  step's command from a PM event, carrying the PM event's correlation, so
+  the target's events reach the PM instance under it.
 - Why: W6. This **corrects** the pass-2 backlog item, which said a reply's
   causation "names the PM's event".
 - Settled when: a PM receives a target's refusal event under its correlation
   and acts on it.
 
-**PR-2** [core] **Hard rejections of PM commands.**
-- What: retry when retryable, otherwise dead-letter. Whether the PM should
-  also learn of the rejection is open (an open question in the index; it is
-  not one of the review's D items).
-- Why: pass 2.
-- Settled when: the question is decided and implemented.
+**PR-2** (hard rejections of PM commands): **closed** by decision 14.31.
+A PM sends no commands, so there is none to reject. The saga that carries
+a PM's step handles a hard rejection like any saga command (retry when
+retryable, otherwise dead-letter, SG and OB-1), and a business refusal
+reaches the PM as an event.
 
 **PR-5** [core] **Each PM's coordinator delivers to its one PM.**
 - What: a PM coordinator delivers each trigger to the one PM behind it,
@@ -613,15 +631,42 @@ trigger.**
   `causation.triggering_event` (the trigger's `EventRef`), the trigger's
   `correlation_id`, `recorded_at` and the response's `rules_version`; never
   a `command_id` or a `fact`. Every backend indexes (stream,
-  `causation.triggering_event`), not unique. Before appending, look the
-  trigger up in the PM's own stream; on a hit, append nothing. The lookup
-  shares the append's transaction with the outbox and checkpoint (OB-2).
+  `causation.triggering_event`), not unique. Before the PM's handler runs,
+  look the trigger up in the PM's own stream; on a hit, do not run the
+  handler and append nothing (decision 14.31). The append shares its
+  transaction with the PM's position (OB-2).
 - Why: decision 13.2; `EventMeta` and the `command_identity` region
   (Process events) of `types.proto`, and `process_manager.proto`.
 - Settled when: a PM re-run over a handled trigger (checkpoint reset)
-  appends no process events and its commands are answered DUPLICATE; its
+  does not call the handler and appends no process events (C-0601); its
   process events carry the trigger's correlation; and the lookup cost is
   independent of stream length.
+
+**PR-6** [core] **Commands addressed to a PM.**
+- What: the PM's coordinator serves `CommandHandlerCoordinatorService` for
+  the PM's domain, in every mode, and hands each command to
+  `ProcessManagerService.Handle` (the `command` arm), never
+  `CommandHandlerService`. Refuse `Handling`, and a `correlation_id` other
+  than the cover's root (set it to the root when unset); deduplicate by
+  `command_id` before the handler; answer `APPLIED` or `DUPLICATE`, and on a
+  failing handler dead-letter, alert and answer `PARKED`. Stamp the events
+  with `causation.command_id` (and `fact` for a Fact). Delete the PM's
+  command output (`ProcessManagerHandleResponse.commands` is gone).
+- Why: decision 14.31; `process_manager.proto`, Delivery of commands.
+- Settled when: scenarios C-0591 and C-0595 to C-0599 pass.
+
+**PR-7** [core, clients, router] **Starting triggers (B1).**
+- What: angzarr-cli refuses `starts` on any `(event)` entry but a PM
+  trigger, and generates `Target.starting_types` in the PM's descriptor;
+  the client library answers `Describe` with it. The PM's coordinator
+  refuses a non-PM descriptor listing starting types, and skips a
+  non-starting trigger for a correlation with no instance (no handler,
+  nothing appended, position advanced, no dead letter or alert), before
+  deduplication.
+- Why: decision 14.31 (annals ruling B1, triggers only);
+  `EventConsumer.starts` (`options.proto`), `Target.starting_types`
+  (`types.proto`), `process_manager.proto`, Starting an instance.
+- Settled when: scenarios C-0592 to C-0594, C-0606 and C-0607 pass.
 
 ## VC: command versioning (pass 12)
 
@@ -1155,15 +1200,18 @@ no-op implementations only.
 ## SG: one saga, one destination (pass 14)
 
 **SG-1** [clients, router] **A saga has exactly one destination domain.**
-- What: angzarr-cli's lint fails a SAGA declaring `output_domains`, or no
-  `output_domain` (allocate the error codes); `output_domains` is
-  PROCESS_MANAGER only. The client library refuses a saga answer holding a
+- What: angzarr-cli's lint fails a SAGA declaring no `output_domain`, and
+  a PROCESS_MANAGER declaring any `output_domain` (allocate the error
+  codes). `output_domains` is deleted (decision 14.31), so there is no
+  several-destinations lint any more; delete angzarr-cli's handling of
+  field 6. The client library refuses a saga answer holding a
   command for any domain but its `output_domain`: `SagaService.Handle`
   fails `INTERNAL` with no commands, and the coordinator dead-letters the
   trigger and alerts.
 - Why: decision 14.24; `ComponentOptions` (`options.proto`), `SagaResponse`
   (`saga.proto`).
-- Settled when: scenarios C-0581 to C-0583 pass.
+- Settled when: scenarios C-0582, C-0583 and C-0605 pass (C-0581 is
+  retired).
 
 ## QS: standalone query server (pass 14)
 
@@ -1279,7 +1327,7 @@ no-op implementations only.
 
 ## Counts
 
-Open items only. The closed KS items, SN-3, DQ-3, MI-3 and PR-3 are listed
+Open items only. The closed KS items, SN-3, DQ-3, MI-3, PR-2 and PR-3 are listed
 in place with their disposition but not counted.
 
 | Workstream | Items |
@@ -1296,7 +1344,7 @@ in place with their disposition but not counted.
 | RT: recorded_at and temporal queries | 2 |
 | DQ: DLQ replay | 5 |
 | RN: renames | 2 |
-| PR: process-manager replies and process events | 4 |
+| PR: process-manager replies, process events and inputs | 5 |
 | VC: command versioning (pass 12) | 1 |
 | FA: fact pipeline | 3 |
 | HD: Handling resolution | 5 |
@@ -1317,7 +1365,7 @@ in place with their disposition but not counted.
 | QS: standalone query server (pass 14) | 1 |
 | GAP: carried gaps | 3 |
 | DOC: site, specs, branches | 7 |
-| **Total** | **114** |
+| **Total** | **115** |
 
 Pass 12 closed 15 items (KS-1–12, with KS-9's content moved to CI-8;
 SN-3, DQ-3 and MI-3), opened 13 (CI-1–8, RV-3, PR-3, VC-1, CR-3 and
@@ -1334,7 +1382,8 @@ the client libraries to core) and pointed NC-1 and CR-1 at their
 scenarios: 110 open items stay 110. The follow-up rulings added SN-4
 (decision 14.12) and PR-5 (decision 14.16, rescoped to core by 14.20): 112.
 The later pass-14 rulings added SG-1 (14.24) and QS-1 (14.26) and rewrote
-GAP-1 (14.25): 114.
+GAP-1 (14.25): 114. Decision 14.31 closed PR-2, opened PR-6 and PR-7, and
+rewrote OB-1, OB-2, OB-5, OB-6, PR-1, PR-4, SG-1 and MD-5 in place: 115.
 
 ## By-repo index
 
@@ -1342,9 +1391,9 @@ An item tagged with several repos appears under each of them.
 
 | Repo | Items |
 |---|---|
-| core | CI-1–6, CI-8, OB-1–3, OB-5–6, PS-1–6, BO-1, RV-1, RV-3, MD-1–5, ST-1, ED-1–4, SN-1–2, SN-4, RT-1–2, DQ-1–2, DQ-4–6, RN-1–2, PR-1–2, PR-4–5, FA-1–2, HD-1–5, WS-1–5, RM-1–3, RM-6, TG-1, OR-1–2, RD-1, CQ-1–2, EA-1–3, NC-2, CR-2–3, MI-1, UU-2–4, CL-1–5, AU-1, QS-1, GAP-1–2 |
-| router | OB-4, OB-6, PS-2, RN-1, RV-2, SN-4, VC-1, FA-3, HD-3, WS-2, TG-1–2, OR-2, NC-1, CR-1, CL-2, CL-4, SG-1 |
-| clients (go, rust, python, java, csharp, cpp, typescript) | CI-2, CI-7, BO-2, RV-2, SN-4, MD-6, ST-2, ED-3, RN-1–2, VC-1, FA-3, HD-5, WS-1–2, RM-4, RM-6, TG-1, OR-2, RD-1, CQ-2, EA-4, NC-1, CR-1, CR-3, MI-2, UU-1–2, CL-1–2, CL-4–5, SG-1 |
+| core | CI-1–6, CI-8, OB-1–3, OB-5–6, PS-1–6, BO-1, RV-1, RV-3, MD-1–5, ST-1, ED-1–4, SN-1–2, SN-4, RT-1–2, DQ-1–2, DQ-4–6, RN-1–2, PR-1, PR-4–7, FA-1–2, HD-1–5, WS-1–5, RM-1–3, RM-6, TG-1, OR-1–2, RD-1, CQ-1–2, EA-1–3, NC-2, CR-2–3, MI-1, UU-2–4, CL-1–5, AU-1, QS-1, GAP-1–2 |
+| router | OB-4, OB-6, PS-2, RN-1, RV-2, SN-4, VC-1, FA-3, HD-3, WS-2, TG-1–2, OR-2, NC-1, CR-1, CL-2, CL-4, SG-1, PR-7 |
+| clients (go, rust, python, java, csharp, cpp, typescript) | CI-2, CI-7, BO-2, RV-2, SN-4, MD-6, ST-2, ED-3, RN-1–2, VC-1, FA-3, HD-5, WS-1–2, RM-4, RM-6, TG-1, OR-2, RD-1, CQ-2, EA-4, NC-1, CR-1, CR-3, MI-2, UU-1–2, CL-1–2, CL-4–5, SG-1, PR-7 |
 | examples | BO-3, WS-2, RM-5 |
 | site | RN-2, EA-4, CL-5, DOC-1–4, DOC-7 |
 | project (features, CI, branches, parity) | EA-4, CR-1, GAP-3, DOC-5–6 |
