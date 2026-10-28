@@ -23,8 +23,11 @@ option ruby_package = "Angzarr::Examples";
 // destination stamps its own head, and redelivery is deduplicated on the
 // command id derived from the triggering event.
 //
-// The buy-in's two sagas (saga-buy-in-player and saga-buy-in-table, from
-// the PM's "buy-in" domain) are declared beside the PM, in buy_in.proto.
+// The buy-in's four sagas are declared beside the PM, in buy_in.proto:
+// saga-buy-in-player and saga-buy-in-table (from the PM's "buy-in" domain,
+// emitting commands) and saga-table-buy-in and saga-player-buy-in (into
+// "buy-in", emitting facts for the PM, which subscribes to nothing;
+// decision 14.31).
 //
 // Two reactions of the earlier spec are not part of this port:
 // saga-player-table (top-ups, whose refusal was compensated back to the

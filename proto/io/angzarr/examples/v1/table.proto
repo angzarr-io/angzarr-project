@@ -77,7 +77,8 @@ message CreateTable {
   uint64 shoe_seed = 8;
 }
 
-// Hold a seat for a buy-in (SeatHeld), which starts pmg-buy-in.
+// Hold a seat for a buy-in (SeatHeld), which starts pmg-buy-in through
+// saga-table-buy-in's TableSeatHeld fact.
 // buy_in_id = request_id. Refused when the seat is seated or held, the player
 // is already seated at this table, or amount is outside
 // [min_buy_in, max_buy_in]. A player may have buy-ins pending for several
@@ -182,12 +183,12 @@ message ShoeShuffled {
   repeated Card cards = 4;
 }
 
-// A seat is held for a buy-in; triggers pmg-buy-in, and is its one
-// starting trigger (starts: ruling B1; see buy_in.proto).
+// A seat is held for a buy-in. saga-table-buy-in turns it into the
+// TableSeatHeld fact that starts pmg-buy-in (see buy_in.proto).
 message SeatHeld {
   option (io.angzarr.v1.event) = {component: "io.angzarr.examples.v1.TableState"};
   option (io.angzarr.v1.event) = {
-    component: "io.angzarr.examples.v1.BuyInState"
+    component: "io.angzarr.examples.v1.TableBuyInSaga"
     domain: "table"
   };
   bytes buy_in_id = 1;
@@ -208,7 +209,7 @@ message SeatReleased {
 message PlayerSeated {
   option (io.angzarr.v1.event) = {component: "io.angzarr.examples.v1.TableState"};
   option (io.angzarr.v1.event) = {
-    component: "io.angzarr.examples.v1.BuyInState"
+    component: "io.angzarr.examples.v1.TableBuyInSaga"
     domain: "table"
   };
   option (io.angzarr.v1.event) = {

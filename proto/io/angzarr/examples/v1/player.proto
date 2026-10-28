@@ -204,7 +204,7 @@ message FundsWithdrawn {
 message FundsHeld {
   option (io.angzarr.v1.event) = {component: "io.angzarr.examples.v1.PlayerState"};
   option (io.angzarr.v1.event) = {
-    component: "io.angzarr.examples.v1.BuyInState"
+    component: "io.angzarr.examples.v1.PlayerBuyInSaga"
     domain: "player"
   };
   option (io.angzarr.v1.event) = {
@@ -220,7 +220,7 @@ message FundsHeld {
 message FundsCaptured {
   option (io.angzarr.v1.event) = {component: "io.angzarr.examples.v1.PlayerState"};
   option (io.angzarr.v1.event) = {
-    component: "io.angzarr.examples.v1.BuyInState"
+    component: "io.angzarr.examples.v1.PlayerBuyInSaga"
     domain: "player"
   };
   option (io.angzarr.v1.event) = {

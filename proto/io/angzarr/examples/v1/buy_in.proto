@@ -18,42 +18,93 @@ option ruby_package = "Angzarr::Examples";
 // example's only process manager.
 //
 // State is keyed by the correlation id: the PM's root is the correlation id
-// itself, unchanged (see ProcessManagerService, Stream). The PM sends no
-// commands (decision 14.31): each step is a PM event carrying the data the
-// next command needs, and a saga from "buy-in" builds that command. Flow:
+// itself, unchanged (see ProcessManagerService, Stream). The PM takes FACTS
+// only and sends no commands (decision 14.31). The table's and the wallet's
+// events reach it as facts, built by a saga from each domain into
+// "buy-in" (saga-table-buy-in, saga-player-buy-in); each step it decides is
+// a PM event carrying the data the next command needs, and a saga from
+// "buy-in" builds that command. Flow:
 //
-//   trigger               phase change                      PM event        saga -> command
-//   table  SeatHeld       (new) -> AWAITING_HOLD            BuyInStarted    saga-buy-in-player -> player HoldFunds
-//   player FundsHeld      AWAITING_HOLD -> AWAITING_SEAT    BuyInFundsHeld  saga-buy-in-table  -> table  ConfirmSeat
-//   table  PlayerSeated   AWAITING_SEAT -> AWAITING_CAPTURE BuyInSeated     saga-buy-in-player -> player CaptureFunds
-//   player FundsCaptured  AWAITING_CAPTURE -> COMPLETED     BuyInCompleted  —
+//   source event          saga -> fact for the PM                    phase change                      PM event        saga -> command
+//   table  SeatHeld       saga-table-buy-in  -> TableSeatHeld        (new) -> AWAITING_HOLD            BuyInStarted    saga-buy-in-player -> player HoldFunds
+//   player FundsHeld      saga-player-buy-in -> PlayerFundsHeld      AWAITING_HOLD -> AWAITING_SEAT    BuyInFundsHeld  saga-buy-in-table  -> table  ConfirmSeat
+//   table  PlayerSeated   saga-table-buy-in  -> TablePlayerSeated    AWAITING_SEAT -> AWAITING_CAPTURE BuyInSeated     saga-buy-in-player -> player CaptureFunds
+//   player FundsCaptured  saga-player-buy-in -> PlayerFundsCaptured  AWAITING_CAPTURE -> COMPLETED     BuyInCompleted  —
 //
-// SeatHeld is the PM's one starting trigger (its (event) entry sets
-// starts; ruling B1, decision 14.31): it alone starts an instance for a
-// correlation the PM has not seen. A FundsHeld, PlayerSeated or
-// FundsCaptured for a correlation with no buy-in instance is skipped by
-// the PM's coordinator, and the handler never sees it.
+// TableSeatHeld is the PM's one starting fact (its (command) entry sets
+// starts; ruling B1 as adapted to facts, decision 14.31): it alone starts
+// an instance for a correlation the PM has not seen. A PlayerFundsHeld,
+// TablePlayerSeated or PlayerFundsCaptured for a correlation with no
+// buy-in instance is skipped by the PM's coordinator, silently, and the
+// handler never sees it.
 //
 // The failure branches (the wallet refuses HoldFunds, the table refuses
 // ConfirmSeat, and the PM releases whichever half went through) are not part
 // of this port. They reached the PM as rejection notifications through the
 // compensation channel, which the latest contract deletes: a PM learns of a
-// refusal only when the target records it as a domain event. They wait on
-// the buy-in refusal ruling in docs/design/blackjack-latest-proto-rulings.md.
-// The PM declares no commands of its own yet: a command addressed to it
-// (an operator's cancel, say) belongs to those branches.
+// refusal only when the target records it as a domain event, which the
+// target's saga into "buy-in" turns into a fact. They wait on the buy-in
+// refusal ruling in docs/design/blackjack-latest-proto-rulings.md.
 //
-// Every handler first checks that the trigger's id (buy_in_id, or hold_id for
-// player events, which equals the buy_in_id) matches state.buy_in_id and that
-// the phase is the expected one; anything else records nothing. Every PM
-// handler is infallible: it records what happened and never refuses. The PM
-// makes no business decisions: validation lives in the two aggregates. Its
-// events carry no command id (each is caused by its trigger), and the PM's
-// coordinator deduplicates a redelivered trigger on triggering_event before
-// the PM runs.
+// Every handler first checks that the fact's id field (buy_in_id, or
+// hold_id for the wallet's facts, which equals the buy_in_id) matches
+// state.buy_in_id and that the phase is the expected one; anything else
+// records nothing. Every PM handler is infallible: it records what
+// happened and never refuses. The PM makes no business decisions:
+// validation lives in the two aggregates. Its events carry the fact's id
+// as their cause, and the PM's coordinator deduplicates a redelivered
+// fact on that id before the PM runs.
 //
 // Invariant L3 (buy-in half): each PlayerSeated(B, X) pairs with exactly one
 // FundsCaptured(B, X).
+
+// -----------------------------------------------------------------------------
+// The PM's facts: what the table and the wallet report, as the buy-in sagas
+// into "buy-in" build them. Each is addressed to the buy-in instance its
+// source event's correlation names, and is recorded, never refused.
+// -----------------------------------------------------------------------------
+
+// The table held a seat for a buy-in (from SeatHeld). The starting fact.
+message TableSeatHeld {
+  option (io.angzarr.v1.command) = {
+    component: "io.angzarr.examples.v1.BuyInState"
+    starts: true
+  };
+  bytes buy_in_id = 1;
+  bytes player_root = 2;
+  bytes table_root = 3; // The source event's own stream root
+  int32 seat = 4;
+  int64 amount = 5;
+}
+
+// The wallet held the funds (from FundsHeld; hold_id = the buy_in_id).
+message PlayerFundsHeld {
+  option (io.angzarr.v1.command) = {component: "io.angzarr.examples.v1.BuyInState"};
+  bytes hold_id = 1;
+  bytes table_root = 2;
+  int64 amount = 3;
+}
+
+// The table seated the player (from PlayerSeated).
+message TablePlayerSeated {
+  option (io.angzarr.v1.command) = {component: "io.angzarr.examples.v1.BuyInState"};
+  bytes buy_in_id = 1;
+  bytes player_root = 2;
+  int32 seat = 3;
+  int64 stack = 4;
+}
+
+// The wallet spent the hold (from FundsCaptured; hold_id = the buy_in_id).
+message PlayerFundsCaptured {
+  option (io.angzarr.v1.command) = {component: "io.angzarr.examples.v1.BuyInState"};
+  bytes hold_id = 1;
+  bytes table_root = 2;
+  int64 amount = 3;
+}
+
+// -----------------------------------------------------------------------------
+// The PM's events
+// -----------------------------------------------------------------------------
 
 // Starts a buy-in. saga-buy-in-player sends HoldFunds{hold_id = buy_in_id,
 // table_root, amount} to player_root.
@@ -108,9 +159,10 @@ message BuyInCompleted {
   bytes buy_in_id = 1;
 }
 
-// The BuyInProcessManager. Owns the "buy-in" stream. Triggers come from
-// "table" and "player" (each (event) entry's domain). It sends no commands;
-// its events feed saga-buy-in-player and saga-buy-in-table.
+// The BuyInProcessManager. Owns the "buy-in" stream and subscribes to
+// nothing: its inputs are the four facts above, from saga-table-buy-in and
+// saga-player-buy-in. It sends no commands; its events feed
+// saga-buy-in-player and saga-buy-in-table.
 message BuyInState {
   option (io.angzarr.v1.component) = {
     kind: COMPONENT_KIND_PROCESS_MANAGER
@@ -164,5 +216,41 @@ message BuyInTableSaga {
     kind: COMPONENT_KIND_SAGA
     input_domain: "buy-in"
     output_domain: "table"
+  };
+}
+
+// =============================================================================
+// saga-table-buy-in, saga-player-buy-in — the facts the buy-in is told
+// =============================================================================
+//
+// One saga per (source domain, destination domain) pair, so one from each
+// of "table" and "player" into "buy-in". A saga whose destination is a
+// process manager emits FACTS (decision 14.31; SagaResponse in saga.proto):
+//   - each fact is addressed to the buy-in instance its source event's
+//     correlation names (cover domain "buy-in", root = that correlation);
+//   - the saga's coordinator stamps causation_id (the source event), the
+//     correlation and the reaction origin ("angzarr-reaction:" + the
+//     reaction name), from which the fact's id is derived, so a re-run
+//     sends the same id and the PM deduplicates it;
+//   - no Handling; delivered in DECISION mode (the coordinator's Handle),
+//     chosen by the saga's configuration.
+
+// saga-table-buy-in: SeatHeld -> TableSeatHeld; PlayerSeated ->
+// TablePlayerSeated.
+message TableBuyInSaga {
+  option (io.angzarr.v1.component) = {
+    kind: COMPONENT_KIND_SAGA
+    input_domain: "table"
+    output_domain: "buy-in"
+  };
+}
+
+// saga-player-buy-in: FundsHeld -> PlayerFundsHeld; FundsCaptured ->
+// PlayerFundsCaptured.
+message PlayerBuyInSaga {
+  option (io.angzarr.v1.component) = {
+    kind: COMPONENT_KIND_SAGA
+    input_domain: "player"
+    output_domain: "buy-in"
   };
 }
