@@ -192,15 +192,20 @@ message Cover {
   //     fork sequence, then X's own events (the fork event first). Main's
   //     later events never reach it.
   //   - Creating X forks an origin stream (EditionAdminService.ForkStream,
-  //     meta.proto). angzarr then PROPAGATES the fork, eventually
-  //     consistent and not lazy, through the same data flow as any event,
-  //     to the streams downstream of it (EditionForked, Propagation).
-  //   - A stream in X that no fork has reached yet is forked ON DEMAND by
-  //     the first command or fact addressed to it in X, at main's head then
-  //     (the drafter's proposal, FLAGGED; EditionForked, Unforked streams).
-  //     A query or subscription of such a stream reads main's version (it
-  //     is identical so far) and forks nothing.
-  //   - The time-based OPTION forks every stream at one global commit
+  //     meta.proto).
+  //   - The fork TRAVELS WITH THE DATA (the owner's ruling): when a saga's
+  //     command in X reaches a stream with no fork in X, that arrival is
+  //     the propagation; the coordinator forks the stream then, and handles
+  //     the command (EditionForked, Propagation). Streams X's activity
+  //     never touches are never forked.
+  //   - A command or fact from outside (not a saga's) addressed in X to a
+  //     stream with no fork in X is REFUSED until propagation forks it:
+  //     FAILED_PRECONDITION, google.rpc.ErrorInfo reason EDITION_NOT_FORKED
+  //     (the drafter's code, FLAGGED). Fork it with ForkStream to address it
+  //     directly.
+  //   - A query or subscription of a stream not forked in X reads main's
+  //     version (it is identical so far) and forks nothing.
+  //   - The time-based OPTION forks every stream of X at one global commit
   //     position instead of each at its own head (EA-3's former default,
   //     now an option; ForkStreamRequest.commit_position).
   //   - Unknown edition: an edition is known while any fork event of it
@@ -606,91 +611,70 @@ message FactOrigin {
 // the sequence main's version of that stream would have used next: the
 // first event of X's version of the stream, whose sequence (the FORK
 // SEQUENCE) marks main's end and X's start. A framework event: it carries
-// no business payload, the client library never hands it to business code
-// (no applier, saga or projector handler sees it), and it is stamped like
-// any event (EventMeta.causation.command_id: the ForkStream call's, or the
-// propagation step's derived id; recorded_at; correlation). It flows like
-// any event, through the same bus, which is how it propagates.
+// no business payload, and the client library never hands it to business
+// code (no applier, saga or projector handler sees it). It is stamped like
+// any event, with a framework-derived command_id of its own: never the
+// command whose arrival made it, which keeps that id free for its own
+// deduplication on the stream.
 //
-// Propagation (the owner: "it's not lazy, but it is eventually consistent.
-// Edition creation events propagate on the same system as data flows";
-// "that can likely be angzarr automated"). angzarr, never saga business
-// code, carries a fork downstream. The drafter's proposal (FLAGGED):
-//   - ALONG RECORDED REACTION EDGES. A saga's coordinator already knows,
-//     when it delivers a reaction command, the edge from the trigger's
-//     stream to the command's target stream; it keeps those edges, one row
-//     per (saga, source stream, target stream), deduplicated, beside its
-//     outbox. When EditionForked reaches it for (D, X, R), it forks in X
-//     every target stream it has an edge to from (D, main, R): it appends
-//     EditionForked to each (D', X, R') at that stream's own head (or at
-//     the time-based option's commit position), with propagated_from = the
-//     fork event that reached it. Each of those fork events is itself an
-//     event, so propagation continues from it, hop by hop. A process
-//     manager is a domain: its instance streams are forked when sagas into
-//     its domain carry the fork there, and they propagate on through its
-//     outbound sagas; nothing is PM-specific.
-//   - Idempotent, so it terminates: a stream already forked in X is not
-//     forked again (cycles end there), and the propagation step's id is
-//     derived from (the fork event reaching it, the saga, the target), so
-//     a redelivery appends nothing new.
-//   - Bounded: a propagation stops after a configured number of hops from
-//     the origin fork (default 8) and alerts when one fork fans out to more
-//     than a configured number of streams (default 1,000); anything it did
-//     not reach is forked on demand.
-//   - Rejected alternatives: (a) forking every stream that shares a
-//     correlation with the origin stream: exact for one workflow, but a
-//     long-lived stream carries many correlations, so the fan-out is
-//     unbounded; (b) re-running the saga against the fork point: a fork
-//     has no business payload, and re-running reactions would emit real
-//     commands; (c) forking every stream of every downstream domain:
-//     unbounded; (d) on-demand only: lazy, which the owner ruled out.
-//   - Cost: the edge rows are a store-side record of stream-to-stream
-//     edges, which decision 13.3 kept in traces; they are coarse (no
-//     per-event causation), kept by the saga coordinator for propagation
-//     only, and amend 13.3 narrowly (FLAGGED).
+// Propagation: the fork TRAVELS WITH THE DATA (the owner's ruling). The
+// owner: "it's not lazy, but it is eventually consistent. Edition creation
+// events propagate on the same system as data flows". A saga's command in
+// X (a reaction to an event in X) that reaches a stream with no fork in X
+// IS the propagation: the stream's coordinator appends EditionForked at
+// that stream's own head (or at X's commit position, for a time-based
+// edition), with propagated_from = the fork event of the stream the saga
+// reacted to (the command's causation_id stream, in X) and forked_by = the
+// arriving command's command_id, and then handles the command. Concurrent
+// arrivals race on the append like any two writes; the loser finds the
+// stream forked and appends no second fork. Nothing is propagated ahead of
+// the data: a stream X's activity never touches is never forked, so the
+// data flow itself is the only bound. A process manager is a domain:
+// saga commands into it carry the fork like any other, and nothing is
+// PM-specific.
 //
-// Unforked streams (the drafter's proposal, FLAGGED). A command or fact
-// addressed in a known edition X to a stream no fork has reached yet FORKS
-// IT ON DEMAND: the coordinator appends EditionForked (propagated_from
-// unset, on_demand set) at main's head (or the time-based option's commit
-// position), then handles the input as usual. Why, rather than waiting:
-// a what-if routinely addresses streams the propagation never reaches
-// (nothing downstream of the origin leads there), so waiting, or
-// answering UNAVAILABLE for a retry, could never end; and forking at the
-// moment of first use is the same eventual consistency the propagation
-// itself gives. A later propagated fork for that stream finds it forked
-// and appends nothing.
+// From outside, refuse until propagated. A command or fact that is not a
+// saga's (no causation_id), addressed in X to a stream with no fork in X,
+// is refused FAILED_PRECONDITION, with google.rpc.ErrorInfo reason
+// EDITION_NOT_FORKED (the drafter's code, FLAGGED); nothing is written.
+// ForkStream forks such a stream explicitly. A query or subscription of it
+// reads main's version and forks nothing.
 //
-// Deletion (the drafter's proposal, FLAGGED). DeleteEdition removes every
-// row of X in every store; it is not propagated. A propagation step forks
-// a target only after reading that its propagated_from event still exists,
-// so a propagation stops at a deleted edition; a step that read it just
-// before the delete can leave an orphan fork, which a repeated, idempotent
-// DeleteEdition sweeps. An edition with no fork event left is unknown.
+// Deletion and a racing saga command (the drafter's proposal, FLAGGED).
+// DeleteEdition removes every row of X in every store; deletion is not
+// propagated. An arrival fork must not resurrect X: before appending, the
+// coordinator re-checks that the propagated_from fork event still exists,
+// and if it does not, refuses the saga's command NOT_FOUND; the saga's
+// coordinator treats NOT_FOUND for a deleted edition as the edition gone
+// and discards the command (logged, not dead-lettered). A check racing the
+// delete itself can still leave an orphan fork, which a repeated,
+// idempotent DeleteEdition sweeps.
 //
 // The time-based option. With ForkStreamRequest.commit_position set, the
-// origin fork and every propagated or on-demand fork of the edition fork at
-// that one global commit position, not at each stream's head: each stream
-// reads main's events committed at or before it. This is EA-3's former
-// whole-system behaviour and the 2026-10-27 commit-order ruling, kept as an
-// option; it needs the store contract's global commit position.
+// origin fork and every arrival fork of the edition fork at that one global
+// commit position, not at each stream's head: each stream reads main's
+// events committed at or before it. This is EA-3's former whole-system
+// behaviour and the 2026-10-27 commit-order ruling, kept as an option; it
+// needs the store contract's global commit position.
 message EditionForked {
   // The edition (also the stream's Cover.edition; repeated here so the
   // payload describes itself). Required, non-empty.
   string edition = 1;
   // The fork sequence: main's next sequence for this stream when it was
-  // forked, equal to this event's own EventPage.sequence. The stream reads
-  // main's events below it.
+  // forked (or the first main sequence after the commit position, for a
+  // time-based edition), equal to this event's own EventPage.sequence. The
+  // stream reads main's events below it.
   uint64 parent_sequence = 2;
   // The time-based option's global commit position; 0 for a per-stream
-  // fork.
+  // edition.
   uint64 commit_position = 3;
-  // The fork event upstream whose propagation forked this stream; unset
-  // for an origin fork (ForkStream) and an on-demand fork.
+  // For a fork made by a saga command's arrival: the fork event of the
+  // stream the saga reacted to. Unset for an origin fork (ForkStream).
   EventRef propagated_from = 4;
-  // True for a fork made on demand by a command or fact (Unforked
-  // streams, above).
-  bool on_demand = 5;
+  // For a fork made by a saga command's arrival: that command's
+  // command_id. Unset for an origin fork. (Replaces the draft's on_demand;
+  // the drafter's shape, FLAGGED.)
+  UUID forked_by = 5;
 }
 // endregion
 
