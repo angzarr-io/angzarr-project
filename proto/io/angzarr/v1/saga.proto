@@ -40,10 +40,10 @@ option ruby_package = "Angzarr";
 // Refusals (decision 2.2, as amended by 14.31; the owner's ruling of
 // 2026-10-28: "saga calls foreign command handler directly with a callback
 // for on refusal. On refusal, callback, it gets the event, the command
-// sent, and the response and can craft its rejection fact"). A target, an aggregate
-// or a process manager alike, refuses a saga's command the way it refuses
-// any command: a business rejection (FAILED_PRECONDITION), and it records
-// NOTHING. The refusal then goes to the saga's ON-REFUSED CALLBACK:
+// sent, and the response and can craft its rejection fact"). A target, an
+// aggregate or a process manager alike, refuses a saga's command the way
+// it refuses any command: a business rejection (FAILED_PRECONDITION), and
+// it records NOTHING. The refusal then goes to the saga's ON-REFUSED CALLBACK:
 //   - The callback is the saga's own handler, declared in proto by an
 //     (on_refused) option (options.proto) on the fact message it returns,
 //     naming the saga and the refused command type. The generator gives

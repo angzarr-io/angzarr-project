@@ -21,9 +21,9 @@ option ruby_package = "Angzarr::Examples";
 // itself, unchanged (process_manager.proto, Stream). A process manager is
 // a domain (decision 14.31): it takes commands, which sagas from the table
 // and the wallet send it, and facts (the rejection facts its own sagas'
-// on-refused callbacks craft); it sends no commands. Each step it decides is a PM event carrying the
-// data the next command needs, and a saga from "buy-in" builds that
-// command. Flow:
+// on-refused callbacks craft); it sends no commands. Each step it decides
+// is a PM event carrying the data the next command needs, and a saga from
+// "buy-in" builds that command. Flow:
 //
 //   source event          saga -> command to the PM                  phase change                      PM event        saga -> command
 //   table  SeatHeld       saga-table-buy-in  -> StartBuyIn           (new) -> AWAITING_HOLD            BuyInStarted    saga-buy-in-player -> player HoldFunds

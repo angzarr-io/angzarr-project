@@ -49,11 +49,11 @@ option ruby_package = "Angzarr";
 //   - Refusal: a descriptor with an empty rules_version (see
 //     ComponentDescriptor), or one that lists starting types
 //     (ComponentDescriptor.starting_types) and is not a PROCESS_MANAGER,
-//     or refusal types (refusal_types) and is not a SAGA, is refused. The coordinator does not hold it, delivers nothing, logs an
-//     error naming the business process and the component, and raises an
-//     alert. It answers the business process
-//     nothing (the coordinator is the caller): the refusal is visible as
-//     the coordinator's readiness.
+//     or refusal types (refusal_types) and is not a SAGA, is refused. The
+//     coordinator does not hold it, delivers nothing, logs an error naming
+//     the business process and the component, and raises an alert. It
+//     answers the business process nothing (the coordinator is the
+//     caller): the refusal is visible as the coordinator's readiness.
 //   - Failure: a failed Describe call (the business process unreachable, or
 //     an error status) leaves the coordinator holding no descriptor,
 //     delivering nothing and NOT_SERVING, until a later Describe on a

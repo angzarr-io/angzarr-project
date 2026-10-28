@@ -618,8 +618,8 @@ message EventMeta {
   // The event's direct cause. Always set on a persisted event. It has one
   // arm: triggering_event (18), a process manager's trigger, is deleted,
   // unreserved (policy 6.6), because a PM is a domain whose inputs are
-  // commands and facts (decision 14.31). The oneof stays, so command_id keeps its encoding, its JSON
-  // and its generated accessor.
+  // commands and facts (decision 14.31). The oneof stays, so command_id
+  // keeps its encoding, its JSON and its generated accessor.
   oneof causation {
     // The producing command's command_id (see the command_identity
     // region): every event a client Command, reaction command or Fact
