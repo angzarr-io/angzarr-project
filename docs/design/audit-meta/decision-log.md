@@ -1958,10 +1958,27 @@ protos had never carried. Amends 13.1 and 13.2, 5.6 and 14.24.
   command) and one more component to deploy per destination domain; a PM
   author who wanted to refuse a command must model it as an aggregate, or
   record the refusal as an event.
-- Aligns with: the event-carried-state idiom the owner adopted in P1, which
-  surveyed frameworks support but do not default to (Axon, NServiceBus and
-  MassTransit sagas send commands directly). Diverges from them knowingly,
-  as P1 recorded.
+- Aligns with: the event-carried-state idiom the owner adopted in P1.
+  Diverges knowingly, as P1 recorded, from the frameworks whose sagas
+  (their process managers) send commands themselves. Verified against each
+  framework's documentation on 2026-10-28:
+  - Axon Framework 4.10: the saga example's event handler calls
+    `commandGateway.send(new PrepareShippingCommand(...))` and
+    `commandGateway.send(new CreateInvoiceCommand(...))`
+    (<https://docs.axoniq.io/axon-framework-reference/4.10/sagas/associations/>).
+    Axon Framework 5 has no saga yet ("Sagas do not have a replacement yet
+    in Axon Framework 5",
+    <https://docs.axoniq.io/axon-framework-reference/5.0/sagas/implementation/>).
+  - NServiceBus: a saga "should only interact with its own internal state
+    and send or publish messages", and for external work it should "Send
+    (command) messages to dedicated message handlers"
+    (<https://docs.particular.net/nservicebus/sagas/>).
+  - MassTransit: a saga "drives the next steps in the process by
+    publishing events or sending commands"
+    (<https://masstransit.massient.com/documentation/patterns/saga>).
+  The draft's further claim, that these frameworks "support but do not
+  default to" the event-carried-state idiom, is dropped: none of the
+  pages says so.
 
 ## Corrections
 
