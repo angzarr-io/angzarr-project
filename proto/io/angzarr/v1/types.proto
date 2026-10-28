@@ -208,12 +208,12 @@ message Cover {
   //   - The time-based OPTION forks every stream of X at one global commit
   //     position instead of each at its own head (EA-3's former default,
   //     now an option; ForkStreamRequest.commit_position).
-  //   - Unknown edition: an edition is known while any stream of it is
-  //     forked and not yet deleted (a query over X's own fork and deletion
-  //     events, never main; cacheable). A command, query or subscription
-  //     naming an edition that was never created, or was deleted, is
-  //     refused loudly (NOT_FOUND), never silently given storage: a
-  //     misspelt edition cannot write anywhere.
+  //   - Unknown edition: an edition is known while any fork event of it
+  //     exists (a query over X's own fork events, never main;
+  //     cacheable). A command, query or subscription naming an edition
+  //     that was never created, or was deleted, is refused loudly
+  //     (NOT_FOUND), never silently given storage: a misspelt edition
+  //     cannot write anywhere.
   //   - Main knows nothing of an edition: its lifecycle lives only in the
   //     edition's streams and store (the editions region).
   //
@@ -235,9 +235,9 @@ message Cover {
   //
   // Lifetime follows the backend: memory lives as long as the process, redis
   // as long as its TTL, a database persists. EditionAdminService.DeleteEdition
-  // (meta.proto) deletes a named edition explicitly, by tombstones that
-  // travel its streams in order; main cannot be named, so it can never be
-  // deleted.
+  // (meta.proto) deletes a named edition explicitly: every row tagged with
+  // it, once its in-flight work is done; main cannot be named, so it can
+  // never be deleted.
   optional string edition = 4;
 }
 // endregion
@@ -647,63 +647,37 @@ message FactOrigin {
 //
 // Main knows nothing (the owner's invariant). Every datum and message of
 // an edition's lifecycle lives in the edition's own streams (D, X, R), in
-// the edition's configured store: EditionForked and EditionDeleted are
-// appended there and only there. Nothing is appended to, recorded in,
-// indexed against or read from main's streams for an edition's lifecycle,
-// except that a fork READS main's head (its fork sequence) and a stream in
-// X reads main's events below its fork sequence. propagated_from names a
-// stream in X, never one in main. Listing editions and checking that one
-// exists query X's own fork and deletion events. The outbox entries,
+// the edition's configured store: EditionForked is appended there and only
+// there, and every row of X carries X in its key. Nothing is appended
+// to, recorded in, indexed against or read from main's streams for an
+// edition's lifecycle, except that a fork READS main's head (its fork
+// sequence) and a stream in X reads main's events below its fork
+// sequence. propagated_from names a stream in X, never one in main.
+// Listing editions and checking that one exists query X's own fork
+// events. The outbox entries,
 // positions and deliveries of X's processing are X's, kept apart from
 // main's. Main's coordinators, projectors and readers behave exactly as if
 // no edition existed: creating and deleting an edition leaves main's
 // streams, outbox and positions byte-for-byte unchanged.
 //
-// Deletion (the owner's rulings: "deletion will have a seq number that
-// needs to be after the work in flight", "the retries on the timer will
-// already be handled by sequencing", "...and the existing systems for data
-// propagation", and "don't create new stuff for it"). Deletion uses only
-// existing mechanisms: event sequencing, the bus, outbox and saga
-// propagation that carried the forks, and the existing dead letter and
-// alert.
-//   - DeleteEdition appends an EditionDeleted tombstone to each ORIGIN
-//     fork stream of X (in X), at that stream's next sequence: a position
-//     in X's log, after everything already committed there.
-//   - The tombstone then travels like the fork did, in sequence. It is an
-//     event of the stream, so the saga coordinators that read the stream
-//     reach it only after every event before it, and deliver it only after
-//     the commands those events produced, which are already in their
-//     outbox ahead of it: the work in flight before the delete completes
-//     first, by ordering alone, with nothing polling or retrying. Each saga
-//     coordinator carries the tombstone to every stream in X that its own
-//     commands forked from that stream (the forks whose propagated_from
-//     names that stream's fork; found by the same query over X's fork
-//     events that ListEditions makes; the drafter's reading, FLAGGED),
-//     through the existing command path as a framework fact; each such
-//     stream appends its own tombstone, in its own sequence, and carries
-//     it on in turn.
-//   - A stream holding a tombstone is deleted in X: its coordinator
-//     removes the stream's X rows below the tombstone (events, the fork
-//     event, snapshots, projector output) and keeps the tombstone as the
-//     stream's last X event (the drafter's choice, FLAGGED). Reads of it in
-//     X answer NOT_FOUND. An edition is unknown once every stream of it
-//     ends in a tombstone.
-//   - A saga command in X arriving at a deleted stream after its tombstone
-//     forks it again (the arrival fork does not re-check the delete; the
-//     owner's ruling): a new EditionForked after the tombstone, plainly
-//     later. X is then recreated, and that is visible in ListEditions for
-//     the user to remediate (delete again).
-//   - A delete that genuinely FAILS (a tombstone that cannot be appended,
-//     or rows that cannot be removed) is dead-lettered and alerted, like
-//     any failed delivery. Work still in flight is not a failure: it is
-//     ordering.
-//   - Known limitation (the owner: no fallback mechanism). The tombstone
-//     reaches a forked stream only through the saga that forked it; if
-//     that saga is undeployed or its coordinator has lost its place, the
-//     stream keeps its fork and stays visible in ListEditions (it counts
-//     in EditionSummary.forked_streams), where the user can act on it, for
-//     example by forking it again with ForkStream as an origin and
-//     deleting again.
+// Deletion (the owner's rulings, 2026-10-28). Every row of X carries X in
+// its key, so deleting X is one operation: DeleteEdition is SEQUENCED after
+// X's in-flight work, then REMOVES EVERY ROW TAGGED X from X's store(s).
+// Nothing remains: no tombstone, no per-stream deleted state, nothing
+// travelling to forked streams. Its sequence point (the drafter's choice,
+// FLAGGED): X's commit position when DeleteEdition is called, with no
+// marker event (none is needed, so none is written); the removal runs once
+// all of X's work below that point has completed (X's outbox holds no
+// entry below it and X's deliveries and subscriptions have passed it),
+// which is ordering, not polling: nothing retries. The removal takes
+// every row tagged X, including any written after the point. Afterwards X
+// is unknown (NOT_FOUND), as if never created. A later saga command in X
+// re-forks its target as any arrival does, so X reappears in ListEditions
+// for the user to delete again. A delete that genuinely fails (rows that
+// cannot be removed) is dead-lettered and alerted. Known limitation: work
+// in X that never completes (for example commands of X held in an
+// undeployed saga's outbox) holds the delete back; the edition stays
+// visible in ListEditions while it waits.
 //
 // The time-based option. With ForkStreamRequest.commit_position set, the
 // origin fork and every arrival fork of the edition fork at that one global
@@ -730,22 +704,6 @@ message EditionForked {
   // command_id. Unset for an origin fork. (Replaces the draft's on_demand;
   // the drafter's shape, FLAGGED.)
   UUID forked_by = 5;
-}
-
-// The deletion tombstone (decision 14.32; the editions region, Deletion).
-// Appended in X only: to X's origin fork streams by DeleteEdition, and to
-// every stream forked from them as the tombstone travels the same saga
-// flows, each in its own sequence. A framework event, never handed to
-// business code. The stream's X rows below it are removed; it stays as the
-// stream's last X event, so a later fork of the stream is plainly after
-// it.
-message EditionDeleted {
-  // The edition (also the stream's Cover.edition). Required, non-empty.
-  string edition = 1;
-  // The tombstone of the stream it was carried from: the origin stream's
-  // DeleteEdition call leaves it unset; a carried tombstone names the
-  // upstream stream's tombstone, in X.
-  EventRef propagated_from = 2;
 }
 // endregion
 
