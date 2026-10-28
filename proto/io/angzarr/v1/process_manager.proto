@@ -27,6 +27,17 @@ option ruby_package = "Angzarr";
 // Process Manager IS an aggregate with its own domain, events, and state.
 // It reuses all aggregate infrastructure (EventStore, SnapshotStore, AggregateCoordinator).
 //
+// Stream. A PM instance's stream is (the PM's domain, the trigger's
+// edition, the trigger's correlation_id): domain is the one the PM owns
+// (ComponentOptions.domain), the edition is the trigger's (reactions stay
+// in their trigger's edition; see Cover.edition), and the root IS the
+// trigger's correlation_id, unchanged. There is no derivation (no hash, no
+// UUIDv5) and no text fallback: a correlation_id is always a 16-byte UUID
+// (decision 9.1), so it is a valid root as it stands. The PM's
+// process_state is that stream, and every process_events book's cover is
+// that stream. Decision 14.30, carrying over prior angzarr core's D-11
+// (CorrelationRootExt::correlation_root) without its text branch.
+//
 // Replies. A PM handles the replies to its own commands: a target's
 // answer, including a refusal recorded as a domain event, reaches the PM as
 // a trigger, and the PM decides the next step in its own workflow state.

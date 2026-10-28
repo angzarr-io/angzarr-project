@@ -1794,6 +1794,27 @@ wherever stored events reach a consumer, live publishing and history reads
 alike. C-0586 now exercises a subscriber reading stored history. Owner
 ruling, 2026-10-20 (from core's report).
 
+**14.30 A process manager's root is its trigger's correlation id.** A
+PM instance's stream is (the PM's domain, the trigger's edition, the
+trigger's `correlation_id`), and its root IS that correlation id,
+unchanged: no derivation (no hash, no UUIDv5) and no text fallback. The
+`ProcessManagerService` comment (`process_manager.proto`, Stream) and
+`Cover.root` say so, and `buy_in.proto` no longer says the root is
+"derived from it by core". Carries over prior angzarr core's decision D-11
+(`CorrelationRootExt::correlation_root`), whose UUID branch passed a
+correlation through unchanged; its other branch, UUIDv5 of a non-UUID
+("friendly") correlation, has nothing to apply to, because every
+correlation is a 16-byte `UUID` since 9.1. Owner ruling, 2026-10-27.
+- Why: the correlation already names the one cross-domain process the PM
+  tracks, and replies route to the instance by it; using it as the root
+  makes "this correlation's PM stream" a lookup, with no formula for core,
+  the clients and annals to keep identical.
+- Cost: a PM has one instance per correlation (per edition); a workflow
+  needing two instances of the same PM under one correlation cannot have
+  them.
+- Aligns with: MassTransit's saga state machines, whose instance key is
+  the `Guid` `CorrelationId`.
+
 ## Corrections
 
 Facts the earlier passes or the design note got wrong:

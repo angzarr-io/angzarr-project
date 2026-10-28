@@ -17,8 +17,8 @@ option ruby_package = "Angzarr::Examples";
 // table and held funds in the wallet — and confirm each in turn. It is the
 // example's only process manager.
 //
-// State is keyed by the correlation id (the PM root is derived from it by
-// core). Flow:
+// State is keyed by the correlation id: the PM's root is the correlation id
+// itself, unchanged (see ProcessManagerService, Stream). Flow:
 //
 //   trigger                    phase change                  PM event        sends
 //   table  SeatHeld            (new) -> AWAITING_HOLD         BuyInStarted    player HoldFunds

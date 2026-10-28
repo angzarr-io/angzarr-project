@@ -158,6 +158,9 @@ message Cover {
   string domain = 2; // Domain name; never contains ':' (the root-derivation separator)
   // The stream's root: caller-chosen (any 16 bytes), derived by
   // compute_root (UUIDv5; see the derived_ids region) or minted (UUIDv7).
+  // A process manager's stream is the exception: its root is its trigger's
+  // correlation_id, unchanged (ProcessManagerService, Stream; decision
+  // 14.30).
   UUID root = 1;
   // Edition: the NAME of the timeline the stream belongs to.
   //
