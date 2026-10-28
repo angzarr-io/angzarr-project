@@ -29,9 +29,9 @@ Commands are wrapped in a [CommandBook](/glossary/command-book) containing exact
 - Its identity: a `command_id`, a `correlation_id`, and for a saga's reaction command the triggering event (`causation_id`)
 - `Handling`: the expected sequence number (for optimistic concurrency) and the conflict resolution, on client commands to an aggregate only
 
-Reaction commands come from sagas only. A process manager sends no commands: it records an event carrying the data a command needs, and a saga from its domain builds the command. A target that must refuse a reaction command records the refusal as a domain event; there is no channel that routes a rejection back.
+Reaction commands come from sagas only. A process manager sends no commands: it records an event carrying the data a command needs, and a saga from its domain builds the command. A target that refuses a reaction command records nothing; the saga's on-refused callback crafts a fact of the refusal for the saga's own domain (see [Process Managers](/components/process-manager)). There is no compensation channel.
 
-A process manager takes **no commands** at all: a command addressed to one is refused `INVALID_ARGUMENT`. Its only input is facts, which it records and never refuses; a saga whose destination is a process manager's domain emits facts, not commands.
+A process manager is a domain: it takes commands like an aggregate and may refuse them. When a saga's command is refused, the refusing domain records nothing; the saga's on-refused callback turns the refusal into an unrefusable fact for the saga's own source domain.
 
 ## Commands vs Facts
 

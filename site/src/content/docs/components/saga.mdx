@@ -128,17 +128,12 @@ For complex scenarios (DLQ routing, escalation webhooks, RevocationResponse flag
 
 ## Commands vs Facts
 
-What a saga emits depends on its one destination (decision 14.31):
+A saga emits **commands** for its one destination, an aggregate's domain or a process manager's (a process manager is a domain; decision 14.31). Its business code never emits a fact.
 
-| Destination | Output | Can Reject |
-|-------------|--------|------------|
-| An **aggregate's** domain | **Commands** only | Yes |
-| A **process manager's** domain | **Facts** only, addressed to the PM instance its trigger's correlation names | No |
-
-A process manager takes facts only and subscribes to no domain, so a saga into its domain is how another domain's events reach it. A saga never injects a fact into an aggregate: the aggregate's coordinator refuses one.
+When a target **refuses** one of its commands, the target records nothing, and the saga's **on-refused callback** (declared with `(on_refused)` on the fact it returns) gets one `Refusal { event, command, response }` and crafts a **rejection fact** for the saga's own source domain. That is the only fact a saga delivers.
 
 :::caution[Example code predates the contract]
-The `FactBook` example below injects a fact into an aggregate, which the current contract refuses; a saga's fact goes to a process manager's domain. This page is due for a rewrite (backlog DOC-2).
+The `FactBook` example below injects a fact into an aggregate, which the current contract refuses; a saga's only fact is its on-refused callback's rejection fact, for its own source domain. This page is due for a rewrite (backlog DOC-2).
 :::
 
 ```python title="illustrative"

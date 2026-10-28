@@ -6,7 +6,7 @@ import { Tabs, TabItem } from '@astrojs/starlight/components';
 
 A **process manager** coordinates multi-domain workflows with state tracking. Unlike stateless sagas, process managers maintain their own event stream keyed by correlation ID, enabling complex orchestration patterns.
 
-A process manager takes **facts only**. Its only input is facts addressed to it, which it records and never refuses. It subscribes to no domain: when it must know what happened in another domain, a saga from that domain turns the event into a fact for it. It takes no commands. Everything it emits is its own events: to act on another domain it records an event carrying the data that domain's command needs, and a saga from the PM's domain builds the command.
+A process manager **is a domain**. Like any domain it takes **commands**, which it may refuse, and **facts** (timeouts, webhooks, rejection facts), which it never refuses. It subscribes to no domain: when it must hear what happened in another domain, a saga from that domain turns the event into a command to it. Everything it emits is its own events: to act on another domain it records an event carrying the data that domain's command needs, and a saga from the PM's domain builds the command. It is served exactly as an aggregate is, by the same command-handler services.
 
 ---
 
@@ -47,7 +47,7 @@ Process managers should be **lightweight state machines** coordinating across do
 
 ## Example: Hand Flow PM
 
-The HandFlowPM orchestrates poker hand phases across table and hand domains. Sagas into its domain tell it what happened, as facts; it records each next step as its own event; sagas from its domain turn those events into commands:
+The HandFlowPM orchestrates poker hand phases across table and hand domains. Sagas into its domain tell it what happened, as commands; it records each next step as its own event; sagas from its domain turn those events into commands:
 
 ```mermaid
 sequenceDiagram
@@ -58,22 +58,22 @@ sequenceDiagram
     participant H as Hand
 
     T-->>SI: HandStarted
-    SI->>PM: HandStartedReported (a starting fact)
+    SI->>PM: StartHandFlow (a starting command)
     PM->>PM: records DealRequested
     PM-->>SO: DealRequested
     SO->>H: DealCards
     H-->>SI: CardsDealt
-    SI->>PM: CardsDealtReported
+    SI->>PM: RecordCardsDealt
     PM->>PM: records the phase change
     H-->>SI: HandComplete
-    SI->>PM: HandCompleteReported
+    SI->>PM: RecordHandComplete
     PM->>PM: records HandFinished
     PM-->>SO: HandFinished
     SO->>T: EndHand
 ```
 
 :::caution[Example code predates the contract]
-The Python snippets below come from the examples repository, which still shows a PM reacting to other domains' events and returning commands. Under the current contract (decision 14.31) a PM takes only facts, which sagas send it, and returns only its own events, from which sagas build each command.
+The Python snippets below come from the examples repository, which still shows a PM reacting to other domains' events and returning commands. Under the current contract (decision 14.31) a PM is a domain: sagas send it commands, and it returns only its own events, from which sagas build each command.
 :::
 
 PMs extend the client library's `ProcessManager` base class; handler methods are registered by decorator / attribute / macro. State lives on the instance.
@@ -109,43 +109,40 @@ Process managers use the **correlation ID** as their aggregate root:
 ```protobuf file=proto/io/angzarr/v1/types.proto region=cover
 ```
 
-The PM instance's root **is** the workflow's correlation ID, unchanged. A fact addressed to a PM names its instance: its cover is the PM's domain with the instance's correlation ID as its root (and its `correlation_id` must agree). A saga that tells a PM about an event addresses the instance that event's correlation names. All events in a workflow share the same correlation ID, allowing the PM to:
+The PM instance's root **is** the workflow's correlation ID, unchanged. A command or fact addressed to a PM names its instance: its cover is the PM's domain with the instance's correlation ID as its root (and its `correlation_id` must agree). A saga that tells a PM about an event addresses the instance that event's correlation names. All events in a workflow share the same correlation ID, allowing the PM to:
 - Hear, through sagas, what happened in several domains
-- Maintain workflow state across facts
+- Maintain workflow state across its inputs
 - Track progress through the state machine
 - Record the data each next step needs, for a saga to send on
 
-### Which facts start an instance
+### Which inputs start an instance
 
-A PM declares which of its fact types are **starting** facts (`starts` on the fact's `(command)` entry). A fact for a correlation the PM has no instance for starts one only if its type is a starting fact; any other such fact is skipped, silently: nothing is recorded, dead-lettered or alerted, and the sender is answered `APPLIED` with no events.
+A PM declares which of its command and fact types are **starting** inputs (`starts` on the `(command)` entry). An input for a correlation the PM has no instance for starts one only if its type is a starting input. Any other such fact is skipped, silently: nothing is recorded, dead-lettered or alerted, and the sender is answered `APPLIED` with no events. Any other such command is, as **proposed** and not yet ruled, refused (`FAILED_PRECONDITION`, `PM_NO_INSTANCE`). Declare as starting every input that can arrive first: inputs from different domains arrive in no guaranteed order.
 
 ---
 
-## Facts Only
+## Commands In, Its Own Events Out
 
 | | What it is | Who sends it |
 |-|-----------|--------------|
-| **Input: a fact** | Something that already happened, addressed to the PM's instance | A saga from another domain (turning that domain's event into a fact), a client or an external system |
+| **Input: a command** | A request the PM may refuse | A saga from another domain (turning that domain's event into a command), or a client |
+| **Input: a fact** | Something that already happened, never refused | A timer or webhook, or the on-refused callback of a saga from the PM's domain |
 | **Output: its own events** | What the PM decided, with the data the next step needs | Sagas from the PM's domain turn them into commands |
 
-A PM takes **no commands**. A command permits rejection, and rejection needs compensation; keeping commands away from PMs keeps both out (decision 14.31, which may be revisited if a real case for a command to a PM appears). A command addressed to a PM is refused `INVALID_ARGUMENT`.
-
-A PM's handler is infallible. There is no business rejection of a PM's input: a PM that wanted to refuse a request records the refusal as an event, or the request belongs to an aggregate. A failing handler is a bug: the fact is dead-lettered and alerted, and a sender that waits is answered `PARKED`.
-
 ```python title="illustrative"
-# The saga from "hand" to the PM's domain tells the PM, as a fact.
+# The saga from "hand" to the PM's domain tells the PM, as a command.
 def on_hand_complete(event: HandComplete, ctx: SagaContext):
-    return FactBook(domain="hand-flow", root=ctx.correlation_id,
-                    fact=HandCompleteReported(winner_root=event.winner_root,
-                                              pot=event.pot))
+    return CommandBook(domain="hand-flow", root=ctx.correlation_id,
+                       command=RecordHandComplete(winner_root=event.winner_root,
+                                                  pot=event.pot))
 ```
 
 Its only output is its own events. To act on another domain, it records an event that carries the command's data, and the saga for (the PM's domain, that domain) builds the command:
 
 ```python title="illustrative"
 # The PM records what should happen next, with the data the command needs.
-def handle_hand_complete(fact: HandCompleteReported, state: WorkflowState):
-    return PotAwarded(player_root=fact.winner_root, amount=fact.pot)
+def handle_hand_complete(cmd: RecordHandComplete, state: WorkflowState):
+    return PotAwarded(player_root=cmd.winner_root, amount=cmd.pot)
 
 # The saga from the PM's domain to "player" builds the command.
 def on_pot_awarded(event: PotAwarded):
@@ -153,7 +150,7 @@ def on_pot_awarded(event: PotAwarded):
                        command=TransferChips(amount=event.amount))
 ```
 
-The coordinator, not the handler, deduplicates: a redelivered fact is found on the PM's stream by its id before the handler runs, and the handler is not called again. A saga's fact gets its id from the event it reacts to, so a saga re-run sends the same id.
+The coordinator, not the handler, deduplicates, as for any domain: a redelivered command or fact is found on the PM's stream by its id before the handler runs, and the handler is not called again. A saga's command gets its id from the event it reacts to, so a saga re-run sends the same id.
 
 ---
 
@@ -173,11 +170,21 @@ On restart, the PM rebuilds state by replaying its own events.
 
 ---
 
-## Replies
+## Replies and Refusals
 
-A PM tracks the replies to the steps it starts. Its event carries the instance's correlation ID, so the saga's command built from it carries that correlation, and so do the target's events. The saga from the target's domain to the PM's domain turns the replies the PM must know about into facts, addressed to the instance under that correlation.
+A PM tracks the replies to the steps it starts. Its event carries the instance's correlation ID, so the saga's command built from it carries that correlation, and so do the target's events. The saga from the target's domain to the PM's domain turns the replies the PM needs into commands to the instance under that correlation.
 
-A target that refuses records the refusal as a domain event, which reaches the PM as a fact like any other reply; the PM decides the next step from its own state. There is no notification or compensation channel. A hard rejection of the saga's command (a gRPC error) is retried when retryable and otherwise dead-lettered, as for any saga command.
+A target that **refuses** a saga's command records nothing. The saga's **on-refused callback** gets one `Refusal { event, command, response }` (the triggering event, the command sent, the refusal) and crafts a **rejection fact** for the saga's own source domain. When the saga's source is the PM, that fact reaches the PM, which decides the next step from its own state:
+
+```python title="illustrative"
+# Declared in proto: (on_refused) = {saga: "BuyInPlayerSaga", command: "HoldFunds"}
+# on the PM's fact HoldFundsRefused.
+def on_refused_hold_funds(refusal: Refusal) -> HoldFundsRefused:
+    return HoldFundsRefused(hold_id=refusal.command.hold_id,
+                            reason=refusal.response.message)
+```
+
+The refusal fact is unrefusable, so compensation cannot loop. There is no notification or compensation channel. A hard failure of the saga's command (anything but a business rejection) is retried when retryable and otherwise dead-lettered, as for any saga command.
 
 ---
 
@@ -197,8 +204,8 @@ See [Roadmap](../roadmap#process-manager-timeouts) for details.
 |--------|------|-----------------|
 | **State** | Stateless | Stateful (own event stream) |
 | **Identity** | None | correlation_id |
-| **Input** | Events of its one source domain | Facts addressed to it (subscribes to no domain) |
-| **Output** | Commands for an aggregate's domain, or facts for a PM's | Its own events only |
+| **Input** | Events of its one source domain | Commands and facts addressed to it (subscribes to no domain) |
+| **Output** | Commands for its one destination (an aggregate's or a PM's domain); a rejection fact for its own source when one is refused | Its own events only |
 | **Owned stream** | None (`domain` must be empty) | Its own workflow domain (`domain` required) |
 | **Persistence** | No | Yes (workflow events) |
 | **Timeouts** | No | Planned |
