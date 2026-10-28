@@ -22,7 +22,7 @@ event onwards, every removal reserves its number and name (see
 | [audit-meta/decision-log.md](audit-meta/decision-log.md) | Every decision of passes 1–14: why, the accepted cost, and the standard it aligns with, with superseded entries marked. Also the corrections (Event Modeling, KurrentDB, Axon). |
 | [audit-meta/critical-review-source.md](audit-meta/critical-review-source.md) | The post-pass-4 critical review's own record (authoritative for the findings' content). |
 | [audit-meta/critical-review.md](audit-meta/critical-review.md) | The status of each review finding: W1–W14, D1–D11, FINE and annals fitness, with where each was resolved; and the illuminated review's findings decided in passes 12 and 13 (T3–T8, T13, CH1, SG3, PM2). |
-| [audit-meta/idempotency.md](audit-meta/idempotency.md) | The idempotency research (a comparison table) and the chosen design since pass 12: one `command_id` per command, deduplicated on the events, with its accepted costs; PM process events deduplicated on their trigger, and reactor re-runs (pass 13); the superseded key-store design in brief. |
+| [audit-meta/idempotency.md](audit-meta/idempotency.md) | The idempotency research (a comparison table) and the chosen design since pass 12: one `command_id` per command, deduplicated on the events, with its accepted costs; PM process events deduplicated as facts' events (pass 14; on their trigger in pass 13), and reactor re-runs (pass 13); the superseded key-store design in brief. |
 | [audit-meta/backlog.md](audit-meta/backlog.md) | **The code follow-up backlog**, by workstream with a by-repo index. 114 open items, each with what, why, and what settles it; items closed by passes 12 and 13 are kept in place with their disposition. |
 | [audit-meta/annals-divergence.md](audit-meta/annals-divergence.md) | Why annals keeps its atomic in-process chain, and what it does and does not need as a result (no claims, no outbox, a logging "DLQ"). Also where annals matches angzarr: the proto types themselves, `EventMeta`, command ids and dedup on events, the pipeline order, conflict units with COMMUTATIVE the default in both. |
 | [../guide/state-and-conflicts.md](../guide/state-and-conflicts.md) | **Developer guide** (pass 12): custom options, the `(state)` option, marking conflict units, how COMMUTATIVE resolves and its risks, the generator's warnings and errors, the build setup, registration, versioning commands, and (pass 13) re-running reactors. |
@@ -187,7 +187,9 @@ event onwards, every removal reserves its number and name (see
     triggering_event = 18; }`, the event's direct cause. Fields 13
     (`command_id`) and 15 (`causation_id`) deleted, unreserved.
   - **PM process events**: `causation.triggering_event`, the trigger's
-    correlation, deduplicated on `triggering_event` within the PM's stream.
+    correlation, deduplicated on `triggering_event` within the PM's stream
+    (superseded by 14.31: a PM takes facts only, and `triggering_event`
+    is deleted).
   - **No command-causation on events**: a reaction command's trigger stays
     on `CommandPage.causation_id` (transport and trace metadata) and goes
     to OpenTelemetry traces. Forward causation from `CorrelationQuery` is
@@ -228,19 +230,23 @@ event onwards, every removal reserves its number and name (see
   - **Unknown type after upcasting**: the message names the sent type URL,
     `ErrorInfo` metadata `upcast_type_url` the chain's final one; facts are
     upcast too.
-  - **A PM's root is its trigger's correlation id** (14.30), unchanged.
-  - **Process managers: facts in, facts out** (14.31): a PM takes
-    triggers and commands addressed to its own domain, records each as its
-    own events and never refuses one (no `Handling`; a failing command
-    handler answers `PARKED`, a failing trigger is dead-lettered); it sends
+  - **A PM's root is its correlation id** (14.30), unchanged; since 14.31
+    the correlation of the facts addressed to it.
+  - **Process managers take facts only** (14.31, revised by the owner on
+    2026-10-28): a PM's only input is facts addressed to it; it
+    subscribes to nothing and takes no commands (rejection would need
+    compensation; revisit if a real case appears); it records each fact
+    and never refuses one (a failing handler is dead-lettered); it sends
     no commands, so sagas from its domain build them
     (`ProcessManagerHandleResponse.commands` and `output_domains`
-    deleted); only a declared starting trigger starts an instance, and a
-    command always may (annals ruling B1, `EventConsumer.starts`,
-    `Target.starting_types`); deduplication runs before the handler. The
-    outbox is one kind-agnostic capability, used today by sagas; a PM
-    needs none. Proposed and flagged: a trigger book's trigger is its last
-    page.
+    deleted). Only a declared starting fact starts an instance (annals
+    ruling B1, `CommandOptions.starts`,
+    `ComponentDescriptor.starting_types`); deduplication by the fact's id
+    runs before the handler. `EventMeta.triggering_event`,
+    `ProcessManagerCoordinatorService` and `EventConsumer.applies` are
+    deleted. **The saga contract changes (flagged):** a saga emits facts
+    for a PM's domain and commands for an aggregate's. The outbox is one
+    kind-agnostic capability, used today by sagas; a PM needs none.
 
 ### Worked example: hatpick's `ListState`
 
@@ -293,8 +299,8 @@ markers can go wrong.
 - **Reactor nondeterminism** (pass 5): a transient outbox for all reactors,
   with no purity contract. Since 14.31 the outbox is one kind-agnostic
   capability, for any component whose output leaves its own stream; today
-  that is the saga, and a PM, whose only output is its own events, needs
-  none.
+  that is the saga, and a PM, whose only output is its own events and
+  which consumes no stream, needs none.
 - **The parked-fact answer** (pass 5): a `DeliveryOutcome` value, not an
   `Outcome` field.
 - **Where `rules_version` comes from** (pass 5, revised in passes 12 and
@@ -350,17 +356,18 @@ markers can go wrong.
   framework components; clients get `PERMISSION_DENIED` (decision 12.10).
 - **Command upcasting** (pass 12): supported and discouraged (decision
   12.11).
-- **Meta for a PM's own process events** (pass 13, PM2): causation is the
-  trigger (`EventMeta.causation.triggering_event`), with the trigger's
-  correlation; deduplicated on it within the PM's stream (decision 13.2).
+- **Meta for a PM's own process events** (pass 13, PM2; revised in pass
+  14): a PM takes facts only, so its events carry the fact's `command_id`
+  and correlation and deduplicate on it (decision 14.31, superseding
+  13.2).
 - **Causation on events** (pass 13): only the direct cause; a reaction
   command's trigger goes to traces, not events (decision 13.3).
 - **Reactor re-runs** (pass 13, T8): no switch; same ids always dedupe;
   repairs are new commands (decision 13.4).
 - **Hard rejections of PM commands** (pass 14): dissolved; a PM sends no
   commands (decision 14.31). The saga carrying a PM's step handles a hard
-  rejection like any saga command, and a refusal reaches the PM as an
-  event (backlog PR-2, closed).
+  rejection like any saga command, and a refusal reaches the PM as a
+  fact (backlog PR-2, closed).
 - **A reacting-component field** (pass 13): none; source control says what
   makes what (decision 13.5).
 
@@ -376,9 +383,8 @@ markers can go wrong.
 - **The exact default divergence point** (backlog EA-3): a create-time stamp
   can tie with a concurrent main append, and clocks differ across
   instances.
-- **Per-event saga causation** (W3a, backlog OB-6). Pass 14 proposes,
-  flagged and not ruled, that a trigger book's trigger is its last page
-  and each event of a write is its own trigger book (decision 14.31).
+- **Per-event saga causation** (W3a, backlog OB-6); it now covers a
+  saga's facts for a process manager too.
 - **The SIMPLE mode name** (W14): not renamed, with no decision recorded.
 - **Multi-instance affinity for in-memory editions.** An in-memory edition
   lives in one process. Options:
@@ -388,7 +394,7 @@ markers can go wrong.
 - **Hard rejections of saga commands.** They are dead-lettered. A PM
   sends none (decision 14.31), so whether a PM should learn of one no
   longer arises: the step's saga's command is dead-lettered, and a business
-  refusal reaches the PM as an event. With the attempt-audit sink (D3) an
+  refusal reaches the PM as a fact, through a saga. With the attempt-audit sink (D3) an
   operator can at least see dead-lettered commands, once it exists.
 - **Repeated parks of one fact.** One DLQ entry per command id, or one per
   attempt (backlog CI-8).

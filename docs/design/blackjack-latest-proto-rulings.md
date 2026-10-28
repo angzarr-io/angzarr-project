@@ -6,17 +6,23 @@ blackjack spec ported from `feat/blackjack-spec`. Context:
 `docs/design/blackjack-mvp.plan.md` (on the blackjack-plan worktree), Stage 0.
 
 
-> **A process manager sends no commands (decision 14.31).** pmg-buy-in
+> **A process manager takes facts only and sends no commands (decision
+> 14.31).** pmg-buy-in subscribes to nothing: `TableBuyInSaga`
+> (saga-table-buy-in) and `PlayerBuyInSaga` (saga-player-buy-in) turn the
+> table's and the wallet's events into facts for it (`TableSeatHeld`,
+> `TablePlayerSeated`, `PlayerFundsHeld`, `PlayerFundsCaptured`). It
 > records each step as a buy-in event carrying the next command's data,
 > and two sagas from "buy-in" build the commands: `BuyInPlayerSaga`
 > (saga-buy-in-player: `HoldFunds`, `CaptureFunds`) and `BuyInTableSaga`
-> (saga-buy-in-table: `ConfirmSeat`). `SeatHeld` is its one starting
-> trigger (ruling B1): a wallet or table event for a buy-in it has not
-> seen is skipped. Wherever this note says the PM sends or issues a
-> command, read "the PM records an event and a buy-in saga sends the
-> command". R2's options are unchanged by this: a refusal still reaches
-> the PM only as an event, and a hard rejection of the saga's command is
-> dead-lettered.
+> (saga-buy-in-table: `ConfirmSeat`). `TableSeatHeld` is its one starting
+> fact (ruling B1): any other fact for a buy-in it has not seen is
+> skipped. Wherever this note says the PM hears of an event, read "a saga
+> into "buy-in" sends it a fact"; wherever it says the PM sends or issues
+> a command, read "the PM records an event and a buy-in saga sends the
+> command". R2's options are unchanged in substance: a refusal still
+> reaches the PM only as a recorded event, now turned into a fact by the
+> target's saga into "buy-in", and a hard rejection of the saga's command
+> is dead-lettered.
 
 > **One saga per (source, destination) pair (decision 14.23).** The
 > table -> player reactions (round history and loyalty, and settlement if
@@ -124,15 +130,16 @@ meanwhile), the PM heard the rejection through compensation. It then failed
 the buy-in and released whichever half had gone through.
 
 **Why it cannot port.** A PM learns of a refusal only when the target records
-it as a domain event (`process_manager.proto`, "Replies"). A hard rejection
+it as a domain event, which a saga into the PM's domain turns into a fact
+(`process_manager.proto`, "Replies"). A hard rejection
 of a buy-in saga's command (the PM sends none; decision 14.31) is
 dead-lettered, and the seat or the hold would stay held.
 
 **Candidates.**
 - **(a) Refusal events.** The wallet records `FundsHoldRefused{hold_id,
   code}` instead of rejecting `HoldFunds`, and the table records
-  `SeatConfirmationRefused{buy_in_id, code}`. pmg-buy-in subscribes to both
-  as triggers. The failure branch then runs as before (`BuyInFailed`,
+  `SeatConfirmationRefused{buy_in_id, code}`. saga-player-buy-in and
+  saga-table-buy-in turn them into facts for pmg-buy-in. The failure branch then runs as before (`BuyInFailed`,
   with `ReleaseSeat` and `ReleaseHold` built by the buy-in sagas from it). EU-1414, EU-1416, EU-1451 and EU-1452 turn
   into recorded refusals.
 - **(b) As (a), but only for the refusals the flow must answer**
