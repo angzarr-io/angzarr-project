@@ -654,9 +654,10 @@ message RefusalResponse {
 // is a domain, with no trigger-caused events; decision 14.31). fact is
 // set iff the producing command was a Fact.
 // rules_version is always recorded from the business logic's report
-// (empty only if the business logic reports none). A reaction command's causation_id (its trigger) is NOT
-// recorded: an event names its own cause, not its cause's cause (decision
-// 13.3; the trigger edge is in traces).
+// (empty only if the business logic reports none). A reaction command's
+// causation_id (its trigger) is NOT recorded: an event names its own
+// cause, not its cause's cause (decision 13.3; the trigger edge is in
+// traces).
 //
 // The event's own identity is the EventRef of its page (its stream plus
 // EventPage.sequence); EventMeta does not repeat it.
