@@ -632,6 +632,7 @@ fn component_descriptor_carries_its_state_descriptor() {
         kind: ComponentKind::Aggregate as i32,
         inputs: vec![Target {
             domain: "lists".into(),
+            ..Default::default()
         }],
         state: Some(state),
         rules_version: "1.4.2+build.7".into(),
@@ -750,4 +751,39 @@ fn type_names_are_io_angzarr_v1() {
     let packed = prost_types::Any::from_msg(&b).expect("pack");
     assert_eq!(packed.type_url, "/io.angzarr.v1.CommandBook");
     assert_eq!(packed.to_msg::<CommandBook>().expect("unpack"), b);
+}
+
+#[test]
+fn a_process_manager_descriptor_lists_its_starting_triggers() {
+    // Ruling B1 (decision 14.31): a PM's descriptor names, per source
+    // domain, the event types that may start an instance.
+    let original = ComponentDescriptor {
+        name: "buy-in".into(),
+        kind: ComponentKind::ProcessManager as i32,
+        inputs: vec![
+            Target {
+                domain: "table".into(),
+                starting_types: vec!["/io.angzarr.examples.v1.SeatHeld".into()],
+            },
+            Target {
+                domain: "player".into(),
+                starting_types: vec![],
+            },
+        ],
+        rules_version: "1.0.0".into(),
+        ..Default::default()
+    };
+    let decoded = round_trip(&original);
+    assert_eq!(decoded, original);
+    assert_eq!(
+        decoded.inputs[0].starting_types,
+        ["/io.angzarr.examples.v1.SeatHeld"]
+    );
+    assert!(decoded.inputs[1].starting_types.is_empty());
+    // starting_types is Target's field 2.
+    let target = Target {
+        starting_types: vec!["/a".into()],
+        ..Default::default()
+    };
+    assert_eq!(target.encode_to_vec(), [0x12, 2, b'/', b'a']);
 }
