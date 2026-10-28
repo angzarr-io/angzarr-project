@@ -35,7 +35,9 @@ fn the_fork_event_round_trips_with_its_field_numbers() {
             stream: Some(stream("what-if")),
             sequence: 3,
         }),
-        on_demand: false,
+        forked_by: Some(Uuid {
+            value: vec![9; 16].into(),
+        }),
     };
     assert_eq!(EditionForked::decode(&*fork.encode_to_vec()).unwrap(), fork);
     let tag = |f: EditionForked| first_tag(&f);
@@ -69,10 +71,10 @@ fn the_fork_event_round_trips_with_its_field_numbers() {
     );
     assert_eq!(
         tag(EditionForked {
-            on_demand: true,
+            forked_by: Some(Uuid::default()),
             ..Default::default()
         }),
-        5 << 3
+        (5 << 3) | 2
     );
 }
 
