@@ -33,15 +33,16 @@ fn written_out_they_are_an_include_directory() {
             file.contents
         );
     }
-    // Every import between them resolves inside the directory (google/*
-    // aside, which protoc supplies).
+    // Every import between them resolves inside the directory
+    // (google/protobuf/* aside, which protoc supplies; google/api/* is
+    // embedded, for meta.proto).
     for file in FILES {
         for line in file.contents.lines() {
             let Some(rest) = line.trim().strip_prefix("import \"") else {
                 continue;
             };
             let import = rest.trim_end_matches("\";");
-            if !import.starts_with("google/") {
+            if !import.starts_with("google/protobuf/") {
                 assert!(
                     include.join(import).exists(),
                     "{} imports {import}",

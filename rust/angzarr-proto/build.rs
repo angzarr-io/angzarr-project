@@ -2,14 +2,21 @@
 //! canonical protos (lifted from angzarr-router's `crates/router/build.rs`).
 //!
 //! Only `types.proto` (with `sererr/v1/sererr.proto`, which it imports),
-//! `upcaster.proto` and `options.proto` are compiled. prost generates the
+//! `upcaster.proto`, `options.proto` and `meta.proto` are compiled. prost generates the
 //! option messages (`ConflictUnit`, `ComponentOptions`, ...) but not the
 //! `extend` declarations, which it ignores; their values are read from
 //! descriptors (see `tests/conflict_units.rs`). prost-build emits messages only: the
-//! `UpcasterService` in upcaster.proto is skipped because no service generator
-//! is configured. Nothing here pulls in `google.api`.
+//! `UpcasterService` in upcaster.proto and the `EditionAdminService` in
+//! meta.proto are skipped because no service generator is configured, so
+//! meta.proto contributes its messages only (`CreateEditionRequest`,
+//! `DeleteEditionRequest`, `Edition`). meta.proto imports
+//! `google/api/annotations.proto` for its HTTP bindings: protoc resolves it
+//! from this repo's vendored `proto/google/api/`, and nothing generated
+//! here references `google.api` (its code is emitted to `$OUT_DIR` but not
+//! included by the library).
 //!
-//! The same `.proto` files are also copied to `$OUT_DIR/proto/`, keeping
+//! The same `.proto` files, with the vendored `google/api` files meta.proto
+//! imports, are also copied to `$OUT_DIR/proto/`, keeping
 //! their import paths, so the crate can embed them ([`protos`] in the
 //! library): a dependent's own protos import angzarr's (`options.proto` for
 //! the `state` and `conflict` options) through
@@ -40,15 +47,22 @@ fn main() {
         root.join("io/angzarr/v1/types.proto"),
         root.join("io/angzarr/v1/upcaster.proto"),
         root.join("io/angzarr/v1/options.proto"),
+        root.join("io/angzarr/v1/meta.proto"),
         root.join("sererr/v1/sererr.proto"),
+    ];
+    // Embedded but not generated: meta.proto's HTTP-binding imports, so a
+    // dependent's protoc can import meta.proto from the include directory.
+    let imports_only = [
+        root.join("google/api/annotations.proto"),
+        root.join("google/api/http.proto"),
     ];
     println!("cargo:rerun-if-env-changed=ANGZARR_PROJECT_PROTO");
     println!("cargo:rerun-if-env-changed=PROTOC");
-    for f in &files {
+    for f in files.iter().chain(&imports_only) {
         println!("cargo:rerun-if-changed={}", f.display());
     }
 
-    export_protos(&root, &files);
+    export_protos(&root, files.iter().chain(&imports_only));
 
     let mut config = prost_build::Config::new();
     config
@@ -68,7 +82,7 @@ fn main() {
 
 /// Copies each compiled proto to `$OUT_DIR/proto/<its path under root>`,
 /// for `src/protos.rs` to embed with `include_str!`.
-fn export_protos(root: &std::path::Path, files: &[PathBuf]) {
+fn export_protos<'a>(root: &std::path::Path, files: impl Iterator<Item = &'a PathBuf>) {
     let out = PathBuf::from(std::env::var("OUT_DIR").expect("OUT_DIR")).join("proto");
     for file in files {
         let relative = file.strip_prefix(root).expect("a proto under the root");

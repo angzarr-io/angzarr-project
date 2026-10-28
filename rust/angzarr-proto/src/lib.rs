@@ -14,7 +14,10 @@
 //! the `options.proto` option messages (`ConflictUnit` for COMMUTATIVE
 //! conflict units, `ComponentOptions`, `CommandOptions`, `EventConsumer`;
 //! prost skips the `extend` declarations, so option values are read from
-//! descriptors), plus `sererr.v1`, which `types.proto` imports. Every
+//! descriptors), the edition registry's messages from `meta.proto`
+//! (`CreateEditionRequest`, `DeleteEditionRequest` and the `Edition`
+//! record; `EditionAdminService` itself is not generated), plus
+//! `sererr.v1`, which `types.proto` imports. Every
 //! message implements [`prost::Name`] with no type-name domain, so
 //! `prost_types::Any::from_msg` yields type URLs of the form
 //! `/io.angzarr.v1.EventPage`, matching angzarr's TYPE_URL_PREFIX ("/").
@@ -33,7 +36,8 @@
 //! own protos import angzarr's (a state message's `state` and `conflict`
 //! options).
 //!
-//! No gRPC services, tonic, or `google.api` annotations: this crate is a
+//! No gRPC services, tonic, or `google.api` types (meta.proto's HTTP
+//! annotations are embedded as source only): this crate is a
 //! dependency leaf (beyond prost, only `bytes` and `uuid` without default
 //! features) and builds for `wasm32-unknown-unknown`.
 //!

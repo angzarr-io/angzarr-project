@@ -13,7 +13,8 @@
 //! ```
 //!
 //! The files are the ones this crate's types were generated from, byte for
-//! byte, under their import paths; `google/protobuf/*` comes from protoc's
+//! byte, under their import paths, with the `google/api` files meta.proto
+//! imports for its HTTP bindings; `google/protobuf/*` comes from protoc's
 //! own include directory, as usual. Generate only your own files: angzarr's
 //! messages are this crate's (map them with prost-build's `extern_path` if
 //! your messages embed any).
@@ -38,12 +39,16 @@ macro_rules! embedded {
     };
 }
 
-/// Every proto this crate was generated from.
+/// Every proto this crate was generated from, and the vendored
+/// `google/api` files meta.proto imports (embedded, not generated).
 pub const FILES: &[ProtoFile] = embedded![
     "io/angzarr/v1/types.proto",
     "io/angzarr/v1/upcaster.proto",
     "io/angzarr/v1/options.proto",
+    "io/angzarr/v1/meta.proto",
     "sererr/v1/sererr.proto",
+    "google/api/annotations.proto",
+    "google/api/http.proto",
 ];
 
 /// Write [`FILES`] under `dir` (created if needed), each at its import
