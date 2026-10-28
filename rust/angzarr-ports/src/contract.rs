@@ -44,12 +44,11 @@
 
 use std::future::Future;
 
+use crate::CreateEditionRequest;
 use angzarr_proto::ids::fact_command_id;
 use angzarr_proto::uuid::Uuid;
 use angzarr_proto::v1::event_meta::Causation;
-use angzarr_proto::v1::{
-    Cover, CreateEditionRequest, EventBook, EventMeta, EventPage, FactOrigin, Snapshot,
-};
+use angzarr_proto::v1::{Cover, EventBook, EventMeta, EventPage, FactOrigin, Snapshot};
 use prost_types::{Any, Timestamp};
 
 use crate::error::StoreError;

@@ -18,8 +18,10 @@ contract = []
 memory = []
 
 [dependencies]
-# The wire types the ports speak (Cover, EventPage, EventRef, Snapshot,
-# Edition, CreateEditionRequest), and `uuid` through its re-export.
+# The wire types the ports speak (Cover, EventPage, EventRef, Snapshot),
+# and `uuid` through its re-export. (The withdrawn Edition and
+# CreateEditionRequest live in src/pending_editions.rs until the editions
+# rework.)
 angzarr-proto = { path = "../angzarr-proto" }
 # `Timestamp`, as angzarr-proto's messages hold it.
 prost-types = "0.14"

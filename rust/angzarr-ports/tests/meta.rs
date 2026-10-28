@@ -22,9 +22,7 @@ use std::sync::{Arc, Mutex};
 
 use angzarr_ports::angzarr_proto::ids::fact_command_id;
 use angzarr_ports::angzarr_proto::v1::event_meta::Causation;
-use angzarr_ports::angzarr_proto::v1::{
-    Cover, CreateEditionRequest, Edition, EventBook, EventPage, Snapshot,
-};
+use angzarr_ports::angzarr_proto::v1::{Cover, EventBook, EventPage, Snapshot};
 use angzarr_ports::contract;
 use angzarr_ports::memory::{MemoryRead, MemoryStore, MemoryUnit};
 use angzarr_ports::{
@@ -32,6 +30,7 @@ use angzarr_ports::{
     PositionStore, Purge, ReadByCorrelation, ReadStore, ReadUnit, ReadUntilTime, Slice,
     SnapshotStore, StoreError, StreamRef, Unit, UnitOfWork, UnitOutbox, UnitPurge, Uuid, Watch,
 };
+use angzarr_ports::{CreateEditionRequest, Edition};
 use prost_types::Timestamp;
 
 /// What a [`Broken`] store gets wrong: one bug each.

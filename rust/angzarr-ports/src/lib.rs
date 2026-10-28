@@ -44,6 +44,7 @@
 //!   [`store_contract!`].
 
 mod error;
+mod pending_editions;
 mod send;
 mod store;
 mod stream;
@@ -61,6 +62,7 @@ pub use dyn_store::{
     DynStore, DynUnit, DynUnitOfWork,
 };
 pub use error::{Arg, Cause, Recovery, StoreError};
+pub use pending_editions::{CreateEditionRequest, Edition};
 pub use send::{MaybeSend, MaybeSync};
 pub use store::{
     ChangeToken, Editions, EventStore, ListStreams, Outbox, OutboxEntry, PositionStore, Purge,

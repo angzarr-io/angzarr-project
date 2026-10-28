@@ -9,9 +9,10 @@ compile_error!("run `just test` (every feature)");
 
 use std::sync::Arc;
 
-use angzarr_ports::angzarr_proto::v1::{CreateEditionRequest, EventBook};
+use angzarr_ports::angzarr_proto::v1::EventBook;
 use angzarr_ports::contract::{at, command, correlated, entry, main_stream, page};
 use angzarr_ports::memory::MemoryStore;
+use angzarr_ports::CreateEditionRequest;
 use angzarr_ports::{
     DynEditions, DynEventStore, DynListStreams, DynOutbox, DynOutboxStore, DynReadByCorrelation,
     DynReadUntilTime, DynStore, DynUnitOfWork,
