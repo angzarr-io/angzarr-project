@@ -6,9 +6,9 @@ Feature: Editions are per-stream forks, and the fork travels with the data
   with the data: a saga's command in X that reaches a stream with no fork
   in X forks it on arrival. A command from outside to an unforked stream is
   refused until propagated. There is no edition registry: an edition is
-  known while any stream of it is forked and not yet deleted. Deletion is
-  a tombstone, sequenced after the work in flight, travelling the same
-  saga flows. Main knows nothing of an edition. The scenarios tagged as
+  known while any fork event of it exists. Deletion is sequenced after
+  the edition's work in flight, then removes every row tagged with the
+  edition. Main knows nothing of an edition. The scenarios tagged as
   proposed follow the drafter's choices flagged in 14.32.
 
   Background:
@@ -104,31 +104,29 @@ Feature: Editions are per-stream forks, and the fork travels with the data
 
   @editions
   @C-0637
-  Scenario: A delete takes effect after the in-flight work before it
+  Scenario: A delete takes effect after the in-flight work before it, then removes every row of the edition
     Given "player" "p-1" is forked into edition "what-if"
     And "player" "p-1" recorded PlayerReady in edition "what-if", and its SeatPlayer is still in the saga's outbox
     When DeleteEdition deletes "what-if"
-    Then "player" "p-1" in edition "what-if" gains an EditionDeleted tombstone after PlayerReady
-    And the SeatPlayer command reaches "table" "t-1" first, forking it and being handled in "what-if"
-    And only then does "table" "t-1" in edition "what-if" gain its own EditionDeleted tombstone
+    Then the SeatPlayer command reaches "table" "t-1" first, forking it and being handled in "what-if"
+    And only then is every row tagged "what-if" removed, in every edition store
+    And no tombstone or deleted-state row of "what-if" remains
     And nothing polled, waited on a timer or retried
 
-  @editions @proposed
+  @editions
   @C-0640
-  Scenario: Each deleted stream keeps only its tombstone, and a later arrival forks it again
-    Given edition "what-if" was deleted, and "table" "t-1" in edition "what-if" holds its tombstone
-    Then "table" "t-1" in edition "what-if" holds no event, snapshot or projection below its tombstone
-    And reading "table" "t-1" in edition "what-if" is answered NOT_FOUND
-    When a saga command in edition "what-if" later arrives at "table" "t-1"
-    Then "table" "t-1" in edition "what-if" gains a new EditionForked event after the tombstone
-    And the command is handled, with no re-check of the delete
-    And ListEditions lists edition "what-if" again, for the user to remediate
+  Scenario: A saga command after a completed delete forks its target again, visibly
+    Given edition "what-if" was deleted and no row of it remains
+    When a saga command in edition "what-if" arrives at "table" "t-1"
+    Then "table" "t-1" in edition "what-if" gains an EditionForked event
+    And the command is handled
+    And ListEditions lists edition "what-if" again, for the user to delete again
 
   @editions
   @C-0641
   Scenario: A delete that fails is dead-lettered and alerted
     Given "player" "p-1" is forked into edition "what-if"
-    And the edition store refuses to remove the rows of "player" "p-1" in edition "what-if"
+    And the edition store refuses to remove the rows of edition "what-if"
     When DeleteEdition deletes "what-if"
     Then the failed deletion is dead-lettered and an alert is raised
 
@@ -154,7 +152,7 @@ Feature: Editions are per-stream forks, and the fork travels with the data
     When ForkStream forks "player" "p-1" into edition "what-if"
     And ListEditions is called
     And DeleteEdition deletes "what-if"
-    Then no EditionForked or EditionDeleted event exists on any main stream
+    Then no EditionForked event exists on any main stream
     And ListEditions and the existence check read only the edition store
     And main's coordinators, projectors and readers received nothing about edition "what-if"
 
