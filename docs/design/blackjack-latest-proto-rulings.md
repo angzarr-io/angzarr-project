@@ -15,13 +15,17 @@ blackjack spec ported from `feat/blackjack-spec`. Context:
 > the next command's data, and two sagas from "buy-in" build the commands:
 > `BuyInPlayerSaga` (`HoldFunds`, `CaptureFunds`) and `BuyInTableSaga`
 > (`ConfirmSeat`, `ReleaseSeat`). Refusals are ruled (14.31, amending
-> 2.2): the refusing domain records nothing, and the saga's on-refused
-> callback crafts a fact for its own source domain. That settles R2's
-> mechanism, and one branch is ported: the wallet refusing `HoldFunds`
-> reaches the buy-in as `HoldFundsRefused`, the PM records `BuyInFailed`
-> and the seat is released (EU-1562). R2 still decides which refusals the
-> table and the wallet answer that way and which are bugs, and the
-> `ConfirmSeat` branch.
+> 2.2): the refusing domain records nothing, and the saga delivers a
+> refusal fact to its own source domain, passed through (the standard
+> `CommandRefused`) or translated into a domestic fact. That settles R2's
+> mechanism, and both branches are ported, one per mode: the wallet
+> refusing `HoldFunds` reaches the buy-in as `CommandRefused`, handled by
+> its generated `on_refused_HoldFunds`, which records `BuyInFailed`, and
+> the seat is released (EU-1562); the table refusing `ConfirmSeat` is
+> translated into `SeatConfirmationRefused`, the PM records
+> `BuyInSeatLost`, and the hold is released (EU-1563). R2 still decides
+> which refusals the table and the wallet answer that way and which are
+> bugs.
 
 > **One saga per (source, destination) pair (decision 14.23).** The
 > table -> player reactions (round history and loyalty, and settlement if
@@ -129,7 +133,7 @@ meanwhile), the PM heard the rejection through compensation. It then failed
 the buy-in and released whichever half had gone through.
 
 **Why it cannot port.** A PM learns of a refusal only when the target records
-it through the refusing saga's on-refused callback, as a fact
+it from the saga whose command was refused, as a refusal fact
 (`process_manager.proto`, "Replies and refusals"; decision 14.31). A hard rejection
 of a buy-in saga's command (the PM sends none; decision 14.31) is
 dead-lettered, and the seat or the hold would stay held.
@@ -138,8 +142,8 @@ dead-lettered, and the seat or the hold would stay held.
 - **(a) Refusal events.** The wallet records `FundsHoldRefused{hold_id,
   code}` instead of rejecting `HoldFunds`, and the table records
   `SeatConfirmationRefused{buy_in_id, code}`. Superseded by 14.31: the
-  refusing domain records nothing, and the buy-in sagas' on-refused
-  callbacks turn each refusal into a fact for pmg-buy-in. The failure branch then runs as before (`BuyInFailed`,
+  refusing domain records nothing, and the buy-in sagas deliver each
+  refusal to pmg-buy-in as a fact. The failure branch then runs as before (`BuyInFailed`,
   with `ReleaseSeat` and `ReleaseHold` built by the buy-in sagas from it). EU-1414, EU-1416, EU-1451 and EU-1452 turn
   into recorded refusals.
 - **(b) As (a), but only for the refusals the flow must answer**

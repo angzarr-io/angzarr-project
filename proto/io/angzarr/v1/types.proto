@@ -937,8 +937,9 @@ message Handling {
 // never has one. A saga's business code never injects a fact: it emits
 // Commands with a causation_id, and one that emits a Fact is refused
 // (dead-lettered and alerted). The one fact a saga delivers is the
-// rejection fact its on-refused callback crafts for a refused command, and
-// only to the saga's own source domain (decision 14.31, amending 2.2;
+// refusal fact of a refused command (the standard CommandRefused, or a
+// domestic fact its callback translates the refusal into), and only to
+// the saga's own source domain (decision 14.31, amending 2.2;
 // SagaService in saga.proto, Refusals).
 message CommandPage {
   oneof body {

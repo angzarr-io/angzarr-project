@@ -87,7 +87,7 @@ Replaces the KS key-store workstream (closed below).
 - What: issue framework components (saga and PM coordinators, the outbox
   dispatcher, the DLQ replayer) mTLS identities, and recognise them at every
   coordinator. Refuse `CommandPage.causation_id` (on a reaction command or
-  a saga's rejection fact) from any other caller, and every call to
+  a saga's refusal fact) from any other caller, and every call to
   `SagaCoordinatorService.Execute`, with `PERMISSION_DENIED`
   (`ProcessManagerCoordinatorService` is deleted by 14.31). The
   REST gateway forwards the caller's identity rather than its own.
@@ -155,15 +155,13 @@ The outbox is one capability, not a saga feature (decision 14.31, the
 owner's ruling of 2026-10-28: "if we need an outbox it should be
 polymorphic"). Build it once, naming no component kind: any component
 whose output leaves its own stream uses it. Today only sagas do, for
-their commands and, since 14.31, the rejection facts their on-refused
-callbacks craft.
+their commands and, since 14.31, their refusal facts.
 
 **OB-1** [core] **The transient outbox, kind-agnostic; sagas first.**
 - What: one outbox that stores a component's outbound output atomically
   with its source checkpoint (position store), dispatches it, then clears
   it, with no knowledge of the component's kind. Wire sagas to it: a
-  `SagaResponse`'s commands, and the rejection facts of their on-refused
-  callbacks (OB-7). Today saga commands are sent directly, with
+  `SagaResponse`'s commands, and their refusal facts (OB-7). Today saga commands are sent directly, with
   `SyncMode::Async` hardcoded in `handlers/core/saga.rs`.
 - Why: `saga.proto`, the transient outbox text; decision 14.31.
 - Settled when: in a crash-injection test (crash after store, before
@@ -177,27 +175,43 @@ only output is its own events, appended like an aggregate's. It needs no
 outbox. Removing the PM's command dispatch and any reactor-determinism
 dead-lettering from core is PR-6.
 
-**OB-7** [core, clients, router] **The saga's on-refused callback.**
-- What: when the outbox relay receives a business rejection
-  (`FAILED_PRECONDITION`) of a saga command whose type the saga's
-  descriptor lists in `refusal_types`, call `SagaService.OnRefused`
-  with `Refusal { event, command, response }`; check the returned fact
-  is for the saga's `input_domain` and sets no Handling; stamp its
-  `causation_id`, correlation, edition and `"angzarr-refusal:"` origin;
-  and write it as a new outbox entry in the transaction that clears the
-  command's entry. A refused command with no callback is dead-lettered
-  and alerted, and a failing callback dead-lettered and alerted (owner's
-  rulings). Every coordinator accepts a `Fact` with `causation_id` only
-  for the domain of the stream it names. angzarr-cli generates
-  `on_refused_<Command>(Refusal)` from `(on_refused)`, lints mismatches,
-  and fills `refusal_types`; client libraries serve `OnRefused`. annals
-  makes the same call directly in its chain.
-- Why: decision 14.31, amending 2.2; `SagaService` (Refusals) and
-  `Refusal` in `saga.proto`, `(on_refused)` in `options.proto`, the
-  `derived_ids` region (Refusal facts) of `types.proto`.
-- Settled when: scenarios C-0608 to C-0610, C-0612, C-0613 to C-0620
-  and EU-1562 pass, and the worked refusal-fact id in `types.proto` is
-  reproduced by core, every client and annals.
+**OB-7** [core, clients, router, project] **Refusal wiring.**
+- What (core): when the outbox relay receives a business rejection
+  (`FAILED_PRECONDITION`) of a saga command, call
+  `SagaService.OnRefused(Refusal { event, command, response })`; check the
+  answered fact is for the saga's `input_domain` and sets no Handling;
+  stamp its `command_id` = the refused command's `command_id`,
+  `fact_origin.external_id` = that id's canonical text, `causation_id`,
+  correlation and edition; and write it as a new outbox entry in the
+  transaction that clears the command's entry. Every coordinator accepts a
+  `Fact` with `causation_id` only for the domain of the stream it names,
+  and takes the refused command's id as such a fact's id. A pass-through
+  fact the source cannot handle (`NO_FACT_HANDLER`) and a failing
+  translating callback are dead-lettered and alerted.
+- What (clients, router): the saga's generated code answers `OnRefused`,
+  with the standard `CommandRefused { command, response, trigger }`
+  (pass-through) or the user's translating callback's domestic fact; an
+  aggregate's or PM's generated dispatch routes `CommandRefused` by the
+  refused command's type to `on_refused_<Command>(refusal, state)`. annals
+  makes the same calls directly in its chain.
+- What (angzarr-cli): generate both paths from `ComponentOptions.sends`
+  (SAGA, `SagaSend { command, refusal_fact }`) and
+  `ComponentOptions.refusals` (AGGREGATE, PROCESS_MANAGER); check that every
+  sent command has exactly one refusal path (two is an error, none a lint
+  warning); and add the compile-time refusal switch, as a flag and a
+  build-config entry, per saga or per saga command, overriding the proto
+  default (a `refusal_fact` means translate). Two CLIs generate today:
+  the Go CLI on angzarr-cli `main` (`codegen/*.go`: C++, C#, Go, Java,
+  Python and TypeScript, plus `codegen/lint.go`) and the Rust CLI on
+  branch `rust-cli` (`crates/angzarr-codegen`, Rust only, used by
+  `angzarr-build`). The switch, the generation and the lint go into both,
+  each for the languages it generates.
+- Why: decision 14.31, amending 2.2 (plan ruling 7, "REFUSAL WIRING");
+  `SagaService` (Refusals), `Refusal` and `OnRefused` in `saga.proto`,
+  `CommandRefused` in `types.proto`, the refusals region of
+  `options.proto`.
+- Settled when: scenarios C-0608 to C-0610, C-0612, C-0613 to C-0623 and
+  EU-1562 to EU-1563 pass.
 
 **OB-3** [core] **Co-locate checkpoints and outboxes.**
 - What: the position store and the outbox must share a transaction, so the
@@ -232,8 +246,8 @@ dead-lettering from core is PR-6.
   `causation_id` is "always the triggering event" in the contract.
 - Settled when: re-chunked catch-up re-sends commands with identical
   command ids, and each command's `causation_id` names the event it answers.
-- The same holds for a saga's rejection facts, whose refusal origin is
-  derived from the refused command's reaction name (decision 14.31).
+- The same holds for a saga's refusal facts, whose id is the refused
+  command's (decision 14.31).
 
 ## PS: provenance stamping and correlation (passes 1, 5 and 12, W4/W5)
 
@@ -423,7 +437,7 @@ dead-lettering from core is PR-6.
 
 **MD-5** [core] **Reaction delivery mode comes from configuration.**
 - What: saga delivery (from the outbox, OB-1), of commands and of
-  rejection facts, chooses `Handle` or `HandleAsync` from component
+  refusal facts, chooses `Handle` or `HandleAsync` from component
   configuration. A PM sends no commands (decision 14.31). Today `SyncMode::Async` is hardcoded in
   `handlers/core/saga.rs` and `handlers/core/process_manager.rs`. Reactions
   never use `HandleSync`.
@@ -631,8 +645,8 @@ built.
 **PR-2** (hard rejections of PM commands): **closed** by decision 14.31.
 A PM sends no commands. The saga that carries a PM's step handles a hard
 failure like any saga command (retry when retryable, otherwise
-dead-letter), and a business refusal reaches the PM as the rejection
-fact of that saga's on-refused callback (OB-7).
+dead-letter), and a business refusal reaches the PM as that saga's
+refusal fact (OB-7).
 
 **PR-5** [core] **Each PM's coordinator delivers to its one PM.**
 - What: a PM's coordinator is a command handler coordinator for the PM's
@@ -920,8 +934,8 @@ and of `EventMeta`'s `causation` oneof, `correlation_id` and `fact`.
 **CQ-2** [core, clients] **Serve `GetCorrelatedEvents`, and a forward-causation helper.**
 - What: implement the RPC (validation, editions, one book per stream, the
   HTTP route). Client libraries offer a helper over the result: it links
-  the events of a saga's rejection facts to the refused command's trigger
-  exactly (on the refusal origin in `EventMeta.fact.external_id`;
+  the events of a saga's refusal facts to the refused command's trigger
+  exactly (their `causation.command_id` is the refused command's id;
   decision 14.31) and groups every event by its command (`causation.command_id`); reaction commands' trigger edges
   are not in the result (decision 13.3) and come from traces (PS-6).
 - Why: `query.proto`, `CorrelationQuery` in `types.proto`.
@@ -1401,8 +1415,8 @@ The later pass-14 rulings added SG-1 (14.24) and QS-1 (14.26) and rewrote
 GAP-1 (14.25): 114. Decision 14.31 closed PR-2, opened PR-6 and PR-7, and
 rewrote OB-1, OB-2, OB-5, OB-6, PR-1, PR-4, SG-1 and MD-5 in place: 115.
 The owner's settlement of 14.31 (2026-10-28, a PM is a domain; refusals
-through the saga's on-refused callback) closed OB-2 and PR-4, opened
-OB-7 (the on-refused callback), and rewrote PR-1, PR-5, PR-6, PR-7,
+through the saga's refusal facts) closed OB-2 and PR-4, opened OB-7
+(the refusal wiring), and rewrote PR-1, PR-5, PR-6, PR-7,
 PS-1, CI-5, CQ-2 and MD-5 in place: 114.
 
 ## By-repo index

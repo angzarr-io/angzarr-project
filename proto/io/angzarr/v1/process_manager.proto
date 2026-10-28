@@ -83,9 +83,8 @@ option ruby_package = "Angzarr";
 //   - a COMMAND is refused (owner's ruling; decision 14.31):
 //     FAILED_PRECONDITION, with a google.rpc.ErrorInfo of reason
 //     PM_NO_INSTANCE, recording nothing, as any business rejection. A
-//     saga's refused command then goes to the saga's on-refused callback,
-//     whose fact tells the saga's source, which decides what an unstarted
-//     process means for it. The
+//     saga's refused command then yields its refusal fact to the saga's
+//     source, which decides what an unstarted process means for it. The
 //     alternative, a silent skip answered APPLIED with no events, would
 //     tell the sender a command took effect that did not.
 // An input for a correlation whose instance exists is delivered whatever

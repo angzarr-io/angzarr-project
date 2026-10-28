@@ -234,7 +234,7 @@ event onwards, every removal reserves its number and name (see
     the correlation of the facts addressed to it.
   - **A process manager is a domain** (14.31, settled by the owner on
     2026-10-28): commands (refusable; sagas translate other domains'
-    events into them) and facts (timeouts, webhooks, rejection facts) in,
+    events into them) and facts (timeouts, webhooks, refusal facts) in,
     its own events out; no triggers; served by `CommandHandlerService` like
     an aggregate (`ProcessManagerService` and its messages deleted). Only
     declared starting inputs start an instance (B1; a non-starting fact is
@@ -242,10 +242,13 @@ event onwards, every removal reserves its number and name (see
     `EventMeta.triggering_event`, `ProcessManagerCoordinatorService` and
     `EventConsumer.applies` are deleted.
   - **Refusals (2.2 amended):** a saga's target refuses and records
-    nothing; the saga's on-refused callback, `OnRefused(Refusal { event,
-    command, response })`, declared by `(on_refused)`, crafts a fact for the
-    saga's own source domain, written to the outbox in the transaction that
-    clears the command. A context object was considered and deferred. The
+    nothing; the saga delivers one refusal fact, with the refused command's
+    id, to its own source domain, written to the outbox in the transaction
+    that clears the command: by default the standard `CommandRefused`,
+    which the source handles in a generated `on_refused_<Command>`; opted
+    in per command, a domestic fact its callback translates `Refusal {
+    event, command, response }` into. The mode is an angzarr-cli switch at
+    code generation. A context object was considered and deferred. The
     outbox is one kind-agnostic capability, used today by sagas; a PM
     needs none.
 
@@ -385,7 +388,7 @@ markers can go wrong.
   can tie with a concurrent main append, and clocks differ across
   instances.
 - **Per-event saga causation** (W3a, backlog OB-6); it now covers a
-  saga's rejection facts too.
+  saga's refusal facts too.
 - **The SIMPLE mode name** (W14): not renamed, with no decision recorded.
 - **Multi-instance affinity for in-memory editions.** An in-memory edition
   lives in one process. Options:

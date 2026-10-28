@@ -6,7 +6,7 @@ import { Tabs, TabItem } from '@astrojs/starlight/components';
 
 A **process manager** coordinates multi-domain workflows with state tracking. Unlike stateless sagas, process managers maintain their own event stream keyed by correlation ID, enabling complex orchestration patterns.
 
-A process manager **is a domain**. Like any domain it takes **commands**, which it may refuse, and **facts** (timeouts, webhooks, rejection facts), which it never refuses. It subscribes to no domain: when it must hear what happened in another domain, a saga from that domain turns the event into a command to it. Everything it emits is its own events: to act on another domain it records an event carrying the data that domain's command needs, and a saga from the PM's domain builds the command. It is served exactly as an aggregate is, by the same command-handler services.
+A process manager **is a domain**. Like any domain it takes **commands**, which it may refuse, and **facts** (timeouts, webhooks, refusal facts), which it never refuses. It subscribes to no domain: when it must hear what happened in another domain, a saga from that domain turns the event into a command to it. Everything it emits is its own events: to act on another domain it records an event carrying the data that domain's command needs, and a saga from the PM's domain builds the command. It is served exactly as an aggregate is, by the same command-handler services.
 
 ---
 
