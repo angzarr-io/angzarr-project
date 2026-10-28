@@ -600,9 +600,9 @@ message FactOrigin {
 // command_id, for every event: each was produced by a command or fact
 // (client, reaction or fact, a process manager's events for a fact
 // included; a PM takes facts only, so it has no trigger-caused events;
-// decision 14.31). fact is set iff the producing command was a Fact. rules_version is always recorded
-// from the business logic's report (empty only if the business logic
-// reports none). A reaction command's causation_id (its trigger) is NOT
+// decision 14.31). fact is set iff the producing command was a Fact.
+// rules_version is always recorded from the business logic's report
+// (empty only if the business logic reports none). A reaction command's causation_id (its trigger) is NOT
 // recorded: an event names its own cause, not its cause's cause (decision
 // 13.3; the trigger edge is in traces).
 //
@@ -932,9 +932,9 @@ message CommandPage {
   // A saga's output only (reaction commands, and reaction facts for a
   // process manager): the command's own causation, its triggering event.
   // Framework-authenticated callers only. The reaction command_id, or a
-  // reaction fact's origin, is derived from it. Transport and trace metadata: NOT persisted on the
-  // events the command produces (their causation is this command; see the
-  // command_identity region).
+  // reaction fact's origin, is derived from it. Transport and trace
+  // metadata: NOT persisted on the events the command produces (their
+  // causation is this command; see the command_identity region).
   EventRef causation_id = 10;
   // Facts only, and required there: where the fact came from. Copied onto
   // every event (EventMeta.fact).
