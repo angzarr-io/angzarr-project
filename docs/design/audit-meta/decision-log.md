@@ -2239,8 +2239,7 @@ option below.
   tombstone, no per-stream deleted state, no `NOT_FOUND`-after-delete
   state beyond X being unknown again, nothing travelling to forked
   streams, no coordinator querying fork events.
-  - **The sequence point needs no marker (the drafter's choice,
-    FLAGGED).** `DeleteEdition` takes X's commit position at the call; the
+  - **The sequence point needs no marker (the owner's ruling).** `DeleteEdition` takes X's commit position at the call; the
     removal runs once all of X's work below it has completed (X's outbox
     holds no entry below it, and X's deliveries and subscriptions have
     passed it). That is ordering, not polling; nothing retries. So no
@@ -2271,8 +2270,14 @@ option below.
   flows (with its per-stream deleted state and its `propagated_from`).
 - **Accepted by the owner:** the shapes, `EditionForked` with `forked_by`,
   and the fork event's own framework-derived command id.
-- **Still for the owner to confirm:** the delete's sequence point as X's
-  commit position at the call, with no marker event.
+- **Owner's rulings, 2026-10-28 (all the drafter's choices settled):**
+  the spec as drafted is approved; `EditionDeleted` is dropped, and the
+  delete's sequence point is X's commit position at the call, with no
+  marker event; `EditionForked` with `forked_by`, the fork event's own
+  framework-derived command id, `EDITION_NOT_FORKED`, store placement by
+  configuration, `EditionSummary`, `ALREADY_EXISTS` on an already-forked
+  stream, and existence as a cacheable query over fork events are all
+  accepted.
 - Why: an edition forks only what its activity touches, when the data
   reaches it, at that stream's own point, with no second source of truth
   beside the events, and nothing to bound but the data flow itself.

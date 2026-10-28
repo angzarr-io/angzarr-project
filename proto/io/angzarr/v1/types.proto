@@ -201,7 +201,7 @@ message Cover {
   //   - A command or fact from outside (not a saga's) addressed in X to a
   //     stream with no fork in X is REFUSED until propagation forks it:
   //     FAILED_PRECONDITION, google.rpc.ErrorInfo reason EDITION_NOT_FORKED
-  //     (the drafter's code, FLAGGED). Fork it with ForkStream to address it
+  //     (the owner's ruling). Fork it with ForkStream to address it
   //     directly.
   //   - A query or subscription of a stream not forked in X reads main's
   //     version (it is identical so far) and forks nothing.
@@ -664,8 +664,8 @@ message FactOrigin {
 // its key, so deleting X is one operation: DeleteEdition is SEQUENCED after
 // X's in-flight work, then REMOVES EVERY ROW TAGGED X from X's store(s).
 // Nothing remains: no tombstone, no per-stream deleted state, nothing
-// travelling to forked streams. Its sequence point (the drafter's choice,
-// FLAGGED): X's commit position when DeleteEdition is called, with no
+// travelling to forked streams. Its sequence point (the owner's ruling):
+// X's commit position when DeleteEdition is called, with no
 // marker event (none is needed, so none is written); the removal runs once
 // all of X's work below that point has completed (X's outbox holds no
 // entry below it and X's deliveries and subscriptions have passed it),
@@ -702,7 +702,7 @@ message EditionForked {
   EventRef propagated_from = 4;
   // For a fork made by a saga command's arrival: that command's
   // command_id. Unset for an origin fork. (Replaces the draft's on_demand;
-  // the drafter's shape, FLAGGED.)
+  // the owner's ruling.)
   UUID forked_by = 5;
 }
 // endregion
