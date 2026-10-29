@@ -352,9 +352,31 @@ impl StoreError {
     }
 }
 
+/// `value` as a display writes it (decision 14.37): bare, unless it would
+/// not parse back (empty, or holding whitespace, `=`, `"` or `\`), then
+/// double-quoted with its `"` and `\` backslash-escaped.
+fn write_value(f: &mut fmt::Formatter<'_>, value: &str) -> fmt::Result {
+    let ambiguous = value.is_empty()
+        || value
+            .chars()
+            .any(|c| c.is_whitespace() || matches!(c, '=' | '"' | '\\'));
+    if !ambiguous {
+        return f.write_str(value);
+    }
+    f.write_str("\"")?;
+    for c in value.chars() {
+        if matches!(c, '"' | '\\') {
+            f.write_str("\\")?;
+        }
+        write!(f, "{c}")?;
+    }
+    f.write_str("\"")
+}
+
 /// Writes `args` as ` name=value` each, a nested [`Cause`] as
 /// ` name=<its code>` then its own args under `name.` (decision 14.37's
-/// flattening).
+/// flattening), a text value quoted where it would not parse back
+/// ([`write_value`]).
 fn write_args(
     f: &mut fmt::Formatter<'_>,
     prefix: &str,
@@ -363,7 +385,10 @@ fn write_args(
     for (name, arg) in args {
         match arg {
             Arg::Uint(n) => write!(f, " {prefix}{name}={n}")?,
-            Arg::Str(s) => write!(f, " {prefix}{name}={s}")?,
+            Arg::Str(s) => {
+                write!(f, " {prefix}{name}=")?;
+                write_value(f, s)?;
+            }
             Arg::Cause(cause) => {
                 write!(f, " {prefix}{name}={}", cause.code)?;
                 write_args(f, &format!("{prefix}{name}."), &cause.args)?;

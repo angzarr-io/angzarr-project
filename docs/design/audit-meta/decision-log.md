@@ -2613,6 +2613,7 @@ carry the full english text, but the key and the map".
   field. One exception, a third-party library's own error text, carried
   verbatim as the arg `ext_err_txt` (owner's rulings, 2026-10-29, late,
   below).
+- **Quoting in a display.** In a code-plus-args display, a value that is empty or holds whitespace, `=`, `"` or `\` is written double-quoted, its `"` and `\` backslash-escaped; any other value stays bare, so every line parses back (owner ruling, 2026-10-29).
 - **It covers handlers too.** A typed rejection is its refusal message
   (the `Any` of one of the command's `refuses` types): its type is the
   key, its fields the map. Any other rejection carries a diagnostic code
