@@ -8,9 +8,9 @@ and lives in [`../blackjack-acceptance/`](../blackjack-acceptance/).
 
 | File | Scope | IDs |
 |------|-------|-----|
-| `player.feature` | Wallet: identity, deposits, withdrawals, buy-in holds, loyalty, round history, ledger rule L1 | EU-1400..1439 |
+| `wallet.feature` | Wallet (the "wallet" domain, the "player" domain until decision 14.38): identity, deposits, withdrawals, buy-in holds, loyalty, round history, ledger rule L1 | EU-1400..1439 |
 | `table.feature` | Table creation, seat holds and confirmation, leaving | EU-1440..1469 |
-| `round.feature` | Betting, dealing, card values, turns, dealer play, settlement, reshuffling, L2 per round | EU-1470..1519 |
+| `round.feature` | Betting, dealing, card values, turns and the decision points they record (TurnStarted), dealer play, settlement, reshuffling, L2 per round | EU-1470..1519 |
 | `shoe.feature` | Golden vectors for the shuffle pinned in `cards.proto` | EU-1520..1529 |
 
 Every scenario cites a house rule or ledger invariant from

@@ -158,27 +158,27 @@ Feature: Component declarations - lint warnings and errors
   @C-0625
   Scenario: A command's refuses annotation shapes its generated handler
     # The parallel of emits (decision 14.31, the owner's ruling).
-    Given an aggregate "PlayerState" owning domain "player" with command "player.HoldFunds"
-    And a command "player.HoldFunds" for "PlayerState" whose (command).refuses lists "player.InsufficientFunds"
+    Given an aggregate "WalletState" owning domain "wallet" with command "wallet.HoldFunds"
+    And a command "wallet.HoldFunds" for "WalletState" whose (command).refuses lists "wallet.InsufficientFunds"
     When the handler interfaces are generated
     Then the HoldFunds handler returns either its events or an InsufficientFunds refusal
     And the client library packs the InsufficientFunds returned into the rejection as an Any
 
   @C-0626
   Scenario: A refuses type from another domain fails generation
-    Given an aggregate "PlayerState" owning domain "player" with command "player.HoldFunds"
+    Given an aggregate "WalletState" owning domain "wallet" with command "wallet.HoldFunds"
     And an aggregate "TableState" owning domain "table" with message "table.SeatNotConfirmable"
-    And a command "player.HoldFunds" for "PlayerState" whose (command).refuses lists "table.SeatNotConfirmable"
+    And a command "wallet.HoldFunds" for "WalletState" whose (command).refuses lists "table.SeatNotConfirmable"
     When the protos are linted
-    Then lint reports an error naming "player.HoldFunds" and its refuses type "table.SeatNotConfirmable"
+    Then lint reports an error naming "wallet.HoldFunds" and its refuses type "table.SeatNotConfirmable"
     And lint exits with a non-zero status
 
   @C-0627
   Scenario: A refuses type that does not resolve fails generation
-    Given an aggregate "PlayerState" owning domain "player" with command "player.HoldFunds"
-    And a command "player.HoldFunds" for "PlayerState" whose (command).refuses lists "player.NoSuchRefusal"
+    Given an aggregate "WalletState" owning domain "wallet" with command "wallet.HoldFunds"
+    And a command "wallet.HoldFunds" for "WalletState" whose (command).refuses lists "wallet.NoSuchRefusal"
     When the protos are linted
-    Then lint reports an error naming "player.HoldFunds" and the unresolved refuses type "player.NoSuchRefusal"
+    Then lint reports an error naming "wallet.HoldFunds" and the unresolved refuses type "wallet.NoSuchRefusal"
     And lint exits with a non-zero status
 
   @C-0648

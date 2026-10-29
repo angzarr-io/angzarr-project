@@ -435,13 +435,13 @@ extend google.protobuf.FieldOptions {
 // WIRING"; PolicyService in policy.proto, Refusals).
 //
 // The refusing side. A command handler refuses with a business rejection
-// (FAILED_PRECONDITION) carrying a message and, optionally, a TYPED
-// refusal object of its own domain, named by the command's annotation,
+// (FAILED_PRECONDITION) carrying either a diagnostic code and its args
+// (never text; decision 14.37) or a TYPED refusal object of its own domain, named by the command's annotation,
 // exactly as emits names its events (the owner's ruling, for
 // consistency):
 //   message HoldFunds {
 //     option (io.angzarr.v1.command) = {
-//       component: "examples.v1.PlayerState"
+//       component: "examples.v1.WalletState"
 //       refuses: "examples.v1.InsufficientFunds"
 //     };
 //     ...

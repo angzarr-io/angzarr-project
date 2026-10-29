@@ -8,15 +8,16 @@ Protos live in `proto/io/angzarr/examples/v1/`.
   In-process tier.
 - **[`blackjack-framework/`](blackjack-framework/)** — framework concepts
   (translators, the buy-in process manager, the ledger projector,
-  snapshots) demonstrated through the blackjack components. In-process tier
+  snapshots, a player bot playing a seat) demonstrated through the blackjack components. In-process tier
   only.
 - **[`blackjack-acceptance/`](blackjack-acceptance/)** — scenarios that only
   make sense against a deployed cluster.
 
 ## Why blackjack
 
-- **Two bounded contexts** — the wallet owns money off the table, the table
-  owns chips on it; every transfer between them is explicit
+- **Three domains** — the wallet owns money off the table, the table owns
+  chips on it, and each person's player (a bot) decides their moves; every
+  transfer and every turn between them is explicit (decision 14.38)
 - **One real process manager** — a buy-in secures a seat and funds in two
   domains, one step at a time
 - **In-aggregate lifecycle** — a whole round (deal, turns, dealer, settlement)
@@ -34,7 +35,7 @@ wait on the rulings listed in
 
 ## Domain vocabulary
 
-Blackjack only: player, wallet, bankroll, hold, table, seat, stack, wager,
+Blackjack only: player (the bot), wallet, bankroll, hold, table, seat, stack, wager,
 shoe, round, dealer, cash-out, ledger. No generic `Order`/`Payment` — those
 belong in [`../client/`](../client/).
 

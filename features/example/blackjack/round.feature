@@ -426,3 +426,72 @@ Feature: Playing a round
       | 10   |
       | 11   |
       | 42   |
+
+  # ==========================================================================
+  # Decision points: every turn is recorded with what the seat may see
+  # (decision 14.38; TurnStarted in table.proto)
+  # ==========================================================================
+  # Rule: AHR-9
+
+  @EU-1505
+  Scenario: The deal records the first seat's turn with its hand and the dealer's up-card
+    Given "Alice" has bet 20 at seat 0
+    And "Bob" has bet 20 at seat 1
+    And the shoe begins "2♣ 3♣ 9♦ 4♣ 5♣ 7♠"
+    When the round is dealt
+    Then seat 0's turn starts with 2♣ 4♣ for a hard 6 against the dealer's 9♦
+    And the turn may double, with a stack of 480 and a wager of 20
+    And the turn names "Alice" as the seat's player
+
+  @EU-1506
+  Scenario: Standing starts the next seat's turn with that seat's own hand
+    Given "Alice" has bet 20 at seat 0
+    And "Bob" has bet 20 at seat 1
+    And the shoe begins "2♣ 3♣ 9♦ 4♣ 5♣ 7♠"
+    And the round has been dealt
+    When "Alice" stands at seat 0
+    Then seat 1's turn starts with 3♣ 5♣ for a hard 8 against the dealer's 9♦
+    And the turn names "Bob" as the seat's player
+
+  @EU-1507
+  Scenario: A turn never shows the dealer's hole card or the shoe
+    Given "Alice" has bet 20 at seat 0
+    And "Bob" has bet 20 at seat 1
+    And the shoe begins "2♣ 3♣ 9♦ 4♣ 5♣ 7♠"
+    When the round is dealt
+    Then no turn started in round 1 shows 7♠ or any undealt card
+
+  # Rule: AHR-10
+
+  @EU-1508
+  Scenario: A hit that keeps the turn starts it again, and the hand can no longer double
+    Given "Alice" has bet 20 at seat 0
+    And "Bob" has bet 20 at seat 1
+    And the shoe begins "2♣ 3♣ 9♦ 4♣ 5♣ 7♠ 6♥"
+    And the round has been dealt
+    When "Alice" hits at seat 0
+    Then seat 0's turn starts with 2♣ 4♣ 6♥ for a hard 12 against the dealer's 9♦
+    And the turn may not double
+
+  @EU-1509
+  Scenario: A stack smaller than the wager cannot double
+    Given "Alice" has a stack of 30 at seat 0
+    And "Alice" has bet 20 at seat 0
+    And "Bob" has bet 20 at seat 1
+    And the shoe begins "2♣ 3♣ 9♦ 4♣ 5♣ 7♠"
+    When the round is dealt
+    Then seat 0's turn starts with 2♣ 4♣ for a hard 6 against the dealer's 9♦
+    And the turn may not double, with a stack of 10 and a wager of 20
+
+  # Rule: AHR-12
+
+  @EU-1510
+  Scenario: The action that settles the round starts no turn
+    Given "Alice" has bet 20 at seat 0
+    And "Bob" has bet 20 at seat 1
+    And the shoe begins "2♣ 3♣ 9♦ 4♣ 5♣ 7♠ 10♥"
+    And the round has been dealt
+    And "Alice" has stood at seat 0
+    When "Bob" stands at seat 1
+    Then round 1 is settled
+    And no turn starts after the stand

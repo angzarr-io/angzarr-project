@@ -6,6 +6,14 @@
 > (`PolicyService`, `PolicyResponse`, `COMPONENT_KIND_POLICY`,
 > `policy_command_id`). The entries keep their text.
 
+> **Renamed in the example by 14.38 (2026-10-28):** where an entry below
+> names the blackjack example's "player" aggregate (`PlayerState`,
+> `player.proto`, `HoldFunds`'s domain, `BuyInPlayerPolicy`,
+> `PlayerBuyInPolicy`, the settlement `TablePlayerPolicy`), read the
+> wallet (`WalletState`, `wallet.proto`, `BuyInWalletPolicy`,
+> `WalletBuyInPolicy`, `TableWalletPolicy`). "player" is now the bot that
+> decides a seat's moves.
+
 Part of the [audit-meta design record](../audit-meta-followups.md).
 
 Each entry gives the decision, why it was made, the cost accepted with it,
@@ -2736,6 +2744,74 @@ carry the full english text, but the key and the map".
   and metadata, with the message for humans; here the message too is the
   key) and Project Fluent's message ids with named arguments (knowledge,
   not re-verified).
+
+**14.38 The blackjack example: a wallet, and a player that decides.**
+Owner rulings, 2026-10-28, for the example protos
+(`proto/io/angzarr/examples/v1/`), so angzarr-embedded can run blackjack
+with a Rust table and a Python player.
+- **The wallet.** The aggregate that was "player" is the WALLET (domain
+  `wallet`, Rust): identity, funds, holds and captures, loyalty.
+  `player.proto` is `wallet.proto`; `PlayerState` is `WalletState`
+  (`WalletAggregate`); `RegisterPlayer`, `ImportPlayer`, `PlayerRegistered`
+  and `PlayerImported` are `RegisterWallet`, `ImportWallet`,
+  `WalletRegistered` and `WalletImported`; `PLAYER_ALREADY_EXISTS` and
+  `PLAYER_NOT_FOUND` are `WALLET_ALREADY_EXISTS` and `WALLET_NOT_FOUND`.
+  Everything that named it follows: `BuyInPlayerPolicy` and
+  `PlayerBuyInPolicy` are `BuyInWalletPolicy` and `WalletBuyInPolicy`; the
+  settlement policy `TablePlayerPolicy` (table -> wallet: round results and
+  loyalty) is `TableWalletPolicy`; the ledger subscribes to `wallet`, with
+  `WalletLedgerRow`, `wallets`, `GetWalletBalance`, `WalletBalanceView`;
+  `player.feature` is `wallet.feature`, and the buy-in, refusal and codegen
+  scenarios that used the wallet say `wallet`.
+- **The player.** A new aggregate, PLAYER (domain `player`, Python), is the
+  bot. It has state (it is not a policy) and makes decisions:
+  `DecideMove { table_root, round, seat, cards, total, soft, dealer_up,
+  can_double, stack, wager }` produces `MoveDecided { table_root, round,
+  seat, action }`, `action` a `MoveAction` (`MOVE_ACTION_HIT`, `_STAND`,
+  `_DOUBLE_DOWN`). Its state is minimal (`decisions`, `hands_seen`), with
+  room for a model's inputs; PyTorch lives here later. It needs no
+  registration command: its stream starts at its first `DecideMove`.
+- **Two policies (Rust).** `TablePlayerPolicy` (table -> player):
+  `TurnStarted` -> `DecideMove`, root `TurnStarted.player_root`.
+  `PlayerTablePolicy` (player -> table): `MoveDecided` -> `Hit`, `Stand` or
+  `DoubleDown { seat }`, root `MoveDecided.table_root`. Each names its
+  target root (14.36).
+- **One table event added (drafter's choice, for the owner to confirm):**
+  `TurnStarted { round, seat, player_root, hand, dealer_up, can_double,
+  stack, wager }`, recorded right after the event that makes a decision
+  point (`RoundDealt`, `CardDealt`, `HandStood` or `HandDoubled` whose turn
+  names a seat), never once the round settles. Why: the policy takes
+  everything from one event, and none carries a decision point whole.
+  `RoundDealt` names only the first seat; `CardDealt`, `HandStood` and
+  `HandDoubled` give `next_turn` but not that seat's cards (dealt earlier)
+  or the up-card; and no turn event carries the seat's `player_root`. It
+  carries only what a player may see, never the hole card or the shoe
+  (R8's "no peeking").
+- **Markers.** `emits` on every command of the wallet, the table, the
+  buy-in and the player; `refuses` stays on `HoldFunds` and `ConfirmSeat`;
+  `fact` stays on `SeatConfirmationRefused`. `Hit`, `Stand` and
+  `DoubleDown` name no `refuses`: the table asks only the seat on turn and
+  `can_double` says when doubling is allowed, so a refused move is a bug,
+  dead-lettered and alerted (the player defines no `on_refused` handler).
+- **Drafter's choices, for the owner to confirm.** A person's wallet and
+  player share one root (the table's `player_root`); `TurnStarted` and its
+  name; `can_double`, `stack` and `wager` on the turn (so the bot never
+  asks for an illegal double); the bot's hand as flat fields rather than
+  importing the table's `SeatHand`; `MoveAction` values prefixed; no
+  typed refusal for a move; `emits` on every command.
+- **Tonight's driver** seats a player with `RequestSeat` then
+  `ConfirmSeat` sent directly, with no buy-in deployed, so no wallet funds
+  are held or spent and ledger rule L3 does not hold for that table.
+- Text changed with it: the example protos, `options.proto`'s refusal
+  example, the example and framework feature READMEs, `RULES.md`; new
+  scenarios EU-1505 to EU-1510 (`round.feature`) and EU-1600 to EU-1609
+  (`bot_play.feature`).
+- Why: the demo needs a player that decides, in another language, without
+  breaking the money model the wallet owns; a stateless translator on each
+  side keeps the table and the bot unaware of each other.
+- Cost: one extra table event per decision; a person is two streams (wallet
+  and player) under one root; the rename touches every consumer of the old
+  `player` types.
 
 ## Corrections
 

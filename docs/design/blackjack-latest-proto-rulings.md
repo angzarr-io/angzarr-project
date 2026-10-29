@@ -1,6 +1,17 @@
 # Blackjack on the latest proto: rulings needed
 
 **Status:** open, 2026-10-19. Each item below waits on an owner ruling.
+
+> **Renamed by decision 14.38 (2026-10-28):** the aggregate this note calls
+> "player" is now the WALLET: `player.proto` is `wallet.proto`,
+> `PlayerState` is `WalletState`, `RegisterPlayer` / `ImportPlayer` /
+> `PlayerImported` are `RegisterWallet` / `ImportWallet` /
+> `WalletImported`, `player.feature` is `wallet.feature`, and the
+> table -> player reactions below (round history, loyalty, and settlement
+> if a ruling restores it) are table -> wallet (`TableWalletPolicy`).
+> "player" is now a bot that decides a seat's moves (`player.proto`,
+> `TurnStarted` / `DecideMove` / `MoveDecided`). The items keep their
+> text; nothing here is ruled by the rename.
 Branch `spec/blackjack-latest` (based on `spec/20261019-draft`) carries the
 blackjack spec ported from `feat/blackjack-spec`. Context:
 `docs/design/blackjack-mvp.plan.md` (on the blackjack-plan worktree), Stage 0.
