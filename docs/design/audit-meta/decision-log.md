@@ -2813,6 +2813,16 @@ with a Rust table and a Python player.
   and player) under one root; the rename touches every consumer of the old
   `player` types.
 
+> **Amended (the owner's ruling, 2026-10-29):** `MoveDecided` copies from
+> `DecideMove` everything the decision used: it is `MoveDecided {
+> table_root, round, seat, action, cards (5), total (6), soft (7),
+> dealer_up (8) }`, the existing numbers unchanged. Why: the player's state
+> is rebuilt from its events only, and `hands_seen` (decisions taken on a
+> two-card hand) cannot be counted from an event that does not carry the
+> hand; with the inputs on it, each event is a self-describing (state,
+> action) row for the model to learn from. Cost: the hand is recorded
+> twice, on the table's `TurnStarted` and on the player's `MoveDecided`.
+
 ## Corrections
 
 Facts the earlier passes or the design note got wrong:
