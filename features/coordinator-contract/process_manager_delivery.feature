@@ -2,7 +2,8 @@ Feature: Process manager delivery - a process manager is a domain, behind its ow
   A process manager is one component, served by its own business process
   behind its own coordinator, exactly as an aggregate is (decision 14.31).
   Its inputs are commands, which it may refuse, and facts, which it never
-  refuses; its root is the instance's correlation. It subscribes to no
+  refuses; its root is, by default, the instance's correlation (a policy
+  may name another, decision 14.36). It subscribes to no
   domain: policies turn other domains' events into commands to it. It records
   only its own events and sends no commands. The correlation ids below are
   UUIDs, as in every scenario (decision 14.18).
@@ -88,18 +89,11 @@ Feature: Process manager delivery - a process manager is a domain, behind its ow
     Then "Fulfillment" is not called
     And the sender is answered DUPLICATE with the stored events
 
-  @process_manager @pm_input
-  @C-0598
-  Scenario Outline: An input naming another instance than its correlation is refused before the handler runs
-    Given a process manager "Fulfillment" owning domain "fulfillment" whose StartFulfillment command is a starting input
-    When a client sends <input> to "fulfillment" root "0192a6b0-0000-7000-8000-000000000016" with correlation_id "0192a6b0-0000-7000-8000-000000000099"
-    Then the client is answered INVALID_ARGUMENT
-    And "Fulfillment" is not called
-
-    Examples:
-      | input                              |
-      | a StartFulfillment command         |
-      | a FulfillmentTimedOut fact         |
+  # C-0598 (an input naming another instance than its correlation refused)
+  # is retired: a PM instance's root is its correlation by default only,
+  # and an input whose correlation differs from its cover's root is
+  # delivered to that root, keeping its correlation (decision 14.36;
+  # policy_addressing.feature, C-0659).
 
   @process_manager @pm_failure
   @C-0599

@@ -166,10 +166,11 @@ message Cover {
   string domain = 2; // Domain name; never contains ':' (the root-derivation separator)
   // The stream's root: caller-chosen (any 16 bytes), derived by
   // compute_root (UUIDv5; see the derived_ids region) or minted (UUIDv7).
-  // A process manager's stream is the exception: its root is the
-  // instance's correlation_id, unchanged (process_manager.proto, Stream;
-  // decision 14.30), and a command or fact addressed to it names that
-  // root.
+  // A process manager's stream is the exception only by default: its root
+  // is a correlation_id, unchanged, unless the policy addressing it names
+  // another root (process_manager.proto, Stream; decisions 14.30 and
+  // 14.36). A command or fact addressed to it names that root, whatever
+  // its correlation_id.
   UUID root = 1;
   // Edition: the NAME of the timeline the stream belongs to.
   //
@@ -185,9 +186,12 @@ message Cover {
   // An edition is a set of per-stream FORKS, and nothing else: there is no
   // edition registry and no separate metadata store. Stream (D, X, R)
   // exists in edition X from its creation: an EditionCreated meta-event
-  // (meta/events.proto) at the sequence main's version (D, main, R) would
-  // have used next. That event is the first of X's version of the stream,
-  // and its sequence marks main's end and X's start for that stream.
+  // (meta/events.proto) at the sequence it states (its parent_sequence),
+  // at or below main's head for (D, main, R), the sequence main would use
+  // next; above it is a conflict (decision 14.36). That event is the first
+  // of X's version of the stream, and its sequence marks main's end and
+  // X's start for that stream. The fork point is per stream: no
+  // cross-stream snapshot is promised.
   //   - Read rule, per stream: (D, X, R) reads main's events BELOW ITS OWN
   //     fork sequence, then X's own events (the fork event first). Main's
   //     later events never reach it.
@@ -195,8 +199,9 @@ message Cover {
   //     meta.proto).
   //   - The fork TRAVELS WITH THE DATA (the owner's ruling): when a policy's
   //     command in X reaches a stream with no fork in X, that arrival is
-  //     the propagation; the coordinator forks the stream then, and handles
-  //     the command (meta.EditionCreated, Propagation). Streams X's activity
+  //     the propagation; the angzarr system layer forks the stream then,
+  //     at the main head it reads, and the command is handled
+  //     (meta.EditionCreated, Propagation). Streams X's activity
   //     never touches are never forked.
   //   - A command or fact from outside (not a policy's) addressed in X to a
   //     stream with no fork in X is REFUSED until propagation forks it:
@@ -467,14 +472,15 @@ message EventRef {
 // correlation; a Fact's is its derived command_id. A reaction command's is
 // its trigger's correlation, stamped by the coordinator; a reactor that sets
 // a different one is a reactor bug. A refusal fact takes the refused
-// command's correlation (its trigger's) the same way. A command or Fact
-// addressed to a process manager's stream is the exception to all of
-// these: its correlation is its cover's root (the PM instance's
-// correlation; decision 14.30), set when absent, and a set correlation_id
-// that differs from the root is malformed (a policy addressing a PM
-// therefore names the instance its trigger's correlation names). A
-// process manager's events carry their command's or fact's correlation,
-// like any domain's.
+// command's correlation (its trigger's) the same way: every command or
+// fact a policy sends, to any target, carries its trigger's correlation
+// unchanged, so correlation traces the causal chain (decision 14.36). A
+// command or Fact addressed to a process manager's stream with no
+// correlation_id is given its cover's root; a set one is kept, whatever
+// the root (a policy may name a PM instance's root other than its
+// trigger's correlation; process_manager.proto, Stream). A process
+// manager's events carry their command's or fact's correlation, like any
+// domain's.
 // Correlation is never unset on a persisted event, and the framework never
 // mints one of its own. It groups a workflow and is not an identity: two
 // sources' external ids can coincide, and a sender that must keep them
@@ -517,8 +523,6 @@ message EventRef {
 //             streams by design: never applied in the refusing (target)
 //             stream, and recorded as the refusal in the source stream.
 //   Command   never fact_origin.
-//   either, addressed to a process manager's stream: a set
-//             correlation_id must equal the cover's root.
 // A client's malformed command is answered INVALID_ARGUMENT; a reaction
 // command has no caller to answer, so it is dead-lettered and alerted as a
 // reactor bug.
@@ -930,8 +934,6 @@ message Projection {
 //   - a conflict_resolution the component's state does not support;
 //   - any Handling field on a Fact (see below);
 //   - any Handling field on a reaction command (see below);
-//   - a command or Fact addressed to a process manager whose set
-//     correlation_id differs from its cover's root (process_manager.proto);
 //   - a Fact with causation_id addressed to any stream but the one its
 //     causation_id names (domain, root and edition: a policy's refusal fact
 //     goes only to the stream of its triggering event);

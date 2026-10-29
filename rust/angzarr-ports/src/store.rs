@@ -96,8 +96,12 @@ pub struct Written {
 ///   (D, R), and is not listed by [`covers`](EventStore::covers).
 /// - Its first own event must be its CREATION
 ///   ([`EDITION_CREATED_TYPE_URL`]), written with `expected` = its fork
-///   sequence, main's head (a fork above it is a
-///   [`StoreError::Conflict`]). Any other first write is refused
+///   sequence, the sequence it states (14.36): any at or below main's head
+///   for that stream (main's next sequence) is taken, one above it is a
+///   [`StoreError::Conflict`]. A store never moves a fork to the head: a
+///   creation lands where it says even if main has grown since its writer
+///   read the head. The fork point is per stream; nothing relates two
+///   streams' fork points. Any other first write is refused
 ///   [`StoreError::EditionNotForked`], a second creation
 ///   [`StoreError::EditionAlreadyForked`], and a creation of main
 ///   [`StoreError::EditionNameRequired`].

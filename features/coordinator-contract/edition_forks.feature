@@ -1,8 +1,10 @@
 Feature: Editions are per-stream forks, and the fork travels with the data
   An edition is a set of per-stream forks (decision 14.32). Forking an
   origin stream (D, main, R) into edition X appends an EditionCreated
-  meta-event (io.angzarr.v1.meta) to (D, X, R) at main's next sequence for
-  that stream; (D, X, R) reads
+  meta-event (io.angzarr.v1.meta) to (D, X, R) at the sequence it states,
+  its parent_sequence: any at or below main's head for that stream (main's
+  next sequence, the default), never above it (decision 14.36). The fork
+  point is per stream, and no cross-stream snapshot is promised; (D, X, R) reads
   main's events below that fork sequence, then X's own. The fork travels
   with the data: a policy's command in X that reaches a stream with no fork
   in X forks it on arrival. A command from outside to an unforked stream is
@@ -264,3 +266,38 @@ Feature: Editions are per-stream forks, and the fork travels with the data
       | meta-event     |
       | EditionCreated |
       | EditionDeleted |
+
+  # ---------------------------------------------------------------
+  # The fork point is explicit, per stream (decision 14.36)
+  # ---------------------------------------------------------------
+
+  @editions @fork_point
+  @C-0661
+  Scenario: A fork stated below main's head lands at its stated sequence and reads main below it
+    When ForkStream forks "player" "p-1" into edition "what-if" at parent_sequence 3
+    Then "player" "p-1" in edition "what-if" holds an EditionCreated event at sequence 3
+    And the EditionCreated event names edition "what-if" and parent_sequence 3
+    And "player" "p-1" loaded in edition "what-if" is main's events 0 to 2, then the fork event at 3
+    And none of main's events at or after sequence 3 are in it
+    And the main timeline of "player" "p-1" is unchanged
+
+  @editions @fork_point
+  @C-0662
+  Scenario: A fork stated above main's head is a conflict, and writes nothing
+    When ForkStream forks "player" "p-1" into edition "what-if" at parent_sequence 6
+    Then the request is refused ABORTED
+    And "player" "p-1" holds no event in edition "what-if"
+    And no EditionCreated event of edition "what-if" exists anywhere
+
+  @editions @fork_point
+  @C-0663
+  Scenario: An arrival's fork is at the main head the system layer read, even if main moves on before the write
+    Given "player" "p-1" is forked into edition "what-if" at sequence 5
+    And "table" "t-1" has no fork in edition "what-if"
+    And the system layer reads main's head of "table" "t-1" as 3 when the SeatPlayer command arrives in edition "what-if"
+    And "table" "t-1" on the main timeline gains 2 more events before the fork is written
+    When the system layer writes the fork of "table" "t-1" in edition "what-if"
+    Then "table" "t-1" in edition "what-if" holds an EditionCreated event at sequence 3, with parent_sequence 3
+    And "table" "t-1" loaded in edition "what-if" holds main's events 0 to 2 only, then the fork event at 3
+    And the SeatPlayer command is then handled in edition "what-if"
+    And no policy business code saw a sequence

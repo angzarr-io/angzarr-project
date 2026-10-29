@@ -206,10 +206,14 @@ message PolicyResponse {
   // the coordinator to stamp; a value that differs from the stamp is
   // refused the same way, as is a Fact or a fact_origin (a policy's business
   // code never emits a Fact; its refusal facts come from OnRefused;
-  // PolicyService, Refusals). A command for a process manager names the
-  // instance its trigger's correlation names (cover root = the
-  // trigger's correlation_id; types.proto, the command_identity region);
-  // any other root is refused the same way. A command whose cover names a
+  // PolicyService, Refusals). Every command carries its trigger's
+  // correlation_id unchanged, whatever its target. A command for an
+  // aggregate names the aggregate's root. A command for a process manager
+  // names the instance's root too: the trigger's correlation_id by default,
+  // filled in by the policy's generated code, or the root the policy's
+  // root_<Command> callback names when the policy implements one (opt-in
+  // by writing it; decision 14.36; process_manager.proto, Stream). A
+  // command whose cover names a
   // domain other than the policy's one destination
   // (ComponentOptions.output_domain) is a policy bug refused by the client
   // library before it answers: PolicyService.Handle fails INTERNAL with no

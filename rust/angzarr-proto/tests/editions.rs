@@ -79,12 +79,33 @@ fn the_edition_creation_meta_event_round_trips_with_its_field_numbers() {
 fn fork_stream_request_names_the_stream_as_field_one() {
     let request = ForkStreamRequest {
         stream: Some(stream("what-if")),
+        parent_sequence: None,
     };
     assert_eq!(
         ForkStreamRequest::decode(&*request.encode_to_vec()).unwrap(),
         request
     );
     assert_eq!(first_tag(&request), (1 << 3) | 2);
+}
+
+/// 14.36: an origin fork may state its sequence, as field 3 with presence,
+/// so a fork at 0 is told from no sequence stated.
+#[test]
+fn fork_stream_request_may_state_its_parent_sequence_as_field_three() {
+    let at_zero = ForkStreamRequest {
+        stream: None,
+        parent_sequence: Some(0),
+    };
+    assert_eq!(at_zero.encode_to_vec(), [3 << 3, 0]);
+    assert_eq!(
+        ForkStreamRequest::decode(&*at_zero.encode_to_vec()).unwrap(),
+        at_zero
+    );
+    let unstated = ForkStreamRequest {
+        stream: None,
+        parent_sequence: None,
+    };
+    assert!(unstated.encode_to_vec().is_empty());
 }
 
 #[test]

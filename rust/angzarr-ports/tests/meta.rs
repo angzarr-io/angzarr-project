@@ -108,6 +108,13 @@ enum Bug {
     ForkSeesMainsLater,
     /// An edition stream with no snapshot of its own reads main's.
     SnapshotFallsThrough,
+    /// A fork is taken only at main's head: one stated below it is refused
+    /// as a conflict.
+    ForkOnlyAtHead,
+    /// A fork is moved to main's head at write time, whatever it states.
+    ForkMovedToHead,
+    /// A fork stated above main's head is taken, moved down to the head.
+    ForkAboveHeadAccepted,
     // ---- editions (the administration)
     /// `ListEditions` counts propagated forks among the origins.
     OriginsIncludePropagated,
@@ -320,6 +327,23 @@ impl EventStore for Broken {
                 expected = self.inner.head(stream).await?.next_sequence;
             }
             pages = given.to_vec();
+            if given.first().is_some_and(is_fork) && stream.edition.is_some() {
+                let head = self.inner.head(stream).await?.next_sequence;
+                let moved = match self.bug {
+                    Bug::ForkOnlyAtHead if expected < head => {
+                        return Err(StoreError::conflict(stream, expected, head));
+                    }
+                    Bug::ForkMovedToHead => true,
+                    Bug::ForkAboveHeadAccepted => expected > head,
+                    _ => false,
+                };
+                if moved {
+                    expected = head;
+                    for (due, page) in (head..).zip(&mut pages) {
+                        page.sequence = due;
+                    }
+                }
+            }
             if self.is(Bug::AcceptsAGap) {
                 for (due, page) in (expected..).zip(&mut pages) {
                     page.sequence = due;
@@ -1159,6 +1183,22 @@ fn the_fork_checks_catch_a_store_that_breaks_the_fork_rule() {
 }
 
 #[test]
+fn the_fork_point_checks_catch_a_store_that_moves_or_refuses_a_stated_fork() {
+    catches!(
+        a_fork_below_mains_head_lands_at_its_stated_sequence,
+        broken,
+        ForkOnlyAtHead,
+        ForkMovedToHead,
+        ForkSeesMainsLater,
+    );
+    catches!(
+        a_fork_above_mains_head_is_a_conflict,
+        broken,
+        ForkAboveHeadAccepted,
+    );
+}
+
+#[test]
 fn the_edition_checks_catch_a_wrong_list_or_removal() {
     catches!(
         list_editions_derives_each_edition_from_its_fork_events,
@@ -1318,6 +1358,8 @@ fn an_honest_broken_store_passes_every_check() {
         an_unforked_edition_stream_reads_as_main,
         an_edition_stream_takes_only_a_fork_as_its_first_own_event,
         a_forked_stream_reads_main_below_its_fork_then_its_own,
+        a_fork_below_mains_head_lands_at_its_stated_sequence,
+        a_fork_above_mains_head_is_a_conflict,
         find_command_finds_a_commands_events_on_its_stream,
         find_command_finds_a_retried_facts_events_by_its_id,
         find_command_finds_a_refusal_fact_on_the_trigger_stream_by_the_refused_id,

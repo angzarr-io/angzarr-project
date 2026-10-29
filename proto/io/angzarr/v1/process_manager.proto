@@ -53,29 +53,37 @@ option ruby_package = "Angzarr";
 // policy for (the PM's domain, that domain) builds the command. Its events
 // are ordinary stored events, published like an aggregate's.
 //
-// Stream. A PM instance's stream is (the PM's domain, an edition, the
-// instance's correlation_id): domain is the one the PM owns
-// (ComponentOptions.domain), the edition is the input's cover's (a policy's
-// command carries its trigger's edition; see Cover.edition), and the root
-// IS the instance's correlation_id, unchanged (decision 14.30, as amended
-// by 14.31). There is no derivation (no hash, no UUIDv5) and no text
-// fallback: a correlation_id is always a 16-byte UUID (decision 9.1), so
-// it is a valid root as it stands. A command or fact addressed to a PM
-// names the instance in its cover (domain = the PM's, root = the
-// instance's correlation_id), and its correlation_id must agree: one that
-// is unset is given its cover's root, and one that is set and differs from
-// its cover's root is malformed (INVALID_ARGUMENT to a client; a policy's
-// command is dead-lettered and alerted as a policy bug). A policy addressing a
-// PM therefore names the instance its trigger's correlation names. This
-// is the one pipeline rule a PM's coordinator adds to an aggregate's.
+// Stream. A PM instance's stream is (the PM's domain, an edition, a
+// root): domain is the one the PM owns (ComponentOptions.domain), the
+// edition is the input's cover's (a policy's command carries its trigger's
+// edition; see Cover.edition), and the root is the one the input's cover
+// names. By DEFAULT the root is a correlation_id, unchanged (decision
+// 14.30, as amended by 14.31 and 14.36): no derivation (no hash, no
+// UUIDv5) and no text fallback, since a correlation_id is always a 16-byte
+// UUID (decision 9.1) and so a valid root as it stands.
+//   - A policy addressing a PM names the instance whose root is its
+//     trigger's correlation_id, unless it implements the command's root
+//     callback (root_<Command>, opt-in by writing it, as translate is; the
+//     scaffold generates none), which names another root: a uniqueness PM
+//     keyed by username, say, or one "name-identities" instance. Either
+//     way the command carries its trigger's correlation_id unchanged, and
+//     the policy's generated code sets the cover's root, so the wire always
+//     names it (decision 14.36).
+//   - A correlation_id that differs from the cover's root is NOT
+//     malformed: the input is delivered to the root its cover names and
+//     keeps its correlation. One left unset is given its cover's root.
+//   - One instance may therefore take inputs of several correlations; its
+//     events carry each input's correlation, like any domain's.
+// A PM's coordinator applies no root rule of its own: the start rule below
+// is the only rule it adds to an aggregate's.
 //
 // Starting an instance (ruling B1, adapted; decision 14.31). A PM instance
 // exists once its stream holds an event (in the input's edition, as read
-// there). An input for a correlation with no instance starts one only if
+// there). An input for a root with no instance starts one only if
 // the PM declares its type as STARTING ((command) entry with starts set,
 // options.proto; advertised to the coordinator as
 // ComponentDescriptor.starting_types). It is then delivered with an empty
-// state. Any other input for a correlation with no instance is not
+// state. Any other input for a root with no instance is not
 // delivered; the coordinator decides, before the handler, by its type URL
 // after upcasting (decision 14.25):
 //   - a FACT is skipped, silently: nothing is recorded, dead-lettered or
@@ -87,7 +95,7 @@ option ruby_package = "Angzarr";
 //     source, which decides what an unstarted process means for it. The
 //     alternative, a silent skip answered APPLIED with no events, would
 //     tell the sender a command took effect that did not.
-// An input for a correlation whose instance exists is delivered whatever
+// An input for a root whose instance exists is delivered whatever
 // its type. A PM should declare as starting every input that can arrive
 // first: inputs from different domains arrive in no guaranteed order.
 //
@@ -108,8 +116,9 @@ option ruby_package = "Angzarr";
 // command handler that fails with anything but a business rejection is a
 // bug too: the command is dead-lettered and alerted. The client library
 // gives every PM handler one context type, carrying the input's identity
-// (its command_id, its fact_origin for a fact, and its correlation_id, the
-// instance's root), which is exactly the cause the coordinator stamps on
+// (its command_id, its fact_origin for a fact, its correlation_id, and the
+// instance's root, the correlation by default), which is exactly the cause
+// the coordinator stamps on
 // the events the handler writes.
 //
 // Deduplication is the coordinator's job, never the handler's, as for any

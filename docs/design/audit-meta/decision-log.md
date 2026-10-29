@@ -1820,6 +1820,8 @@ ruling, 2026-10-20 (from core's report).
 
 > **Amended by 14.31 (pass 14):** a process manager has no trigger; its root is the correlation of the commands and facts addressed to it (their cover root, which a set `correlation_id` must equal), and its edition theirs. A saga's command takes its trigger's correlation, so the rule reaches the same instance.
 
+> **Amended by 14.36 (pass 14):** the correlation is now the DEFAULT root. A policy may name a PM instance's root (by implementing its root callback); the command still carries its trigger's correlation, and a `correlation_id` that differs from the cover's root is no longer malformed.
+
 **14.30 A process manager's root is its trigger's correlation id.** A
 PM instance's stream is (the PM's domain, the trigger's edition, the
 trigger's `correlation_id`), and its root IS that correlation id,
@@ -1845,6 +1847,8 @@ correlation is a 16-byte `UUID` since 9.1. Owner ruling, 2026-10-27.
   <https://masstransit.massient.com/documentation/patterns/saga>, where
   masstransit.io's saga documentation now redirects).
 
+> **Amended by 14.36 (pass 14):** "The root is the correlation" below is the default only: a policy may name a PM instance's root, keeping its trigger's correlation; a set `correlation_id` other than the cover's root is no longer malformed, so the start rule is the only rule a PM's coordinator adds to an aggregate's.
+
 **14.31 A process manager is a domain.** Owner rulings of 2026-10-27
 (ruling 7 of the angzarr/annals common plan) and 2026-10-28 (rulings 7 and
 9 as settled after the pm-inputs survey; two earlier drafts of this entry,
@@ -1868,8 +1872,8 @@ and 14.30.
   comment that says what sets a PM apart: its root and its start rule.
   Its `(command)` entries are declared like an aggregate's, and `Handling`
   applies to its commands as to any domain's.
-- **The root is the correlation (14.30 amended).** A PM instance's root is
-  its correlation id, unchanged. A command or fact addressed to a PM names
+- **The root is the correlation (14.30 amended; by default only, 14.36).**
+  A PM instance's root is its correlation id, unchanged. A command or fact addressed to a PM names
   the instance in its cover; a `correlation_id` left unset is given the
   root, and one set to anything else is malformed. A saga addressing a PM
   therefore names the instance its trigger's correlation names. This is
@@ -2176,6 +2180,8 @@ and 14.30.
   The IDDD, Akka and EventFlow alignment is the survey's reading, not
   re-verified for this entry.
 
+> **Amended by 14.36 (pass 14):** a fork is at the sequence its `EditionCreated.parent_sequence` states, at or below main's head for that stream (above it is a conflict), with no implicit "head at write time" rule. On arrival the system layer records the head it read; an origin `ForkStream` may state a sequence. The fork point is per stream; no cross-stream snapshot is promised.
+
 **14.32 Editions are per-stream forks.** Owner rulings, 2026-10-28 (plan
 ruling 14, and the rulings on its first draft). Supersedes 6.5's
 administrative create and edition record, and EA-3's whole-system
@@ -2184,8 +2190,9 @@ and no fork at one (14.35).
 - **An edition is a set of per-stream forks.** Creating edition X forks an
   origin stream S = (D, main, R): an `EditionForked { edition,
   parent_sequence, propagated_from, forked_by }` event
-  (`types.proto`, the `editions` region) is appended to (D, X, R) at S's
-  NEXT sequence. It is the first event of X's version of S, and its
+  (`types.proto`, the `editions` region) is appended to (D, X, R) at the
+  sequence it states, by default S's NEXT sequence (main's head), and at
+  most that (14.36). It is the first event of X's version of S, and its
   sequence (the fork sequence) marks main's end and X's start for that
   stream. It is a framework event: no business code ever sees it, and its
   own `command_id` is framework-derived, never that of the command whose
@@ -2196,8 +2203,9 @@ and no fork at one (14.35).
   but it is eventually consistent. Edition creation events propagate on
   the same system as data flows". When a SAGA's command in X reaches a
   stream with no fork in X, that arrival is the propagation: the
-  coordinator appends the stream's `EditionForked` at the stream's own
-  head, with
+  coordinator appends the stream's `EditionForked` at the stream's main
+  head as it read it (a race with main leaves the fork where it says;
+  14.36), with
   `propagated_from` = the fork event of the stream the saga reacted to and
   `forked_by` = the arriving command's id, then handles the command.
   Streams X's activity never touches are never forked; the data flow is
@@ -2451,6 +2459,92 @@ order across streams.
   order is a single point of contention that nothing in angzarr needs.
 - Cost: an edition's streams cannot be forked at one store-wide moment;
   a consistent cross-stream snapshot is not offered.
+
+**14.36 A policy may name a process manager's root; a fork is where it
+says.** Owner rulings, 2026-10-28. Amends 14.30, 14.31 and 14.32.
+- **Correlation traces the causal chain.** A policy sends commands to
+  foreign aggregates directly, and to process managers; its refusal facts
+  go to its own source (14.31). Every command or fact a policy sends, to
+  any target, carries its trigger's `correlation_id` unchanged.
+- **An aggregate target:** the policy names the aggregate's root, as
+  before.
+- **A process manager target: naming the root is optional.** A policy that
+  does not name it addresses the PM instance whose root is the trigger's
+  correlation id (14.30's rule, now the default). A policy that names it
+  addresses the instance with that root: for example, a uniqueness PM keyed
+  by username (a root derived from the name), or a single
+  `name-identities` instance. The command still carries the trigger's
+  correlation, not the named root.
+- **Opt-in by writing the implementation.** As with translate's callback
+  (14.31), the code that names the root is the switch, with no flag and no
+  proto option: a policy names a PM instance's root for a command by
+  implementing that command's root callback, `root_<Command>(event) ->
+  UUID` (flagged: the name). angzarr-cli's scaffold does not generate one.
+  Without it, the policy's generated code sets the cover's root to the
+  trigger's correlation, so every command a policy answers names its root
+  on the wire, and a PM's coordinator applies no root rule of its own
+  (flagged: rather than leaving the root unset for the coordinator to
+  stamp).
+- **What changes in 14.30 and 14.31.** A PM instance's root is no longer
+  always its correlation: one instance may take inputs of several
+  correlations, and its events carry each input's correlation, as any
+  domain's do. The rule that a `correlation_id` set to anything other than
+  the cover's root is malformed is withdrawn for every PM input, a
+  client's included: such an input is delivered to the root its cover
+  names, keeping its correlation. A `correlation_id` left unset on an
+  input to a PM is still given its cover's root (flagged: kept, so a
+  client starting an instance gets 14.30's default). So 14.31's "the one
+  pipeline rule a PM's coordinator adds to an aggregate's" is gone; the
+  start rule (B1) is now the only thing a PM's coordinator adds. 14.30's
+  cost, one instance per correlation, holds only for policies that do not
+  name a root. Scenario C-0598 is retired.
+- **A fork is at the sequence it states (14.32 amended).**
+  `meta.EditionCreated.parent_sequence` is the fork point: the creation's
+  own sequence, below which (D, X, R) reads main's events. Main's head is
+  main's next sequence for that stream (its length). The store accepts a
+  creation at any stated sequence at or below main's head, and refuses one
+  above it as a conflict (`StoreError::Conflict`), writing nothing. There
+  is no implicit "the head at write time" rule: a store never moves a fork
+  to the head.
+- **On arrival, the system layer records the head it read.** When a
+  policy's command arriving in X creates its target's fork, the angzarr
+  system layer reads that one stream's main head and writes the
+  `EditionCreated` at it, with that `parent_sequence`. Policies never
+  handle sequences. A race with main is harmless: if main appends between
+  the read and the write, the fork still lands where it says, and the
+  edition reads main's events below it only.
+- **An origin may state its sequence.** `ForkStream` may ask for a
+  specific sequence on its stream (`ForkStreamRequest.parent_sequence`, 3,
+  optional; unset, the head `ForkStream` reads). One above main's head is
+  the store's conflict, answered `ABORTED` (flagged: the status), writing
+  nothing.
+- **Per aggregate.** The fork point is per stream (one domain and root, in
+  X). Each stream's fork is read and stated on its own, and nothing
+  relates two streams' fork points: no cross-stream snapshot is promised
+  (14.35).
+- Text changed with it: `process_manager.proto` (Stream), `Cover.root`,
+  `Cover.edition` and the command identity region and malformed list in
+  `types.proto`, `PolicyResponse.commands` (`policy.proto`),
+  `EditionCreated.parent_sequence` (`meta/events.proto`),
+  `ForkStreamRequest` (`meta.proto`), angzarr-ports' `EventStore` docs,
+  14.32 above, and the site's process manager, editions and edition
+  glossary pages. Scenarios C-0656 to C-0664; angzarr-ports' checks
+  `a_fork_below_mains_head_lands_at_its_stated_sequence` and
+  `a_fork_above_mains_head_is_a_conflict`.
+- Why: a set-based rule ("usernames are unique", 14.35) needs a PM
+  instance keyed by what the rule is about, not by whichever workflow
+  happened to trigger it, and the causal chain must still be traceable
+  through it. A fork's point must be a fact the event states, not a
+  property of when the write happened to run, so a race cannot move it.
+- Cost: a policy naming a PM root must derive it from its event alone
+  (a policy looks nothing up); a PM instance shared across correlations
+  is a point of contention for those workflows. A fork below main's head
+  is accepted silently, so a stated point that is wrong (too low) is not
+  caught by the store.
+- Aligns with: MassTransit's saga state machines, whose events may be
+  correlated to an instance by a property other than the `CorrelationId`
+  (`CorrelateBy`; knowledge, not re-verified); and with copy-on-write
+  branching at a stated parent version.
 
 ## Corrections
 

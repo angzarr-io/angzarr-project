@@ -770,6 +770,85 @@ pub async fn a_forked_stream_reads_main_below_its_fork_then_its_own<S: Store>(st
     );
 }
 
+/// 14.36: a fork is where it says. A creation stated below main's head
+/// lands at its stated sequence, never moved to the head: the stream reads
+/// main's events below it, then its own, numbered on from it.
+pub async fn a_fork_below_mains_head_lands_at_its_stated_sequence<S: Store>(store: S) {
+    let main = main_stream("account", 1);
+    let e = edition_stream("account", 1, "what-if");
+    let mains = [page(0, 1), page(1, 2), page(2, 3), page(3, 4), page(4, 5)];
+    append(&store, main, 0, &mains).await.unwrap();
+    assert_eq!(
+        append(&store, e, 3, &[created_page(3, "what-if")]).await,
+        Ok(4),
+        "a fork stated at 3, below main's head of 5, is taken there"
+    );
+    let history = store.read(e, 0, None).await.unwrap();
+    assert_eq!(
+        history.pages,
+        [
+            page(0, 1),
+            page(1, 2),
+            page(2, 3),
+            created_page(3, "what-if")
+        ],
+        "main's events below the stated fork, then the fork"
+    );
+    assert_eq!(history.next_sequence, 4);
+    assert_eq!(store.head(e).await.unwrap().next_sequence, 4);
+    assert_eq!(
+        append(&store, e, 4, &[page(4, 9)]).await,
+        Ok(5),
+        "the edition's own events number on from the fork"
+    );
+    assert_eq!(
+        store.find_command(e, command(4)).await,
+        Ok(vec![]),
+        "main's events at or after the fork are not the edition's"
+    );
+    assert_eq!(
+        store.read(main, 0, None).await.unwrap().pages,
+        mains,
+        "main untouched"
+    );
+}
+
+/// 14.36: a creation stated above main's head is a conflict, and writes
+/// nothing (a fork and its arriving command's events alike); at the head
+/// it is taken.
+pub async fn a_fork_above_mains_head_is_a_conflict<S: Store>(store: S) {
+    let main = main_stream("account", 1);
+    let e = edition_stream("account", 1, "what-if");
+    append(&store, main, 0, &[page(0, 1), page(1, 1)])
+        .await
+        .unwrap();
+    assert_eq!(
+        append(&store, e, 3, &[created_page(3, "what-if")]).await,
+        Err(conflict(e, 3, 2)),
+        "a fork stated at 3, above main's head of 2"
+    );
+    assert_eq!(
+        append(&store, e, 3, &[created_page(3, "what-if"), page(4, 2)]).await,
+        Err(conflict(e, 3, 2)),
+        "a fork above the head with its arriving command's events"
+    );
+    assert_eq!(
+        store.covers("account").await,
+        Ok(covers(&[main])),
+        "nothing written"
+    );
+    assert_eq!(
+        store.read(e, 0, None).await.unwrap().pages,
+        [page(0, 1), page(1, 1)],
+        "still main's version"
+    );
+    assert_eq!(
+        append(&store, e, 2, &[created_page(2, "what-if")]).await,
+        Ok(3),
+        "at main's head it is taken"
+    );
+}
+
 // ------------------------------------------------------- base: the write
 
 /// One step's write lands its events and its positions together.
@@ -2168,6 +2247,8 @@ macro_rules! store_contract {
             an_unforked_edition_stream_reads_as_main,
             an_edition_stream_takes_only_a_fork_as_its_first_own_event,
             a_forked_stream_reads_main_below_its_fork_then_its_own,
+            a_fork_below_mains_head_lands_at_its_stated_sequence,
+            a_fork_above_mains_head_is_a_conflict,
             find_command_finds_a_commands_events_on_its_stream,
             find_command_finds_a_retried_facts_events_by_its_id,
             find_command_finds_a_refusal_fact_on_the_trigger_stream_by_the_refused_id,

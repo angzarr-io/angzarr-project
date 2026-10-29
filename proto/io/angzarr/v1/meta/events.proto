@@ -32,16 +32,22 @@ option ruby_package = "Angzarr::Meta";
 // Only meta-events something needs are defined here.
 
 // region edition_meta_events
-// An edition's creation, per stream (decision 14.32; Cover.edition). The
-// first event of X's version of a stream (D, X, R), appended at the
-// sequence main's version of that stream would have used next (its FORK
-// SEQUENCE): (D, X, R) reads main's events below it, then X's own.
+// An edition's creation, per stream (decisions 14.32 and 14.36;
+// Cover.edition). The first event of X's version of a stream (D, X, R),
+// appended at the sequence it states (its FORK SEQUENCE, parent_sequence):
+// (D, X, R) reads main's events below it, then X's own. A store accepts any
+// stated sequence at or below main's head for that stream (the sequence
+// main's version would use next) and refuses one above it as a conflict;
+// it never moves a fork to the head. The fork point is per stream: no
+// cross-stream snapshot is promised.
 //
 // Propagation: the creation TRAVELS WITH THE DATA. A policy's command in X
 // that reaches a stream with no EditionCreated in X is the propagation: the
 // angzarr system layer (shared; called by the stream's coordinator, or by
-// annals' kernel) appends
-// EditionCreated at that stream's own head, with propagated_from
+// annals' kernel) reads that one stream's main head and appends
+// EditionCreated at it, recording it as parent_sequence (policies never
+// handle sequences; if main appends in between, the fork still lands where
+// it says), with propagated_from
 // = the EditionCreated of the stream the policy reacted to and forked_by =
 // the arriving command's command_id, and then hands the command to the
 // router as an ordinary command in X. This is the system layer's: the router
@@ -55,8 +61,10 @@ message EditionCreated {
   // The edition (also the stream's Cover.edition, repeated so the payload
   // describes itself). Required, non-empty.
   string edition = 1;
-  // The fork sequence: main's next sequence for this stream when it was
-  // created in X, equal to this event's own EventPage.sequence.
+  // The fork sequence, as stated: equal to this event's own
+  // EventPage.sequence, at or below main's head for this stream (decision
+  // 14.36). On arrival, the main head the system layer read; for an origin,
+  // the sequence ForkStream was asked for, or the head it read.
   uint64 parent_sequence = 2;
   // For a creation made by a policy command's arrival: the EditionCreated of
   // the stream the policy reacted to. Unset for an origin (ForkStream).

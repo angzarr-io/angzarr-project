@@ -39,7 +39,7 @@ Preview the effects of a command before committing. "Show me what the order woul
 
 An edition is a set of **per-stream forks** (decision 14.32). There is no edition registry: an edition exists exactly as far as its fork events do.
 
-**Forking a stream.** Creating edition `X` forks an origin stream: an `EditionCreated` meta-event is appended to the stream's `X` version at the sequence main would have used next. That event is the first event of `X`'s version of the stream, and its sequence marks main's end and `X`'s start for that stream.
+**Forking a stream.** Creating edition `X` forks an origin stream: an `EditionCreated` meta-event is appended to the stream's `X` version at the sequence it states, its `parent_sequence`. By default that is main's head, the sequence main would use next; `ForkStream` may ask for an earlier one, and one above main's head is refused as a conflict (decision 14.36). That event is the first event of `X`'s version of the stream, and its sequence marks main's end and `X`'s start for that stream.
 
 ```python title="illustrative - create an edition by forking an origin stream"
 admin.fork_stream(Cover(domain="orders", root=order_id, edition="pricing-experiment"))
@@ -51,11 +51,11 @@ send(Cover(domain="orders", root=order_id, edition="pricing-experiment"),
 
 **Reading a stream in an edition.** Each stream reads main's events below its **own** fork sequence, then the edition's own events. Main's later events never reach it.
 
-**The fork travels with the data.** You don't propagate forks yourself. When a saga's command in the edition reaches a stream that isn't forked yet, that arrival forks it (at the stream's own head), and then the command is handled. Streams the edition's activity never touches are never forked. It is eventually consistent, not lazy.
+**The fork travels with the data.** You don't propagate forks yourself. When a saga's command in the edition reaches a stream that isn't forked yet, that arrival forks it, and then the command is handled. The fork is at the main head angzarr read for that one stream on arrival, recorded in the `EditionCreated`; your sagas never handle sequences. If main moves on in between, the fork still sits where it says. Streams the edition's activity never touches are never forked. It is eventually consistent, not lazy.
 
 A command you send yourself to a stream the edition hasn't reached is refused (`FAILED_PRECONDITION`, `EDITION_NOT_FORKED`) until propagation forks it, or until you fork it with `ForkStream`. A query of such a stream reads main's version and forks nothing.
 
-**Every fork is per stream.** angzarr orders events per stream only and has no global position, so an edition's streams diverge at their own points, never at one store-wide moment.
+**Every fork is per stream.** angzarr orders events per stream only and has no global position, so an edition's streams diverge at their own points, never at one store-wide moment. The fork point is per aggregate (one domain and root): no consistent snapshot across streams is promised.
 
 ---
 

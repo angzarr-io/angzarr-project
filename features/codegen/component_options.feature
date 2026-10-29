@@ -229,3 +229,18 @@ Feature: Component declarations - lint warnings and errors
       | input       | fact  |
       | StartBuyIn  | false |
       | BuyInLapsed | true  |
+
+  @C-0664
+  Scenario Outline: A policy names a process manager's root only by implementing its root callback
+    # Decision 14.36: opt-in by writing the implementation, with no flag and
+    # no proto option; the scaffold generates no root callback.
+    Given a process manager "FulfillmentState" owning domain "fulfillment" with input "fulfillment.StartFulfillment"
+    And a POLICY component "OrderToFulfillment" triggered by domain "order" with output_domain "fulfillment"
+    And "OrderToFulfillment" is written <callback>
+    When the handler interfaces are generated
+    Then <outcome>
+
+    Examples:
+      | callback                                         | outcome                                                                                                   |
+      | as the scaffold left it                          | the scaffold wrote no root_StartFulfillment, and the generated code sets the cover's root to the trigger's correlation_id |
+      | with a root_StartFulfillment callback            | the generated code sets the cover's root to the UUID root_StartFulfillment returns                         |

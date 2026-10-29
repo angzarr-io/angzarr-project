@@ -50,6 +50,11 @@
 //!   `an_edition_stream_takes_only_a_fork_as_its_first_own_event`,
 //!   `a_forked_stream_reads_main_below_its_fork_then_its_own`). Creation is
 //!   an ordinary write (E1).
+//! - **RULED(14.36) A fork is where it says:** a creation stated at or
+//!   below main's head lands at its stated sequence, never moved to the
+//!   head; one above main's head is a conflict
+//!   (`a_fork_below_mains_head_lands_at_its_stated_sequence`,
+//!   `a_fork_above_mains_head_is_a_conflict`).
 //! - **RULED(D2) Deletion is an event that exists in its domains:** per
 //!   stream, `EditionDeleted` is RECORDED like any event
 //!   (`an_edition_deletion_is_recorded_like_any_event`), PROPAGATED onward
