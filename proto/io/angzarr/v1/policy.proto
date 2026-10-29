@@ -114,10 +114,13 @@ option ruby_package = "Angzarr";
 //     at the target and by the same id at the source, so a retry records
 //     nothing twice. annals makes the same calls directly, in the chain.
 //   - The fact is unrefusable, so compensation cannot loop.
-//   - Only a business rejection (FAILED_PRECONDITION) reaches OnRefused. A
-//     retryable failure is retried; any other terminal failure
-//     (INVALID_ARGUMENT, PERMISSION_DENIED, NOT_FOUND, INTERNAL, ...) is a
-//     bug, dead-lettered and alerted.
+//   - Only a business rejection reaches OnRefused, and the status decides
+//     which is one (decision 14.37; command_handler.proto, status codes):
+//     FAILED_PRECONDITION, INVALID_ARGUMENT, NOT_FOUND, ALREADY_EXISTS,
+//     OUT_OF_RANGE or PERMISSION_DENIED. A bug (INTERNAL, UNKNOWN,
+//     DATA_LOSS) is dead-lettered and alerted; any other failure is
+//     retried with backoff up to a configured cap, then dead-lettered and
+//     alerted.
 //   - Owner's rulings (decision 14.31): a refusal with no path is
 //     dead-lettered for a human and alerted; a translating callback that
 //     FAILS (an error status, or a malformed fact) is a policy bug,

@@ -2766,6 +2766,21 @@ carry the full english text, but the key and the map".
     INVALID_ARGUMENT.) Scenarios C-0539, C-0540, C-0670, C-0492 and C-0610
     say INTERNAL.
   - `NO_HANDLER_REGISTERED` is retired (above).
+  - The retryable class (UNAVAILABLE, ABORTED, UNIMPLEMENTED and every
+    other status outside the business and bug sets) is "retry with
+    backoff, cap, then dead letter which will generate visibility": the
+    backoff and the cap are configuration, like `on_bug`, and the runtime
+    applies them, not the router. UNIMPLEMENTED (a misroute or a stale
+    deployment) stays retryable.
+  - Following from the classes: C-0617 now says an INVALID_ARGUMENT
+    answer reaches the policy's OnRefused (it no longer dead-letters), and
+    `command_handler.proto`'s status list (and `policy.proto`'s
+    Refusals) state the three classes instead of filing INVALID_ARGUMENT
+    under "Terminal (malformed)".
+  - A rebuild's applier or batched fold that panics fails the fold like
+    one that errs: `FOLD_FAILED` (`FOLD_FAILED_EMITTED` for the command's
+    own events) with cause `HANDLER_PANICKED`, the page named when an
+    applier panicked and the batch's range when a batched fold did.
 - Why: one representation of an error everywhere, that code can branch on
   and any language can render; English on the wire was both a parsing
   temptation and the only thing telling several conditions apart.

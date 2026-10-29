@@ -48,7 +48,8 @@ service CommandHandlerService {
   //
   // A rejection is answered as a gRPC error status, never as a response
   // message, and the refusing domain records nothing. A business rejection
-  // (FAILED_PRECONDITION) carries a message and, optionally, a typed
+  // (a status of the business set; see the status codes below, and
+  // FAILED_PRECONDITION for a typed refusal) carries a message and, optionally, a typed
   // refusal object: one of the command's CommandOptions.refuses types
   // (options.proto), which the client library packs into the status
   // details as a google.protobuf.Any; the generated handler returns its
@@ -145,13 +146,21 @@ message CommandHandlerResponse {
 //
 // Status codes. One set, used by every coordinator and by every framework
 // retry loop (reaction delivery, the transient outbox, asynchronous
-// commands, projector retries):
-//   Retryable:  UNAVAILABLE, DEADLINE_EXCEEDED, RESOURCE_EXHAUSTED, ABORTED.
-//   Terminal:   every other code, notably INVALID_ARGUMENT (malformed),
-//               FAILED_PRECONDITION (a business rejection), NOT_FOUND,
-//               PERMISSION_DENIED (a field or route reserved for framework
-//               components; see entry_points), UNIMPLEMENTED and INTERNAL (a
-//               handler bug).
+// commands, projector retries). The status alone decides an error's class
+// (decision 14.37):
+//   Business refusal: FAILED_PRECONDITION, INVALID_ARGUMENT, NOT_FOUND,
+//               ALREADY_EXISTS, OUT_OF_RANGE, PERMISSION_DENIED (among
+//               them a field or route reserved for framework components;
+//               see entry_points). Never retried; a refused policy command
+//               reaches the policy's OnRefused (policy.proto, Refusals).
+//   Bug:        INTERNAL, UNKNOWN, DATA_LOSS (a handler bug is INTERNAL
+//               UNHANDLED_HANDLER_ERROR, its own key the cause). Never
+//               retried; alerted and dead-lettered, and never a policy's
+//               OnRefused.
+//   Retryable:  every other code, notably UNAVAILABLE, DEADLINE_EXCEEDED,
+//               RESOURCE_EXHAUSTED, ABORTED and UNIMPLEMENTED. Retried with
+//               backoff up to a configured cap, then dead-lettered and
+//               alerted.
 // ABORTED is a stale expected_sequence under STRICT (a failed
 // test-and-set). Retrying it means re-reading and re-issuing: a caller does
 // that itself, and the framework retries ABORTED only for commands whose

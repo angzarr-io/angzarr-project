@@ -68,17 +68,22 @@ Feature: Policy refusals - a refused command becomes one fact for the policy's o
 
   @policy_refusal
   @C-0617
-  Scenario Outline: Only a business rejection yields a refusal fact
+  Scenario Outline: Only a business rejection yields a refusal fact, and the status decides which is one
+    # Decision 14.37 (owner rulings, 2026-10-29): the gRPC status decides
+    # the class. FAILED_PRECONDITION, INVALID_ARGUMENT, NOT_FOUND,
+    # ALREADY_EXISTS, OUT_OF_RANGE and PERMISSION_DENIED are business
+    # refusals; INTERNAL, UNKNOWN and DATA_LOSS are bugs; the rest are
+    # retried with backoff up to a configured cap, then dead-lettered.
     Given wallet "p-1" answers HoldFunds with <status>
     When "BuyIn" records BuyInStarted for 500 from wallet "p-1"
-    Then "BuyInToWallet"'s OnRefused is not called
+    Then "BuyInToWallet"'s OnRefused <on_refused>
     And <outcome>
 
     Examples:
-      | status            | outcome                                                     |
-      | UNAVAILABLE       | HoldFunds is retried                                        |
-      | INVALID_ARGUMENT  | HoldFunds is dead-lettered and an alert is raised           |
-      | INTERNAL          | HoldFunds is dead-lettered and an alert is raised           |
+      | status            | on_refused                 | outcome                                                                                    |
+      | UNAVAILABLE       | is not called              | HoldFunds is retried with backoff up to its configured cap, then dead-lettered and alerted |
+      | INVALID_ARGUMENT  | is called with the refusal | HoldFunds is neither retried nor dead-lettered                                             |
+      | INTERNAL          | is not called              | HoldFunds is dead-lettered and an alert is raised                                          |
 
   @policy_refusal
   @C-0618
