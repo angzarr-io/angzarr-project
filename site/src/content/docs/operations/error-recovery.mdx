@@ -41,6 +41,37 @@ flowchart TB
 
 ---
 
+## Errors Are Keys, Never English
+
+Every error angzarr sends carries a **key** and an **argument map**, never rendered text (decision 14.37). Text is rendered only where it is displayed (a console, a UI, a client's `message()`), from a [Fluent](https://projectfluent.org/) catalog keyed by the code. A log shows the code and its args as they are.
+
+| Where | The key | The map |
+|-------|---------|---------|
+| A gRPC status | The status message, and the `google.rpc.ErrorInfo` reason (domain `angzarr.io`) | The `ErrorInfo` metadata |
+| A message (`RefusalResponse`, `ProjectorFailure`, `AngzarrDeadLetter`, the DLQ details) | `Diagnostic.code` | `Diagnostic.args` |
+| A typed refusal object | Its type (on the wire, reason `COMMAND_REFUSED` with metadata `refusal_type`) | Its fields |
+
+This holds for business code too. A handler's typed refusal is its refusal object; any other rejection, and every handler bug, carries a diagnostic code and its args. No free text crosses any boundary: a handler bug is answered `UNHANDLED_HANDLER_ERROR`, carrying the handler's own diagnostic as its cause (a panic's cause is `HANDLER_PANICKED`), and what the error or panic said stays in the handler's own log. A wrapped cause is flattened into the args: its code under the arg's name and its args under `<name>.<arg>`.
+
+Every distinct condition has its own reason key, so no two conditions share a key and differ only by text:
+
+| Condition | Reason | Status |
+|-----------|--------|--------|
+| A fold fails on a persisted event | `FOLD_FAILED` | `INTERNAL` |
+| A fold fails on an event the command emitted | `FOLD_FAILED_EMITTED` | `INTERNAL` |
+| A command type no handler claims, after upcasting | `UNKNOWN_COMMAND_TYPE` (metadata `type_url`, `upcast_type_url`) | `INVALID_ARGUMENT` |
+| A fact type no handler claims, after upcasting | `NO_FACT_HANDLER` (metadata `type_url`, `upcast_type_url`) | `INVALID_ARGUMENT` |
+| A pass-through `CommandRefused` the source has no `on_refused_<Command>` for | `NO_REFUSAL_HANDLER` (metadata `command_type`) | `INVALID_ARGUMENT` |
+| A dispatch to a kind the business process does not host | `NO_COMPONENT_OF_KIND` | `UNIMPLEMENTED` |
+| A policy given a book of a domain it does not consume | `POLICY_SOURCE_OUTSIDE_INPUT_DOMAIN` (metadata `domain`, `expected_domain`) | `UNIMPLEMENTED` |
+| A second component, built with or registered beside the one hosted | `DUPLICATE_COMPONENT` (metadata `component`, `component_kind`) | `INVALID_ARGUMENT` |
+| A router built with two upcaster chains | `DUPLICATE_UPCASTER_CHAIN` | `INVALID_ARGUMENT` |
+| A policy's malformed refusal fact | One key per fault: `REFUSAL_FACT_MISSING`, `REFUSAL_FACT_ADDRESSED`, `REFUSAL_FACT_NO_PAGE`, `REFUSAL_FACT_NOT_A_FACT`, `REFUSAL_FACT_IDENTIFIED`, `REFUSAL_WITHOUT_REFUSED_COMMAND`, `REFUSED_COMMAND_WITHOUT_ID`, `REFUSAL_WITHOUT_TRIGGER_STREAM` | `INTERNAL` |
+| A `Refusal` with no command, or no event | `REFUSAL_WITHOUT_COMMAND`, `REFUSAL_WITHOUT_EVENT` | `INVALID_ARGUMENT` |
+| Bytes that do not decode as the message expected | `ANY_DECODE_FAILED` (metadata `message_type`) | `INVALID_ARGUMENT` |
+
+---
+
 ## Retry with Backoff
 
 Transient failures (network issues, temporary unavailability) are automatically retried with exponential backoff and jitter.
@@ -207,7 +238,7 @@ A target that refuses a saga's command (a business rejection, optionally with a 
 | What happened | What happens |
 |---------------|--------------|
 | A business rejection | The refusal fact goes to the saga's source, retried, deduplicated by the refused command's id |
-| A pass-through refusal the source has no handler for | The fact is refused `NO_FACT_HANDLER`, dead-lettered for a human, and alerted; found only at run time, since nothing declares what a saga sends |
+| A pass-through refusal the source has no handler for | The fact is refused `NO_REFUSAL_HANDLER`, dead-lettered for a human, and alerted; found only at run time, since nothing declares what a saga sends |
 | The translating callback fails | The refusal is dead-lettered and alerted |
 | A retryable failure | The command is retried |
 | Any other terminal failure | The command is dead-lettered and alerted: a bug |
@@ -352,8 +383,8 @@ Webhook payload:
     "root": "550e8400-e29b-41d4-a716-446655440000"
   },
   "triggering_sequence": 5,
-  "rejection_reason": "insufficient_funds",
-  "compensation_reason": "Aggregate returned empty response",
+  "reason": { "code": "INSUFFICIENT_FUNDS", "args": { "available": "120", "requested": "500" } },
+  "compensation_reason": { "code": "COMPENSATION_EMPTY_RESPONSE" },
   "occurred_at": "2024-01-15T10:30:00Z"
 }
 ```
@@ -383,7 +414,7 @@ def apply_funds_deposited(state, event):
 @merge_strategy(MergeStrategy.STRICT)
 def handle_transfer(state, cmd):
     if cmd.amount > state.available:
-        raise CommandRejectedError("insufficient_funds")
+        raise CommandRejectedError("INSUFFICIENT_FUNDS")
 
 # Counters: COMMUTATIVE
 @merge_strategy(MergeStrategy.COMMUTATIVE)
@@ -408,7 +439,7 @@ def handle_rejection(state, rejection):
         return RevocationResponse(
             send_to_dead_letter_queue=True,
             escalate=True,
-            reason="Cannot compensate automatically",
+            reason="CANNOT_COMPENSATE",
         )
 ```
 

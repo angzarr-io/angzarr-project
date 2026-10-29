@@ -115,7 +115,7 @@ class Player(CommandHandler[PlayerState]):
     @handles(DepositFunds)
     def handle_deposit_funds(self, cmd: DepositFunds) -> FundsDeposited:
         if cmd.amount <= 0:
-            raise CommandRejectedError("Invalid amount")     # can reject
+            raise CommandRejectedError("INVALID_AMOUNT")     # can reject
         return FundsDeposited(new_bankroll=self.state.bankroll + cmd.amount)
 
     @handles_fact(TurnAssigned)

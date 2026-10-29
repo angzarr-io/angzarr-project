@@ -6,6 +6,8 @@ import { Tabs, TabItem } from '@astrojs/starlight/components';
 
 All Angzarr SDKs provide typed errors with introspection methods for programmatic error handling. This enables retry logic, circuit breakers, and user-friendly error messages.
 
+An error is a **key and an argument map**, never rendered English (decision 14.37): what arrives from the server is a reason code (the status message, and the `google.rpc.ErrorInfo` reason) and its args (the `ErrorInfo` metadata). A client renders text only where it displays it, from a Fluent catalog keyed by the code; logging an error writes its code and args. Branch on the code, never on the wording.
+
 ---
 
 ## Error Hierarchy
@@ -73,7 +75,7 @@ It's important to distinguish between:
 
 | Type | Cause | Action |
 |------|-------|--------|
-| **CommandRejectedError** | Business rule violation | Show user-friendly message, don't retry |
+| **CommandRejectedError** | Business rule violation | Render its code and args from the catalog for the user, don't retry |
 | **PreconditionFailed (sequence)** | Optimistic locking conflict | Refetch state and retry |
 | **ConnectionError** | Network failure | Retry with exponential backoff |
 | **InvalidArgument** | Bad input data | Fix input, don't retry |
@@ -82,9 +84,10 @@ It's important to distinguish between:
 
 ```text title="illustrative - business rejection"
 User tries to withdraw $500 from account with $100 balance
-→ Aggregate rejects: "Insufficient funds"
-→ CommandRejectedError with is_precondition_failed() = true
-→ Show user: "Insufficient funds for this withdrawal"
+→ Aggregate rejects: code INSUFFICIENT_FUNDS, args { available: 100, requested: 500 }
+→ CommandRejectedError with is_precondition_failed() = true, code INSUFFICIENT_FUNDS
+→ Show user: the catalog's INSUFFICIENT_FUNDS text, filled with the args
+  ("Insufficient funds: 100 available, 500 requested")
 ```
 
 ### Sequence Mismatch Example
@@ -93,7 +96,7 @@ User tries to withdraw $500 from account with $100 balance
 Client A reads aggregate at sequence 5
 Client B updates aggregate to sequence 6
 Client A sends command with sequence 5
-→ Coordinator rejects: "Sequence mismatch"
+→ Coordinator rejects with its reason code (a key, no text)
 → GrpcError with is_precondition_failed() = true
 → Client A refetches events, rebuilds state, retries
 ```

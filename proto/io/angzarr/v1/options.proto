@@ -493,7 +493,7 @@ extend google.protobuf.FieldOptions {
 // cannot check refusal coverage against what a policy sends; a refusal with
 // no path (a pass-through CommandRefused whose command type the source has
 // no handler for) is caught at RUN time: the source answers
-// NO_FACT_HANDLER, and the fact is dead-lettered and alerted. What the
+// NO_REFUSAL_HANDLER (decision 14.37), and the fact is dead-lettered and alerted. What the
 // generator still checks: the refuses diagnostics above, and that a
 // command selected for translate has its callback.
 // endregion

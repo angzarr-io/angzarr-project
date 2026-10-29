@@ -3,11 +3,17 @@
 //! In annals_diagnostic's style without depending on it (annals_diagnostic
 //! lives in the annals repository, and the ports must not depend on annals):
 //! every error has a stable kebab-case [`code`](StoreError::code) starting
-//! with this crate's name, named [`args`](StoreError::args) that carry data
-//! and never English, and an English `Display` as the fallback. annals'
-//! `Diagnostic` impl for its own errors forwards a wrapped `StoreError`'s
-//! code and args unchanged (the orphan rule keeps the impl on annals' side,
-//! on the type that wraps it); core maps the codes to gRPC statuses.
+//! with this crate's name and named [`args`](StoreError::args) that carry
+//! data. An error is a KEY and an ARGUMENT MAP, never rendered English
+//! (decision 14.37): text is rendered only where it is displayed, from a
+//! Fluent catalog keyed by the code, and the `Display` (what a log shows)
+//! is the code followed by its args, ` name=value` each, a nested
+//! [`Cause`] as ` name=<its code>` then ` name.<arg>=value` for each of its
+//! args. annals' `Diagnostic` impl for its own errors forwards a wrapped
+//! `StoreError`'s code and args unchanged (the orphan rule keeps the impl
+//! on annals' side, on the type that wraps it); core maps the codes to
+//! gRPC statuses, the code as the reason and the args, flattened the same
+//! way, as the `ErrorInfo` metadata.
 
 use std::fmt;
 
@@ -204,18 +210,20 @@ pub enum Recovery {
 
 /// An adapter's own failure, captured as data so [`StoreError`] stays
 /// `Clone` and `Eq`: the adapter's stable code (its own crate's prefix,
-/// `annals-store-sql-io`) and its English.
+/// `annals-store-sql-io`) and its args, by name. Never its English
+/// (decision 14.37): an adapter maps what its driver reports (an errno, a
+/// driver's own code) to args, and its driver's text stays in its own log.
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct Cause {
     pub code: &'static str,
-    pub message: String,
+    pub args: Vec<(&'static str, Arg)>,
 }
 
 impl Cause {
-    pub fn new(code: &'static str, message: impl Into<String>) -> Cause {
+    pub fn new(code: &'static str, args: impl IntoIterator<Item = (&'static str, Arg)>) -> Cause {
         Cause {
             code,
-            message: message.into(),
+            args: args.into_iter().collect(),
         }
     }
 }
@@ -377,7 +385,7 @@ impl fmt::Display for StoreError {
                 stream_text(stream)
             ),
             StoreError::Unavailable(cause) => {
-                write!(f, "the store is unavailable: {}", cause.message)
+                write!(f, "the store is unavailable: {}", cause.code)
             }
             StoreError::Unreadable {
                 stream,
@@ -387,7 +395,7 @@ impl fmt::Display for StoreError {
                 f,
                 "event {sequence} of stream {} cannot be read: {}",
                 stream_text(stream),
-                reason.message
+                reason.code
             ),
             StoreError::UnknownEdition { stream } => write!(
                 f,

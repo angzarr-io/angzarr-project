@@ -38,7 +38,7 @@ Feature: Retry policy and command rejection factories
 
   @C-0131
   Scenario: CommandRejectedError.precondition_failed marks FAILED_PRECONDITION
-    When I construct a CommandRejectedError via precondition_failed with reason "bad state"
+    When I construct a CommandRejectedError via precondition_failed with code BAD_STATE
     Then the error's is_precondition_failed predicate is true
     And the error's is_invalid_argument predicate is false
     And the error's is_not_found predicate is false

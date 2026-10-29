@@ -635,6 +635,51 @@ message FactOrigin {
 // streams, outbox and positions byte-for-byte unchanged.
 // endregion
 
+// region diagnostic
+// Errors carry a KEY and an ARGUMENT MAP, never rendered English (decision
+// 14.37). Text is rendered only where it is displayed (a console, a UI, a
+// client's message()), from a Fluent catalog keyed by the code; logs show
+// the code and its args as they are. No free text crosses any boundary:
+// not a gRPC status message, not a dead letter, not a response field.
+//
+//   On a gRPC status   the status message IS the reason key; the
+//                      google.rpc.ErrorInfo (domain "angzarr.io") carries
+//                      the same key as its reason and the args as its
+//                      metadata. Every distinct condition has its own key:
+//                      two conditions never share one and differ only by
+//                      text.
+//   In a message       a Diagnostic, below.
+//
+// A business rejection is one of two things. A TYPED rejection is its
+// refusal object (one of the command's CommandOptions.refuses types,
+// packed as an Any): the object's type is the key and its fields are the
+// map, so it carries no Diagnostic. On the wire its reason (and so its
+// status message) is COMMAND_REFUSED, its ErrorInfo metadata refusal_type
+// names the object's fully-qualified type, and the object itself is packed
+// in the status details. Any other rejection, and every handler bug,
+// carries a diagnostic code and its args: an untyped rejection's reason is
+// its own code; a handler bug's reason is UNHANDLED_HANDLER_ERROR, with the
+// handler's own code and args as its cause (flattened as below; a panic's
+// cause is HANDLER_PANICKED), and what escaped stays in the handler's log. A catalog keys a typed refusal by
+// its fully-qualified type name with each "." replaced by "-" (a Fluent id
+// has no dots).
+//
+// A cause wrapped inside a diagnostic is flattened into the args: the
+// cause's code under the arg's name, and each of its args under
+// "<name>.<arg>" (so "cause" = "annals-store-sql-io", "cause.errno" =
+// "10"). The same flattening serves ErrorInfo metadata.
+message Diagnostic {
+  // The key: a stable identifier, never reused for another meaning, and a
+  // valid Fluent message id. Framework codes are SCREAMING_SNAKE
+  // (NO_COMPONENT_OF_KIND) or the ports' kebab-case (angzarr-ports-...);
+  // a domain's codes are its own. Required.
+  string code = 1;
+  // The arguments, by name: data (ids, counts, type URLs, a domain), never
+  // a sentence. The same names every time for a given code.
+  map<string, string> args = 2;
+}
+// endregion
+
 // region refusal_facts
 // The standard refusal fact (decision 14.31; PolicyService in policy.proto,
 // Refusals). The POLICY builds it: in PASS-THROUGH mode, the default chosen
@@ -644,7 +689,7 @@ message FactOrigin {
 // edition). The source domain handles it by a generated dispatch on the
 // refused command's type, on_refused_<Command>(refusal, state) -> events,
 // inferred from the handlers it defines; with none for that type it
-// answers NO_FACT_HANDLER, and the fact is dead-lettered and alerted. Its
+// answers NO_REFUSAL_HANDLER (metadata command_type; decision 14.37), and the fact is dead-lettered and alerted. Its
 // identity is the refused command's: its command_id is the refused
 // command's command_id, and its fact_origin.external_id that id's
 // canonical text (the command_identity region, Validation).
@@ -675,21 +720,21 @@ message CommandRefused {
 
 // A target's refusal of a command, as the refused policy receives it
 // (Refusal.response in policy.proto), built by the policy's coordinator from
-// the business rejection (FAILED_PRECONDITION) the target answered.
+// the business rejection (FAILED_PRECONDITION) the target answered. It
+// carries a key and a map, never text (decision 14.37): exactly one of
+// refusal and diagnostic is set.
 message RefusalResponse {
-  // The typed refusal object the handler returned: one of the command's
-  // CommandOptions.refuses types, packed by the client library into the
-  // rejection's status details and handed on here. Unset if it returned
-  // none.
-  google.protobuf.Any refusal = 1;
-  // The rejection's status message. Kept because the transport always
-  // carries one (a gRPC status has a message even when no refusal object
-  // is returned), and the policy's translating callback and the dead letter
-  // of an unhandled refusal may need it. It is never forwarded into
-  // CommandRefused: a domestic domain that wants it, or anything else not
-  // in the typed object, gets it through translate mode. (The ErrorInfo
-  // reason code is not kept: the typed object's type names the reason.)
-  string message = 2;
+  oneof reason {
+    // The typed refusal object the handler returned: one of the command's
+    // CommandOptions.refuses types, packed by the client library into the
+    // rejection's status details and handed on here. Its type is the key
+    // and its fields the map.
+    google.protobuf.Any refusal = 1;
+    // An untyped rejection: the rejection's ErrorInfo reason as the code
+    // and its metadata as the args. Never forwarded into CommandRefused: a
+    // domestic domain that wants it gets it through translate mode.
+    Diagnostic diagnostic = 3;
+  }
 }
 // endregion
 
@@ -1007,9 +1052,11 @@ message Handling {
 // library's upcaster chain has brought an old payload type up to the
 // current one (see upcaster.proto); Command and Fact payloads alike are
 // upcast. A payload whose type URL, after upcasting, reaches no handler is
-// refused INVALID_ARGUMENT: the status message names the type URL as sent,
-// and the status details carry a google.rpc.ErrorInfo whose metadata key
-// "upcast_type_url" holds the type URL the chain ended at (the sent one
+// refused INVALID_ARGUMENT with reason UNKNOWN_COMMAND_TYPE
+// (NO_FACT_HANDLER for a fact), which is also the status message (decision
+// 14.37: a key, never text), and the status details carry a
+// google.rpc.ErrorInfo whose metadata key "type_url" holds the type URL as
+// sent and "upcast_type_url" the type URL the chain ended at (the sent one
 // when no upcaster applies). On
 // the wire the arm is the fact marker; in code, the handler registration (a
 // fact handler, e.g. #[handles_fact] / ingest, versus a command handler) is
@@ -1133,11 +1180,13 @@ message Outcome {
 // One synchronous projector that failed during HandleSync.
 message ProjectorFailure {
   string projector = 1; // Registered name of the projector
-  // The failure as a gRPC status code (google.rpc.Code numbering) and
-  // message. Whether the projection will be retried follows the retryable
-  // set in command_handler.proto.
+  // The failure as a gRPC status code (google.rpc.Code numbering). Whether
+  // the projection will be retried follows the retryable set in
+  // command_handler.proto.
   int32 code = 2;
-  string message = 3;
+  // The failure's key and args (decision 14.37): its status's ErrorInfo
+  // reason and metadata. Never the status's text.
+  Diagnostic diagnostic = 4;
 }
 
 // What the coordinator did with this delivery of a command. Deduplication
@@ -1186,6 +1235,12 @@ message ContextualCommand {
   // it again.
   EventBook events = 1;
   CommandBook command = 2;
+  // When the input was accepted: stamped by the runtime that accepted it
+  // (core's coordinator, or the angzarr-embedded kernel) before the
+  // handler runs, never by the caller (decision 14.37), so command and
+  // fact handlers can read it. (Whether the events of the write carry this
+  // same instant as EventMeta.recorded_at is open; see 14.37.)
+  google.protobuf.Timestamp recorded_at = 4;
   // The conflict nonce. Set when, and only when, the resolved
   // conflict_resolution is AGGREGATE_HANDLES or COMMUTATIVE (including an
   // empty window, so the handler path is uniform); empty under STRICT.
@@ -1330,7 +1385,7 @@ message SequenceMismatchDetails {
 // Event processing failure details for DLQ entries.
 // Contains information about why a policy/projector failed to process events.
 message EventProcessingFailedDetails {
-  string error = 1; // Error message from the handler
+  Diagnostic failure = 5; // The handler's failure: its code and args, never its text (decision 14.37)
   uint32 retry_count = 2; // Number of retry attempts before DLQ routing
   bool is_transient = 3; // Whether the failure is considered transient
   // Flat array of captured errors representing the cause chain
@@ -1350,7 +1405,7 @@ message PayloadRetrievalFailedDetails {
   string uri = 2; // URI of the payload that couldn't be retrieved
   bytes content_hash = 3; // Content hash for identification
   uint64 original_size = 4; // Original payload size in bytes
-  string error = 5; // Error message from the retrieval attempt
+  Diagnostic failure = 6; // The retrieval's failure: its code and args, never its text (decision 14.37)
 }
 // endregion
 
@@ -1388,7 +1443,11 @@ message AngzarrDeadLetter {
     CommandBook rejected_command = 2;
     EventBook rejected_events = 9; // Events that failed (policy/projector failures)
   }
-  string rejection_reason = 3; // Human-readable reason
+  // Why it was dead-lettered: a key and its args, never text (decision
+  // 14.37). A typed business rejection is code COMMAND_REFUSED with arg
+  // refusal_type, as on the wire; the object itself rides in the payload
+  // where there is one (a CommandRefused fact's refusal).
+  Diagnostic reason = 16;
   oneof rejection_details {
     SequenceMismatchDetails sequence_mismatch = 12; // Sequence conflict details
     EventProcessingFailedDetails event_processing_failed = 13; // Handler failure details

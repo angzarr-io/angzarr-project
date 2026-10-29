@@ -6,7 +6,9 @@ Feature: Error Handling - Client Error Introspection
 
   Proper error handling enables:
   - Automatic retry on transient failures
-  - User-friendly error messages
+  - User-friendly text, rendered where it is displayed from a catalog
+    keyed by the error's code (decision 14.37: an error is a code and an
+    argument map, never rendered English)
   - Optimistic concurrency conflict resolution
   - Debugging and logging
 # docs:end:error_handling_contract
@@ -21,7 +23,7 @@ Feature: Error Handling - Client Error Introspection
     When I attempt a client operation
     Then the error should be a connection error
     And is_connection_error should return true
-    And the error message should describe the connection failure
+    And the error's code and args should name the connection failure
 
   @C-0342
   Scenario: Transport error is identifiable
@@ -42,13 +44,13 @@ Feature: Error Handling - Client Error Introspection
     When I build a command without required fields
     Then the error should be an invalid argument error
     And is_invalid_argument should return true
-    And the error message should describe what's missing
+    And the error's code and args should name what's missing
 
   @C-0345
   Scenario: Invalid timestamp error
     When I build a query with invalid timestamp format
     Then the error should be an invalid timestamp error
-    And the error message should indicate the format problem
+    And the error's code and args should name the format problem
 
   # ==========================================================================
   # gRPC Error Introspection
@@ -80,7 +82,7 @@ Feature: Error Handling - Client Error Introspection
     Given the client lacks required permissions
     When I attempt a restricted operation
     Then code should return PERMISSION_DENIED
-    And the error message should describe access denial
+    And the error's code and args should name the access denial
 
   @C-0350
   Scenario: INTERNAL error from server
@@ -100,11 +102,11 @@ Feature: Error Handling - Client Error Introspection
   # ==========================================================================
 
   @C-0352
-  Scenario: message returns human-readable description
+  Scenario: message renders the error from the catalog by its code
     Given any client error
     When I call message() on the error
-    Then I should get a non-empty string
-    And the message should describe the error
+    Then I should get the catalog's text for the error's code, filled with its args
+    And no text in it came from the server
 
   @C-0353
   Scenario: code returns gRPC code for gRPC errors
@@ -123,7 +125,7 @@ Feature: Error Handling - Client Error Introspection
     Given a gRPC error with detailed status
     When I call status() on the error
     Then I should get the full gRPC Status
-    And I can access the status code, message, and details
+    And I can access the status code, its message (the reason key), and details
 
   @C-0356
   Scenario: status returns None for non-gRPC errors
@@ -190,8 +192,8 @@ Feature: Error Handling - Client Error Introspection
   Scenario: Error implements Display
     Given any client error
     When I convert the error to string
-    Then I should get a formatted error message
-    And the message should include the error type and description
+    Then I should get the error's code followed by its args
+    And it carries no rendered text
 
   @C-0364
   Scenario: Error implements Debug

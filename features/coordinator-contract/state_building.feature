@@ -130,14 +130,14 @@ Feature: State Building - Aggregate State Reconstruction
     Given an event with corrupted payload bytes
     When I attempt to build state
     Then an error should be raised
-    And the error should indicate deserialization failure
+    And the error's reason is PERSISTED_EVENT_CORRUPT, with the event's type_url in its args
 
   @C-0294
   Scenario: Missing required field in event
     Given an event missing a required field
     When I attempt to build state
     Then an error should be raised
-    And the error should indicate the missing field
+    And the error's args name the missing field, and it carries no text
 
   # ==========================================================================
   # Next Sequence Calculation
@@ -204,3 +204,19 @@ Feature: State Building - Aggregate State Reconstruction
     Then the envelope should be unwrapped
     And the handler registered for that event type should be invoked
     And the produced state should reflect the event
+
+  # ==========================================================================
+  # When the input was accepted (decision 14.37)
+  # ==========================================================================
+
+  @recorded_at
+  @C-0675
+  Scenario Outline: The coordinator stamps when it accepted the input on the delivery
+    Given the coordinator's clock reads "2026-10-28T12:00:00Z"
+    When <input> is accepted for an "order" aggregate
+    Then the ContextualCommand delivered to business code has recorded_at "2026-10-28T12:00:00Z"
+
+    Examples:
+      | input                      |
+      | an AddItem command         |
+      | an ItemDelivered fact      |

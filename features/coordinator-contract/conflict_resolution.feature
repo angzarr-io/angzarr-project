@@ -112,9 +112,9 @@ Feature: Conflict resolution - how the coordinator treats a stale command
   @C-0165
   Scenario: AggregateHandles - a business rejection is returned unchanged
     Given an AddItem command with conflict resolution AGGREGATE_HANDLES targeting sequence 1
-    And business code rejects the command with reason "order is closed"
+    And business code rejects the command with code ORDER_CLOSED
     When the coordinator processes the command
-    Then the command fails with the business rejection reason "order is closed"
+    Then the command fails with the business rejection reason ORDER_CLOSED
     And no events are persisted
 
   @aggregate_handles
@@ -130,7 +130,7 @@ Feature: Conflict resolution - how the coordinator treats a stale command
   @C-0551
   Scenario: Each delivery carries a fresh nonce
     Given an AddItem command with conflict resolution AGGREGATE_HANDLES targeting sequence 1
-    And business code rejects the first delivery with reason "try again"
+    And business code rejects the first delivery with code TRY_AGAIN
     When the caller sends the same command twice
     Then business code is invoked twice
     And the two deliveries carry different conflict nonces
@@ -186,9 +186,9 @@ Feature: Conflict resolution - how the coordinator treats a stale command
   @C-0459
   Scenario: A reaction command is guarded only by the destination's own decision
     Given a policy-emitted AddItem command with no expected sequence and no conflict resolution
-    And business code rejects the command with reason "order is closed"
+    And business code rejects the command with code ORDER_CLOSED
     When the coordinator processes the command
-    Then the command fails with the business rejection reason "order is closed"
+    Then the command fails with the business rejection reason ORDER_CLOSED
     And no events are persisted
 
   @reaction

@@ -98,3 +98,22 @@ Feature: Sync modes - how much downstream work a command waits for
   # 14.31), so they are retired. What a policy's reaction command waits for
   # comes from the policy's configuration, never from the command (backlog
   # MD-5); the rest of this file awaits the rewrite in backlog DOC-5.
+
+  @error_keys
+  @C-0676
+  Scenario: A rejection reaches the caller as the handler's key and args
+    # Decision 14.37: the status message is the reason key; the coordinator
+    # adds no text of its own.
+    Given the CancelOrder handler rejects an unknown order with code ORDER_UNKNOWN and arg order "o-9"
+    When a CancelOrder command for order "o-9" is handled with sync_mode DECISION
+    Then the command fails FAILED_PRECONDITION with reason ORDER_UNKNOWN, which is also its status message
+    And the rejection's error info carries order "o-9"
+
+  @error_keys
+  @C-0677
+  Scenario: A failing synchronous projector is reported by its code and a diagnostic
+    Given a projector "OrderSummary" whose handler fails UNAVAILABLE with code VIEW_STORE_UNAVAILABLE
+    When a CreateOrder command is handled with sync_mode SIMPLE
+    Then the command succeeds
+    And the outcome's projector_failures holds "OrderSummary" with code UNAVAILABLE and diagnostic code VIEW_STORE_UNAVAILABLE
+    And the projector failure carries no text

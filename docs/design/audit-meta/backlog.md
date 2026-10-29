@@ -191,7 +191,7 @@ dead-lettering from core is PR-6.
   root and edition),
   and takes the refused command's id as such a fact's id. A refusal with
   no path (a pass-through `CommandRefused` the source answers
-  `NO_FACT_HANDLER`) and a failing translating callback are
+  `NO_REFUSAL_HANDLER`, decision 14.37) and a failing translating callback are
   dead-lettered and alerted: coverage is checked only at run time.
 - What (clients, router): a command's generated handler result is its
   events or one of its `(command).refuses` types, the chosen refusal
@@ -1283,6 +1283,45 @@ no-op implementations only.
 - Why: decision 14.26; `query.proto`.
 - Settled when: scenarios C-0588 and C-0589 pass.
 
+## ER: errors as a key and an argument map; the acceptance time (pass 14)
+
+**ER-1** [router] **Answer every error with its key and args, never text.**
+- What: the status message is the reason key and `ErrorInfo` carries the
+  args; the English `messages` constants and every literal message go;
+  each condition of decision 14.37's inventory gets its own key; a
+  business rejection carries its typed refusal (`COMMAND_REFUSED`,
+  `refusal_type`) or its code and args; a handler bug is
+  `UNHANDLED_HANDLER_ERROR` with the handler's diagnostic as `cause`;
+  `RefusalResponse` is built as `refusal` or `diagnostic`; `fold_message`
+  becomes the fold's `cause`.
+- Why: decision 14.37; `types.proto` (the `diagnostic` region).
+- Settled when: scenarios C-0539, C-0540, C-0580 and C-0667 to C-0672
+  pass.
+
+**ER-2** [core] **Carry diagnostics, never text, in what core sends.**
+- What: `AngzarrDeadLetter.reason`, the DLQ details' `failure`,
+  `ProjectorFailure.diagnostic`, `StoredDeadLetter.reason` and
+  `DeadLetterReplay.reason`; a `StoreError` mapped to its code as the
+  reason and its args, flattened, as the metadata; core's own statuses'
+  messages are their keys.
+- Why: decision 14.37; `types.proto`, `dlq_admin.proto`.
+- Settled when: scenarios C-0444 to C-0448, C-0618, C-0624, C-0673,
+  C-0674, C-0676 and C-0677 pass.
+
+**ER-3** [core] **Stamp `ContextualCommand.recorded_at` on acceptance.**
+- What: core's coordinator (and the angzarr-embedded kernel) stamps when
+  it accepted the input on every delivery, for commands and facts alike.
+- Why: decision 14.37; `ContextualCommand` (`types.proto`).
+- Settled when: scenarios C-0671 and C-0675 pass.
+
+**ER-4** [clients] **Render error text only from a catalog.**
+- What: each client library's `message()` renders from a Fluent catalog
+  keyed by the code, and its `Display`/`toString` is the code and args;
+  a handler raises a typed refusal or a code with args, never a sentence.
+- Why: decision 14.37.
+- Settled when: parity scenarios C-0131, C-0341, C-0344, C-0345, C-0349,
+  C-0352, C-0355 and C-0363 pass.
+
 ## GAP: gaps carried from earlier passes
 
 **GAP-1** [core] **Upcast on every read and publish path.**
@@ -1423,9 +1462,10 @@ in place with their disposition but not counted.
 | AU: attempt-audit sink (pass 6, held) | 1 |
 | SG: one saga, one destination (pass 14) | 1 |
 | QS: standalone query server (pass 14) | 1 |
+| ER: errors as key and args; the acceptance time (pass 14) | 4 |
 | GAP: carried gaps | 3 |
 | DOC: site, specs, branches | 7 |
-| **Total** | **114** |
+| **Total** | **118** |
 
 Pass 12 closed 15 items (KS-1–12, with KS-9's content moved to CI-8;
 SN-3, DQ-3 and MI-3), opened 13 (CI-1–8, RV-3, PR-3, VC-1, CR-3 and
@@ -1447,7 +1487,8 @@ rewrote OB-1, OB-2, OB-5, OB-6, PR-1, PR-4, SG-1 and MD-5 in place: 115.
 The owner's settlement of 14.31 (2026-10-28, a PM is a domain; refusals
 through the saga's refusal facts) closed OB-2 and PR-4, opened OB-7
 (the refusal wiring), and rewrote PR-1, PR-5, PR-6, PR-7,
-PS-1, CI-5, CQ-2 and MD-5 in place: 114.
+PS-1, CI-5, CQ-2 and MD-5 in place: 114. Decision 14.37 opened ER-1 to
+ER-4: 118.
 
 ## By-repo index
 
@@ -1455,9 +1496,9 @@ An item tagged with several repos appears under each of them.
 
 | Repo | Items |
 |---|---|
-| core | CI-1–6, CI-8, OB-1, OB-3, OB-5–7, PS-1–6, BO-1, RV-1, RV-3, MD-1–5, ST-1, ED-1–4, SN-1–2, SN-4, RT-1–2, DQ-1–2, DQ-4–6, RN-1–2, PR-1, PR-5–7, FA-1–2, HD-1–5, WS-1–5, RM-1–3, RM-6, TG-1, OR-1–2, RD-1, CQ-1–2, EA-1–3, NC-2, CR-2–3, MI-1, UU-2–4, CL-1–5, AU-1, QS-1, GAP-1–2 |
-| router | OB-4, OB-6, PS-2, RN-1, RV-2, SN-4, VC-1, FA-3, HD-3, WS-2, TG-1–2, OR-2, NC-1, CR-1, CL-2, CL-4, SG-1, PR-6–7, OB-7 |
-| clients (go, rust, python, java, csharp, cpp, typescript) | CI-2, CI-7, BO-2, RV-2, SN-4, MD-6, ST-2, ED-3, RN-1–2, VC-1, FA-3, HD-5, WS-1–2, RM-4, RM-6, TG-1, OR-2, RD-1, CQ-2, EA-4, NC-1, CR-1, CR-3, MI-2, UU-1–2, CL-1–2, CL-4–5, SG-1, PR-6–7, OB-7 |
+| core | CI-1–6, CI-8, OB-1, OB-3, OB-5–7, PS-1–6, BO-1, RV-1, RV-3, MD-1–5, ST-1, ED-1–4, SN-1–2, SN-4, RT-1–2, DQ-1–2, DQ-4–6, RN-1–2, PR-1, PR-5–7, FA-1–2, HD-1–5, WS-1–5, RM-1–3, RM-6, TG-1, OR-1–2, RD-1, CQ-1–2, EA-1–3, NC-2, CR-2–3, MI-1, UU-2–4, CL-1–5, AU-1, QS-1, ER-2–3, GAP-1–2 |
+| router | OB-4, OB-6, PS-2, RN-1, RV-2, SN-4, VC-1, FA-3, HD-3, WS-2, TG-1–2, OR-2, NC-1, CR-1, CL-2, CL-4, SG-1, PR-6–7, OB-7, ER-1 |
+| clients (go, rust, python, java, csharp, cpp, typescript) | CI-2, CI-7, BO-2, RV-2, SN-4, MD-6, ST-2, ED-3, RN-1–2, VC-1, FA-3, HD-5, WS-1–2, RM-4, RM-6, TG-1, OR-2, RD-1, CQ-2, EA-4, NC-1, CR-1, CR-3, MI-2, UU-1–2, CL-1–2, CL-4–5, SG-1, PR-6–7, OB-7, ER-4 |
 | examples | BO-3, WS-2, RM-5 |
 | site | RN-2, EA-4, CL-5, DOC-1–4, DOC-7 |
 | project (features, CI, branches, parity) | EA-4, CR-1, GAP-3, DOC-5–6 |

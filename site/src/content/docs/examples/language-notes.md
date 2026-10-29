@@ -212,7 +212,7 @@ C#:      throw new CommandRejectedError(ErrMsg.PlayerNotRegistered)
 C++:     throw CommandRejectedError(errmsg::PLAYER_NOT_REGISTERED)
 ```
 
-The error messages are identical across languages—only the propagation mechanism differs.
+The error codes are identical across languages—only the propagation mechanism differs. A rejection carries its code and args, never English (decision 14.37); text is rendered where it is displayed, from a catalog keyed by the code.
 
 ---
 

@@ -50,9 +50,11 @@ message StoredDeadLetter {
   // io.angzarr.v1.UUID).
   io.angzarr.v1.UUID correlation_id = 3;
   bytes payload = 4;
-  string rejection_reason = 5;
+  // AngzarrDeadLetter.reason: a key and its args, never text (decision
+  // 14.37). The structured detail is the payload's rejection_details,
+  // rendered in payload_view.
+  io.angzarr.v1.Diagnostic reason = 15;
   RejectionType rejection_type = 6;
-  string details = 7;             // free-form debug detail
   string source_component = 8;
   io.angzarr.v1.ComponentKind source_component_kind = 14; // AngzarrDeadLetter.source_component_kind
   google.protobuf.Timestamp occurred_at = 10;
@@ -74,7 +76,10 @@ message DeadLetterReplay {
   ReplayMode mode = 3; // The mode applied
   ReplayOutcome outcome = 5; // PENDING until the replayed delivery is decided
   google.protobuf.Timestamp outcome_at = 6; // When outcome left PENDING
-  string detail = 7; // Human-readable detail (e.g. the new rejection's reason)
+  // Why the replay ended as it did (e.g. the new rejection's reason): a key
+  // and its args, never text (decision 14.37). Unset while PENDING and
+  // when nothing needs saying.
+  io.angzarr.v1.Diagnostic reason = 8;
 }
 
 // What became of one replay.
@@ -83,7 +88,7 @@ enum ReplayOutcome {
   REPLAY_OUTCOME_PENDING = 1; // Enqueued; not yet decided
   REPLAY_OUTCOME_APPLIED = 2; // Business code ran and committed (or the component processed the events)
   REPLAY_OUTCOME_DUPLICATE = 3; // The stream already held the command's command_id: the original did apply
-  REPLAY_OUTCOME_FAILED = 4; // Failed again: rejected or re-dead-lettered (see detail)
+  REPLAY_OUTCOME_FAILED = 4; // Failed again: rejected or re-dead-lettered (see reason)
 }
 
 // RFC 7807 — Problem Details for HTTP APIs. Used when a tile's

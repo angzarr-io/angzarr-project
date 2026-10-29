@@ -16,14 +16,14 @@ implement it.
 | `query_server.feature` | A standalone query server: queries with no component behind it, no commands, never a snapshot |
 | `rules_version.feature` | The reported build version stamped in full on events and snapshots; the state returned with every answer stored per policy and offered unchanged; which snapshot is offered (registered state type, the default major.minor rule, exact match for non-semantic versions, a domain's accept and reject patterns) |
 | `fact_flow.feature` | Fact injection: 0-based sequencing, `external_deferred.external_id` idempotency, failure handling; a fact carrying a causation_id accepted only by its trigger's domain |
-| `state_building.feature` | Aggregate state reconstruction from snapshot + pages, `next_sequence` arithmetic |
+| `state_building.feature` | Aggregate state reconstruction from snapshot + pages, `next_sequence` arithmetic; the delivery's `recorded_at`, stamped when the input is accepted (14.37) |
 | `edition_propagation.feature` | Source/trigger edition stamped onto every policy emission, a refusal fact included; a PM's events in its input's edition; main-timeline aliases (`""`, unset, `"angzarr"`) |
 | `edition_forks.feature` | Editions as per-stream forks (14.32): the fork event at the sequence it states, at or below main's head (14.36), the per-stream read rule, the fork travelling with the data, outside inputs refused until propagated (EDITION_NOT_FORKED), main reads for unforked streams, the unknown edition, listing with no registry, deletion sequenced after the work in flight, removing every row of the edition (a later arrival re-forks; a failed delete is dead-lettered), main byte-for-byte unchanged, PMs |
 | `temporal_query.feature` | `TemporalQuery` as_of_sequence / as_of_time and when a snapshot may start the result |
 | `policy_addressing.feature` | Who a policy's command addresses (14.36, as amended): the root the policy names, for every target alike (none is a policy bug, POLICY_COMMAND_NO_ROOT); the trigger's correlation carried unchanged (another is POLICY_COMMAND_OTHER_CORRELATION); one PM instance taking several correlations; one event fanning out to an aggregate and a PM |
-| `policy_refusal.feature` | A refused policy command: the target records nothing and may return a typed refusal object; the policy builds the one refusal fact, passing CommandRefused (the object packed) through to its source's on_refused handler or translating it into a domestic fact; the refused command's id is the fact's id; one outbox transaction; no path (a run-time dead letter), a failing callback, a fact for another domain |
-| `sync_modes.feature` | ASYNC, DECISION, SIMPLE, CASCADE, ISOLATED and the per-command `PageHeader.sync_mode` (caller's mode is a floor) |
-| `dead_letter_queue.feature` | `angzarr.dlq.{domain}` routing and `AngzarrDeadLetter` contents per failure source |
+| `policy_refusal.feature` | A refused policy command: the target records nothing and may return a typed refusal object; the policy builds the one refusal fact, passing CommandRefused (the object packed) through to its source's on_refused handler or translating it into a domestic fact; the refused command's id is the fact's id; one outbox transaction; no path (a run-time dead letter), a failing callback, a fact for another domain; an untyped refusal as its code and args (14.37) |
+| `sync_modes.feature` | ASYNC, DECISION, SIMPLE, CASCADE, ISOLATED and the per-command `PageHeader.sync_mode` (caller's mode is a floor); a rejection's and a projector failure's key and args (14.37) |
+| `dead_letter_queue.feature` | `angzarr.dlq.{domain}` routing and `AngzarrDeadLetter` contents per failure source; its reason and failures a code and args, never text (14.37) |
 
 ## Who runs these
 

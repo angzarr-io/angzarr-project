@@ -68,7 +68,7 @@ Feature: Handling a delivered command - versions, upcasting and conflicts
     # One business process is one component (decision 14.19).
     Given the "order" business binary has its "order" aggregate registered
     When a <kind> component "<name>" is registered in the same business process
-    Then the registration is refused, naming the "order" aggregate already registered
+    Then the registration is refused with reason DUPLICATE_COMPONENT, naming the "order" aggregate already registered
     And the business process describes only the "order" aggregate
 
     Examples:
@@ -135,8 +135,8 @@ Feature: Handling a delivered command - versions, upcasting and conflicts
   @C-0539
   Scenario: A type that upcasts to something no handler claims is refused naming both types
     When AddLine "apple" is handled over no prior events
-    Then the command is refused INVALID_ARGUMENT
-    And the refusal message names the type URL "/orders.v1.AddLine"
+    Then the command is refused INVALID_ARGUMENT with reason UNKNOWN_COMMAND_TYPE, which is also its status message
+    And the refusal's error info carries type_url "/orders.v1.AddLine"
     And the refusal's error info carries upcast_type_url "/orders.v1.AddLineItem"
     And business code is not invoked
 
@@ -144,8 +144,8 @@ Feature: Handling a delivered command - versions, upcasting and conflicts
   @C-0540
   Scenario: A type with no handler and no upcaster is refused naming the type as sent
     When RemoveEverything "apple" is handled over no prior events
-    Then the command is refused INVALID_ARGUMENT
-    And the refusal message names the type URL "/orders.v1.RemoveEverything"
+    Then the command is refused INVALID_ARGUMENT with reason UNKNOWN_COMMAND_TYPE, which is also its status message
+    And the refusal's error info carries type_url "/orders.v1.RemoveEverything"
     And the refusal's error info carries upcast_type_url "/orders.v1.RemoveEverything"
     And business code is not invoked
 
@@ -227,3 +227,98 @@ Feature: Handling a delivered command - versions, upcasting and conflicts
     When AddItem "apple" is handled COMMUTATIVE at expected sequence 0 over OrderNoteAdded "fragile" with nonce "n-1"
     Then the command fails as ABORTED
     And business code's events are discarded
+
+  # ===========================================================================
+  # Errors are a key and an argument map, never English (decision 14.37)
+  # ===========================================================================
+
+  @error_keys
+  @C-0667
+  Scenario: An untyped business rejection crosses as its code and args, never its text
+    Given business code rejects AddItem with code ORDER_CLOSED and arg order_state "closed", and logs "this order is closed" for itself
+    When AddItem "apple" is handled over no prior events
+    Then the command is refused FAILED_PRECONDITION with reason ORDER_CLOSED, which is also its status message
+    And the refusal's error info carries order_state "closed"
+    And no part of the answer carries the text "this order is closed"
+
+  @error_keys
+  @C-0668
+  Scenario: A typed refusal is its refusal object: its type is the key, its fields the map
+    Given business code refuses AddItem with the refusal object ItemOutOfStock with item "apple" and on_hand 0
+    When AddItem "apple" is handled over no prior events
+    Then the command is refused FAILED_PRECONDITION with reason COMMAND_REFUSED, which is also its status message
+    And the refusal's error info carries refusal_type "orders.v1.ItemOutOfStock"
+    And the refusal's status details carry the ItemOutOfStock with item "apple" and on_hand 0
+
+  @error_keys
+  @C-0669
+  Scenario Outline: A handler bug is answered with a code, never the text of what escaped
+    Given business code for AddItem <fails>
+    When AddItem "apple" is handled over no prior events
+    Then the command is refused INTERNAL with reason UNHANDLED_HANDLER_ERROR, which is also its status message
+    And the refusal's error info carries <cause>
+    And no part of the answer carries the text "<text>"
+
+    Examples:
+      | fails                                                          | cause                      | text                |
+      | returns an unclassified error whose text is "connection reset" | no cause                   | connection reset    |
+      | panics with "index out of bounds"                              | cause "HANDLER_PANICKED"   | index out of bounds |
+
+  @error_keys
+  @C-0672
+  Scenario: A handler bug with its own code crosses as that code and its args, nested under UNHANDLED_HANDLER_ERROR
+    Given business code for AddItem fails with code LEDGER_OFFLINE and arg ledger "main", and logs "the ledger is offline" for itself
+    When AddItem "apple" is handled over no prior events
+    Then the command is refused INTERNAL with reason UNHANDLED_HANDLER_ERROR, which is also its status message
+    And the refusal's error info carries cause "LEDGER_OFFLINE" and cause.ledger "main"
+    And no part of the answer carries the text "the ledger is offline"
+
+  @error_keys
+  @C-0670
+  Scenario Outline: Every distinct condition has its own reason key
+    # The conditions angzarr-router's error.rs told apart only by English text
+    # (decision 14.37's inventory); each now has a key of its own, and its
+    # details travel in the ErrorInfo metadata.
+    When <condition>
+    Then it is refused <status> with reason <reason>, which is also its status message
+    And the refusal's error info carries <metadata>
+
+    Examples:
+      | condition                                                                         | status           | reason                             | metadata                                          |
+      | the state fold fails on a persisted event at sequence 3                           | INTERNAL         | FOLD_FAILED                        | sequence "3" and state_type_url                   |
+      | the state fold fails on an event the command emitted at sequence 4                | INTERNAL         | FOLD_FAILED_EMITTED                | sequence "4" and state_type_url                   |
+      | a command of type "/orders.v1.Unknown" arrives                                    | INVALID_ARGUMENT | UNKNOWN_COMMAND_TYPE               | type_url and upcast_type_url "/orders.v1.Unknown" |
+      | a fact of type "/orders.v1.Unheard" arrives                                       | INVALID_ARGUMENT | NO_FACT_HANDLER                    | type_url and upcast_type_url "/orders.v1.Unheard" |
+      | a CommandRefused for RemoveEverything arrives with no on_refused_RemoveEverything | INVALID_ARGUMENT | NO_REFUSAL_HANDLER                 | command_type "/orders.v1.RemoveEverything"        |
+      | a policy is dispatched to the business process hosting the "order" aggregate      | UNIMPLEMENTED    | NO_COMPONENT_OF_KIND               | no other metadata                                 |
+      | a policy consuming "order" is given a book of domain "inventory"                  | UNIMPLEMENTED    | POLICY_SOURCE_OUTSIDE_INPUT_DOMAIN | domain "inventory" and expected_domain "order"    |
+      | the router is built with two components                                           | INVALID_ARGUMENT | DUPLICATE_COMPONENT                | component "order" and component_kind "AGGREGATE"  |
+      | the router is built with two upcaster chains                                      | INVALID_ARGUMENT | DUPLICATE_UPCASTER_CHAIN           | component "order" and component_kind "AGGREGATE"  |
+      | a policy's OnRefused answer holds no fact                                         | INTERNAL         | REFUSAL_FACT_MISSING               | no other metadata                                 |
+      | a policy's refusal fact sets its own cover or handling                            | INTERNAL         | REFUSAL_FACT_ADDRESSED             | no other metadata                                 |
+      | a policy's refusal fact has no page                                               | INTERNAL         | REFUSAL_FACT_NO_PAGE               | no other metadata                                 |
+      | a policy's refusal fact's page is a Command                                       | INTERNAL         | REFUSAL_FACT_NOT_A_FACT            | no other metadata                                 |
+      | a policy's refusal fact sets its own command_id                                   | INTERNAL         | REFUSAL_FACT_IDENTIFIED            | no other metadata                                 |
+      | a refusal to address names no refused command                                     | INTERNAL         | REFUSAL_WITHOUT_REFUSED_COMMAND    | no other metadata                                 |
+      | a refusal to address names a refused command with no command_id                   | INTERNAL         | REFUSED_COMMAND_WITHOUT_ID         | no other metadata                                 |
+      | a refusal to address names no triggering stream                                   | INTERNAL         | REFUSAL_WITHOUT_TRIGGER_STREAM     | no other metadata                                 |
+      | a policy is given a Refusal with no command                                       | INVALID_ARGUMENT | REFUSAL_WITHOUT_COMMAND            | no other metadata                                 |
+      | a policy is given a Refusal with no event                                         | INVALID_ARGUMENT | REFUSAL_WITHOUT_EVENT              | no other metadata                                 |
+      | the host gives the router bytes that are no ContextualCommand                     | INVALID_ARGUMENT | ANY_DECODE_FAILED                  | message_type "io.angzarr.v1.ContextualCommand"    |
+
+  # ===========================================================================
+  # When the input was accepted (decision 14.37)
+  # ===========================================================================
+
+  @recorded_at
+  @C-0671
+  Scenario Outline: Business code reads when its input was accepted
+    Given the delivery says its input was accepted at "2026-10-28T12:00:00Z"
+    When <input> is handled over no prior events
+    Then business code read "2026-10-28T12:00:00Z" as when its input was accepted
+    And business code read no clock of its own for it
+
+    Examples:
+      | input                         |
+      | AddItem "apple"               |
+      | a fact ItemDelivered "apple"  |

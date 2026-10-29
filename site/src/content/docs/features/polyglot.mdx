@@ -152,11 +152,11 @@ def handle_deposit(
 ) -> player.FundsDeposited:
     """Deposit funds into player's bankroll."""
     if not state.exists:
-        raise CommandRejectedError("Player does not exist")
+        raise CommandRejectedError("PLAYER_NOT_FOUND")
 
     amount = cmd.amount.amount if cmd.amount else 0
     if amount <= 0:
-        raise CommandRejectedError("amount must be positive")
+        raise CommandRejectedError("AMOUNT_NOT_POSITIVE")
 
     new_balance = state.bankroll + amount
     return player.FundsDeposited(

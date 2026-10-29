@@ -3,11 +3,11 @@ use std::hash::Hash;
 
 use angzarr_proto::ids::{fact_command_id, policy_command_id};
 use angzarr_proto::v1::{
-    angzarr_dead_letter, command_page, event_meta, AngzarrDeadLetter, Command, CommandBook,
-    CommandPage, CommandRefused, ComponentDescriptor, ComponentKind, ConflictResolution,
-    ConflictUnit, ContextualCommand, CorrelationQuery, Cover, DeliveryOutcome, EventBook,
-    EventMeta, EventPage, EventRef, Fact, FactOrigin, Handling, Outcome, Projection,
-    ProjectorFailure, RefusalResponse, Snapshot, StateDescriptor, StateOptions, Target,
+    angzarr_dead_letter, command_page, event_meta, refusal_response, AngzarrDeadLetter, Command,
+    CommandBook, CommandPage, CommandRefused, ComponentDescriptor, ComponentKind,
+    ConflictResolution, ConflictUnit, ContextualCommand, CorrelationQuery, Cover, DeliveryOutcome,
+    Diagnostic, EventBook, EventMeta, EventPage, EventRef, Fact, FactOrigin, Handling, Outcome,
+    Projection, ProjectorFailure, RefusalResponse, Snapshot, StateDescriptor, StateOptions, Target,
     UpcastRequest, Uuid,
 };
 use prost::{Message, Name};
@@ -374,6 +374,7 @@ fn contextual_command_carries_the_conflict_nonce() {
         }),
         command: Some(request_book(handling())),
         conflict_nonce: nonce.clone(),
+        ..ContextualCommand::default()
     };
     let decoded = round_trip(&original);
     assert_eq!(decoded, original);
@@ -540,7 +541,10 @@ fn outcome_round_trips_each_delivery_with_projections_and_failures() {
     let failure = ProjectorFailure {
         projector: "draw-stats".into(),
         code: 14, // UNAVAILABLE
-        message: "stats store down".into(),
+        diagnostic: Some(Diagnostic {
+            code: "STATS_STORE_UNAVAILABLE".into(),
+            args: [("store".to_string(), "draw-stats".to_string())].into(),
+        }),
     };
     for delivery in [
         DeliveryOutcome::Unspecified,
@@ -762,8 +766,7 @@ fn the_standard_refusal_fact_carries_the_refused_command_its_typed_refusal_and_t
     );
     // The refused policy receives the same typed object in RefusalResponse.
     let response = RefusalResponse {
-        refusal: Some(typed),
-        message: "insufficient funds".into(),
+        reason: Some(refusal_response::Reason::Refusal(typed)),
     };
     assert_eq!(round_trip(&response), response);
 }

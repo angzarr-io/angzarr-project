@@ -13,7 +13,7 @@ COMMUTATIVE resolution.
 
 | Feature | Covers |
 |---|---|
-| `handling.feature` | Describing the process's one component, and refusing a second; the post-command state on every answer; the build version on every answer and in each description; snapshots folded unchecked; command and fact upcasting and the unknown-type refusal; the AGGREGATE_HANDLES nonce; the COMMUTATIVE resolver |
+| `handling.feature` | Describing the process's one component, and refusing a second; the post-command state on every answer; the build version on every answer and in each description; snapshots folded unchecked; command and fact upcasting and the unknown-type refusal; the AGGREGATE_HANDLES nonce; the COMMUTATIVE resolver; errors as a key and an argument map, never English, one reason key per condition (14.37); reading when the input was accepted (`recorded_at`, 14.37) |
 
 ## Who runs these
 

@@ -1,5 +1,6 @@
 //! One error, stable codes (RULED(14) in contract.rs). The codes, args,
-//! recovery and English, and its size.
+//! recovery, its display (the code and args, never English: decision
+//! 14.37), and its size.
 
 use std::collections::BTreeSet;
 
@@ -28,8 +29,31 @@ fn stream_in(edition: &str) -> Cover {
     }
 }
 
+/// An adapter's cause: its own code and its driver's errno as an arg.
 fn io() -> Cause {
-    Cause::new("annals-store-sql-io", "disk I/O error")
+    Cause::new("annals-store-sql-io", [("errno", Arg::Uint(10))])
+}
+
+/// What a log shows for `code` and `args`, by the rule (decision 14.37):
+/// the code, then ` name=value` per arg in order; a nested cause as
+/// ` name=<its code>`, then its args as ` name.<arg>=value`.
+fn rendered(code: &str, args: &[(&'static str, Arg)]) -> String {
+    fn push(out: &mut String, prefix: &str, args: &[(&'static str, Arg)]) {
+        for (name, arg) in args {
+            let name = format!("{prefix}{name}");
+            match arg {
+                Arg::Uint(n) => out.push_str(&format!(" {name}={n}")),
+                Arg::Str(s) => out.push_str(&format!(" {name}={s}")),
+                Arg::Cause(cause) => {
+                    out.push_str(&format!(" {name}={}", cause.code));
+                    push(out, &format!("{name}."), &cause.args);
+                }
+            }
+        }
+    }
+    let mut out = code.to_string();
+    push(&mut out, "", args);
+    out
 }
 
 /// One of every variant, with its pinned code and recovery.
@@ -153,13 +177,50 @@ fn args_carry_the_data_by_name() {
     assert_eq!(StoreError::EditionNameRequired.args(), vec![]);
 }
 
-/// The English fallback names what the args name, for logs.
+/// 14.37: a store error's display is its code, then its args, never
+/// English: what a log shows is the key and the map, and text is rendered
+/// only where it is displayed, from a catalog keyed by the code.
 #[test]
-fn the_english_names_the_stream_and_the_numbers() {
-    let text = StoreError::conflict(stream(), 1, 2).to_string();
-    for part in ["account/07070707-0707-0707-0707-070707070707", "1", "2"] {
-        assert!(text.contains(part), "{text:?} names {part}");
+fn the_display_is_the_code_then_its_args() {
+    assert_eq!(
+        StoreError::conflict(stream(), 1, 2).to_string(),
+        "angzarr-ports-store-conflict stream=account/07070707-0707-0707-0707-070707070707 expected=1 actual=2"
+    );
+    assert_eq!(
+        StoreError::EditionNameRequired.to_string(),
+        "angzarr-ports-edition-name-required"
+    );
+}
+
+/// 14.37: no store error carries rendered text: every variant displays
+/// exactly its code and args, so nothing but the key and the map reaches a
+/// log or crosses a boundary.
+#[test]
+fn no_store_error_carries_rendered_text() {
+    for (error, code, _) in every() {
+        assert_eq!(
+            error.to_string(),
+            rendered(code, &error.args()),
+            "{error:?}"
+        );
     }
+}
+
+/// 14.37: a cause is a code and args, never its driver's text, and a
+/// wrapped one is displayed flattened under its arg's name.
+#[test]
+fn a_cause_is_a_code_and_args_and_displays_flattened() {
+    let cause = io();
+    assert_eq!(cause.code, "annals-store-sql-io");
+    assert_eq!(cause.args, vec![("errno", Arg::Uint(10))]);
+    assert_eq!(
+        StoreError::Unavailable(io()).to_string(),
+        "angzarr-ports-store-unavailable cause=annals-store-sql-io cause.errno=10"
+    );
+    assert_eq!(
+        StoreError::unreadable(stream(), 4, io()).to_string(),
+        "angzarr-ports-store-unreadable stream=account/07070707-0707-0707-0707-070707070707 sequence=4 cause=annals-store-sql-io cause.errno=10"
+    );
 }
 
 /// The editions' refusals carry their streams, as args and in the
@@ -194,7 +255,8 @@ fn the_new_refusals_name_their_streams() {
 /// The streams are boxed (owner ruling, 2026-10-28) so the error stays
 /// small: every `Result<_, StoreError>` carries it. The bound is the boxed
 /// layout's: the largest variant is `Unreadable` (a box, a sequence and a
-/// `Cause` of a `&'static str` and a `String`: 8 + 8 + 16 + 24 = 56 bytes),
+/// `Cause` of a `&'static str` and a `Vec` of args: 8 + 8 + 16 + 24 = 56
+/// bytes),
 /// whose niche holds the discriminant, so 56; 64 leaves a word to spare and
 /// stops it silently growing back.
 #[test]

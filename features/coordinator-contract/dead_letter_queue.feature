@@ -3,8 +3,8 @@ Feature: Dead letter queue routing
   AngzarrDeadLetter to the per-domain topic "angzarr.dlq.{domain}", where
   domain is the domain of the dead letter's cover. A dead letter carries
   either the rejected command (rejected_command) or the events that failed
-  (rejected_events), a human-readable rejection_reason, exactly one
-  rejection_details variant, occurred_at, and the producing component's
+  (rejected_events), a reason (a Diagnostic: a code and its args, never
+  rendered text; decision 14.37), exactly one rejection_details variant, occurred_at, and the producing component's
   name and type ("aggregate" | "policy" | "projector" | "process_manager").
   The cover's correlation_id is the failed message's correlation_id.
 
@@ -34,18 +34,18 @@ Feature: Dead letter queue routing
 
   @C-0444
   Scenario: A policy that keeps failing is dead-lettered with the events it could not process
-    Given a policy "OrderFulfillment" subscribed to "order" whose handler fails with "inventory service down"
+    Given a policy "OrderFulfillment" subscribed to "order" whose handler fails with code INVENTORY_UNAVAILABLE
     And the policy's retry budget is 3 attempts
     When an OrderCreated event for "order-1" is delivered to the policy
     Then the policy handler is attempted 3 times
     And a dead letter is published to "angzarr.dlq.order"
     And the dead letter carries the OrderCreated event as rejected_events
-    And the dead letter's event_processing_failed details have error "inventory service down" and retry_count 3
+    And the dead letter's event_processing_failed details have failure code INVENTORY_UNAVAILABLE and retry_count 3
     And the dead letter's source_component is "OrderFulfillment" with source_component_type "policy"
 
   @C-0445
   Scenario: A projector that keeps failing is dead-lettered
-    Given a projector "OrderSummary" subscribed to "order" whose handler fails with "view store unavailable"
+    Given a projector "OrderSummary" subscribed to "order" whose handler fails with code VIEW_STORE_UNAVAILABLE
     When an OrderCreated event for "order-1" is delivered to the projector and its retries are exhausted
     Then a dead letter is published to "angzarr.dlq.order"
     And the dead letter carries the OrderCreated event as rejected_events
@@ -53,7 +53,7 @@ Feature: Dead letter queue routing
 
   @C-0446
   Scenario: A non-transient handler failure is dead-lettered without retries
-    Given a policy "OrderFulfillment" subscribed to "order" whose handler fails permanently with "unknown event version"
+    Given a policy "OrderFulfillment" subscribed to "order" whose handler fails permanently with code UNKNOWN_EVENT_VERSION
     When an OrderCreated event for "order-1" is delivered to the policy
     Then the policy handler is attempted once
     And the dead letter's event_processing_failed details have is_transient false and retry_count 0
@@ -68,15 +68,27 @@ Feature: Dead letter queue routing
 
   @C-0448
   Scenario: A compensation handler can send the rejected command to the dead letter queue
-    Given a policy "OrderFulfillment" whose ReserveStock command for "inventory" is rejected with reason "out of stock"
+    Given a policy "OrderFulfillment" whose ReserveStock command for "inventory" is rejected with code OUT_OF_STOCK
     And the order aggregate's compensation handler answers with a RevocationResponse requesting send_to_dead_letter_queue
     When the rejection is delivered to the "order" aggregate
     Then a dead letter is published to "angzarr.dlq.inventory"
     And the dead letter carries the rejected ReserveStock command
-    And the dead letter's rejection_reason is "out of stock"
+    And the dead letter's reason has code OUT_OF_STOCK
 
   @C-0449
   Scenario: A dead letter is not published when processing succeeds
     Given a policy "OrderFulfillment" subscribed to "order" whose handler succeeds
     When an OrderCreated event for "order-1" is delivered to the policy
     Then no dead letter is published
+
+  @C-0673
+  Scenario: A dead letter carries a key and its args, never rendered text
+    # Decision 14.37: text is rendered only where it is displayed, from a
+    # catalog keyed by the code.
+    Given a policy "OrderFulfillment" subscribed to "order" whose handler fails with code INVENTORY_UNAVAILABLE and arg sku "sku-1", and logs "inventory service down" for itself
+    And the policy's retry budget is 1 attempt
+    When an OrderCreated event for "order-1" is delivered to the policy
+    Then a dead letter is published to "angzarr.dlq.order"
+    And the dead letter's reason has code INVENTORY_UNAVAILABLE and arg sku "sku-1"
+    And the dead letter's event_processing_failed details have failure code INVENTORY_UNAVAILABLE and arg sku "sku-1"
+    And no field of the dead letter carries the text "inventory service down"

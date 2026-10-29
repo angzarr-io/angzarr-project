@@ -87,7 +87,7 @@ Feature: Policy refusals - a refused command becomes one fact for the policy's o
     And "BuyIn" defines no on_refused_HoldFunds handler
     And player "p-1" has too little available to hold 500
     When "BuyIn" records BuyInStarted for 500 from player "p-1"
-    Then the CommandRefused fact is refused NO_FACT_HANDLER, dead-lettered and alerted at run time
+    Then the CommandRefused fact is refused NO_REFUSAL_HANDLER, naming command_type HoldFunds, dead-lettered and alerted at run time
     And nothing is recorded in "buy-in" or "player"
 
   @policy_refusal
@@ -136,5 +136,17 @@ Feature: Policy refusals - a refused command becomes one fact for the policy's o
     And player "p-1" has 120 available and is asked to hold 500
     When "BuyIn" records BuyInStarted for 500 from player "p-1"
     Then player "p-1"'s HoldFunds handler returns the refusal object InsufficientFunds with available 120 and requested 500
-    And the refused response the policy receives carries that InsufficientFunds as its refusal, and the rejection's status message
+    And the refused response the policy receives carries that InsufficientFunds as its refusal and no text
     And the CommandRefused fact's refusal unpacks to InsufficientFunds with available 120 and requested 500
+
+  @policy_refusal
+  @error_keys
+  @C-0674
+  Scenario: An untyped refusal reaches the policy as its code and args, never text
+    # Decision 14.37: a rejection with no typed refusal object carries a
+    # diagnostic code and its args; RefusalResponse.diagnostic holds them.
+    Given "BuyInToPlayer" was generated with HoldFunds in translate mode, its callback returning the "buy-in" fact HoldFundsDeclined
+    And player "p-1" is closed, so its HoldFunds handler rejects with code ACCOUNT_CLOSED and arg player "p-1" and no refusal object
+    When "BuyIn" records BuyInStarted for 500 from player "p-1"
+    Then "BuyInToPlayer"'s callback is called with a refusal response whose diagnostic has code ACCOUNT_CLOSED and arg player "p-1"
+    And the refusal response carries no refusal object and no text

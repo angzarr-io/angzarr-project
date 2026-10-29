@@ -74,6 +74,9 @@
 //! - **RULED(14) Errors** are this crate's, `angzarr-ports-*`
 //!   (tests/error.rs), every stream boxed behind constructors and
 //!   `StoreError::stream()`; at most 64 bytes (`the_error_stays_small`).
+//!   An error is a code and args, never English (14.37): a `Cause` is an
+//!   adapter's code and args, and the display is the code then its args
+//!   (`no_store_error_carries_rendered_text`).
 //! - **RULED(15) dyn:** `DynStore` plus per-port dyn traits
 //!   (tests/dyn_adapter.rs).
 //! - **RULED(16) All now:** read units, watch, core's three reads, and the

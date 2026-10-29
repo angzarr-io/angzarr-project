@@ -318,7 +318,7 @@ def handle_with_merge(
     actual_state: HandState
 ) -> MergeResult:
     if actual_state.phase != expected_state.phase:
-        return MergeResult.reject("Hand phase changed")
+        return MergeResult.reject("HAND_PHASE_CHANGED")
     return MergeResult.proceed(compute_event(cmd, actual_state))
 ```
 

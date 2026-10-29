@@ -40,11 +40,11 @@ option ruby_package = "Angzarr";
 // Refusals (decision 2.2, as amended by 14.31; plan ruling 7, "REFUSAL
 // WIRING", and the owner's rulings of 2026-10-28). A target, an aggregate
 // or a process manager alike, refuses a policy's command the way it refuses
-// any command: a business rejection (FAILED_PRECONDITION) carrying a
-// message and, optionally, a business-specific TYPED refusal object of its
-// own domain (one of the command's CommandOptions.refuses types,
-// options.proto; e.g. InsufficientFunds { available, requested }), and
-// it records NOTHING. The refusal then comes back to the POLICY, which
+// any command: a business rejection (FAILED_PRECONDITION) carrying either
+// a business-specific TYPED refusal object of its own domain (one of the
+// command's CommandOptions.refuses types, options.proto; e.g.
+// InsufficientFunds { available, requested }) or a diagnostic code and its
+// args, never text (decision 14.37), and it records NOTHING. The refusal then comes back to the POLICY, which
 // builds the one unrefusable fact of it for its OWN source: the exact
 // stream of its triggering event. In the owner's words: "the base
 // CommandRefused fact is created by the policy. It will have an Any type to
@@ -53,8 +53,8 @@ option ruby_package = "Angzarr";
 // passed back to the policy by the command-refused return type."
 //   - The policy's coordinator calls PolicyService.OnRefused with a Refusal
 //     { event, command, response }: the triggering event, the command as
-//     sent, and the target's RefusalResponse { refusal, message }, whose
-//     refusal is the typed refusal object as an Any (types.proto).
+//     sent, and the target's RefusalResponse { refusal | diagnostic },
+//     whose refusal is the typed refusal object as an Any (types.proto).
 //     It does so in BOTH modes, because the policy, not the coordinator,
 //     builds the fact.
 //   - PASS-THROUGH (the default): the policy's generated code, with no user
@@ -91,8 +91,8 @@ option ruby_package = "Angzarr";
 //     inferred from the handlers it defines. So the generator cannot check
 //     that every refusal has a path; one with none (a pass-through
 //     CommandRefused whose command type the source has no handler for) is
-//     caught at RUN time: answered NO_FACT_HANDLER, dead-lettered and
-//     alerted.
+//     caught at RUN time: answered NO_REFUSAL_HANDLER (decision 14.37:
+//     its own key, metadata command_type), dead-lettered and alerted.
 // Mechanics, the same in both modes:
 //   - The fact's identity is the REFUSED COMMAND'S: its command_id is the
 //     refused command's command_id (no prefix, no derivation), and the

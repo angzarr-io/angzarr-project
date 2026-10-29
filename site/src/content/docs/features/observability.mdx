@@ -111,7 +111,7 @@ When a saga command is rejected, the framework records:
 |-------|---------------|
 | `rejected_command` | `DeductFromPlayerStack` |
 | `code` | `"INSUFFICIENT_BALANCE"` |
-| `rejection_reason` | `"Insufficient balance"` |
+| `reason` | `{code: "INSUFFICIENT_BALANCE", args: {available: "40", requested: "100"}}`: a key and its args, never text (decision 14.37) |
 | `issuer_name` | `"saga-hand-player"` |
 | `issuer_type` | `"saga"` |
 | `source_aggregate` | `{domain: "hand", root: ...}` |

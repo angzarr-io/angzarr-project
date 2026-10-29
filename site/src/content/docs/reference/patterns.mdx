@@ -136,7 +136,7 @@ Controls concurrency handling for optimistic locking:
 @merge_strategy(MergeStrategy.STRICT)
 def handle_reserve_funds(state, cmd):
     if cmd.amount > state.available():
-        raise CommandRejectedError("insufficient_funds")
+        raise CommandRejectedError("INSUFFICIENT_FUNDS")
     return FundsReserved(amount=cmd.amount)
 
 # COMMUTATIVE (default): Safe to retry with fresh state

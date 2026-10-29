@@ -134,3 +134,19 @@ Client tier feature files import zero blackjack concepts. Example tier feature
 files import zero generic `Order`/`Payment` concepts. A scenario that
 genuinely spans both belongs in a different test — probably pytest/unit
 integration — not cucumber.
+
+## 18. Failures are asserted by key and args, never by text
+
+An error is a key and an argument map, never rendered English (decision
+14.37). Assert a refusal or failure by its status code, its reason key (an
+unquoted SCREAMING_SNAKE code, or a typed refusal object's type) and its
+args by name; never by a message's wording or a substring of it. Where a
+scenario shows text that business code logs for itself, it asserts that the
+text does NOT cross.
+
+**Rationale:** text is rendered only where it is displayed, from a catalog
+keyed by the code; the wire carries the key, so a scenario that matches
+wording tests something nothing sends.
+
+- Good: `Then the command is refused FAILED_PRECONDITION with reason ORDER_CLOSED`, `And the refusal's error info carries order "o-9"`
+- Bad: `Then the command fails with the business rejection reason "order is closed"`, `And the refusal message names the type URL "/orders.v1.AddLine"`

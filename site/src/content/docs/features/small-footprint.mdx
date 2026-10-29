@@ -69,9 +69,9 @@ class Player(CommandHandler[PlayerState]):
     @handles(DepositFunds)
     def handle_deposit_funds(self, cmd: DepositFunds) -> FundsDeposited:
         if not self.state.exists:
-            raise CommandRejectedError("Player does not exist")
+            raise CommandRejectedError("PLAYER_NOT_FOUND")
         if cmd.amount <= 0:
-            raise CommandRejectedError("Amount must be positive")
+            raise CommandRejectedError("AMOUNT_NOT_POSITIVE")
         return FundsDeposited(
             amount=cmd.amount,
             new_balance=self.state.bankroll + cmd.amount,

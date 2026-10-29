@@ -338,6 +338,8 @@ the default CloudEvent id and source (W10).**
 - **Amended in pass 7** (decision 7.1): main has no edition segment, so its
   id is `{domain}:{root}:{sequence}`; the source rule is unchanged.
 
+> **Amended by 14.37 (pass 14):** `ProjectorFailure.message` (3) is deleted, unreserved; the failure is `code` and `diagnostic` (4), a key and its args, never text.
+
 **5.11 HandleSync answers OK, with per-projector failures in the `Outcome`
 (W11).** It adds `Outcome.projector_failures` and `ProjectorFailure
 { projector, code, message }`.
@@ -1464,6 +1466,8 @@ snapshot validity.** Supersedes 12.6; amends 6.8; partly restores 5.9.
 - Aligns with: snapshots as caches invalidated by a version check (Marten,
   Axon, Eventuous), here checked where the snapshot is loaded.
 
+> **Amended by 14.37 (pass 14):** the status message is the reason key, never text: an unknown command type is `UNKNOWN_COMMAND_TYPE` (a fact `NO_FACT_HANDLER`), with the sent type URL as `ErrorInfo` metadata `type_url` beside `upcast_type_url`.
+
 **14.2 An unknown type after upcasting names both type URLs; facts are
 upcast too.** The client library upcasts Command and Fact payloads alike.
 A payload whose type URL, after upcasting, reaches no handler is refused
@@ -1511,6 +1515,8 @@ holds, so `CommandHandlerResponse` field 3 and
 `ProcessManagerHandleResponse` field 4 are deleted outright, numbers and
 names unreserved, and `proto/buf.yaml` keeps no exception. Owner ruling,
 2026-10-19.
+
+> **Amended by 14.37 (pass 14):** the sent type URL travels in `ErrorInfo` too, as `type_url`; the status message is the reason key.
 
 **14.8 The upcast type travels in `ErrorInfo`.** Making 14.2 concrete: the
 `INVALID_ARGUMENT` status for an unknown type after upcasting carries a
@@ -1848,6 +1854,8 @@ correlation is a 16-byte `UUID` since 9.1. Owner ruling, 2026-10-27.
   masstransit.io's saga documentation now redirects).
 
 > **Amended by 14.36 (pass 14, as amended):** "The root is the correlation" below is a convention only: a policy always names a PM command's root, keeping its trigger's correlation; a set `correlation_id` other than the cover's root is no longer malformed, so the start rule is the only rule a PM's coordinator adds to an aggregate's.
+
+> **Amended by 14.37 (pass 14):** `RefusalResponse` is `oneof reason { refusal (1) | diagnostic (3) }`; its `message` (2) is deleted, unreserved: no text crosses. A pass-through refusal with no path is answered `NO_REFUSAL_HANDLER`, not `NO_FACT_HANDLER`.
 
 **14.31 A process manager is a domain.** Owner rulings of 2026-10-27
 (ruling 7 of the angzarr/annals common plan) and 2026-10-28 (rulings 7 and
@@ -2584,6 +2592,150 @@ says.** Owner rulings, 2026-10-28. Amends 14.30, 14.31 and 14.32.
 >   by kind; the policy already builds the command from its event, so
 >   naming the root is no extra burden, and a callback and a default were
 >   two ways to say what the policy can write directly.
+
+**14.37 Errors carry a key and an argument map, never rendered English;
+the input's acceptance time is delivered.** Owner rulings, 2026-10-28.
+Amends 5.11, 14.2, 14.8 and 14.31. In the owner's words: "we should *not*
+carry the full english text, but the key and the map".
+- **The rule.** Every error angzarr sends is a KEY and an ARGUMENT MAP.
+  Text is rendered only where it is displayed (a console, a UI, a client's
+  `message()`), from a Fluent catalog keyed by the code. A diagnostic's
+  display, in logs, is its code plus its args. No free text crosses any
+  boundary: not a gRPC status message, not a dead letter, not a response
+  field.
+- **It covers handlers too.** A typed rejection is its refusal message
+  (the `Any` of one of the command's `refuses` types): its type is the
+  key, its fields the map. Any other rejection carries a diagnostic code
+  plus args, its code being the reason. A handler bug carries a diagnostic
+  code plus args too: the router answers it `UNHANDLED_HANDLER_ERROR`, with
+  the handler's own code and args as its cause, and what escaped (an
+  error's text, a panic's message) stays in the handler's own log. A
+  panic's cause is `HANDLER_PANICKED`.
+- **On the wire.** The gRPC status message IS the reason key, and the
+  `google.rpc.ErrorInfo` (domain `angzarr.io`) carries the same key as its
+  reason and the args as its metadata. Every distinct condition gets its
+  own reason key: no two conditions share one and differ only by text. In
+  a message, the key and map are `Diagnostic { code (1), args (2) }`
+  (`types.proto`, the `diagnostic` region; `args` a `map<string,
+  string>`). A wrapped cause is flattened into the args: the cause's code
+  under the arg's name, each of its args under `<name>.<arg>` (`cause` =
+  `annals-store-sql-io`, `cause.errno` = `10`), in `Diagnostic.args` and
+  `ErrorInfo` metadata alike.
+- **The router's reason inventory.** Built from angzarr-router's
+  `crates/router/src/error.rs` and its call sites (branch `poc/dispatch`),
+  reconciled with the router agent's proposal. Conditions that shared a
+  reason and differed by English text get their own keys (details in the
+  `ErrorInfo` metadata):
+
+  | Old reason | Condition | New key (metadata) |
+  |---|---|---|
+  | `UNHANDLED_HANDLER_ERROR` | a fold fails on persisted events (`FOLD_FAILED` text) | `FOLD_FAILED` (`sequence` and `type_url`, or `first_sequence` and `last_sequence`; `state_type_url`; the fold's own failure as `cause`) |
+  | `UNHANDLED_HANDLER_ERROR` | a fold fails on an event the command emitted (`FOLD_FAILED_EMITTED` text) | `FOLD_FAILED_EMITTED` (as `FOLD_FAILED`) |
+  | `UNHANDLED_HANDLER_ERROR` | an error escaped a handler, or it panicked | `UNHANDLED_HANDLER_ERROR` (the handler's code and args as `cause`; `HANDLER_PANICKED` for a panic) |
+  | `NO_HANDLER_REGISTERED` | a command type no handler claims, after upcasting | `UNKNOWN_COMMAND_TYPE` (`type_url`, `upcast_type_url`) |
+  | `NO_HANDLER_REGISTERED` | a dispatch to a kind the business process does not host | `NO_COMPONENT_OF_KIND` |
+  | `NO_HANDLER_REGISTERED` | a policy given a book of a domain it does not consume | `POLICY_SOURCE_OUTSIDE_INPUT_DOMAIN` (`domain`, `expected_domain`) |
+  | `NO_FACT_HANDLER` | a fact type no handler claims | `NO_FACT_HANDLER` (`type_url`, `upcast_type_url`) |
+  | `NO_FACT_HANDLER` | a pass-through `CommandRefused` the source has no `on_refused_<Command>` for | `NO_REFUSAL_HANDLER` (`command_type`) |
+  | `DUPLICATE_REGISTRATION` | "a router hosts one component", and "this business process already hosts its one component" (the C ABI's one-at-a-time path): one condition | `DUPLICATE_COMPONENT` (`component`, `component_kind`) |
+  | `DUPLICATE_REGISTRATION` | "a component has one upcaster chain" | `DUPLICATE_UPCASTER_CHAIN` |
+  | `MISSING_COMMAND_BOOK` | a `Refusal` with no command | `REFUSAL_WITHOUT_COMMAND` |
+  | `MISSING_COMMAND_BOOK` | a `Refusal` with no event | `REFUSAL_WITHOUT_EVENT` |
+  | `MALFORMED_REFUSAL_FACT` (`reason` "no fact") | `OnRefusedResponse` holds no fact | `REFUSAL_FACT_MISSING` |
+  | `MALFORMED_REFUSAL_FACT` ("set the fact's cover or handling") | the policy set the fact's cover or handling | `REFUSAL_FACT_ADDRESSED` |
+  | `MALFORMED_REFUSAL_FACT` ("no page") | the fact has no page | `REFUSAL_FACT_NO_PAGE` |
+  | `MALFORMED_REFUSAL_FACT` ("the page is not a Fact") | the page is a Command | `REFUSAL_FACT_NOT_A_FACT` |
+  | `MALFORMED_REFUSAL_FACT` ("set the fact's identity") | the policy set the fact's identity | `REFUSAL_FACT_IDENTIFIED` |
+  | `MALFORMED_REFUSAL_FACT` ("no refused command") | the refusal carries no refused command | `REFUSAL_WITHOUT_REFUSED_COMMAND` |
+  | `MALFORMED_REFUSAL_FACT` ("no command_id") | the refused command carries no `command_id` | `REFUSED_COMMAND_WITHOUT_ID` |
+  | `MALFORMED_REFUSAL_FACT` ("no triggering stream") | the refusal carries no triggering stream | `REFUSAL_WITHOUT_TRIGGER_STREAM` |
+  | `ANY_DECODE_FAILED` ("failed to decode X", one text per message) | bytes that do not decode as the message expected: one condition | `ANY_DECODE_FAILED` (`message_type`) |
+  | none (empty code; router-ffi) | a host callback's status bytes do not decode | `HOST_STATUS_UNDECODABLE` |
+  | none (router-ffi) | a null pointer crosses the C ABI | `NULL_ABI_POINTER` (`argument`) |
+
+  `MALFORMED_REFUSAL_FACT` and `DUPLICATE_REGISTRATION` are retired, and
+  `NO_HANDLER_REGISTERED` no longer names an unknown type. The codes that
+  were already one per condition keep their key and lose their English
+  constant: `MISSING_RULES_VERSION`, `MISSING_STATE_TYPE`,
+  `STARTING_TYPES_ON_NON_PM`, `DUPLICATE_COMMAND_HANDLER`,
+  `NO_HANDLERS_REGISTERED`, `MISSING_COMMAND_BOOK`, `MISSING_COMMAND_PAGE`,
+  `MISSING_COMMAND_PAYLOAD`, `MISSING_EVENT_BOOK_COVER`,
+  `EMPTY_POLICY_SOURCE`, `PERSISTED_EVENT_CORRUPT`, `CONFLICT_UNRESOLVED`,
+  `CONFLICT_OVERLAP`, `CONFLICT_RESOLUTION_UNSUPPORTED`,
+  `POLICY_COMMAND_OUTSIDE_DESTINATION`, `POLICY_COMMAND_OUTSIDE_EDITION`,
+  `POLICY_COMMAND_NO_ROOT`, `POLICY_COMMAND_OTHER_CORRELATION`,
+  `PM_NO_INSTANCE` and `REFUSAL_FACT_WRONG_STREAM`. The `fold_message`
+  metadata entry becomes the fold's `cause`.
+- **Proto text fields become key + map.** Removed fields stay unreserved
+  (6.6):
+  - `RefusalResponse.message` (2) is deleted; `RefusalResponse` is
+    `oneof reason { Any refusal = 1; Diagnostic diagnostic = 3; }`, a typed
+    refusal or an untyped rejection's diagnostic;
+  - `ProjectorFailure.message` (3) is deleted; `ProjectorFailure.diagnostic`
+    (4) is added beside `code` (2);
+  - `AngzarrDeadLetter.rejection_reason` (3), "Human-readable reason", is
+    deleted; `AngzarrDeadLetter.reason` (16, a `Diagnostic`) is added;
+  - `EventProcessingFailedDetails.error` (1) is deleted;
+    `EventProcessingFailedDetails.failure` (5) is added;
+  - `PayloadRetrievalFailedDetails.error` (5) is deleted;
+    `PayloadRetrievalFailedDetails.failure` (6) is added;
+  - in `dlq_admin.proto`, `StoredDeadLetter.rejection_reason` (5) and
+    `details` (7, "free-form debug detail") are deleted and
+    `StoredDeadLetter.reason` (15) added; `DeadLetterReplay.detail` (7,
+    "Human-readable detail") is deleted and `DeadLetterReplay.reason` (8)
+    added.
+  - angzarr-ports' `Cause { code, message }` becomes `Cause { code, args }`,
+    and `StoreError`'s `Display` is the code then its args, never English.
+- **Text fields found and left for the owner** (not errors angzarr
+  sends, or a standard's shape): `ProblemDetails.title` and `detail`
+  (`dlq_admin.proto`, RFC 7807, human-readable by that standard);
+  `sererr.v1.CapturedError.message` and `ExceptionMechanism.description`
+  (a captured foreign exception's text, Sentry's shape, for DLQ triage);
+  `FactOrigin.description` (an audit label, "Stripe webhook", not an
+  error).
+- **The input's acceptance time.** `ContextualCommand.recorded_at` (4, a
+  `Timestamp`) is stamped by core's coordinator or the angzarr-embedded
+  kernel when the input is accepted, so command and fact handlers can read
+  it.
+- Text changed with it: the `diagnostic` region, `RefusalResponse`,
+  `ProjectorFailure`, `ContextualCommand`, the DLQ details and
+  `AngzarrDeadLetter` in `types.proto`; the unknown-type refusal in
+  `types.proto`, `command_handler.proto` and `upcaster.proto`; the refusal
+  wiring in `policy.proto`, the no-path refusal in `options.proto`;
+  `StoredDeadLetter` and `DeadLetterReplay` in `dlq_admin.proto`.
+  Scenarios C-0539, C-0540, C-0580, C-0165, C-0459, C-0551, C-0293,
+  C-0294, C-0444 to C-0446, C-0448, C-0618 and C-0624, and the parity scenarios C-0131, C-0341, C-0344, C-0345,
+  C-0349, C-0352, C-0355 and C-0363 assert keys and args instead of text;
+  new scenarios C-0667 to C-0677; step rule 18; angzarr-ports'
+  `Cause`, its error tests and docs; angzarr-proto's `tests/diagnostics.rs`;
+  the site's error recovery, observability, error handling and language
+  notes pages, and the snippets that raised English.
+- **Drafter's choices, for the owner to confirm.**
+  - A typed refusal's wire reason, and so its status message, is
+    `COMMAND_REFUSED`, with `ErrorInfo` metadata `refusal_type` naming the
+    object's fully-qualified type and the object in the status details:
+    an `ErrorInfo` reason is SCREAMING_SNAKE (AIP-193, knowledge), which a
+    type name is not. A catalog keys a typed refusal by its full type name
+    with each `.` replaced by `-` (a Fluent id has no dots).
+  - `Diagnostic` is one shared message; `args` are strings, as
+    `ErrorInfo` metadata is.
+  - `RefusalResponse` is a oneof; `StoredDeadLetter.details` is deleted
+    outright (the structured detail is the payload's `rejection_details`,
+    which `payload_view` renders).
+  - The flattening of a wrapped cause (`<name>` and `<name>.<arg>`).
+  - Open: whether the events of the write carry `ContextualCommand.recorded_at`
+    as their `EventMeta.recorded_at` (which stays `max(previous, now)` at
+    persistence, 5.15).
+- Why: one representation of an error everywhere, that code can branch on
+  and any language can render; English on the wire was both a parsing
+  temptation and the only thing telling several conditions apart.
+- Cost: every client library and the router ship or read a catalog to show
+  text; logs show codes, not sentences; a handler can no longer explain a
+  rejection in prose to its caller.
+- Aligns with: Google's AIP-193 (a machine-readable `ErrorInfo.reason`
+  and metadata, with the message for humans; here the message too is the
+  key) and Project Fluent's message ids with named arguments (knowledge,
+  not re-verified).
 
 ## Corrections
 

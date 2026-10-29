@@ -30,10 +30,11 @@ service CommandHandlerService {
   //   1. the payload is upcast through the library's upcaster chain, by
   //      type URL (see upcaster.proto), for a Command and a Fact alike. A
   //      type URL that, after upcasting, reaches no registered handler is
-  //      refused INVALID_ARGUMENT: the status message names the type URL as
-  //      sent ("no handler for type URL /orders.v1.PlaceOrder"), and the
-  //      status details carry a google.rpc.ErrorInfo whose metadata key
-  //      "upcast_type_url" holds the type URL the chain ended at.
+  //      refused INVALID_ARGUMENT with reason UNKNOWN_COMMAND_TYPE
+  //      (NO_FACT_HANDLER for a fact), which is also the status message
+  //      (decision 14.37: a key, never text); the status details carry a
+  //      google.rpc.ErrorInfo whose metadata key "type_url" holds the type
+  //      URL as sent and "upcast_type_url" the type URL the chain ended at.
   //   2. reflective dispatch: the body arm picks the pipeline (Command ->
   //      decide, which may reject; Fact -> ingest, which never rejects), and
   //      the type URL picks the handler. A failing fact handler is a bug,
