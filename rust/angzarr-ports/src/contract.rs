@@ -849,6 +849,63 @@ pub async fn a_fork_above_mains_head_is_a_conflict<S: Store>(store: S) {
     );
 }
 
+/// 14.36: a creation whose `parent_sequence` is not its own page's
+/// sequence is malformed, an origin's and an arrival's alike, and writes
+/// nothing: the fork is where it says, so the two must agree.
+pub async fn a_creation_stating_another_parent_sequence_is_malformed<S: Store>(store: S) {
+    let main = main_stream("account", 1);
+    let e = edition_stream("account", 1, "what-if");
+    let mains = [page(0, 1), page(1, 2), page(2, 3), page(3, 4), page(4, 5)];
+    append(&store, main, 0, &mains).await.unwrap();
+    let stating = |parent_sequence: u64| {
+        forked(
+            3,
+            EditionCreated {
+                edition: "what-if".to_string(),
+                parent_sequence,
+                ..EditionCreated::default()
+            },
+        )
+    };
+    assert_eq!(
+        append(&store, e, 3, &[stating(5)]).await,
+        Err(StoreError::malformed_creation(e, 3, 5)),
+        "a creation at 3 stating parent_sequence 5"
+    );
+    assert_eq!(
+        append(&store, e, 3, &[stating(0)]).await,
+        Err(StoreError::malformed_creation(e, 3, 0)),
+        "a creation at 3 stating parent_sequence 0"
+    );
+    let source = edition_stream("account", 2, "what-if");
+    fork(&store, source).await;
+    let mut arrival = propagated_created_page(3, "what-if", event_ref(source, 0), command(7));
+    let mut fork_event =
+        EditionCreated::decode(arrival.payload.as_ref().unwrap().value.as_slice()).unwrap();
+    fork_event.parent_sequence = 4;
+    arrival.payload.as_mut().unwrap().value = fork_event.encode_to_vec();
+    assert_eq!(
+        append(&store, e, 3, &[arrival, page(4, 9)]).await,
+        Err(StoreError::malformed_creation(e, 3, 4)),
+        "an arrival's creation stating another sequence, with its command's events"
+    );
+    assert_eq!(
+        store.covers("account").await,
+        Ok(covers(&[main, source])),
+        "nothing written"
+    );
+    assert_eq!(
+        store.read(e, 0, None).await.unwrap().pages,
+        mains,
+        "still main's version"
+    );
+    assert_eq!(
+        append(&store, e, 3, &[stating(3)]).await,
+        Ok(4),
+        "agreeing, it is taken"
+    );
+}
+
 // ------------------------------------------------------- base: the write
 
 /// One step's write lands its events and its positions together.
@@ -2249,6 +2306,7 @@ macro_rules! store_contract {
             a_forked_stream_reads_main_below_its_fork_then_its_own,
             a_fork_below_mains_head_lands_at_its_stated_sequence,
             a_fork_above_mains_head_is_a_conflict,
+            a_creation_stating_another_parent_sequence_is_malformed,
             find_command_finds_a_commands_events_on_its_stream,
             find_command_finds_a_retried_facts_events_by_its_id,
             find_command_finds_a_refusal_fact_on_the_trigger_stream_by_the_refused_id,

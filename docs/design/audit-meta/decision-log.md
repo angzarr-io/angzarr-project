@@ -2479,12 +2479,17 @@ says.** Owner rulings, 2026-10-28. Amends 14.30, 14.31 and 14.32.
   (14.31), the code that names the root is the switch, with no flag and no
   proto option: a policy names a PM instance's root for a command by
   implementing that command's root callback, `root_<Command>(event) ->
-  UUID` (flagged: the name). angzarr-cli's scaffold does not generate one.
-  Without it, the policy's generated code sets the cover's root to the
-  trigger's correlation, so every command a policy answers names its root
-  on the wire, and a PM's coordinator applies no root rule of its own
-  (flagged: rather than leaving the root unset for the coordinator to
-  stamp).
+  UUID` (the owner approved the name). angzarr-cli's scaffold does not
+  generate one.
+- **The framework fills the default root** (the owner: "coordinator (or
+  coordinator stand in in embedded) fill it. this is pure angzarr
+  codebase"). A policy that names no root leaves the cover's root UNSET on
+  the wire; core's coordinator, or angzarr-embedded's kernel standing in
+  for it, fills in the trigger's correlation before the command is
+  delivered. An unset root on a `PolicyResponse` command to a PM therefore
+  means "the default", not malformed. To an aggregate the policy must
+  still name the root: an unset one there stays malformed (a policy bug,
+  dead-lettered and alerted).
 - **What changes in 14.30 and 14.31.** A PM instance's root is no longer
   always its correlation: one instance may take inputs of several
   correlations, and its events carry each input's correlation, as any
@@ -2492,8 +2497,8 @@ says.** Owner rulings, 2026-10-28. Amends 14.30, 14.31 and 14.32.
   the cover's root is malformed is withdrawn for every PM input, a
   client's included: such an input is delivered to the root its cover
   names, keeping its correlation. A `correlation_id` left unset on an
-  input to a PM is still given its cover's root (flagged: kept, so a
-  client starting an instance gets 14.30's default). So 14.31's "the one
+  input to a PM is still given its cover's root (14.31's rule, kept). So
+  14.31's "the one
   pipeline rule a PM's coordinator adds to an aggregate's" is gone; the
   start rule (B1) is now the only thing a PM's coordinator adds. 14.30's
   cost, one instance per correlation, holds only for policies that do not
@@ -2505,7 +2510,9 @@ says.** Owner rulings, 2026-10-28. Amends 14.30, 14.31 and 14.32.
   creation at any stated sequence at or below main's head, and refuses one
   above it as a conflict (`StoreError::Conflict`), writing nothing. There
   is no implicit "the head at write time" rule: a store never moves a fork
-  to the head.
+  to the head. A creation whose `parent_sequence` differs from its own
+  page's sequence is malformed (`StoreError::MalformedCreation`,
+  INVALID_ARGUMENT), writing nothing.
 - **On arrival, the system layer records the head it read.** When a
   policy's command arriving in X creates its target's fork, the angzarr
   system layer reads that one stream's main head and writes the
@@ -2513,11 +2520,12 @@ says.** Owner rulings, 2026-10-28. Amends 14.30, 14.31 and 14.32.
   handle sequences. A race with main is harmless: if main appends between
   the read and the write, the fork still lands where it says, and the
   edition reads main's events below it only.
-- **An origin may state its sequence.** `ForkStream` may ask for a
-  specific sequence on its stream (`ForkStreamRequest.parent_sequence`, 3,
-  optional; unset, the head `ForkStream` reads). One above main's head is
-  the store's conflict, answered `ABORTED` (flagged: the status), writing
-  nothing.
+- **An origin states its sequence.** `ForkStream` names the sequence to
+  fork its stream at: `ForkStreamRequest.parent_sequence` (3), a plain
+  `uint64` the caller always states, 0 being a valid fork at the start;
+  there is no "head when unset". One above main's head is the store's
+  conflict, answered `ABORTED`, the spec's status for a failed
+  test-and-set, writing nothing.
 - **Per aggregate.** The fork point is per stream (one domain and root, in
   X). Each stream's fork is read and stated on its own, and nothing
   relates two streams' fork points: no cross-stream snapshot is promised
@@ -2528,9 +2536,12 @@ says.** Owner rulings, 2026-10-28. Amends 14.30, 14.31 and 14.32.
   `EditionCreated.parent_sequence` (`meta/events.proto`),
   `ForkStreamRequest` (`meta.proto`), angzarr-ports' `EventStore` docs,
   14.32 above, and the site's process manager, editions and edition
-  glossary pages. Scenarios C-0656 to C-0664; angzarr-ports' checks
-  `a_fork_below_mains_head_lands_at_its_stated_sequence` and
-  `a_fork_above_mains_head_is_a_conflict`.
+  glossary pages. Scenarios C-0656 to C-0665, and C-0628's ForkStream
+  now states its sequence; angzarr-ports' checks
+  `a_fork_below_mains_head_lands_at_its_stated_sequence`,
+  `a_fork_above_mains_head_is_a_conflict` and
+  `a_creation_stating_another_parent_sequence_is_malformed`, with the
+  new `StoreError::MalformedCreation`.
 - Why: a set-based rule ("usernames are unique", 14.35) needs a PM
   instance keyed by what the rule is about, not by whichever workflow
   happened to trigger it, and the causal chain must still be traceable

@@ -66,16 +66,20 @@ option ruby_package = "Angzarr";
 //     callback (root_<Command>, opt-in by writing it, as translate is; the
 //     scaffold generates none), which names another root: a uniqueness PM
 //     keyed by username, say, or one "name-identities" instance. Either
-//     way the command carries its trigger's correlation_id unchanged, and
-//     the policy's generated code sets the cover's root, so the wire always
-//     names it (decision 14.36).
+//     way the command carries its trigger's correlation_id unchanged
+//     (decision 14.36). A policy that names no root leaves the cover's
+//     root UNSET; the framework (core's coordinator, or angzarr-embedded's
+//     kernel standing in for it) fills in the trigger's correlation_id
+//     before delivery. An unset root on a policy's command to a PM is this
+//     default, never malformed.
 //   - A correlation_id that differs from the cover's root is NOT
 //     malformed: the input is delivered to the root its cover names and
 //     keeps its correlation. One left unset is given its cover's root.
 //   - One instance may therefore take inputs of several correlations; its
 //     events carry each input's correlation, like any domain's.
-// A PM's coordinator applies no root rule of its own: the start rule below
-// is the only rule it adds to an aggregate's.
+// Beyond filling that default root, a PM's coordinator applies no root
+// rule of its own: the start rule below is the only rule it adds to an
+// aggregate's.
 //
 // Starting an instance (ruling B1, adapted; decision 14.31). A PM instance
 // exists once its stream holds an event (in the input's edition, as read

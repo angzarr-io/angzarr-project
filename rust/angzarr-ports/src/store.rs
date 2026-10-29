@@ -101,7 +101,9 @@ pub struct Written {
 ///   [`StoreError::Conflict`]. A store never moves a fork to the head: a
 ///   creation lands where it says even if main has grown since its writer
 ///   read the head. The fork point is per stream; nothing relates two
-///   streams' fork points. Any other first write is refused
+///   streams' fork points. A creation whose `parent_sequence` is not its
+///   own page's sequence is [`StoreError::MalformedCreation`]. Any other
+///   first write is refused
 ///   [`StoreError::EditionNotForked`], a second creation
 ///   [`StoreError::EditionAlreadyForked`], and a creation of main
 ///   [`StoreError::EditionNameRequired`].

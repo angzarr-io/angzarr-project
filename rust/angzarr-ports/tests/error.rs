@@ -53,6 +53,11 @@ fn every() -> Vec<(StoreError, &'static str, Recovery)> {
             Invalid,
         ),
         (
+            StoreError::malformed_creation(stream_in("what-if"), 3, 5),
+            "angzarr-ports-store-malformed-creation",
+            Invalid,
+        ),
+        (
             StoreError::Unavailable(io()),
             "angzarr-ports-store-unavailable",
             Retry,

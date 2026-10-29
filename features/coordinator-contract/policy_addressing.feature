@@ -7,7 +7,8 @@ Feature: Who a policy's command addresses, and the correlation it carries
   addresses the instance whose root is the trigger's correlation; a policy
   that implements the command's root callback (root_<Command>, opt-in by
   writing it) names another instance's root, and the command still carries
-  the trigger's correlation. The correlation ids below are UUIDs, as in
+  the trigger's correlation. A policy naming no root leaves it unset, and
+  the coordinator (or angzarr-embedded's kernel) fills in the default. The correlation ids below are UUIDs, as in
   every scenario (decision 14.18).
 
   Background:
@@ -30,7 +31,9 @@ Feature: Who a policy's command addresses, and the correlation it carries
     Given a policy "OrderToFulfillment" translating from "order" to "fulfillment" that builds StartFulfillment from OrderPlaced
     And "OrderToFulfillment" implements no root_StartFulfillment callback
     When an OrderPlaced event with correlation "0192a6b0-0000-7000-8000-000000000041" is recorded for order "order-1"
-    Then the policy's StartFulfillment command names "fulfillment" root "0192a6b0-0000-7000-8000-000000000041" on the wire
+    Then the policy's StartFulfillment command leaves its cover's root unset on the wire
+    And the coordinator fills in root "0192a6b0-0000-7000-8000-000000000041", the trigger's correlation, before delivery
+    And nothing is dead-lettered and no alert is raised
     And "Fulfillment" handles StartFulfillment on stream "fulfillment" root "0192a6b0-0000-7000-8000-000000000041"
     And the StartFulfillment command carries correlation_id "0192a6b0-0000-7000-8000-000000000041"
 
@@ -68,3 +71,12 @@ Feature: Who a policy's command addresses, and the correlation it carries
     Then "inventory" "inv-7" handles ReserveStock with correlation_id "0192a6b0-0000-7000-8000-000000000045"
     And "Fulfillment" handles StartFulfillment on stream "fulfillment" root "0192a6b0-0000-7000-8000-000000000045" with correlation_id "0192a6b0-0000-7000-8000-000000000045"
     And each command's causation_id is the OrderPlaced event of "order" "order-1"
+
+  @policy_addressing
+  @C-0665
+  Scenario: A policy's command to an aggregate naming no root is a policy bug
+    Given a policy "OrderToInventory" translating from "order" to "inventory" that sends ReserveStock with no root on OrderPlaced
+    When an OrderPlaced event with correlation "0192a6b0-0000-7000-8000-000000000046" is recorded for order "order-1"
+    Then the ReserveStock command is not delivered
+    And it is dead-lettered and an alert is raised
+    And no root is filled in for it

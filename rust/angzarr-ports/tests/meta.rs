@@ -22,6 +22,7 @@ use std::sync::{Arc, Mutex};
 
 use angzarr_ports::angzarr_proto::ids::fact_command_id;
 use angzarr_ports::angzarr_proto::v1::event_meta::Causation;
+use angzarr_ports::angzarr_proto::v1::meta::EditionCreated;
 use angzarr_ports::angzarr_proto::v1::{
     Cover, EditionSummary, EventBook, EventPage, EventRef, Snapshot,
 };
@@ -33,6 +34,7 @@ use angzarr_ports::{
     SnapshotStore, StoreError, StreamRef, Uuid, Watch, Write, Written, EDITION_CREATED_TYPE_URL,
     EDITION_DELETED_TYPE_URL,
 };
+use prost::Message;
 use prost_types::Timestamp;
 
 /// What a [`Broken`] store gets wrong: one bug each.
@@ -115,6 +117,9 @@ enum Bug {
     ForkMovedToHead,
     /// A fork stated above main's head is taken, moved down to the head.
     ForkAboveHeadAccepted,
+    /// A creation stating another parent_sequence than its sequence is
+    /// taken, its parent_sequence rewritten to agree.
+    MismatchedCreationAccepted,
     // ---- editions (the administration)
     /// `ListEditions` counts propagated forks among the origins.
     OriginsIncludePropagated,
@@ -342,6 +347,13 @@ impl EventStore for Broken {
                     for (due, page) in (head..).zip(&mut pages) {
                         page.sequence = due;
                     }
+                }
+                if self.is(Bug::MismatchedCreationAccepted) {
+                    let first = &mut pages[0];
+                    let payload = first.payload.as_mut().unwrap();
+                    let mut fork = EditionCreated::decode(payload.value.as_slice()).unwrap();
+                    fork.parent_sequence = first.sequence;
+                    payload.value = fork.encode_to_vec();
                 }
             }
             if self.is(Bug::AcceptsAGap) {
@@ -1199,6 +1211,15 @@ fn the_fork_point_checks_catch_a_store_that_moves_or_refuses_a_stated_fork() {
 }
 
 #[test]
+fn the_creation_check_catches_a_store_that_takes_a_creation_stating_another_sequence() {
+    catches!(
+        a_creation_stating_another_parent_sequence_is_malformed,
+        broken,
+        MismatchedCreationAccepted,
+    );
+}
+
+#[test]
 fn the_edition_checks_catch_a_wrong_list_or_removal() {
     catches!(
         list_editions_derives_each_edition_from_its_fork_events,
@@ -1360,6 +1381,7 @@ fn an_honest_broken_store_passes_every_check() {
         a_forked_stream_reads_main_below_its_fork_then_its_own,
         a_fork_below_mains_head_lands_at_its_stated_sequence,
         a_fork_above_mains_head_is_a_conflict,
+        a_creation_stating_another_parent_sequence_is_malformed,
         find_command_finds_a_commands_events_on_its_stream,
         find_command_finds_a_retried_facts_events_by_its_id,
         find_command_finds_a_refusal_fact_on_the_trigger_stream_by_the_refused_id,

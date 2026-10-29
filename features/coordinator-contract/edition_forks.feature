@@ -3,7 +3,8 @@ Feature: Editions are per-stream forks, and the fork travels with the data
   origin stream (D, main, R) into edition X appends an EditionCreated
   meta-event (io.angzarr.v1.meta) to (D, X, R) at the sequence it states,
   its parent_sequence: any at or below main's head for that stream (main's
-  next sequence, the default), never above it (decision 14.36). The fork
+  next sequence), never above it (decision 14.36). ForkStream always
+  states it; an arrival's is the main head the system layer read. The fork
   point is per stream, and no cross-stream snapshot is promised; (D, X, R) reads
   main's events below that fork sequence, then X's own. The fork travels
   with the data: a policy's command in X that reaches a stream with no fork
@@ -22,8 +23,8 @@ Feature: Editions are per-stream forks, and the fork travels with the data
 
   @editions
   @C-0628
-  Scenario: Forking an origin stream appends the fork event at main's next sequence
-    When ForkStream forks "player" "p-1" into edition "what-if"
+  Scenario: Forking an origin stream at main's next sequence appends the fork event there
+    When ForkStream forks "player" "p-1" into edition "what-if" at parent_sequence 5
     Then "player" "p-1" in edition "what-if" holds an EditionCreated event at sequence 5
     And the EditionCreated event names edition "what-if" and parent_sequence 5, with no propagated_from and no forked_by
     And the main timeline of "player" "p-1" is unchanged

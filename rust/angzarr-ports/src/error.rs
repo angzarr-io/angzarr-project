@@ -42,6 +42,14 @@ pub enum StoreError {
     /// A wire `Cover` that is no stream: no root, a root not 16 bytes, or an
     /// edition set to the empty string (INVALID_ARGUMENT).
     MalformedStream { stream: Box<Cover> },
+    /// An edition creation whose `EditionCreated.parent_sequence` is not
+    /// its own page's sequence (14.36: the fork is where it says, so the
+    /// two must agree; INVALID_ARGUMENT). Nothing was written.
+    MalformedCreation {
+        stream: Box<Cover>,
+        sequence: u64,
+        parent_sequence: u64,
+    },
     /// The store failed: I/O, a timeout, a dropped connection, a schema this
     /// build cannot read. A write may or may not have landed.
     Unavailable(Cause),
@@ -111,6 +119,18 @@ impl StoreError {
         }
     }
 
+    pub fn malformed_creation(
+        stream: impl Into<Cover>,
+        sequence: u64,
+        parent_sequence: u64,
+    ) -> StoreError {
+        StoreError::MalformedCreation {
+            stream: Box::new(stream.into()),
+            sequence,
+            parent_sequence,
+        }
+    }
+
     pub fn unreadable(stream: impl Into<Cover>, sequence: u64, reason: Cause) -> StoreError {
         StoreError::Unreadable {
             stream: Box::new(stream.into()),
@@ -155,6 +175,7 @@ impl StoreError {
             StoreError::Conflict { stream, .. }
             | StoreError::Discontinuous { stream, .. }
             | StoreError::MalformedStream { stream }
+            | StoreError::MalformedCreation { stream, .. }
             | StoreError::Unreadable { stream, .. }
             | StoreError::UnknownEdition { stream }
             | StoreError::EditionNotForked { stream }
@@ -236,6 +257,7 @@ impl StoreError {
             StoreError::Conflict { .. } => "angzarr-ports-store-conflict",
             StoreError::Discontinuous { .. } => "angzarr-ports-store-discontinuous",
             StoreError::MalformedStream { .. } => "angzarr-ports-store-malformed-stream",
+            StoreError::MalformedCreation { .. } => "angzarr-ports-store-malformed-creation",
             StoreError::Unavailable(_) => "angzarr-ports-store-unavailable",
             StoreError::Unreadable { .. } => "angzarr-ports-store-unreadable",
             StoreError::UnknownEdition { .. } => "angzarr-ports-store-unknown-edition",
@@ -273,6 +295,15 @@ impl StoreError {
             StoreError::MalformedStream { stream } | StoreError::UnknownEdition { stream } => {
                 vec![("stream", stream_arg(stream))]
             }
+            StoreError::MalformedCreation {
+                stream,
+                sequence,
+                parent_sequence,
+            } => vec![
+                ("stream", stream_arg(stream)),
+                ("sequence", Arg::Uint(*sequence)),
+                ("parent_sequence", Arg::Uint(*parent_sequence)),
+            ],
             StoreError::Unavailable(cause) => vec![("cause", Arg::Cause(cause.clone()))],
             StoreError::Unreadable {
                 stream,
@@ -298,6 +329,7 @@ impl StoreError {
             StoreError::Conflict { .. } | StoreError::Unavailable(_) => Recovery::Retry,
             StoreError::Discontinuous { .. } | StoreError::Unreadable { .. } => Recovery::Bug,
             StoreError::MalformedStream { .. }
+            | StoreError::MalformedCreation { .. }
             | StoreError::UnknownEdition { .. }
             | StoreError::EditionNameRequired
             | StoreError::EditionNotFound { .. } => Recovery::Invalid,
@@ -334,6 +366,15 @@ impl fmt::Display for StoreError {
             StoreError::MalformedStream { stream } => write!(
                 f,
                 "cover {stream:?} is no stream: it needs a 16-byte root and, if it names an edition, a non-empty one"
+            ),
+            StoreError::MalformedCreation {
+                stream,
+                sequence,
+                parent_sequence,
+            } => write!(
+                f,
+                "the creation of stream {} at sequence {sequence} states parent_sequence {parent_sequence}: a fork is where it says, so they must agree",
+                stream_text(stream)
             ),
             StoreError::Unavailable(cause) => {
                 write!(f, "the store is unavailable: {}", cause.message)

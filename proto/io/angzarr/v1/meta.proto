@@ -44,7 +44,8 @@ option ruby_package = "Angzarr";
 // EditionAdminService: forks origin streams into editions, lists editions,
 // and deletes them (see Cover.edition in types.proto).
 service EditionAdminService {
-  // Fork one origin stream into an edition: append EditionCreated to (the
+  // Fork one origin stream into an edition at the sequence the request
+  // states (parent_sequence): append EditionCreated there to (the
   // stream's domain, edition, root), creating the edition if no fork event
   // of it exists yet. From there the fork travels with the data
   // (meta.EditionCreated). Forking more origin streams into an
@@ -103,12 +104,13 @@ message ForkStreamRequest {
   // is no global position to fork at and no cross-stream snapshot
   // (decisions 14.35 and 14.36).
   Cover stream = 1;
-  // The fork point to state (decision 14.36): the EditionCreated's
-  // parent_sequence and sequence. Unset: the origin stream's main head as
-  // ForkStream reads it. Any sequence at or below main's head is taken;
-  // one above it is refused ABORTED (the store's conflict), writing
-  // nothing.
-  optional uint64 parent_sequence = 3;
+  // The fork point, always stated by the caller (decision 14.36): the
+  // EditionCreated's parent_sequence and sequence. 0 is a valid fork at
+  // the start of the stream; there is no "head when unset". Any sequence
+  // at or below main's head (main's next sequence for the stream) is
+  // taken; one above it is refused ABORTED (the store's conflict, the
+  // status for a failed test-and-set), writing nothing.
+  uint64 parent_sequence = 3;
 }
 
 message ListEditionsRequest {}

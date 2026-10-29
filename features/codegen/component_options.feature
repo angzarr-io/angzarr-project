@@ -242,5 +242,5 @@ Feature: Component declarations - lint warnings and errors
 
     Examples:
       | callback                                         | outcome                                                                                                   |
-      | as the scaffold left it                          | the scaffold wrote no root_StartFulfillment, and the generated code sets the cover's root to the trigger's correlation_id |
-      | with a root_StartFulfillment callback            | the generated code sets the cover's root to the UUID root_StartFulfillment returns                         |
+      | as the scaffold left it                          | the scaffold wrote no root_StartFulfillment, and the generated code leaves the cover's root unset, for the coordinator to fill |
+      | with a root_StartFulfillment callback            | the generated code sets the cover's root to the UUID root_StartFulfillment returns                                             |

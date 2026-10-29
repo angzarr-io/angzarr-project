@@ -208,12 +208,14 @@ message PolicyResponse {
   // code never emits a Fact; its refusal facts come from OnRefused;
   // PolicyService, Refusals). Every command carries its trigger's
   // correlation_id unchanged, whatever its target. A command for an
-  // aggregate names the aggregate's root. A command for a process manager
-  // names the instance's root too: the trigger's correlation_id by default,
-  // filled in by the policy's generated code, or the root the policy's
-  // root_<Command> callback names when the policy implements one (opt-in
-  // by writing it; decision 14.36; process_manager.proto, Stream). A
-  // command whose cover names a
+  // aggregate must name the aggregate's root: an unset one is a policy bug,
+  // refused the same way. A command for a process manager names the
+  // instance's root only when the policy implements that command's
+  // root_<Command> callback (opt-in by writing it; decision 14.36;
+  // process_manager.proto, Stream); otherwise its cover's root is left
+  // UNSET, which means the default, and the coordinator (or
+  // angzarr-embedded's kernel standing in for it) fills in the trigger's
+  // correlation_id before delivery. A command whose cover names a
   // domain other than the policy's one destination
   // (ComponentOptions.output_domain) is a policy bug refused by the client
   // library before it answers: PolicyService.Handle fails INTERNAL with no

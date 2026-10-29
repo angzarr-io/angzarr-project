@@ -79,7 +79,7 @@ fn the_edition_creation_meta_event_round_trips_with_its_field_numbers() {
 fn fork_stream_request_names_the_stream_as_field_one() {
     let request = ForkStreamRequest {
         stream: Some(stream("what-if")),
-        parent_sequence: None,
+        parent_sequence: 5,
     };
     assert_eq!(
         ForkStreamRequest::decode(&*request.encode_to_vec()).unwrap(),
@@ -88,24 +88,25 @@ fn fork_stream_request_names_the_stream_as_field_one() {
     assert_eq!(first_tag(&request), (1 << 3) | 2);
 }
 
-/// 14.36: an origin fork may state its sequence, as field 3 with presence,
-/// so a fork at 0 is told from no sequence stated.
+/// 14.36: an origin fork always states its sequence, as field 3, a plain
+/// `uint64`: 0 (a fork at the start) is its default and encodes as nothing.
 #[test]
-fn fork_stream_request_may_state_its_parent_sequence_as_field_three() {
-    let at_zero = ForkStreamRequest {
+fn fork_stream_request_states_its_parent_sequence_as_field_three() {
+    let at_three = ForkStreamRequest {
         stream: None,
-        parent_sequence: Some(0),
+        parent_sequence: 3,
     };
-    assert_eq!(at_zero.encode_to_vec(), [3 << 3, 0]);
+    assert_eq!(at_three.encode_to_vec(), [3 << 3, 3]);
     assert_eq!(
-        ForkStreamRequest::decode(&*at_zero.encode_to_vec()).unwrap(),
-        at_zero
+        ForkStreamRequest::decode(&*at_three.encode_to_vec()).unwrap(),
+        at_three
     );
-    let unstated = ForkStreamRequest {
+    let at_start = ForkStreamRequest {
         stream: None,
-        parent_sequence: None,
+        parent_sequence: 0,
     };
-    assert!(unstated.encode_to_vec().is_empty());
+    assert!(at_start.encode_to_vec().is_empty());
+    assert_eq!(ForkStreamRequest::decode(&[][..]).unwrap(), at_start);
 }
 
 #[test]

@@ -477,8 +477,10 @@ message EventRef {
 // unchanged, so correlation traces the causal chain (decision 14.36). A
 // command or Fact addressed to a process manager's stream with no
 // correlation_id is given its cover's root; a set one is kept, whatever
-// the root (a policy may name a PM instance's root other than its
-// trigger's correlation; process_manager.proto, Stream). A process
+// the root. A policy's command to a PM whose cover root is unset is given
+// its trigger's correlation_id as its root by the coordinator, the
+// default instance; a policy may name another root instead
+// (process_manager.proto, Stream). A process
 // manager's events carry their command's or fact's correlation, like any
 // domain's.
 // Correlation is never unset on a persisted event, and the framework never
