@@ -36,14 +36,32 @@ fn io() -> Cause {
 
 /// What a log shows for `code` and `args`, by the rule (decision 14.37):
 /// the code, then ` name=value` per arg in order; a nested cause as
-/// ` name=<its code>`, then its args as ` name.<arg>=value`.
+/// ` name=<its code>`, then its args as ` name.<arg>=value`. A text value
+/// that would not parse back (empty, or holding whitespace, `=`, `"` or
+/// `\`) is double-quoted, its `"` and `\` escaped with a backslash.
 fn rendered(code: &str, args: &[(&'static str, Arg)]) -> String {
+    fn text(s: &str) -> String {
+        let ambiguous = s.is_empty()
+            || s.chars()
+                .any(|c| c.is_whitespace() || matches!(c, '=' | '"' | '\\'));
+        if !ambiguous {
+            return s.to_string();
+        }
+        let escaped: String = s
+            .chars()
+            .flat_map(|c| match c {
+                '"' | '\\' => vec!['\\', c],
+                c => vec![c],
+            })
+            .collect();
+        format!("\"{escaped}\"")
+    }
     fn push(out: &mut String, prefix: &str, args: &[(&'static str, Arg)]) {
         for (name, arg) in args {
             let name = format!("{prefix}{name}");
             match arg {
                 Arg::Uint(n) => out.push_str(&format!(" {name}={n}")),
-                Arg::Str(s) => out.push_str(&format!(" {name}={s}")),
+                Arg::Str(s) => out.push_str(&format!(" {name}={}", text(s))),
                 Arg::Cause(cause) => {
                     out.push_str(&format!(" {name}={}", cause.code));
                     push(out, &format!("{name}."), &cause.args);
@@ -220,6 +238,34 @@ fn a_cause_is_a_code_and_args_and_displays_flattened() {
     assert_eq!(
         StoreError::unreadable(stream(), 4, io()).to_string(),
         "angzarr-ports-store-unreadable stream=account/07070707-0707-0707-0707-070707070707 sequence=4 cause=annals-store-sql-io cause.errno=10"
+    );
+}
+
+/// A text value that would not parse back is quoted (decision 14.37's
+/// display rule): one empty, or holding whitespace, `=`, `"` or `\`, is
+/// written double-quoted, its `"` and `\` escaped with a backslash; any
+/// other value stays bare.
+#[test]
+fn a_value_that_would_not_parse_back_is_quoted() {
+    let text = |s: &str| Arg::Str(s.to_string());
+    let cause = Cause::new(
+        "annals-store-sql-io",
+        [
+            ("ext_err_txt", text("database is locked")),
+            ("empty", text("")),
+            ("pair", text("k=v")),
+            ("said", text("say \"hi\"")),
+            ("path", text("C:\\dir")),
+            ("tab", text("a\tb")),
+            ("bare", text("account/7-x_y.z")),
+        ],
+    );
+    assert_eq!(
+        StoreError::Unavailable(cause).to_string(),
+        "angzarr-ports-store-unavailable cause=annals-store-sql-io \
+         cause.ext_err_txt=\"database is locked\" cause.empty=\"\" cause.pair=\"k=v\" \
+         cause.said=\"say \\\"hi\\\"\" cause.path=\"C:\\\\dir\" cause.tab=\"a\tb\" \
+         cause.bare=account/7-x_y.z"
     );
 }
 
