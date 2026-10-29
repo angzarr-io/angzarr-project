@@ -1310,7 +1310,9 @@ no-op implementations only.
 
 **ER-3** [core] **Stamp `ContextualCommand.recorded_at` on acceptance.**
 - What: core's coordinator (and the angzarr-embedded kernel) stamps when
-  it accepted the input on every delivery, for commands and facts alike.
+  it accepted the input on every delivery, for commands and facts alike;
+  the events the input produces carry the same instant as
+  `EventMeta.recorded_at`, still held to `max(previous, now)` (5.15).
 - Why: decision 14.37; `ContextualCommand` (`types.proto`).
 - Settled when: scenarios C-0671 and C-0675 pass.
 
