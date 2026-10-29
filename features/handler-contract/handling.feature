@@ -275,14 +275,33 @@ Feature: Handling a delivered command - versions, upcasting and conflicts
 
   @error_keys
   @C-0678
-  Scenario: A handler bug it marks retryable crosses as a retryable status, its code nested under UNHANDLED_HANDLER_ERROR
-    # Decision 14.37, the PROPOSAL of 2026-10-29 (late), shape (a): the
-    # status alone decides the class, so a retryable bug is UNAVAILABLE.
-    Given business code for AddItem fails with a retryable bug, code LEDGER_OFFLINE and arg ledger "main", and logs "the ledger is offline" for itself
+  Scenario Outline: A handler bug it marks retryable crosses as the status it picks, its code nested under UNHANDLED_HANDLER_ERROR
+    # Decision 14.37 (owner's rulings, 2026-10-29, latest): the handler
+    # picks the retryable status, and they are not interchangeable:
+    # UNAVAILABLE resend, DEADLINE_EXCEEDED resend only if idempotent,
+    # RESOURCE_EXHAUSTED wait longer.
+    Given business code for AddItem fails with a retryable bug under <status>, code LEDGER_OFFLINE and arg ledger "main", and logs "the ledger is offline" for itself
     When AddItem "apple" is handled over no prior events
-    Then the command is refused UNAVAILABLE with reason UNHANDLED_HANDLER_ERROR, which is also its status message
+    Then the command is refused <status> with reason UNHANDLED_HANDLER_ERROR, which is also its status message
     And the refusal's error info carries cause "LEDGER_OFFLINE" and cause.ledger "main"
     And no part of the answer carries the text "the ledger is offline"
+
+    Examples:
+      | status             |
+      | UNAVAILABLE        |
+      | DEADLINE_EXCEEDED  |
+      | RESOURCE_EXHAUSTED |
+
+  @error_keys
+  @C-0679
+  Scenario: A handler's immediate-return business error crosses as ABORTED under its own code
+    # Decision 14.37 (owner's rulings, 2026-10-29, latest): re-read and
+    # re-decide. Returned at once to the caller; never a policy's OnRefused.
+    Given business code rejects AddItem for immediate return with code PRICE_MOVED and arg item "apple", and logs "the price moved" for itself
+    When AddItem "apple" is handled over no prior events
+    Then the command is refused ABORTED with reason PRICE_MOVED, which is also its status message
+    And the refusal's error info carries item "apple"
+    And no part of the answer carries the text "the price moved"
 
   @error_keys
   @C-0670

@@ -117,11 +117,14 @@ option ruby_package = "Angzarr";
 //   - Only a business rejection reaches OnRefused, and the status decides
 //     which is one (decision 14.37; command_handler.proto, status codes):
 //     FAILED_PRECONDITION, INVALID_ARGUMENT, NOT_FOUND, ALREADY_EXISTS,
-//     OUT_OF_RANGE or PERMISSION_DENIED, and it is never retried. A fatal
-//     bug (INTERNAL, UNKNOWN, DATA_LOSS) is dead-lettered and alerted at
-//     once; any other failure is a retryable bug, retried with exponential
-//     backoff and jitter up to a configured cap, then dead-lettered and
-//     alerted. Either way the policy's position then follows its bug
+//     OUT_OF_RANGE or PERMISSION_DENIED, and it is never retried. ABORTED
+//     (an immediate-return business error: re-read and re-decide) makes
+//     the runtime reload and re-run the policy step under the capped
+//     backoff, then dead-letter it and alert. A fatal bug (INTERNAL,
+//     UNKNOWN, DATA_LOSS) is dead-lettered and alerted at once; any other
+//     failure is a retryable bug, retried with exponential backoff and
+//     jitter up to a configured cap, then dead-lettered and alerted. Past
+//     the cap, or on a fatal bug, the policy's position follows its bug
 //     setting (on_policy_bug).
 //   - Owner's rulings (decision 14.31): a refusal with no path is
 //     dead-lettered for a human and alerted; a translating callback that

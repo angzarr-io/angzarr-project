@@ -2751,8 +2751,7 @@ carry the full english text, but the key and the map".
     ALREADY_EXISTS, OUT_OF_RANGE or PERMISSION_DENIED (it reaches the
     issuing policy's OnRefused); a bug is INTERNAL, UNKNOWN or DATA_LOSS
     (alerted and dead-lettered); UNAVAILABLE, ABORTED and the like are
-    retried. (The late rulings below split the bug class into a retryable
-    and a fatal branch.) A handler refuses with a status from the business set and a
+    retried. (Superseded by the latest rulings below: four classes.) A handler refuses with a status from the business set and a
     key and args, or fails as a bug with a key and args
     (`UNHANDLED_HANDLER_ERROR`, its key the `cause`). Supersedes the
     morning's "only FAILED_PRECONDITION is a business refusal".
@@ -2796,51 +2795,57 @@ carry the full english text, but the key and the map".
     driver's message text stays in the adapter's local log". angzarr's own
     errors carry no English, as above. A user handler's text is NOT
     captured: it stays in the handler's own log (C-0669, C-0672).
-  - **The classes.** A business refusal is one class, FATAL: never
-    retried; a refused policy command reaches the policy's OnRefused. A BUG
-    is RETRYABLE or FATAL. A retryable bug is retried with capped backoff,
-    then dead-lettered and alerted; a fatal bug is dead-lettered and
-    alerted at once. The gRPC status decides the branch: INTERNAL, UNKNOWN
-    and DATA_LOSS are fatal bugs; UNAVAILABLE, DEADLINE_EXCEEDED,
-    RESOURCE_EXHAUSTED, ABORTED, UNIMPLEMENTED and every other status
-    outside the business and fatal sets are retryable. (What the earlier
-    clarification calls "the retryable class" is the retryable branch of
-    a bug.) A caller's own stale `expected_sequence` (ABORTED under STRICT)
-    returns to the caller at once, who re-reads; the framework retries
-    ABORTED only where it stamped the sequence (command_handler.proto).
-  - **Retry is on by default and configurable.** Exponential backoff with
-    jitter, up to a cap: configuration sets the scale (the base delay and
+  - Retry is on by default and configurable: exponential backoff with
+    jitter, up to a cap; configuration sets the scale (the base delay and
     its growth factor), the jitter factor and the cap (the attempts, or the
     total time, before giving up). At the cap the input is dead-lettered
-    and alerted, as a fatal bug is. A policy step that reaches the cap
-    moves, or keeps, the policy's position as its bug setting says
-    (`on_policy_bug`: move past the trigger, or stay), exactly as a fatal
-    policy bug does.
+    and alerted, and a policy step's position then follows its bug setting
+    (`on_policy_bug`: move past the trigger, or stay).
+- **Owner's rulings, 2026-10-29 (latest): four classes.** Supersedes the
+  late rulings' "a business refusal is one class, fatal" and the proposal
+  for a handler's retryable bug. The gRPC status decides the class:
+  - **Business, fatal:** FAILED_PRECONDITION, INVALID_ARGUMENT, NOT_FOUND,
+    ALREADY_EXISTS, OUT_OF_RANGE, PERMISSION_DENIED. Final: returned to the
+    caller, or to the issuing policy's OnRefused; never retried.
+  - **Business, immediate return:** ABORTED. "Re-read and re-decide": the
+    answer was decided on state that has moved. The framework's conflicts
+    (a stale or mismatched `expected_sequence`, a COMMUTATIVE overlap, an
+    unresolved conflict window) are this class, and a handler may choose
+    it too, with its own key (angzarr-router's
+    `CodedError::immediate(key, args)`), going out as ABORTED with that
+    key as the reason. It is returned at once to an outside caller: no
+    retry, no dead letter; the caller re-reads and decides again. For a
+    POLICY step the runtime is the caller: it reloads and re-runs the step
+    under the capped backoff (above), then dead-letters it and alerts; the
+    policy's position then follows `on_policy_bug`. Never a policy's
+    OnRefused. This is the runtime's to do, not the router's. (A queued
+    HandleAsync command carrying its caller's own `expected_sequence` has
+    no caller to return to: it is dead-lettered with
+    SequenceMismatchDetails, as `command_handler.proto` says.)
+  - **Bug, fatal:** INTERNAL, UNKNOWN, DATA_LOSS. Dead-lettered and
+    alerted at once; never OnRefused.
+  - **Bug, retryable:** retried with capped exponential backoff and
+    jitter, then dead-lettered and alerted; never OnRefused. A handler
+    whose dependency is down PICKS the status, one of UNAVAILABLE,
+    DEADLINE_EXCEEDED or RESOURCE_EXHAUSTED (angzarr-router's
+    `CodedError::retryable_bug(RetryableStatus, key, args)`), and the bug
+    goes out as that status, with the reason `UNHANDLED_HANDLER_ERROR` and
+    the handler's key and args as its `cause` (scenario C-0678).
+    UNIMPLEMENTED and every other status outside the three classes above
+    are retryable bugs too (the framework's: a misroute, a stale
+    deployment).
+  - **The retryable statuses are not interchangeable** (the owner's
+    words): UNAVAILABLE means resend; DEADLINE_EXCEEDED means resend only
+    if the call is idempotent (the work may have happened); RESOURCE_EXHAUSTED
+    means wait longer before resending; ABORTED means re-read and
+    re-decide. A retry loop honours the difference: angzarr's commands are
+    idempotent by `command_id` (deduplication), so a DEADLINE_EXCEEDED
+    resend is safe where the command carries its id; RESOURCE_EXHAUSTED
+    backs off further than UNAVAILABLE.
   - Text changed with it: `command_handler.proto` (the status codes;
-    HandleAsync's later rejection) and `policy.proto` (Refusals); C-0617's
-    comment; new scenario C-0678 (the proposal below).
-- **PROPOSAL for the owner, not a ruling: a handler's retryable bug on the
-  wire.** A handler whose external dependency is down (a payment gateway,
-  a ledger service) must be able to say "this bug is retryable". Two
-  shapes:
-  - (a) A retryable STATUS: UNAVAILABLE, with the reason
-    `UNHANDLED_HANDLER_ERROR` and the handler's code and args as its
-    `cause`, exactly as a fatal bug but for the status.
-  - (b) INTERNAL, as a fatal bug, plus an `ErrorInfo` metadata marker
-    `retryable` = `true`.
-  - **Recommended: (a).** The status alone decides an error's class (the
-    rule above, and `command_handler.proto`'s one status set), so every
-    retry loop, client library and gRPC proxy already retries it with no
-    new parsing, and nothing reads `ErrorInfo` to learn whether to retry.
-    UNAVAILABLE is gRPC's own "a transient condition; retry with backoff".
-    (b) would make INTERNAL mean two things, and any reader that skips the
-    metadata would dead-letter a retryable bug at once. The reason key
-    still separates (a) from an unreachable handler (UNAVAILABLE with no
-    `UNHANDLED_HANDLER_ERROR`): a dashboard can tell "the handler was down"
-    from "the handler's dependency was down". The handler API mirrors it: a
-    fatal `bug(key, args)` beside a `retryable_bug(key, args)` (Rust:
-    angzarr-router's `CodedError::bug` and `CodedError::retryable_bug`).
-    Scenario C-0678 states (a).
+    HandleAsync's later rejection), `policy.proto` (Refusals); C-0617
+    gains an ABORTED row; C-0678 (a handler's retryable bug, each status)
+    and C-0679 (a handler's immediate-return business error).
 - Why: one representation of an error everywhere, that code can branch on
   and any language can render; English on the wire was both a parsing
   temptation and the only thing telling several conditions apart.

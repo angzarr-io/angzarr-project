@@ -146,30 +146,42 @@ message CommandHandlerResponse {
 //
 // Status codes. One set, used by every coordinator and by every framework
 // retry loop (reaction delivery, the transient outbox, asynchronous
-// commands, projector retries). The status alone decides an error's class:
-// a business refusal, or a bug, which is fatal or retryable (decision
-// 14.37):
-//   Business refusal: FAILED_PRECONDITION, INVALID_ARGUMENT, NOT_FOUND,
+// commands, projector retries). The status alone decides an error's class,
+// one of four (decision 14.37):
+//   Business, fatal: FAILED_PRECONDITION, INVALID_ARGUMENT, NOT_FOUND,
 //               ALREADY_EXISTS, OUT_OF_RANGE, PERMISSION_DENIED (among
 //               them a field or route reserved for framework components;
-//               see entry_points). Fatal: never retried; a refused policy
+//               see entry_points). Final: never retried; a refused policy
 //               command reaches the policy's OnRefused (policy.proto,
 //               Refusals).
-//   Fatal bug:  INTERNAL, UNKNOWN, DATA_LOSS (a handler bug is INTERNAL
+//   Business, immediate return: ABORTED, "re-read and re-decide": the
+//               framework's conflicts (a stale or mismatched
+//               expected_sequence, a COMMUTATIVE overlap, an unresolved
+//               conflict window), or a handler's own choice under its own
+//               key. Returned at once to an outside caller, who re-reads
+//               and decides again; for a policy step the runtime is the
+//               caller, reloading and re-running the step under the capped
+//               backoff below, then dead-lettering it and alerting. Never a
+//               policy's OnRefused.
+//   Bug, fatal: INTERNAL, UNKNOWN, DATA_LOSS (a handler bug is INTERNAL
 //               UNHANDLED_HANDLER_ERROR, its own key the cause). Never
 //               retried; alerted and dead-lettered at once, and never a
 //               policy's OnRefused.
-//   Retryable bug: every other code, notably UNAVAILABLE,
-//               DEADLINE_EXCEEDED, RESOURCE_EXHAUSTED, ABORTED and
-//               UNIMPLEMENTED. Retried, on by default, with exponential
-//               backoff and jitter up to a cap (the scale, the jitter
-//               factor and the cap are configuration), then dead-lettered
-//               and alerted; never a policy's OnRefused. A policy step that
-//               reaches the cap moves or keeps the policy's position as
-//               its bug setting says (on_policy_bug), as a fatal bug does.
-// ABORTED is a stale expected_sequence under STRICT (a failed
-// test-and-set). Retrying it means re-reading and re-issuing: a caller does
-// that itself, and the framework retries ABORTED only for commands whose
+//   Bug, retryable: UNAVAILABLE, DEADLINE_EXCEEDED, RESOURCE_EXHAUSTED
+//               (a handler's retryable bug picks one: UNHANDLED_HANDLER_ERROR,
+//               its own key the cause), UNIMPLEMENTED and every other code.
+//               Retried, on by default, with exponential backoff and jitter
+//               up to a cap (the scale, the jitter factor and the cap are
+//               configuration), then dead-lettered and alerted; never a
+//               policy's OnRefused.
+// The retryable statuses are not interchangeable: UNAVAILABLE means resend;
+// DEADLINE_EXCEEDED means resend only if the call is idempotent (a command
+// is, by its command_id); RESOURCE_EXHAUSTED means wait longer before
+// resending; ABORTED means re-read and re-decide. A policy step that
+// reaches the cap, or fails as a fatal bug, moves or keeps the policy's
+// position as its bug setting says (on_policy_bug).
+// ABORTED under STRICT is a failed test-and-set. Re-reading and re-issuing
+// is the caller's: the framework re-runs ABORTED only for commands whose
 // expected_sequence it stamped. A queued command with a caller-provided
 // expected_sequence that is ABORTED is dead-lettered with
 // SequenceMismatchDetails, since resending it verbatim cannot succeed.
@@ -225,8 +237,8 @@ service CommandHandlerCoordinatorService {
   // Validation happens before enqueueing: a malformed command (see Handling)
   // is refused here, never enqueued. A rejection happens later, with no
   // caller to answer: like a reaction command's, a retryable bug is retried
-  // up to its cap, and a business refusal or a fatal bug is dead-lettered
-  // (status codes, above). A caller that needs the outcome
+  // up to its cap, and any other failure is dead-lettered (status codes,
+  // above). A caller that needs the outcome
   // uses Handle, or follows the command's correlation_id
   // (EventStreamFilter).
   rpc HandleAsync(CommandBook) returns (google.protobuf.Empty) {

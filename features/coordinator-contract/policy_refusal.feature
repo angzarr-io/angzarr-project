@@ -72,19 +72,23 @@ Feature: Policy refusals - a refused command becomes one fact for the policy's o
     # Decision 14.37 (owner rulings, 2026-10-29): the gRPC status decides
     # the class. FAILED_PRECONDITION, INVALID_ARGUMENT, NOT_FOUND,
     # ALREADY_EXISTS, OUT_OF_RANGE and PERMISSION_DENIED are business
-    # refusals, never retried; INTERNAL, UNKNOWN and DATA_LOSS are fatal
-    # bugs, dead-lettered at once; the rest are retryable bugs, retried
-    # with backoff and jitter up to a configured cap, then dead-lettered.
+    # refusals, never retried; ABORTED is an immediate-return business
+    # error, whose policy step the runtime reloads and re-runs under the
+    # capped backoff; INTERNAL, UNKNOWN and DATA_LOSS are fatal bugs,
+    # dead-lettered at once; the rest are retryable bugs, retried with
+    # backoff and jitter up to a configured cap, then dead-lettered.
+    # (Decision 14.37, owner's rulings 2026-10-29, latest: four classes.)
     Given wallet "p-1" answers HoldFunds with <status>
     When "BuyIn" records BuyInStarted for 500 from wallet "p-1"
     Then "BuyInToWallet"'s OnRefused <on_refused>
     And <outcome>
 
     Examples:
-      | status            | on_refused                 | outcome                                                                                    |
-      | UNAVAILABLE       | is not called              | HoldFunds is retried with backoff up to its configured cap, then dead-lettered and alerted |
-      | INVALID_ARGUMENT  | is called with the refusal | HoldFunds is neither retried nor dead-lettered                                             |
-      | INTERNAL          | is not called              | HoldFunds is dead-lettered and an alert is raised                                          |
+      | status           | on_refused                 | outcome                                                                                                      |
+      | UNAVAILABLE      | is not called              | HoldFunds is retried with backoff up to its configured cap, then dead-lettered and alerted                   |
+      | ABORTED          | is not called              | the policy step is reloaded and re-run with backoff up to its configured cap, then dead-lettered and alerted |
+      | INVALID_ARGUMENT | is called with the refusal | HoldFunds is neither retried nor dead-lettered                                                               |
+      | INTERNAL         | is not called              | HoldFunds is dead-lettered and an alert is raised                                                            |
 
   @policy_refusal
   @C-0618
