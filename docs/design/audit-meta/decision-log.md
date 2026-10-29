@@ -2610,7 +2610,9 @@ carry the full english text, but the key and the map".
   `message()`), from a Fluent catalog keyed by the code. A diagnostic's
   display, in logs, is its code plus its args. No free text crosses any
   boundary: not a gRPC status message, not a dead letter, not a response
-  field.
+  field. One exception, a third-party library's own error text, carried
+  verbatim as the arg `ext_err_txt` (owner's rulings, 2026-10-29, late,
+  below).
 - **It covers handlers too.** A typed rejection is its refusal message
   (the `Any` of one of the command's `refuses` types): its type is the
   key, its fields the map. Any other rejection carries a diagnostic code
@@ -2742,15 +2744,15 @@ carry the full english text, but the key and the map".
     (` name=value` each, a wrapped cause flattened as on the wire), never
     English: English comes only from a catalog keyed by the code, where
     the error is shown.
-  - A store driver's message text stays in the adapter's local log. Only
-    the driver's numeric code travels, as an arg of the adapter's `cause`
-    (`cause.errno` = `10`).
+  - (Superseded by `ext_err_txt`, the late rulings below: "a store
+    driver's message text stays in the adapter's local log".)
   - Two classes of error, and the gRPC status decides which: a business
     refusal is FAILED_PRECONDITION, INVALID_ARGUMENT, NOT_FOUND,
     ALREADY_EXISTS, OUT_OF_RANGE or PERMISSION_DENIED (it reaches the
     issuing policy's OnRefused); a bug is INTERNAL, UNKNOWN or DATA_LOSS
     (alerted and dead-lettered); UNAVAILABLE, ABORTED and the like are
-    retried. A handler refuses with a status from the business set and a
+    retried. (The late rulings below split the bug class into a retryable
+    and a fatal branch.) A handler refuses with a status from the business set and a
     key and args, or fails as a bug with a key and args
     (`UNHANDLED_HANDLER_ERROR`, its key the `cause`). Supersedes the
     morning's "only FAILED_PRECONDITION is a business refusal".
@@ -2784,6 +2786,61 @@ carry the full english text, but the key and the map".
     snapshot loader that panics does the same, naming the snapshot
     (`sequence`, and the snapshot state's `type_url`); one that errs stays
     `PERSISTED_EVENT_CORRUPT`.
+- **Owner's rulings, 2026-10-29 (late):**
+  - **`ext_err_txt`.** Where angzarr converts a THIRD-PARTY library's
+    error (an SQLite driver's, an I/O error, a tonic transport error, a
+    protobuf decode error), the library's own text is carried verbatim as
+    the arg `ext_err_txt`, beside the library's numeric code where it has
+    one (`cause` = `annals-store-sql-io`, `cause.errno` = `5`,
+    `cause.ext_err_txt` = `database is locked`). Supersedes "a store
+    driver's message text stays in the adapter's local log". angzarr's own
+    errors carry no English, as above. A user handler's text is NOT
+    captured: it stays in the handler's own log (C-0669, C-0672).
+  - **The classes.** A business refusal is one class, FATAL: never
+    retried; a refused policy command reaches the policy's OnRefused. A BUG
+    is RETRYABLE or FATAL. A retryable bug is retried with capped backoff,
+    then dead-lettered and alerted; a fatal bug is dead-lettered and
+    alerted at once. The gRPC status decides the branch: INTERNAL, UNKNOWN
+    and DATA_LOSS are fatal bugs; UNAVAILABLE, DEADLINE_EXCEEDED,
+    RESOURCE_EXHAUSTED, ABORTED, UNIMPLEMENTED and every other status
+    outside the business and fatal sets are retryable. (What the earlier
+    clarification calls "the retryable class" is the retryable branch of
+    a bug.) A caller's own stale `expected_sequence` (ABORTED under STRICT)
+    returns to the caller at once, who re-reads; the framework retries
+    ABORTED only where it stamped the sequence (command_handler.proto).
+  - **Retry is on by default and configurable.** Exponential backoff with
+    jitter, up to a cap: configuration sets the scale (the base delay and
+    its growth factor), the jitter factor and the cap (the attempts, or the
+    total time, before giving up). At the cap the input is dead-lettered
+    and alerted, as a fatal bug is. A policy step that reaches the cap
+    moves, or keeps, the policy's position as its bug setting says
+    (`on_policy_bug`: move past the trigger, or stay), exactly as a fatal
+    policy bug does.
+  - Text changed with it: `command_handler.proto` (the status codes;
+    HandleAsync's later rejection) and `policy.proto` (Refusals); C-0617's
+    comment; new scenario C-0678 (the proposal below).
+- **PROPOSAL for the owner, not a ruling: a handler's retryable bug on the
+  wire.** A handler whose external dependency is down (a payment gateway,
+  a ledger service) must be able to say "this bug is retryable". Two
+  shapes:
+  - (a) A retryable STATUS: UNAVAILABLE, with the reason
+    `UNHANDLED_HANDLER_ERROR` and the handler's code and args as its
+    `cause`, exactly as a fatal bug but for the status.
+  - (b) INTERNAL, as a fatal bug, plus an `ErrorInfo` metadata marker
+    `retryable` = `true`.
+  - **Recommended: (a).** The status alone decides an error's class (the
+    rule above, and `command_handler.proto`'s one status set), so every
+    retry loop, client library and gRPC proxy already retries it with no
+    new parsing, and nothing reads `ErrorInfo` to learn whether to retry.
+    UNAVAILABLE is gRPC's own "a transient condition; retry with backoff".
+    (b) would make INTERNAL mean two things, and any reader that skips the
+    metadata would dead-letter a retryable bug at once. The reason key
+    still separates (a) from an unreachable handler (UNAVAILABLE with no
+    `UNHANDLED_HANDLER_ERROR`): a dashboard can tell "the handler was down"
+    from "the handler's dependency was down". The handler API mirrors it: a
+    fatal `bug(key, args)` beside a `retryable_bug(key, args)` (Rust:
+    angzarr-router's `CodedError::bug` and `CodedError::retryable_bug`).
+    Scenario C-0678 states (a).
 - Why: one representation of an error everywhere, that code can branch on
   and any language can render; English on the wire was both a parsing
   temptation and the only thing telling several conditions apart.

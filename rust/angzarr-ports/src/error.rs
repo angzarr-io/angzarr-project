@@ -210,9 +210,11 @@ pub enum Recovery {
 
 /// An adapter's own failure, captured as data so [`StoreError`] stays
 /// `Clone` and `Eq`: the adapter's stable code (its own crate's prefix,
-/// `annals-store-sql-io`) and its args, by name. Never its English
+/// `annals-store-sql-io`) and its args, by name. Never its own English
 /// (decision 14.37): an adapter maps what its driver reports (an errno, a
-/// driver's own code) to args, and its driver's text stays in its own log.
+/// driver's own code) to args, and the driver's own text, a third-party
+/// library's, travels verbatim as the arg `ext_err_txt` (owner's ruling,
+/// 2026-10-29, late).
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct Cause {
     pub code: &'static str,

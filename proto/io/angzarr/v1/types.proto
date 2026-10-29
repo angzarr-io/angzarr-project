@@ -668,6 +668,13 @@ message FactOrigin {
 // cause's code under the arg's name, and each of its args under
 // "<name>.<arg>" (so "cause" = "annals-store-sql-io", "cause.errno" =
 // "10"). The same flattening serves ErrorInfo metadata.
+//
+// The one text an arg may hold: where angzarr converts a third-party
+// library's error (a store driver's, an I/O error, a transport or decode
+// error), that library's own text, verbatim, as the arg "ext_err_txt",
+// beside its numeric code where it has one ("cause.errno" = "5",
+// "cause.ext_err_txt" = "database is locked"). angzarr's own errors and a
+// handler's text never travel (decision 14.37).
 message Diagnostic {
   // The key: a stable identifier, never reused for another meaning, and a
   // valid Fluent message id. Framework codes are SCREAMING_SNAKE

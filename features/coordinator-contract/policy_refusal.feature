@@ -72,8 +72,9 @@ Feature: Policy refusals - a refused command becomes one fact for the policy's o
     # Decision 14.37 (owner rulings, 2026-10-29): the gRPC status decides
     # the class. FAILED_PRECONDITION, INVALID_ARGUMENT, NOT_FOUND,
     # ALREADY_EXISTS, OUT_OF_RANGE and PERMISSION_DENIED are business
-    # refusals; INTERNAL, UNKNOWN and DATA_LOSS are bugs; the rest are
-    # retried with backoff up to a configured cap, then dead-lettered.
+    # refusals, never retried; INTERNAL, UNKNOWN and DATA_LOSS are fatal
+    # bugs, dead-lettered at once; the rest are retryable bugs, retried
+    # with backoff and jitter up to a configured cap, then dead-lettered.
     Given wallet "p-1" answers HoldFunds with <status>
     When "BuyIn" records BuyInStarted for 500 from wallet "p-1"
     Then "BuyInToWallet"'s OnRefused <on_refused>

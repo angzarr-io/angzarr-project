@@ -274,6 +274,17 @@ Feature: Handling a delivered command - versions, upcasting and conflicts
     And no part of the answer carries the text "the ledger is offline"
 
   @error_keys
+  @C-0678
+  Scenario: A handler bug it marks retryable crosses as a retryable status, its code nested under UNHANDLED_HANDLER_ERROR
+    # Decision 14.37, the PROPOSAL of 2026-10-29 (late), shape (a): the
+    # status alone decides the class, so a retryable bug is UNAVAILABLE.
+    Given business code for AddItem fails with a retryable bug, code LEDGER_OFFLINE and arg ledger "main", and logs "the ledger is offline" for itself
+    When AddItem "apple" is handled over no prior events
+    Then the command is refused UNAVAILABLE with reason UNHANDLED_HANDLER_ERROR, which is also its status message
+    And the refusal's error info carries cause "LEDGER_OFFLINE" and cause.ledger "main"
+    And no part of the answer carries the text "the ledger is offline"
+
+  @error_keys
   @C-0670
   Scenario Outline: Every distinct condition has its own reason key
     # The conditions angzarr-router's error.rs told apart only by English text
