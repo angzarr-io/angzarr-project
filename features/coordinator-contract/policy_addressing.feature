@@ -8,7 +8,8 @@ Feature: Who a policy's command addresses, and the correlation it carries
   that implements the command's root callback (root_<Command>, opt-in by
   writing it) names another instance's root, and the command still carries
   the trigger's correlation. A policy naming no root leaves it unset, and
-  the coordinator (or angzarr-embedded's kernel) fills in the default. The correlation ids below are UUIDs, as in
+  the framework's coordinator code (shared from angzarr-core, run by core's
+  coordinator or the angzarr-embedded kernel) fills in the default. The correlation ids below are UUIDs, as in
   every scenario (decision 14.18).
 
   Background:

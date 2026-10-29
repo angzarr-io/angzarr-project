@@ -25,8 +25,9 @@ option ruby_package = "Angzarr";
 // no fork in X forks it on arrival (meta.EditionCreated). Listing
 // editions is a query over X's own creation events. Deleting one is an
 // event too: EditionDeleted is recorded in X's origin streams, and the
-// angzarr system layer (shared system code both runtimes call; never the
-// router, which sees no meta-event) propagates it along
+// angzarr system layer (shared system code in angzarr-core, called by
+// core's coordinator and the angzarr-embedded kernel; never the router,
+// which sees no meta-event) propagates it along
 // the streams X's policies reached; each stream's rows of X are removed
 // only after its EditionDeleted has propagated onward.
 // Everything of an edition's lifecycle lives in the edition's own streams

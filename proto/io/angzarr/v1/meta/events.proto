@@ -43,8 +43,8 @@ option ruby_package = "Angzarr::Meta";
 //
 // Propagation: the creation TRAVELS WITH THE DATA. A policy's command in X
 // that reaches a stream with no EditionCreated in X is the propagation: the
-// angzarr system layer (shared; called by the stream's coordinator, or by
-// annals' kernel) reads that one stream's main head and appends
+// angzarr system layer (shared code in angzarr-core; called by the
+// stream's coordinator, or by the angzarr-embedded kernel) reads that one stream's main head and appends
 // EditionCreated at it, recording it as parent_sequence (policies never
 // handle sequences; if main appends in between, the fork still lands where
 // it says), with propagated_from
@@ -89,8 +89,10 @@ message EditionCreated {
 // 3. REMOVED: only after it has propagated onward (the system layer's onward
 //    writes and outbox entries for it have completed), the stream's rows
 //    tagged X are removed, this event included. Nothing remains.
-// Who owns it (decision 14.32, amended): the ANGZARR SYSTEM LAYER, the
-// shared system code both runtimes call around the router, never the
+// Who owns it (decision 14.32, amended; placed by 14.36): the ANGZARR
+// SYSTEM LAYER, transport-free shared system code in angzarr-core
+// (angzarr-io/angzarr) that core's coordinator and the angzarr-embedded
+// kernel call around the router, never the
 // router, which sees no meta-event. It writes EditionDeleted in X's origin stream(s),
 // then propagates it along the streams its policies reached in X, as its
 // own write in each; a stream with nothing of X left is skipped, and

@@ -2356,9 +2356,10 @@ and no fork at one (14.35).
 >   DECISION; the process manager start rule; and one edition rule, that
 >   a policy's commands stay in their trigger's edition.
 > - **The angzarr system layer** is ONE shared piece of system code, a
->   crate in angzarr-project beside angzarr-proto and angzarr-ports
->   (working name `angzarr-system`), which BOTH runtimes (annals' kernel,
->   locally; core's coordinator, distributed) call around the router's
+>   transport-free crate in angzarr-core (`angzarr-io/angzarr`; working
+>   name `angzarr-system`; placed there by 14.36), which BOTH runtimes
+>   (the angzarr-embedded kernel, locally; core's coordinator,
+>   distributed) call around the router's
 >   business dispatch. It is neither the router nor reimplemented per
 >   runtime. It owns everything else of an edition:
 >   - **Creation on arrival:** when a policy's command in X arrives at a
@@ -2484,9 +2485,10 @@ says.** Owner rulings, 2026-10-28. Amends 14.30, 14.31 and 14.32.
 - **The framework fills the default root** (the owner: "coordinator (or
   coordinator stand in in embedded) fill it. this is pure angzarr
   codebase"). A policy that names no root leaves the cover's root UNSET on
-  the wire; core's coordinator, or angzarr-embedded's kernel standing in
-  for it, fills in the trigger's correlation before the command is
-  delivered. An unset root on a `PolicyResponse` command to a PM therefore
+  the wire; framework coordinator code shared from angzarr-core fills in
+  the trigger's correlation before the command is delivered, called by
+  core's coordinator and by angzarr-embedded's kernel standing in for
+  it. An unset root on a `PolicyResponse` command to a PM therefore
   means "the default", not malformed. To an aggregate the policy must
   still name the root: an unset one there stays malformed (a policy bug,
   dead-lettered and alerted).
@@ -2503,6 +2505,13 @@ says.** Owner rulings, 2026-10-28. Amends 14.30, 14.31 and 14.32.
   start rule (B1) is now the only thing a PM's coordinator adds. 14.30's
   cost, one instance per correlation, holds only for policies that do not
   name a root. Scenario C-0598 is retired.
+- **Where the shared framework code lives (14.32's second amendment
+  amended; owner ruling).** The angzarr system layer (`angzarr-system`,
+  the edition lifecycle) and the other shared coordinator crates live in
+  angzarr-core (`angzarr-io/angzarr`) as transport-free crates, called by
+  both core's coordinator and the angzarr-embedded kernel; they are not in
+  angzarr-project. angzarr-project keeps only the contract: the protos,
+  angzarr-proto and angzarr-ports.
 - **A fork is at the sequence it states (14.32 amended).**
   `meta.EditionCreated.parent_sequence` is the fork point: the creation's
   own sequence, below which (D, X, R) reads main's events. Main's head is
@@ -2534,7 +2543,8 @@ says.** Owner rulings, 2026-10-28. Amends 14.30, 14.31 and 14.32.
   `Cover.edition` and the command identity region and malformed list in
   `types.proto`, `PolicyResponse.commands` (`policy.proto`),
   `EditionCreated.parent_sequence` (`meta/events.proto`),
-  `ForkStreamRequest` (`meta.proto`), angzarr-ports' `EventStore` docs,
+  `ForkStreamRequest` and the system layer's home (`meta.proto`,
+  `meta/events.proto`), angzarr-ports' `EventStore` docs,
   14.32 above, and the site's process manager, editions and edition
   glossary pages. Scenarios C-0656 to C-0665, and C-0628's ForkStream
   now states its sequence; angzarr-ports' checks

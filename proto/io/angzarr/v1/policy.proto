@@ -213,7 +213,8 @@ message PolicyResponse {
   // instance's root only when the policy implements that command's
   // root_<Command> callback (opt-in by writing it; decision 14.36;
   // process_manager.proto, Stream); otherwise its cover's root is left
-  // UNSET, which means the default, and the coordinator (or
+  // UNSET, which means the default, and framework coordinator code shared
+  // from angzarr-core (called by core's coordinator, or by
   // angzarr-embedded's kernel standing in for it) fills in the trigger's
   // correlation_id before delivery. A command whose cover names a
   // domain other than the policy's one destination
