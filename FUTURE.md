@@ -104,6 +104,14 @@ calls, the Python environment has to be packaged with the binary, and a crash in
 angzarr-embedded down with it. The child-process bridge isolates that crash; PyO3 trades the isolation for
 speed.
 
+The CLI does the wiring:
+
+- **It scaffolds handlers in the selected language,** the way `angzarr scaffold rust` does for Rust today,
+  from the same protos and markers (`emits`, `refuses`, `fact`).
+- **It builds the startup stack for angzarr-embedded:** the host binary or config that registers each
+  remote handler, launches its child process, reads the handshake, and supervises it. An app mixing
+  in-process Rust handlers and handlers in other languages starts with one command.
+
 Until then, the Rust handler interface keeps the same shape as `CommandHandlerService`'s request and
 response, so a remote adapter needs no retrofit.
 
