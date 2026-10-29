@@ -211,8 +211,8 @@ A target that refuses a saga's command (a business rejection, optionally with a 
 | The translating callback fails | The refusal is dead-lettered and alerted |
 | A retryable failure | The command is retried |
 | Any other terminal failure | The command is dead-lettered and alerted: a bug |
-| A saga's command names no root, whatever its target | Refused `INTERNAL`, `POLICY_COMMAND_NO_ROOT` (with `domain` and `command_type`); dead-lettered and alerted, never delivered |
-| A saga's command carries a correlation other than its trigger's | Refused `INTERNAL`, `POLICY_COMMAND_OTHER_CORRELATION`; dead-lettered and alerted, never delivered |
+| A policy's command names no root, whatever its target | Refused `INTERNAL`, `POLICY_COMMAND_NO_ROOT` (with `domain` and `command_type`); dead-lettered and alerted, never delivered |
+| A policy's command carries a correlation other than its trigger's | Refused `INTERNAL`, `POLICY_COMMAND_OTHER_CORRELATION`; dead-lettered and alerted, never delivered |
 
 ## Process Manager Failures
 
