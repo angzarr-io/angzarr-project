@@ -66,6 +66,8 @@ the same component.
 
 *An aggregate, process manager or policy written in Go or Python, hosted by angzarr-embedded.*
 
+The driving case is **Python, for PyTorch**: game engines on angzarr-embedded whose AI runs on PyTorch.
+
 angzarr-embedded runs handlers in-process, in Rust. A handler in another language needs a bridge. The
 contract for it already exists: a domain's business logic implements `CommandHandlerService` (decision
 14.31), which is a gRPC service.
@@ -89,7 +91,14 @@ in-process), plus supervising the child process.
 
 The in-process alternative is WebAssembly: handlers compiled to wasm components, run inside
 angzarr-embedded with no sockets and no supervision. The router and angzarr-ports already build for wasm.
-Language support is the limit: Rust, Go (TinyGo) and C# are workable; Python and Java are not yet.
+Language support is the limit: Rust, Go (TinyGo) and C# are workable; Python and Java are not yet, and
+PyTorch's native libraries rule wasm out for the driving case.
+
+A third option, specific to Python, is embedding the interpreter in-process (PyO3): no sockets and no
+round trip, and PyTorch runs as usual. Its costs: the interpreter's global lock limits parallel handler
+calls, the Python environment has to be packaged with the binary, and a crash in native Python code takes
+angzarr-embedded down with it. The child-process bridge isolates that crash; PyO3 trades the isolation for
+speed.
 
 Until then, the Rust handler interface keeps the same shape as `CommandHandlerService`'s request and
 response, so a remote adapter needs no retrofit.
@@ -140,14 +149,37 @@ Event stores are append-only, and deleting an edition doesn't cover this: erasur
 data across every stream they appear in.
 
 Decided technique: **crypto-shredding.** Personal fields are encrypted with a key per data subject, and
-destroying the key forgets them everywhere at once, without rewriting any stream. Upcasters and
-projections then have to cope with fields that can no longer be decrypted.
+destroying the key forgets them everywhere at once, without rewriting any stream.
+
+Decided shape:
+
+- **An annotation marks personal data.** A field option on the proto, for example
+  `(angzarr.personal) = { subject: "player_id" }`, marks the field as personal and names the field that
+  identifies the data subject (when the subject is the aggregate itself, the stream's root).
+- **The code generator emits a field map, not crypto.** At build time it emits a static table: which fields
+  of which messages are personal, under which subject.
+- **Shared Rust code in angzarr-core does the encryption,** at the store boundary. It encrypts personal
+  fields on the way into the store (events and snapshots) and decrypts them on the way out. Handlers,
+  policies and projectors in every language see plaintext and never hold a key, including handlers in
+  other processes. There is one crypto implementation and one key store.
+
+Open questions for the design:
+
+- **Ciphertext doesn't fit the field's type** (an encrypted `string` isn't a string). The likely answer is
+  an envelope on the stored page: the field is cleared in the payload, and its ciphertext is kept
+  alongside, keyed by field number.
+- **The erased-field marker.** After shredding, a read gets the field's default value plus a marker that it
+  was erased, so upcasters and projectors can tell "erased" from "never set".
+- **Plaintext copies.** Projections and the outbox hold decrypted data; erasure must purge or rebuild them
+  (the `Purge` port and resume by position give a path).
+- **Searching by a personal field** (an email lookup) needs a separate, non-reversible index.
 
 This isn't needed for the proof of concept, but it is hard to retrofit onto data that is already stored,
 so it should land before real personal data does.
 
-Settled by: a decision on where keys live and how a field is marked personal, and a store-suite check that
-a shredded subject's fields are unreadable once the key is destroyed.
+Settled by: a red-reviewed implementation in angzarr-core with the annotation, the generated field map,
+the envelope, and a store-suite check that a shredded subject's fields read back as erased once the key is
+destroyed.
 
 ## Already covered
 
