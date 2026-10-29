@@ -103,6 +103,11 @@ speed.
 Until then, the Rust handler interface keeps the same shape as `CommandHandlerService`'s request and
 response, so a remote adapter needs no retrofit.
 
+First step: a spike that measures the two Python options against each other. angzarr-embedded calls a
+Python policy that runs one PyTorch inference, once in-process through PyO3 and once through the
+child-process bridge. Record the per-call cost, and what happens to angzarr-embedded when the Python side
+crashes or runs out of memory.
+
 Settled by: a red-reviewed remote-handler adapter in angzarr-embedded that runs a handler written in
 another language as a child process, survives that child dying, and passes the same tests as an
 in-process handler.
