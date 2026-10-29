@@ -2780,7 +2780,10 @@ carry the full english text, but the key and the map".
   - A rebuild's applier or batched fold that panics fails the fold like
     one that errs: `FOLD_FAILED` (`FOLD_FAILED_EMITTED` for the command's
     own events) with cause `HANDLER_PANICKED`, the page named when an
-    applier panicked and the batch's range when a batched fold did.
+    applier panicked and the batch's range when a batched fold did. A
+    snapshot loader that panics does the same, naming the snapshot
+    (`sequence`, and the snapshot state's `type_url`); one that errs stays
+    `PERSISTED_EVENT_CORRUPT`.
 - Why: one representation of an error everywhere, that code can branch on
   and any language can render; English on the wire was both a parsing
   temptation and the only thing telling several conditions apart.
