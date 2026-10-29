@@ -2718,7 +2718,8 @@ carry the full english text, but the key and the map".
   `Cause`, its error tests and docs; angzarr-proto's `tests/diagnostics.rs`;
   the site's error recovery, observability, error handling and language
   notes pages, and the snippets that raised English.
-- **Drafter's choices, for the owner to confirm.**
+- **Owner's rulings, 2026-10-28 (all the drafter's choices settled):**
+  the decision as drafted is approved, with these:
   - A typed refusal's wire reason, and so its status message, is
     `COMMAND_REFUSED`, with `ErrorInfo` metadata `refusal_type` naming the
     object's fully-qualified type and the object in the status details:
@@ -2730,10 +2731,18 @@ carry the full english text, but the key and the map".
   - `RefusalResponse` is a oneof; `StoredDeadLetter.details` is deleted
     outright (the structured detail is the payload's `rejection_details`,
     which `payload_view` renders).
-  - The flattening of a wrapped cause (`<name>` and `<name>.<arg>`).
-  - Open: whether the events of the write carry `ContextualCommand.recorded_at`
-    as their `EventMeta.recorded_at` (which stays `max(previous, now)` at
-    persistence, 5.15).
+  - A wrapped cause is flattened as `<name>` and `<name>.<arg>`.
+  - The events of the write carry `ContextualCommand.recorded_at` as their
+    `EventMeta.recorded_at`, which persistence still holds to
+    `max(previous, now)` (5.15).
+- **Owner's clarifications, 2026-10-29:**
+  - In process too, an error's `Display` is its code then its args
+    (` name=value` each, a wrapped cause flattened as on the wire), never
+    English: English comes only from a catalog keyed by the code, where
+    the error is shown.
+  - A store driver's message text stays in the adapter's local log. Only
+    the driver's numeric code travels, as an arg of the adapter's `cause`
+    (`cause.errno` = `10`).
 - Why: one representation of an error everywhere, that code can branch on
   and any language can render; English on the wire was both a parsing
   temptation and the only thing telling several conditions apart.
