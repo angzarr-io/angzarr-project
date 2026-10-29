@@ -151,10 +151,10 @@ mutation-push remote *lefthook:
     mkdir -p "$top/$crate/target"
     exec 9> "$top/$crate/target/.push-tree.lock"
     flock 9
-    # git exports repository-locating variables into a hook; the push tree's
-    # git must not inherit them.
-    scrub=(env)
-    while IFS= read -r var; do scrub+=(-u "$var"); done < <(git rev-parse --local-env-vars)
+    # git exports repository-locating variables (GIT_DIR, ...) into a hook;
+    # with them, a git -C the push tree would act on this checkout instead,
+    # and so would git run by a test there.
+    unset $(git rev-parse --local-env-vars)
     pushed=0
     while read -r local_ref local_sha remote_ref remote_sha; do
         [ -n "${local_sha:-}" ] || continue
@@ -182,13 +182,13 @@ mutation-push remote *lefthook:
             continue
         fi
         # The pushed commit's tree, alone, no hook run for it.
-        if ! "${scrub[@]}" git -C "$tree" rev-parse --git-dir > /dev/null 2>&1; then
+        if ! git -C "$tree" rev-parse --git-dir > /dev/null 2>&1; then
             rm -rf "$tree"
-            "${scrub[@]}" git -C "$top" worktree prune
-            "${scrub[@]}" git -c core.hooksPath=/dev/null -C "$top" worktree add --quiet --detach --no-checkout "$tree" "$local_sha"
+            git -C "$top" worktree prune
+            git -c core.hooksPath=/dev/null -C "$top" worktree add --quiet --detach --no-checkout "$tree" "$local_sha"
         fi
-        "${scrub[@]}" git -c core.hooksPath=/dev/null -C "$tree" checkout --quiet --detach --force "$local_sha"
-        "${scrub[@]}" git -C "$tree" clean -fdq
+        git -c core.hooksPath=/dev/null -C "$tree" checkout --quiet --detach --force "$local_sha"
+        git -C "$tree" clean -fdq
         mkdir -p "$tree/$crate/target"
         git -C "$top" diff --relative="$crate" --no-color --no-ext-diff --no-renames --src-prefix=a/ --dst-prefix=b/ \
             "$base" "$local_sha" -- "$crate/*.rs" > "$tree/$crate/target/push.patch"
