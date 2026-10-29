@@ -72,7 +72,9 @@ angzarr-embedded runs handlers in-process, in Rust. A handler in another languag
 contract for it already exists: a domain's business logic implements `CommandHandlerService` (decision
 14.31), which is a gRPC service.
 
-Expected shape: a remote handler is one more implementation of the handler interface. The kernel keeps
+Decided approach: **gRPC over a local socket.** It lets a handler in any language angzarr supports
+run under angzarr-embedded, with one mechanism for all of them. A remote handler is one more
+implementation of the handler interface. The kernel keeps
 everything it owns (storage, positions, the outbox, router dispatch, the edition lifecycle) and calls out
 only for the decision itself. Nothing else crosses the boundary: no bus, no pipes between runtimes. That
 is what sank the earlier multiprocess local attempt.
@@ -94,6 +96,8 @@ angzarr-embedded with no sockets and no supervision. The router and angzarr-port
 Language support is the limit: Rust, Go (TinyGo) and C# are workable; Python and Java are not yet, and
 PyTorch's native libraries rule wasm out for the driving case.
 
+The alternatives below were considered and are not the approach. Each covers only some languages.
+
 A third option, specific to Python, is embedding the interpreter in-process (PyO3): no sockets and no
 round trip, and PyTorch runs as usual. Its costs: the interpreter's global lock limits parallel handler
 calls, the Python environment has to be packaged with the binary, and a crash in native Python code takes
@@ -103,10 +107,11 @@ speed.
 Until then, the Rust handler interface keeps the same shape as `CommandHandlerService`'s request and
 response, so a remote adapter needs no retrofit.
 
-First step: a spike that measures the two Python options against each other. angzarr-embedded calls a
-Python policy that runs one PyTorch inference, once in-process through PyO3 and once through the
-child-process bridge. Record the per-call cost, and what happens to angzarr-embedded when the Python side
-crashes or runs out of memory.
+First step: a spike that runs one Python policy doing a PyTorch inference as a child process over a
+local socket. Confirm which transports each supported language's gRPC library accepts (a Unix socket
+path, a named pipe, an already-open descriptor). Record the per-call cost, and what happens to
+angzarr-embedded when the child crashes or runs out of memory. Measuring PyO3 alongside is optional, for
+comparison only.
 
 Settled by: a red-reviewed remote-handler adapter in angzarr-embedded that runs a handler written in
 another language as a child process, survives that child dying, and passes the same tests as an
