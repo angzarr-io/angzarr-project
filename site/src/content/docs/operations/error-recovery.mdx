@@ -211,14 +211,15 @@ A target that refuses a saga's command (a business rejection, optionally with a 
 | The translating callback fails | The refusal is dead-lettered and alerted |
 | A retryable failure | The command is retried |
 | Any other terminal failure | The command is dead-lettered and alerted: a bug |
+| A saga's command names no root, whatever its target | Refused `INTERNAL`, `POLICY_COMMAND_NO_ROOT` (with `domain` and `command_type`); dead-lettered and alerted, never delivered |
+| A saga's command carries a correlation other than its trigger's | Refused `INTERNAL`, `POLICY_COMMAND_OTHER_CORRELATION`; dead-lettered and alerted, never delivered |
 
 ## Process Manager Failures
 
-A process manager is a domain, so its failures are an aggregate's: a refused command records nothing and the sender gets the rejection; a failing fact handler is a bug (the fact is dead-lettered and alerted, a waiting sender answered `PARKED`). Two rules are its own:
+A process manager is a domain, so its failures are an aggregate's: a refused command records nothing and the sender gets the rejection; a failing fact handler is a bug (the fact is dead-lettered and alerted, a waiting sender answered `PARKED`). An input whose `correlation_id` differs from its root is delivered to that root (decision 14.36). Its start rule is its own:
 
 | What happened | What the coordinator does | What the sender sees |
 |---------------|---------------------------|----------------------|
-| A command or fact names an instance its `correlation_id` disagrees with | Refuses it before the handler runs | `INVALID_ARGUMENT` (a saga's is dead-lettered and alerted) |
 | A non-starting fact for a correlation with no instance | Skips it; nothing is recorded, dead-lettered or alerted | `APPLIED` with no events |
 | A non-starting command for a correlation with no instance | Refuses it, recording nothing | `FAILED_PRECONDITION`, `PM_NO_INSTANCE` |
 

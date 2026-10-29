@@ -109,7 +109,7 @@ Process managers use the **correlation ID** as their aggregate root:
 ```protobuf file=proto/io/angzarr/v1/types.proto region=cover
 ```
 
-By default, the PM instance's root **is** the workflow's correlation ID, unchanged. A command or fact addressed to a PM names its instance: its cover is the PM's domain with the instance's root. A saga that tells a PM about an event addresses the instance that event's correlation names, unless it implements the command's `root_<Command>` callback to name another root (a uniqueness PM keyed by username, say). Either way the command carries the event's correlation ID unchanged (decision 14.36). All events in a workflow share the same correlation ID, allowing the PM to:
+A command or fact addressed to a PM names its instance: its cover is the PM's domain with the instance's root. A saga always names its command's root, for a PM as for an aggregate: by convention the event's correlation ID, unchanged, or another root (a uniqueness PM keyed by username, say). Either way the command carries the event's correlation ID unchanged (decision 14.36). All events in a workflow share the same correlation ID, allowing the PM to:
 - Hear, through sagas, what happened in several domains
 - Maintain workflow state across its inputs
 - Track progress through the state machine

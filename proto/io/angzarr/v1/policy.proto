@@ -207,16 +207,15 @@ message PolicyResponse {
   // refused the same way, as is a Fact or a fact_origin (a policy's business
   // code never emits a Fact; its refusal facts come from OnRefused;
   // PolicyService, Refusals). Every command carries its trigger's
-  // correlation_id unchanged, whatever its target. A command for an
-  // aggregate must name the aggregate's root: an unset one is a policy bug,
-  // refused the same way. A command for a process manager names the
-  // instance's root only when the policy implements that command's
-  // root_<Command> callback (opt-in by writing it; decision 14.36;
-  // process_manager.proto, Stream); otherwise its cover's root is left
-  // UNSET, which means the default, and framework coordinator code shared
-  // from angzarr-core (called by core's coordinator, or by
-  // angzarr-embedded's kernel standing in for it) fills in the trigger's
-  // correlation_id before delivery. A command whose cover names a
+  // correlation_id unchanged, whatever its target: one carrying another is
+  // a policy bug, refused INTERNAL with google.rpc.ErrorInfo reason
+  // POLICY_COMMAND_OTHER_CORRELATION. Every command names its root
+  // (cover.root), for every target, an aggregate's or a process manager's
+  // alike: nothing fills in a root, and the router never knows the
+  // target's kind. One with no root is a policy bug, refused INTERNAL with
+  // reason POLICY_COMMAND_NO_ROOT (metadata domain and command_type).
+  // Both are dead-lettered and alerted, never delivered (decision 14.36,
+  // as amended). A command whose cover names a
   // domain other than the policy's one destination
   // (ComponentOptions.output_domain) is a policy bug refused by the client
   // library before it answers: PolicyService.Handle fails INTERNAL with no

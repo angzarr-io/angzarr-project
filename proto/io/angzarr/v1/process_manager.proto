@@ -57,30 +57,23 @@ option ruby_package = "Angzarr";
 // root): domain is the one the PM owns (ComponentOptions.domain), the
 // edition is the input's cover's (a policy's command carries its trigger's
 // edition; see Cover.edition), and the root is the one the input's cover
-// names. By DEFAULT the root is a correlation_id, unchanged (decision
-// 14.30, as amended by 14.31 and 14.36): no derivation (no hash, no
-// UUIDv5) and no text fallback, since a correlation_id is always a 16-byte
-// UUID (decision 9.1) and so a valid root as it stands.
-//   - A policy addressing a PM names the instance whose root is its
-//     trigger's correlation_id, unless it implements the command's root
-//     callback (root_<Command>, opt-in by writing it, as translate is; the
-//     scaffold generates none), which names another root: a uniqueness PM
-//     keyed by username, say, or one "name-identities" instance. Either
-//     way the command carries its trigger's correlation_id unchanged
-//     (decision 14.36). A policy that names no root leaves the cover's
-//     root UNSET; the framework (coordinator code shared from
-//     angzarr-core, called by core's coordinator or by angzarr-embedded's
-//     kernel standing in for it) fills in the trigger's correlation_id
-//     before delivery. An unset root on a policy's command to a PM is this
-//     default, never malformed.
+// names. A policy addressing a PM names that root, as it does for any
+// target (decision 14.36, as amended): nothing fills one in, and a policy
+// command with no root is a policy bug (POLICY_COMMAND_NO_ROOT;
+// PolicyResponse.commands in policy.proto). By convention a policy may set
+// it to its trigger's correlation_id, unchanged (decision 14.30): no
+// derivation (no hash, no UUIDv5) and no text fallback, since a
+// correlation_id is always a 16-byte UUID (decision 9.1) and so a valid
+// root as it stands. Or it names another root: a uniqueness PM keyed by
+// username, say, or one "name-identities" instance. Either way the command
+// carries its trigger's correlation_id unchanged.
 //   - A correlation_id that differs from the cover's root is NOT
 //     malformed: the input is delivered to the root its cover names and
 //     keeps its correlation. One left unset is given its cover's root.
 //   - One instance may therefore take inputs of several correlations; its
 //     events carry each input's correlation, like any domain's.
-// Beyond filling that default root, a PM's coordinator applies no root
-// rule of its own: the start rule below is the only rule it adds to an
-// aggregate's.
+// A PM's coordinator applies no root rule of its own: the start rule below
+// is the only rule it adds to an aggregate's.
 //
 // Starting an instance (ruling B1, adapted; decision 14.31). A PM instance
 // exists once its stream holds an event (in the input's edition, as read
@@ -122,7 +115,7 @@ option ruby_package = "Angzarr";
 // bug too: the command is dead-lettered and alerted. The client library
 // gives every PM handler one context type, carrying the input's identity
 // (its command_id, its fact_origin for a fact, its correlation_id, and the
-// instance's root, the correlation by default), which is exactly the cause
+// instance's root), which is exactly the cause
 // the coordinator stamps on
 // the events the handler writes.
 //

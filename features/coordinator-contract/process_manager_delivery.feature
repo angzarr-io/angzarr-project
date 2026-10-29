@@ -2,8 +2,8 @@ Feature: Process manager delivery - a process manager is a domain, behind its ow
   A process manager is one component, served by its own business process
   behind its own coordinator, exactly as an aggregate is (decision 14.31).
   Its inputs are commands, which it may refuse, and facts, which it never
-  refuses; its root is, by default, the instance's correlation (a policy
-  may name another, decision 14.36). It subscribes to no
+  refuses; its root is the one its input names (by convention the
+  instance's correlation; decision 14.36). It subscribes to no
   domain: policies turn other domains' events into commands to it. It records
   only its own events and sends no commands. The correlation ids below are
   UUIDs, as in every scenario (decision 14.18).
@@ -118,9 +118,9 @@ Feature: Process manager delivery - a process manager is a domain, behind its ow
 
   @process_manager @pm_policy_in
   @C-0601
-  Scenario: A policy's command reaches the instance its trigger's correlation names
+  Scenario: A policy's command whose root is its trigger's correlation reaches that instance
     Given a process manager "Fulfillment" owning domain "fulfillment" whose StartFulfillment command is a starting input
-    And a policy "OrderToFulfillment" translating from "order" to "fulfillment" that builds StartFulfillment from OrderPlaced
+    And a policy "OrderToFulfillment" translating from "order" to "fulfillment" that builds StartFulfillment from OrderPlaced, setting its root to the trigger's correlation
     When an OrderPlaced event with correlation "0192a6b0-0000-7000-8000-000000000019" is recorded for order "order-1"
     Then "Fulfillment" handles StartFulfillment on stream "fulfillment" root "0192a6b0-0000-7000-8000-000000000019"
     And the events record the command's derived command_id as their causation

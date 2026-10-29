@@ -1820,7 +1820,7 @@ ruling, 2026-10-20 (from core's report).
 
 > **Amended by 14.31 (pass 14):** a process manager has no trigger; its root is the correlation of the commands and facts addressed to it (their cover root, which a set `correlation_id` must equal), and its edition theirs. A saga's command takes its trigger's correlation, so the rule reaches the same instance.
 
-> **Amended by 14.36 (pass 14):** the correlation is now the DEFAULT root. A policy may name a PM instance's root (by implementing its root callback); the command still carries its trigger's correlation, and a `correlation_id` that differs from the cover's root is no longer malformed.
+> **Amended by 14.36 (pass 14, as amended):** the root is no longer the correlation by rule. A policy always names its command's root, for a PM as for an aggregate; "root = correlation" is a convention it may follow. The command still carries its trigger's correlation, and a `correlation_id` that differs from the cover's root is no longer malformed.
 
 **14.30 A process manager's root is its trigger's correlation id.** A
 PM instance's stream is (the PM's domain, the trigger's edition, the
@@ -1847,7 +1847,7 @@ correlation is a 16-byte `UUID` since 9.1. Owner ruling, 2026-10-27.
   <https://masstransit.massient.com/documentation/patterns/saga>, where
   masstransit.io's saga documentation now redirects).
 
-> **Amended by 14.36 (pass 14):** "The root is the correlation" below is the default only: a policy may name a PM instance's root, keeping its trigger's correlation; a set `correlation_id` other than the cover's root is no longer malformed, so the start rule is the only rule a PM's coordinator adds to an aggregate's.
+> **Amended by 14.36 (pass 14, as amended):** "The root is the correlation" below is a convention only: a policy always names a PM command's root, keeping its trigger's correlation; a set `correlation_id` other than the cover's root is no longer malformed, so the start rule is the only rule a PM's coordinator adds to an aggregate's.
 
 **14.31 A process manager is a domain.** Owner rulings of 2026-10-27
 (ruling 7 of the angzarr/annals common plan) and 2026-10-28 (rulings 7 and
@@ -1872,7 +1872,8 @@ and 14.30.
   comment that says what sets a PM apart: its root and its start rule.
   Its `(command)` entries are declared like an aggregate's, and `Handling`
   applies to its commands as to any domain's.
-- **The root is the correlation (14.30 amended; by default only, 14.36).**
+- **The root is the correlation (14.30 amended; a convention only, 14.36
+  as amended).**
   A PM instance's root is its correlation id, unchanged. A command or fact addressed to a PM names
   the instance in its cover; a `correlation_id` left unset is given the
   root, and one set to anything else is malformed. A saga addressing a PM
@@ -2180,7 +2181,7 @@ and 14.30.
   The IDDD, Akka and EventFlow alignment is the survey's reading, not
   re-verified for this entry.
 
-> **Amended by 14.36 (pass 14):** a fork is at the sequence its `EditionCreated.parent_sequence` states, at or below main's head for that stream (above it is a conflict), with no implicit "head at write time" rule. On arrival the system layer records the head it read; an origin `ForkStream` may state a sequence. The fork point is per stream; no cross-stream snapshot is promised.
+> **Amended by 14.36 (pass 14):** a fork is at the sequence its `EditionCreated.parent_sequence` states, at or below main's head for that stream (above it is a conflict), with no implicit "head at write time" rule. On arrival the system layer records the head it read; an origin `ForkStream` states its sequence. The fork point is per stream; no cross-stream snapshot is promised.
 
 **14.32 Editions are per-stream forks.** Owner rulings, 2026-10-28 (plan
 ruling 14, and the rulings on its first draft). Supersedes 6.5's
@@ -2469,29 +2470,12 @@ says.** Owner rulings, 2026-10-28. Amends 14.30, 14.31 and 14.32.
   any target, carries its trigger's `correlation_id` unchanged.
 - **An aggregate target:** the policy names the aggregate's root, as
   before.
-- **A process manager target: naming the root is optional.** A policy that
-  does not name it addresses the PM instance whose root is the trigger's
-  correlation id (14.30's rule, now the default). A policy that names it
-  addresses the instance with that root: for example, a uniqueness PM keyed
-  by username (a root derived from the name), or a single
-  `name-identities` instance. The command still carries the trigger's
-  correlation, not the named root.
-- **Opt-in by writing the implementation.** As with translate's callback
-  (14.31), the code that names the root is the switch, with no flag and no
-  proto option: a policy names a PM instance's root for a command by
-  implementing that command's root callback, `root_<Command>(event) ->
-  UUID` (the owner approved the name). angzarr-cli's scaffold does not
-  generate one.
-- **The framework fills the default root** (the owner: "coordinator (or
-  coordinator stand in in embedded) fill it. this is pure angzarr
-  codebase"). A policy that names no root leaves the cover's root UNSET on
-  the wire; framework coordinator code shared from angzarr-core fills in
-  the trigger's correlation before the command is delivered, called by
-  core's coordinator and by angzarr-embedded's kernel standing in for
-  it. An unset root on a `PolicyResponse` command to a PM therefore
-  means "the default", not malformed. To an aggregate the policy must
-  still name the root: an unset one there stays malformed (a policy bug,
-  dead-lettered and alerted).
+- **A process manager target: naming the root was optional (superseded
+  by the amendment below).** As first ruled, a policy could leave a PM
+  command's root for the framework to fill with the trigger's
+  correlation, or name another by an opt-in callback. The amendment below
+  withdraws the optional root, the callback and the default: a policy
+  always names the root, for every target.
 - **What changes in 14.30 and 14.31.** A PM instance's root is no longer
   always its correlation: one instance may take inputs of several
   correlations, and its events carry each input's correlation, as any
@@ -2503,8 +2487,8 @@ says.** Owner rulings, 2026-10-28. Amends 14.30, 14.31 and 14.32.
   14.31's "the one
   pipeline rule a PM's coordinator adds to an aggregate's" is gone; the
   start rule (B1) is now the only thing a PM's coordinator adds. 14.30's
-  cost, one instance per correlation, holds only for policies that do not
-  name a root. Scenario C-0598 is retired.
+  cost, one instance per correlation, no longer holds. Scenario C-0598 is
+  retired.
 - **Where the shared framework code lives (14.32's second amendment
   amended; owner ruling).** The angzarr system layer (`angzarr-system`,
   the edition lifecycle) and the other shared coordinator crates live in
@@ -2566,6 +2550,40 @@ says.** Owner rulings, 2026-10-28. Amends 14.30, 14.31 and 14.32.
   correlated to an instance by a property other than the `CorrelationId`
   (`CorrelateBy`; knowledge, not re-verified); and with copy-on-write
   branching at a stated parent version.
+
+> **Amended (the owner's rulings, 2026-10-28, after reviewing the
+> router's tests): a policy always names the root.** In the owner's words:
+> "don't differentiate process managers"; "do we need the root callback
+> period, or is it unnecessary complexity? the policy is going to always
+> have access to set the root"; and, of the default, "Drop it: a policy
+> always sets the root". It supersedes 14.36's optional PM root, its
+> `root_<Command>` callback and its framework-filled default. The fork
+> rules above are unchanged.
+> - **A policy names its command's root (`cover.root`) for EVERY target,**
+>   aggregate or process manager alike. There is no kind-specific rule:
+>   the router never knows the target's kind. A policy command with no
+>   root is a policy bug for every target: refused `INTERNAL` with
+>   `ErrorInfo` reason `POLICY_COMMAND_NO_ROOT` (extras `domain` and
+>   `command_type`), dead-lettered and alerted, never delivered.
+> - **No root callback and no default root.** Nothing fills in a root: the
+>   trigger's correlation is no longer given to a PM command as its root.
+>   14.30's "the root is the correlation" is a convention a policy may
+>   follow by writing it (setting the root to its trigger's correlation).
+>   C-0657 becomes the one any-target scenario (C-0665 is merged into it
+>   and retired); C-0664 is retired. C-0658, C-0659 and C-0660 have the
+>   policy set the root directly; C-0601 has its policy set the root to its
+>   trigger's correlation. C-0666 pins `POLICY_COMMAND_OTHER_CORRELATION`.
+> - **Kept:** every command or fact a policy sends carries its trigger's
+>   correlation unchanged, and one carrying another correlation is a
+>   policy bug, refused `INTERNAL` with reason
+>   `POLICY_COMMAND_OTHER_CORRELATION`, dead-lettered and alerted. A PM
+>   input whose correlation differs from its root is admitted (the
+>   correlation-equals-root rule stays withdrawn). An unset correlation on
+>   a PM input is still given its cover's root (14.31).
+> - Why: one rule for every target, and none the router must tell apart
+>   by kind; the policy already builds the command from its event, so
+>   naming the root is no extra burden, and a callback and a default were
+>   two ways to say what the policy can write directly.
 
 ## Corrections
 

@@ -166,11 +166,10 @@ message Cover {
   string domain = 2; // Domain name; never contains ':' (the root-derivation separator)
   // The stream's root: caller-chosen (any 16 bytes), derived by
   // compute_root (UUIDv5; see the derived_ids region) or minted (UUIDv7).
-  // A process manager's stream is the exception only by default: its root
-  // is a correlation_id, unchanged, unless the policy addressing it names
-  // another root (process_manager.proto, Stream; decisions 14.30 and
-  // 14.36). A command or fact addressed to it names that root, whatever
-  // its correlation_id.
+  // A process manager's stream is no exception: a command or fact
+  // addressed to it names its root, whatever its correlation_id; by
+  // convention a policy may set it to its trigger's correlation_id
+  // (process_manager.proto, Stream; decisions 14.30 and 14.36).
   UUID root = 1;
   // Edition: the NAME of the timeline the stream belongs to.
   //
@@ -477,10 +476,9 @@ message EventRef {
 // unchanged, so correlation traces the causal chain (decision 14.36). A
 // command or Fact addressed to a process manager's stream with no
 // correlation_id is given its cover's root; a set one is kept, whatever
-// the root. A policy's command to a PM whose cover root is unset is given
-// its trigger's correlation_id as its root by the coordinator, the
-// default instance; a policy may name another root instead
-// (process_manager.proto, Stream). A process
+// the root. Nothing fills in a root: a policy names its command's root
+// for every target, and an unset one is a policy bug
+// (POLICY_COMMAND_NO_ROOT; PolicyResponse.commands). A process
 // manager's events carry their command's or fact's correlation, like any
 // domain's.
 // Correlation is never unset on a persisted event, and the framework never
@@ -936,6 +934,11 @@ message Projection {
 //   - a conflict_resolution the component's state does not support;
 //   - any Handling field on a Fact (see below);
 //   - any Handling field on a reaction command (see below);
+//   - a policy's command with no cover root, whatever its target (INTERNAL,
+//     google.rpc.ErrorInfo reason POLICY_COMMAND_NO_ROOT, metadata domain
+//     and command_type; decision 14.36, as amended);
+//   - a policy's command carrying a correlation_id other than its trigger
+//     page's (INTERNAL, reason POLICY_COMMAND_OTHER_CORRELATION);
 //   - a Fact with causation_id addressed to any stream but the one its
 //     causation_id names (domain, root and edition: a policy's refusal fact
 //     goes only to the stream of its triggering event);
