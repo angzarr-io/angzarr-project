@@ -3,8 +3,8 @@
 What angzarr doesn't have yet, why each one matters, and the shape we expect it to take. Each entry ends
 with what would settle it.
 
-Order: **timers come first, then forgetting personal data.** Set-based validation and outbound side
-effects are not yet scheduled.
+Order: **timers first, then handlers in other processes, then forgetting personal data.** Set-based
+validation and outbound side effects are not yet scheduled.
 
 ## Why there is no saga primitive
 
@@ -62,6 +62,42 @@ Settled by: a red-reviewed scheduler component in angzarr-embedded that delivers
 restart, and delivers each fact exactly once, together with a decision on how the distributed system runs
 the same component.
 
+## Handlers in other processes (second)
+
+*An aggregate, process manager or policy written in Go or Python, hosted by angzarr-embedded.*
+
+angzarr-embedded runs handlers in-process, in Rust. A handler in another language needs a bridge. The
+contract for it already exists: a domain's business logic implements `CommandHandlerService` (decision
+14.31), which is a gRPC service.
+
+Expected shape: a remote handler is one more implementation of the handler interface. The kernel keeps
+everything it owns (storage, positions, the outbox, router dispatch, the edition lifecycle) and calls out
+only for the decision itself. Nothing else crosses the boundary: no bus, no pipes between runtimes. That
+is what sank the earlier multiprocess local attempt.
+
+The model is HashiCorp's go-plugin (Terraform providers, Vault and Packer plugins):
+
+- angzarr-embedded launches the handler as a child process;
+- the child prints a one-line handshake on stdout naming its socket;
+- from then on the two talk gRPC over a Unix domain socket, or a named pipe on Windows. A socket pair
+  handed to the child works too, where the handler's gRPC library accepts an open descriptor;
+- angzarr-embedded supervises the child. An unreachable handler is a retryable failure, which resume by
+  position already handles.
+
+The cost is one local round trip per handler call (microseconds over a Unix socket, against nanoseconds
+in-process), plus supervising the child process.
+
+The in-process alternative is WebAssembly: handlers compiled to wasm components, run inside
+angzarr-embedded with no sockets and no supervision. The router and angzarr-ports already build for wasm.
+Language support is the limit: Rust, Go (TinyGo) and C# are workable; Python and Java are not yet.
+
+Until then, the Rust handler interface keeps the same shape as `CommandHandlerService`'s request and
+response, so a remote adapter needs no retrofit.
+
+Settled by: a red-reviewed remote-handler adapter in angzarr-embedded that runs a handler written in
+another language as a child process, survives that child dying, and passes the same tests as an
+in-process handler.
+
 ## Set-based validation
 
 *"Usernames are unique." "A player holds at most one active seat."*
@@ -96,7 +132,7 @@ so a retry stays idempotent. The external system's answer comes back in as a fac
 Settled by: a guide page and one example that sends and retries an external call without sending it twice,
 plus a decision on whether this needs a named component.
 
-## Forgetting personal data (second)
+## Forgetting personal data (third)
 
 *A GDPR erasure request.*
 
