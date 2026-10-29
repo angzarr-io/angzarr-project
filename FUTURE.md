@@ -66,6 +66,15 @@ the same component.
 
 *An aggregate, process manager or policy written in Go or Python, hosted by angzarr-embedded.*
 
+**Status:** the first slice is built, for an aggregate in Python.
+- angzarr-embedded's `angzarr-embedded-host` crate: the config, launch, handshake, Unix-socket gRPC, supervision, and
+  `RemoteCommandHandler` as a router `CommandHandler`.
+- client-python's `angzarr_client.child`.
+- `angzarr scaffold python` and `angzarr scaffold startup` in the CLI.
+- A blackjack app scaffolded by the CLI plays a hand between a Rust table and a Python player bot.
+
+Still open: remote policies and process managers, Go, and the items below.
+
 The driving case is **Python, for PyTorch**: game engines on angzarr-embedded whose AI runs on PyTorch.
 
 angzarr-embedded runs handlers in-process, in Rust. A handler in another language needs a bridge. The
