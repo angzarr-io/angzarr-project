@@ -122,3 +122,88 @@ contracts: proto-lint test-check-feature-ids check-feature-ids check-gherkin che
 # Unit tests for the scenario-ID checker
 test-check-feature-ids:
     python3 -m unittest scripts/test_check_feature_ids.py
+
+# lefthook's pre-push step, given the remote's name and git's pushed refs on
+# stdin: mutation-test what each pushed ref changes in rust/angzarr-ports
+# (`mutation-diff` there, judged by its MUTATION_THRESHOLD), in that commit's
+# tree checked out alone (rust/angzarr-ports/target/push-tree), so an
+# unpushed edit cannot pass or fail it. The diff's base is the merge base of
+# the commit pushed and the remote's current tip of that ref (a fast-forward's
+# base is that tip); for a new ref, or a tip not fetched here, the merge base
+# with the remote's default branch (<remote>/HEAD, else main). A deleted ref,
+# and a ref that changes no Rust there, pass at once. rust/angzarr-proto is
+# generated code (build.rs), not mutated.
+#
+# Red tests (cargo-mutants' baseline fails, exit 4) cannot be judged: pushed
+# to a branch other than the default one they pass, with a warning that the
+# branch cannot merge until they pass; pushed to the default branch they are
+# refused. `lefthook` is what lefthook.yml passes to stop lefthook skipping
+# it, and is ignored.
+[positional-arguments]
+mutation-push remote *lefthook:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    top='{{justfile_directory()}}'
+    crate=rust/angzarr-ports
+    remote=$1
+    default=$(git -C "$top" symbolic-ref --quiet --short "refs/remotes/$remote/HEAD" 2>/dev/null) && default=${default#"$remote"/} || default=main
+    tree="$top/$crate/target/push-tree"
+    mkdir -p "$top/$crate/target"
+    exec 9> "$top/$crate/target/.push-tree.lock"
+    flock 9
+    # git exports repository-locating variables into a hook; the push tree's
+    # git must not inherit them.
+    scrub=(env)
+    while IFS= read -r var; do scrub+=(-u "$var"); done < <(git rev-parse --local-env-vars)
+    pushed=0
+    while read -r local_ref local_sha remote_ref remote_sha; do
+        [ -n "${local_sha:-}" ] || continue
+        [ "${local_sha//0/}" = "" ] && continue  # a deletion
+        pushed=1
+        target=${remote_ref#refs/heads/}
+        base=
+        if [ -n "${remote_sha//0/}" ] && git -C "$top" cat-file -e "$remote_sha^{commit}" 2>/dev/null; then
+            base=$(git -C "$top" merge-base "$remote_sha" "$local_sha") || base=
+        fi
+        if [ -z "$base" ]; then
+            for ref in "refs/remotes/$remote/$default" "refs/heads/$default"; do
+                if git -C "$top" rev-parse --verify --quiet "$ref^{commit}" > /dev/null; then
+                    base=$(git -C "$top" merge-base "$ref" "$local_sha") && break
+                fi
+            done
+        fi
+        if [ -z "$base" ]; then
+            echo "FAIL mutation-push: $local_ref shares no history with $remote's tip or with $default" >&2
+            exit 1
+        fi
+        range="$(git -C "$top" rev-parse --short "$base")..$(git -C "$top" rev-parse --short "$local_sha") to $remote/$target"
+        if [ -z "$(git -C "$top" diff --name-only "$base" "$local_sha" -- "$crate/*.rs")" ]; then
+            echo "ok   mutation-push ($range: no mutants, the push changes no Rust in $crate)"
+            continue
+        fi
+        # The pushed commit's tree, alone, no hook run for it.
+        if ! "${scrub[@]}" git -C "$tree" rev-parse --git-dir > /dev/null 2>&1; then
+            rm -rf "$tree"
+            "${scrub[@]}" git -C "$top" worktree prune
+            "${scrub[@]}" git -c core.hooksPath=/dev/null -C "$top" worktree add --quiet --detach --no-checkout "$tree" "$local_sha"
+        fi
+        "${scrub[@]}" git -c core.hooksPath=/dev/null -C "$tree" checkout --quiet --detach --force "$local_sha"
+        "${scrub[@]}" git -C "$tree" clean -fdq
+        mkdir -p "$tree/$crate/target"
+        git -C "$top" diff --relative="$crate" --no-color --no-ext-diff --no-renames --src-prefix=a/ --dst-prefix=b/ \
+            "$base" "$local_sha" -- "$crate/*.rs" > "$tree/$crate/target/push.patch"
+        rc=0
+        CARGO_TARGET_DIR="$top/$crate/target/push" just --justfile "$tree/$crate/justfile" mutation-diff target/push.patch 9>&- || rc=$?
+        case "$rc" in
+            0) ;;
+            4)
+                if [ "$remote_ref" != "refs/heads/$default" ]; then
+                    echo "RED  mutation-push: $range not judged, the tests are red; allowed off $default, which $target cannot merge into until they pass"
+                else
+                    echo "FAIL mutation-push: $range: red tests cannot be pushed to $remote/$target" >&2
+                    exit 1
+                fi ;;
+            *) exit "$rc" ;;
+        esac
+    done
+    [ "$pushed" = 1 ] || echo "ok   mutation-push (no commit pushed: nothing to mutate)"
