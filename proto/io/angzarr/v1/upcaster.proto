@@ -34,7 +34,7 @@ option ruby_package = "Angzarr";
 // payload, and to a fact's, before dispatch (inside
 // CommandHandlerService.Handle; no RPC round trip, and the coordinator,
 // being domain-blind, never upcasts). A payload whose type URL, after
-// upcasting, reaches no handler is refused INVALID_ARGUMENT with reason
+// upcasting, reaches no handler is refused INTERNAL (a bug: decision 14.37) with reason
 // UNKNOWN_COMMAND_TYPE (NO_FACT_HANDLER for a fact), which is also the
 // status message (decision 14.37), and the status details carry a
 // google.rpc.ErrorInfo whose metadata keys "type_url" and "upcast_type_url"

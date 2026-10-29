@@ -30,7 +30,7 @@ service CommandHandlerService {
   //   1. the payload is upcast through the library's upcaster chain, by
   //      type URL (see upcaster.proto), for a Command and a Fact alike. A
   //      type URL that, after upcasting, reaches no registered handler is
-  //      refused INVALID_ARGUMENT with reason UNKNOWN_COMMAND_TYPE
+  //      refused INTERNAL (a bug: decision 14.37) with reason UNKNOWN_COMMAND_TYPE
   //      (NO_FACT_HANDLER for a fact), which is also the status message
   //      (decision 14.37: a key, never text); the status details carry a
   //      google.rpc.ErrorInfo whose metadata key "type_url" holds the type

@@ -1052,7 +1052,7 @@ message Handling {
 // library's upcaster chain has brought an old payload type up to the
 // current one (see upcaster.proto); Command and Fact payloads alike are
 // upcast. A payload whose type URL, after upcasting, reaches no handler is
-// refused INVALID_ARGUMENT with reason UNKNOWN_COMMAND_TYPE
+// refused INTERNAL (a bug: decision 14.37) with reason UNKNOWN_COMMAND_TYPE
 // (NO_FACT_HANDLER for a fact), which is also the status message (decision
 // 14.37: a key, never text), and the status details carry a
 // google.rpc.ErrorInfo whose metadata key "type_url" holds the type URL as

@@ -135,7 +135,7 @@ Feature: Handling a delivered command - versions, upcasting and conflicts
   @C-0539
   Scenario: A type that upcasts to something no handler claims is refused naming both types
     When AddLine "apple" is handled over no prior events
-    Then the command is refused INVALID_ARGUMENT with reason UNKNOWN_COMMAND_TYPE, which is also its status message
+    Then the command is refused INTERNAL with reason UNKNOWN_COMMAND_TYPE, which is also its status message
     And the refusal's error info carries type_url "/orders.v1.AddLine"
     And the refusal's error info carries upcast_type_url "/orders.v1.AddLineItem"
     And business code is not invoked
@@ -144,7 +144,7 @@ Feature: Handling a delivered command - versions, upcasting and conflicts
   @C-0540
   Scenario: A type with no handler and no upcaster is refused naming the type as sent
     When RemoveEverything "apple" is handled over no prior events
-    Then the command is refused INVALID_ARGUMENT with reason UNKNOWN_COMMAND_TYPE, which is also its status message
+    Then the command is refused INTERNAL with reason UNKNOWN_COMMAND_TYPE, which is also its status message
     And the refusal's error info carries type_url "/orders.v1.RemoveEverything"
     And the refusal's error info carries upcast_type_url "/orders.v1.RemoveEverything"
     And business code is not invoked
@@ -287,13 +287,13 @@ Feature: Handling a delivered command - versions, upcasting and conflicts
       | condition                                                                         | status           | reason                             | metadata                                          |
       | the state fold fails on a persisted event at sequence 3                           | INTERNAL         | FOLD_FAILED                        | sequence "3" and state_type_url                   |
       | the state fold fails on an event the command emitted at sequence 4                | INTERNAL         | FOLD_FAILED_EMITTED                | sequence "4" and state_type_url                   |
-      | a command of type "/orders.v1.Unknown" arrives                                    | INVALID_ARGUMENT | UNKNOWN_COMMAND_TYPE               | type_url and upcast_type_url "/orders.v1.Unknown" |
-      | a fact of type "/orders.v1.Unheard" arrives                                       | INVALID_ARGUMENT | NO_FACT_HANDLER                    | type_url and upcast_type_url "/orders.v1.Unheard" |
-      | a CommandRefused for RemoveEverything arrives with no on_refused_RemoveEverything | INVALID_ARGUMENT | NO_REFUSAL_HANDLER                 | command_type "/orders.v1.RemoveEverything"        |
+      | a command of type "/orders.v1.Unknown" arrives                                    | INTERNAL         | UNKNOWN_COMMAND_TYPE               | type_url and upcast_type_url "/orders.v1.Unknown" |
+      | a fact of type "/orders.v1.Unheard" arrives                                       | INTERNAL         | NO_FACT_HANDLER                    | type_url and upcast_type_url "/orders.v1.Unheard" |
+      | a CommandRefused for RemoveEverything arrives with no on_refused_RemoveEverything | INTERNAL         | NO_REFUSAL_HANDLER                 | command_type "/orders.v1.RemoveEverything"        |
       | a policy is dispatched to the business process hosting the "order" aggregate      | UNIMPLEMENTED    | NO_COMPONENT_OF_KIND               | no other metadata                                 |
       | a policy consuming "order" is given a book of domain "inventory"                  | UNIMPLEMENTED    | POLICY_SOURCE_OUTSIDE_INPUT_DOMAIN | domain "inventory" and expected_domain "order"    |
-      | the router is built with two components                                           | INVALID_ARGUMENT | DUPLICATE_COMPONENT                | component "order" and component_kind "AGGREGATE"  |
-      | the router is built with two upcaster chains                                      | INVALID_ARGUMENT | DUPLICATE_UPCASTER_CHAIN           | component "order" and component_kind "AGGREGATE"  |
+      | the router is built with two components                                           | INTERNAL         | DUPLICATE_COMPONENT                | component "order" and component_kind "AGGREGATE"  |
+      | the router is built with two upcaster chains                                      | INTERNAL         | DUPLICATE_UPCASTER_CHAIN           | component "order" and component_kind "AGGREGATE"  |
       | a policy's OnRefused answer holds no fact                                         | INTERNAL         | REFUSAL_FACT_MISSING               | no other metadata                                 |
       | a policy's refusal fact sets its own cover or handling                            | INTERNAL         | REFUSAL_FACT_ADDRESSED             | no other metadata                                 |
       | a policy's refusal fact has no page                                               | INTERNAL         | REFUSAL_FACT_NO_PAGE               | no other metadata                                 |
@@ -302,9 +302,9 @@ Feature: Handling a delivered command - versions, upcasting and conflicts
       | a refusal to address names no refused command                                     | INTERNAL         | REFUSAL_WITHOUT_REFUSED_COMMAND    | no other metadata                                 |
       | a refusal to address names a refused command with no command_id                   | INTERNAL         | REFUSED_COMMAND_WITHOUT_ID         | no other metadata                                 |
       | a refusal to address names no triggering stream                                   | INTERNAL         | REFUSAL_WITHOUT_TRIGGER_STREAM     | no other metadata                                 |
-      | a policy is given a Refusal with no command                                       | INVALID_ARGUMENT | REFUSAL_WITHOUT_COMMAND            | no other metadata                                 |
-      | a policy is given a Refusal with no event                                         | INVALID_ARGUMENT | REFUSAL_WITHOUT_EVENT              | no other metadata                                 |
-      | the host gives the router bytes that are no ContextualCommand                     | INVALID_ARGUMENT | ANY_DECODE_FAILED                  | message_type "io.angzarr.v1.ContextualCommand"    |
+      | a policy is given a Refusal with no command                                       | INTERNAL         | REFUSAL_WITHOUT_COMMAND            | no other metadata                                 |
+      | a policy is given a Refusal with no event                                         | INTERNAL         | REFUSAL_WITHOUT_EVENT              | no other metadata                                 |
+      | the host gives the router bytes that are no ContextualCommand                     | INTERNAL         | ANY_DECODE_FAILED                  | message_type "io.angzarr.v1.ContextualCommand"    |
 
   # ===========================================================================
   # When the input was accepted (decision 14.37)

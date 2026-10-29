@@ -2661,8 +2661,10 @@ carry the full english text, but the key and the map".
   | none (empty code; router-ffi) | a host callback's status bytes do not decode | `HOST_STATUS_UNDECODABLE` |
   | none (router-ffi) | a null pointer crosses the C ABI | `NULL_ABI_POINTER` (`argument`) |
 
-  `MALFORMED_REFUSAL_FACT` and `DUPLICATE_REGISTRATION` are retired, and
-  `NO_HANDLER_REGISTERED` no longer names an unknown type. The codes that
+  `MALFORMED_REFUSAL_FACT`, `DUPLICATE_REGISTRATION` and
+  `NO_HANDLER_REGISTERED` are retired (the last split three ways: an
+  unknown type is `UNKNOWN_COMMAND_TYPE`, the rest `NO_COMPONENT_OF_KIND`
+  and `POLICY_SOURCE_OUTSIDE_INPUT_DOMAIN`; owner ruling, 2026-10-29). The codes that
   were already one per condition keep their key and lose their English
   constant: `MISSING_RULES_VERSION`, `MISSING_STATE_TYPE`,
   `STARTING_TYPES_ON_NON_PM`, `DUPLICATE_COMMAND_HANDLER`,
@@ -2743,6 +2745,27 @@ carry the full english text, but the key and the map".
   - A store driver's message text stays in the adapter's local log. Only
     the driver's numeric code travels, as an arg of the adapter's `cause`
     (`cause.errno` = `10`).
+  - Two classes of error, and the gRPC status decides which: a business
+    refusal is FAILED_PRECONDITION, INVALID_ARGUMENT, NOT_FOUND,
+    ALREADY_EXISTS, OUT_OF_RANGE or PERMISSION_DENIED (it reaches the
+    issuing policy's OnRefused); a bug is INTERNAL, UNKNOWN or DATA_LOSS
+    (alerted and dead-lettered); UNAVAILABLE, ABORTED and the like are
+    retried. A handler refuses with a status from the business set and a
+    key and args, or fails as a bug with a key and args
+    (`UNHANDLED_HANDLER_ERROR`, its key the `cause`). Supersedes the
+    morning's "only FAILED_PRECONDITION is a business refusal".
+  - The router's own structural errors on malformed input are bugs, not
+    business refusals: `MISSING_COMMAND_BOOK`, `MISSING_COMMAND_PAGE`,
+    `MISSING_COMMAND_PAYLOAD`, `UNKNOWN_COMMAND_TYPE`, `NO_FACT_HANDLER`,
+    `NO_REFUSAL_HANDLER`, `REFUSAL_WITHOUT_COMMAND`, `REFUSAL_WITHOUT_EVENT`,
+    `ANY_DECODE_FAILED` and every other condition the router answered
+    INVALID_ARGUMENT or NOT_FOUND are INTERNAL, alerted and dead-lettered,
+    and never reach a policy's OnRefused. INVALID_ARGUMENT and NOT_FOUND
+    are a handler's, for a business refusal. (A coordinator's own
+    validation of a client's malformed command still answers
+    INVALID_ARGUMENT.) Scenarios C-0539, C-0540, C-0670, C-0492 and C-0610
+    say INTERNAL.
+  - `NO_HANDLER_REGISTERED` is retired (above).
 - Why: one representation of an error everywhere, that code can branch on
   and any language can render; English on the wire was both a parsing
   temptation and the only thing telling several conditions apart.
