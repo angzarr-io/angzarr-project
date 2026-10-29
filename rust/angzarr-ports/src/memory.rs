@@ -286,6 +286,15 @@ fn check_events(data: &Data, events: Append<'_>) -> Result<(Option<Landing>, u64
             Ok((None, length))
         }
         Some(first) if is_creation(first) => {
+            // 14.36: the fork is where it says.
+            let stated = creation(first).parent_sequence;
+            if stated != first.sequence {
+                return Err(StoreError::malformed_creation(
+                    stream,
+                    first.sequence,
+                    stated,
+                ));
+            }
             if expected > length {
                 return Err(StoreError::conflict(stream, expected, length));
             }
