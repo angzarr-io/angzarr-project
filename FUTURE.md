@@ -111,6 +111,10 @@ The CLI does the wiring:
 - **It builds the startup stack for angzarr-embedded:** the host binary or config that registers each
   remote handler, launches its child process, reads the handshake, and supervises it. An app mixing
   in-process Rust handlers and handlers in other languages starts with one command.
+- **Python domains start through uv.** The startup stack runs each Python handler with `uv run --locked`
+  against its `pyproject.toml` and `uv.lock`. uv fetches the pinned interpreter (a python-build-standalone
+  build) and the locked dependencies into a project environment, so no system Python is assumed and
+  developers get a working uv environment for the handler.
 
 Until then, the Rust handler interface keeps the same shape as `CommandHandlerService`'s request and
 response, so a remote adapter needs no retrofit.
