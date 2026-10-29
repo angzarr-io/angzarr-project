@@ -223,8 +223,8 @@ fn a_cause_is_a_code_and_args_and_displays_flattened() {
     );
 }
 
-/// The editions' refusals carry their streams, as args and in the
-/// English.
+/// The editions' refusals carry their streams, as args and so in the
+/// display.
 #[test]
 fn the_new_refusals_name_their_streams() {
     let root = |n: u8| format!("{n:02x}").repeat(4);

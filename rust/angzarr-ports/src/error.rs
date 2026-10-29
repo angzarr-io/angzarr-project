@@ -239,7 +239,7 @@ pub enum Arg {
     Cause(Cause),
 }
 
-/// A stream's text form for args and English: `domain/root`, or
+/// A stream's text form, as its arg: `domain/root`, or
 /// `domain/root@edition` (annals' form).
 fn stream_text(stream: &Cover) -> String {
     let root = stream
@@ -350,85 +350,34 @@ impl StoreError {
     }
 }
 
+/// Writes `args` as ` name=value` each, a nested [`Cause`] as
+/// ` name=<its code>` then its own args under `name.` (decision 14.37's
+/// flattening).
+fn write_args(
+    f: &mut fmt::Formatter<'_>,
+    prefix: &str,
+    args: &[(&'static str, Arg)],
+) -> fmt::Result {
+    for (name, arg) in args {
+        match arg {
+            Arg::Uint(n) => write!(f, " {prefix}{name}={n}")?,
+            Arg::Str(s) => write!(f, " {prefix}{name}={s}")?,
+            Arg::Cause(cause) => {
+                write!(f, " {prefix}{name}={}", cause.code)?;
+                write_args(f, &format!("{prefix}{name}."), &cause.args)?;
+            }
+        }
+    }
+    Ok(())
+}
+
+/// The code, then its args (decision 14.37): the key and the map, never
+/// English. Text is rendered only where it is displayed, from a Fluent
+/// catalog keyed by the code; this crate has none.
 impl fmt::Display for StoreError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            StoreError::Conflict {
-                stream,
-                expected,
-                actual,
-            } => write!(
-                f,
-                "stream {} holds {actual} events, not the {expected} expected: someone else appended first",
-                stream_text(stream)
-            ),
-            StoreError::Discontinuous {
-                stream,
-                expected,
-                found,
-            } => write!(
-                f,
-                "an append to stream {} gives sequence {found} where {expected} was due",
-                stream_text(stream)
-            ),
-            StoreError::MalformedStream { stream } => write!(
-                f,
-                "cover {stream:?} is no stream: it needs a 16-byte root and, if it names an edition, a non-empty one"
-            ),
-            StoreError::MalformedCreation {
-                stream,
-                sequence,
-                parent_sequence,
-            } => write!(
-                f,
-                "the creation of stream {} at sequence {sequence} states parent_sequence {parent_sequence}: a fork is where it says, so they must agree",
-                stream_text(stream)
-            ),
-            StoreError::Unavailable(cause) => {
-                write!(f, "the store is unavailable: {}", cause.code)
-            }
-            StoreError::Unreadable {
-                stream,
-                sequence,
-                reason,
-            } => write!(
-                f,
-                "event {sequence} of stream {} cannot be read: {}",
-                stream_text(stream),
-                reason.code
-            ),
-            StoreError::UnknownEdition { stream } => write!(
-                f,
-                "stream {} names an edition that does not exist",
-                stream_text(stream)
-            ),
-            StoreError::EditionNameRequired => f.write_str(
-                "an edition operation needs an edition: main is unnamed, and is neither forked into nor deleted",
-            ),
-            StoreError::EditionNotFound { name } => {
-                write!(f, "edition {name} does not exist: no stream is forked in it")
-            }
-            StoreError::EditionNotForked { stream } => write!(
-                f,
-                "stream {} is not yet created in its edition: only its creation may be written first",
-                stream_text(stream)
-            ),
-            StoreError::EditionAlreadyForked { stream } => write!(
-                f,
-                "stream {} is already created in its edition",
-                stream_text(stream)
-            ),
-            StoreError::EditionNotDeleted { stream } => write!(
-                f,
-                "stream {} has not recorded its edition's deletion, so it is not removed",
-                stream_text(stream)
-            ),
-            StoreError::EditionNotPropagated { stream } => write!(
-                f,
-                "stream {}'s deletion has not yet propagated onward: an outbox entry of it is pending",
-                stream_text(stream)
-            ),
-        }
+        f.write_str(self.code())?;
+        write_args(f, "", &self.args())
     }
 }
 
