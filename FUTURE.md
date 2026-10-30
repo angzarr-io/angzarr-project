@@ -212,6 +212,28 @@ Settled by: a red-reviewed implementation in angzarr-core with the annotation, t
 the envelope, and a store-suite check that a shredded subject's fields read back as erased once the key is
 destroyed.
 
+## A JSONL event store for low-frequency work
+
+*A task log, a config history, a tool that writes a few events a day.*
+
+Owner's idea, 2026-10-29: event streams are append-only, so a store that appends one JSON line per event to a
+plain file fits low-frequency work, with no database to install, a format people can read and grep, and files that
+diff and merge in git. taskloom's existing JSONL task log is the precedent.
+
+Not decided. It would be one more adapter held to angzarr-ports' store contract, so the questions are the contract's:
+
+- **Layout:** one file per stream fits per-stream ordering (no global position, 14.35); one file per domain or
+  project needs a stream key on every line and a scan to read one stream.
+- **Atomicity:** the store's single `write` covers events, outbox and positions together. A line append is atomic
+  only up to the filesystem's guarantees, so a crash mid-write needs a defined recovery (truncate a torn last line).
+- **Concurrency:** two processes appending to one stream need a lock or an expected-sequence check on append.
+- **Snapshots, positions, the outbox and `Watch`:** each needs a file-backed form, or the adapter documents which it
+  lacks.
+- **Merging in git:** a `merge=union` JSONL file reorders lines; sequence numbers per stream make that recoverable,
+  where wall-clock order was not (the Go taskloom's known limit).
+
+Settled by: a decision on layout and atomicity, then an adapter that passes the angzarr-ports store suite.
+
 ## Already covered
 
 Not gaps, listed so they aren't rediscovered as missing:
