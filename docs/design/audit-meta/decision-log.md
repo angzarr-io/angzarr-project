@@ -3157,6 +3157,19 @@ projector.
   projector's retries delay the call that committed. Every embedded config
   renames its tables.
 
+> **Amended by 14.42 (as built, angzarr-embedded `feat/host-admit-policies`
+> 91d230a, angzarr-router `feat/policy-component` b71612e):** the start rule
+> is the kernel's own code (`Registry::start_rule`), not the router's
+> `admit_rules`: membership of the upcast type's name in the descriptor's
+> `starting_types`, `PM_NO_INSTANCE` for a command and a silent skip for a
+> fact, applied after the router's admit for every process manager.
+> `PolicyComponent` carries no `component_descriptor`, and its
+> `dispatch_refusal` answers the translated fact's payload or `None` (no
+> translation); the kernel builds the pass-through `CommandRefused` and
+> addresses every refusal fact. A remote policy's `OnRefused` answer that is
+> more than a payload is refused as the policy's bug (C-0685's keys). The
+> router hosts a `PolicyDispatch` as before: the trait serves runtimes.
+
 **14.42 The router keeps dispatch; everything else is the
 coordinator's.** Owner rulings, 2026-10-29 (plan `router-call-model`,
 latest rulings). Amends 2.2 (as amended by 14.31), 14.10, 14.24, 14.31,
