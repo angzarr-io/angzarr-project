@@ -79,7 +79,10 @@ enum RouterReason {
   ROUTER_REASON_NO_COMPONENT_OF_KIND = 12;
   // INTERNAL. No args.
   ROUTER_REASON_NO_HANDLERS_REGISTERED = 13;
-  // INTERNAL. Args: component, component_kind.
+  // INTERNAL. Args: component, component_kind, as the router answers it;
+  // the component host answers it with registered, refused instead, naming
+  // the component already registered and the one refused (C-0579; decision
+  // 14.44, amended).
   ROUTER_REASON_DUPLICATE_COMPONENT = 14;
 
   // Retired by 14.37.

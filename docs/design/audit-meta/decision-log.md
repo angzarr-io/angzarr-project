@@ -3493,6 +3493,12 @@ standard names.** Owner rulings, 2026-10-30. Amends 14.37 and 14.42.
 - Aligns with: buf's standard style guide for enum values. Diverges from
   Google's own reasons (`google.api.ErrorReason`), whose value names, used
   as `ErrorInfo.reason`, carry no prefix.
+- **Amended, 2026-10-30 (owner ruling).** `ROUTER_REASON_DUPLICATE_COMPONENT`
+  has two arg pairs: the router answers `component`, `component_kind`; the
+  client library's component host, refusing a second component, answers
+  `registered`, `refused`, naming the component already registered and the
+  one refused (C-0579 in `parity/client/hosting.feature`). Its value
+  comment in `reasons.proto` says so.
 
 **14.45 A stale expected sequence has its own key; a stamped command that
 loses a race is re-run.** Owner ruling, 2026-10-30. Follows 14.35, 14.37,
