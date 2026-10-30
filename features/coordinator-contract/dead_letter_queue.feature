@@ -4,7 +4,9 @@ Feature: Dead letter queue routing
   domain is the domain of the dead letter's cover. A dead letter carries
   either the rejected command (rejected_command) or the events that failed
   (rejected_events), a reason (a Diagnostic: a code and its args, never
-  rendered text; decision 14.37), exactly one rejection_details variant, occurred_at, and the producing component's
+  rendered text; decision 14.37), exactly one rejection_details variant, chosen by
+  its reason (the mapping on AngzarrDeadLetter.rejection_details in types.proto;
+  decision 14.48), occurred_at, and the producing component's
   name and type ("aggregate" | "policy" | "projector" | "process_manager").
   The cover's correlation_id is the failed message's correlation_id.
 
@@ -92,3 +94,50 @@ Feature: Dead letter queue routing
     And the dead letter's reason has code INVENTORY_UNAVAILABLE and arg sku "sku-1"
     And the dead letter's event_processing_failed details have failure code INVENTORY_UNAVAILABLE and arg sku "sku-1"
     And no field of the dead letter carries the text "inventory service down"
+
+  @C-0730
+  Scenario Outline: An asynchronous command ahead of the stream carries sequence mismatch details
+    # Decision 14.48: the AHEAD key's head arg is the details' actual_sequence.
+    Given an "order" aggregate "order-1" at next_sequence 3
+    When a ChangeShippingAddress command with conflict resolution <resolution> targeting sequence 7 is sent asynchronously
+    Then a dead letter is published to "angzarr.dlq.order"
+    And the dead letter carries the rejected command
+    And the dead letter's reason has code COORDINATOR_REASON_EXPECTED_SEQUENCE_AHEAD, arg expected "7" and arg head "3"
+    And the dead letter's sequence_mismatch details are expected 7, actual 3
+    And the dead letter carries no other rejection_details variant
+
+    Examples:
+      | resolution        |
+      | STRICT            |
+      | AGGREGATE_HANDLES |
+
+  @C-0731
+  Scenario: An asynchronous STRICT command behind the stream carries its stale key and sequence mismatch details
+    Given an "order" aggregate "order-1" at next_sequence 3
+    When a ChangeShippingAddress command with conflict resolution STRICT targeting sequence 1 is sent asynchronously
+    Then a dead letter is published to "angzarr.dlq.order"
+    And the dead letter carries the rejected command
+    And the dead letter's reason has code COORDINATOR_REASON_EXPECTED_SEQUENCE_STALE, arg expected "1" and arg actual "3"
+    And the dead letter's sequence_mismatch details are expected 1, actual 3
+    And the dead letter carries no other rejection_details variant
+
+  @C-0732
+  Scenario Outline: A command dead-lettered at a retry cap carries event processing failed details
+    # Decision 14.48: one variant for the key, whether or not the command
+    # carries an expected sequence; retry_count is the attempts arg.
+    Given an "order" aggregate "order-1" at next_sequence 3
+    And the <cap> is reached after 3 runs
+    And an AddItem command <handling> is sent asynchronously
+    And the business process answers every run with an ItemAdded event<report>
+    And another write to the "order" stream lands after each run's load and before the command is written
+    When the coordinator processes the command
+    Then a dead letter is published to "angzarr.dlq.order"
+    And the dead letter carries the rejected command
+    And the dead letter's reason has code COORDINATOR_REASON_RETRY_CAP_EXHAUSTED, arg attempts "3" and arg cap "3"
+    And the dead letter's event_processing_failed details have failure code COORDINATOR_REASON_RETRY_CAP_EXHAUSTED, retry_count 3 and is_transient true
+    And the dead letter carries no other rejection_details variant
+
+    Examples:
+      | cap             | handling                                                        | report                                                                  |
+      | race re-run cap | with no expected sequence and no conflict resolution            |                                                                         |
+      | retry cap       | with conflict resolution AGGREGATE_HANDLES targeting sequence 1 | , reporting the conflict nonce it was delivered as its resolved nonce   |
