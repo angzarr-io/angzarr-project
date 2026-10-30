@@ -4,7 +4,7 @@ title: Error Recovery
 import { Tabs, TabItem } from '@astrojs/starlight/components';
 
 
-Angzarr provides layered error recovery: automatic retry for transient failures, dead letter queues for persistent failures, and compensation flows for saga rejections.
+Angzarr's error recovery follows from one rule: the gRPC status alone decides an error's class (decision 14.37), and the class decides what happens next. A business error goes back to its caller; a retryable bug is retried with backoff up to a cap; anything that cannot be finished is dead-lettered and alerted for an operator. A refused policy command becomes a refusal fact for the policy's source domain (see Saga Refusals, below).
 
 ---
 
@@ -12,31 +12,22 @@ Angzarr provides layered error recovery: automatic retry for transient failures,
 
 ```mermaid
 flowchart TB
-    Fail[Command fails]
-    Trans{Transient?}
-    Retry[Retry with backoff]
-    Still{Still failing?}
-    DLQ1[DLQ]
-    Seq{Sequence conflict?}
-    MS[Check MergeStrategy]
-    Comm[COMMUTATIVE:<br/>Retry with fresh state]
-    Strict[STRICT:<br/>Reject immediately]
-    AggH[AGGREGATE_HANDLES:<br/>Let aggregate decide]
-    Manual[MANUAL:<br/>Send to DLQ]
-    Biz{Business rejection?}
-    Comp[Compensation flow]
+    Fail[A call fails]
+    Class{Its status's class}
+    BizF[Business, fatal:<br/>returned to the caller;<br/>a policy's OnRefused]
+    BizA[Business, immediate return:<br/>ABORTED, re-read and re-decide]
+    BugF[Bug, fatal:<br/>dead-lettered and alerted]
+    BugR[Bug, retryable:<br/>retried with backoff and jitter]
+    Cap{Cap reached?}
+    DLQ[Dead letter + alert]
 
-    Fail --> Trans
-    Trans -->|yes| Retry --> Still
-    Still -->|yes| DLQ1
-    Trans -->|no| Seq
-    Seq -->|yes| MS
-    MS --> Comm
-    MS --> Strict
-    MS --> AggH
-    MS --> Manual
-    Seq -->|no| Biz
-    Biz -->|yes| Comp
+    Fail --> Class
+    Class --> BizF
+    Class --> BizA
+    Class --> BugF --> DLQ
+    Class --> BugR --> Cap
+    Cap -->|no| BugR
+    Cap -->|yes| DLQ
 ```
 
 ---
@@ -69,97 +60,50 @@ Every distinct condition has its own reason key, so no two conditions share a ke
 
 ---
 
-## Retry with Backoff
+## Status Classes
 
-Transient failures (network issues, temporary unavailability) are automatically retried with exponential backoff and jitter.
+Every status belongs to one of four classes (decision 14.37). The authoritative list is the status-codes comment on `CommandHandlerCoordinatorService` in `io/angzarr/v1/command_handler.proto`; each reason key's status and args are in its value comment in `io/angzarr/v1/reasons.proto`.
 
-### Default Backoff Policies
+| Class | Statuses | What happens |
+|-------|----------|--------------|
+| Business, fatal | `FAILED_PRECONDITION`, `INVALID_ARGUMENT`, `NOT_FOUND`, `ALREADY_EXISTS`, `OUT_OF_RANGE`, `PERMISSION_DENIED` | Final, never retried. A refused policy command reaches the policy's `OnRefused`. |
+| Business, immediate return | `ABORTED` ("re-read and re-decide") | Returned at once to an outside caller, who re-reads and decides again. For a policy step the runtime is the caller: it reloads and re-runs the step under the capped backoff, then dead-letters and alerts. Never `OnRefused`. |
+| Bug, fatal | `INTERNAL`, `UNKNOWN`, `DATA_LOSS` | Never retried: dead-lettered and alerted at once. Never `OnRefused`. |
+| Bug, retryable | `UNAVAILABLE`, `DEADLINE_EXCEEDED`, `RESOURCE_EXHAUSTED`, `UNIMPLEMENTED` and every other code | Retried, on by default, with exponential backoff and jitter up to the retry cap, then dead-lettered and alerted. Never `OnRefused`. |
 
-| Context | Min Delay | Max Delay | Max Attempts | Jitter |
-|---------|-----------|-----------|--------------|--------|
-| Saga commands | 10ms | 2s | 10 | Yes |
-| gRPC connections | 100ms | 5s | 30 | Yes |
+The backoff's scale and jitter factor and the retry cap are coordinator configuration. A policy step that reaches the cap, or fails as a fatal bug, moves or keeps the policy's position as its `on_policy_bug` setting says.
 
-### Retryable vs Non-Retryable Errors
+### Sequence Conflicts
 
-| gRPC Code | Meaning | Retryable? | Action |
-|-----------|---------|------------|--------|
-| `FAILED_PRECONDITION` | Sequence mismatch (stale client state) | Yes | Fetch fresh state, rebuild command |
-| `ABORTED` | Sent to DLQ (MERGE_MANUAL) | No | Manual intervention required |
-| `INVALID_ARGUMENT` | Bad command data | No | Fix command, resubmit |
-| `NOT_FOUND` | Aggregate doesn't exist | No | Check aggregate ID |
-| `INTERNAL` | Server error | No | Check server logs |
+A command may name the stream head it was decided against (`Handling.expected_sequence`); its conflict resolution (`ConflictResolution` in `io/angzarr/v1/types.proto`) says what happens when the stream has moved. Ordering is per stream: a write to another stream is never a conflict.
 
-### Retry Flow
+| The command | The stream moved | What happens |
+|-------------|------------------|--------------|
+| `STRICT`, with an expected sequence | At load, or at the write (another write to the same stream landed first) | `ABORTED`, `COORDINATOR_REASON_EXPECTED_SEQUENCE_STALE` (args `expected`, `actual`); nothing persisted, never re-run. This key is STRICT's alone. |
+| `AGGREGATE_HANDLES` or `COMMUTATIVE`, with an expected sequence | At load | The window (the events the command did not see) is delivered with a fresh nonce, and the resolution's rule decides: an unresolved nonce is `ABORTED` `COORDINATOR_REASON_CONFLICT_UNRESOLVED`, a unit overlap `ABORTED` `COORDINATOR_REASON_CONFLICT_OVERLAP`. Never the stale key. |
+| `AGGREGATE_HANDLES` or `COMMUTATIVE`, with an expected sequence | At the write, after the window was delivered | The coordinator re-delivers the widened window with a fresh nonce and the rule decides again, under the retry cap (decision 14.45). |
+| No expected sequence (the coordinator stamps the head) | At the write | The coordinator re-runs the command on the new head, waiting with backoff and jitter between runs, under the race re-run cap: a count of runs, the first included, default 10 (decision 14.46). Never the stale key. |
+
+At either cap the command is dead-lettered and alerted, nothing is persisted, and a caller waiting on `Handle` or `HandleSync` is answered `INTERNAL`, `COORDINATOR_REASON_RETRY_CAP_EXHAUSTED` (args `attempts`, `cap`). It is `INTERNAL`, a fatal bug's status, because the retries are spent and the dead letter holds the command: no caller retries it again, and a policy step follows `on_policy_bug`. `HandleAsync` has no caller to answer.
+
+Facts (a timeout, a webhook) are never refused. A fact is always stamped, so a lost race re-runs it under the race re-run cap; at the cap it is dead-lettered and alerted, and its sender is answered "accepted, parked" (OK, `Outcome.delivery` `PARKED`, no events), never the cap key, exactly as for a fact whose ingest handler fails.
+
+### Re-deciding a Stale Command
+
+A STRICT caller answered `COORDINATOR_REASON_EXPECTED_SEQUENCE_STALE` re-reads and re-decides:
 
 ```
-1. Command fails with FAILED_PRECONDITION
-2. Error details contain current EventBook
-3. Client extracts EventBook from error
-4. Client rebuilds state from fresh EventBook
-5. Client re-evaluates business logic with fresh state
-6. Client builds new command with correct sequence
-7. Client resubmits
-8. Repeat until success or max attempts
+1. Command fails ABORTED, reason COORDINATOR_REASON_EXPECTED_SEQUENCE_STALE
+   (the ErrorInfo metadata carries expected and actual)
+2. Client reloads the stream's state
+3. Client re-evaluates its business logic against that state
+4. Client builds a new command naming the new head as its expected sequence
+5. Client resubmits, up to its own attempt limit
 ```
 
 :::warning[Rebuild, Don't Just Re-sequence]
 Simply updating the sequence number is insufficient. The command's payload may depend on state that changed. You must rebuild the command by re-running your business logic against the fresh state.
 :::
-
-<Tabs>
-<TabItem label="Python">
-
-```python
-import grpc
-from angzarr_client.proto import EventBook
-
-def handle_sequence_error(error: grpc.RpcError) -> EventBook | None:
-    """Extract fresh state from sequence mismatch error."""
-    if error.code() == grpc.StatusCode.FAILED_PRECONDITION:
-        details = error.trailing_metadata()
-        for key, value in details:
-            if key == "grpc-status-details-bin":
-                return EventBook.FromString(value)
-    return None
-
-async def execute_with_retry(
-    intent: CommandIntent,            # What the user wanted
-    build_command: Callable,          # Function: (intent, state) -> CommandBook
-    client: AggregateClient,
-    max_attempts: int = 10,
-) -> EventBook:
-    """Execute command with retry, rebuilding from fresh state each attempt."""
-    delay = 0.01
-    current_state = None
-
-    for attempt in range(max_attempts):
-        # Get state if first attempt, otherwise use state from error
-        if current_state is None:
-            current_state = await client.get_state(intent.root_id)
-
-        # Rebuild command from current state
-        try:
-            command = build_command(intent, current_state)
-        except CommandRejectedError:
-            raise  # Business logic rejected with fresh state
-
-        try:
-            return await client.execute(command)
-        except grpc.RpcError as e:
-            if e.code() == grpc.StatusCode.FAILED_PRECONDITION:
-                # Extract fresh state for next attempt
-                current_state = handle_sequence_error(e)
-                await asyncio.sleep(delay)
-                delay = min(delay * 2, 2.0)
-            else:
-                raise
-
-    raise RuntimeError("Max retry attempts exceeded")
-```
-
-</TabItem>
-</Tabs>
 
 ---
 
@@ -169,12 +113,17 @@ Messages that cannot be processed after retries are routed to a dead letter queu
 
 ### When Messages Go to DLQ
 
-| Scenario | MergeStrategy | Result |
-|----------|---------------|--------|
-| Sequence mismatch | `MERGE_MANUAL` | Immediate DLQ |
-| Event handler failed | Any | DLQ after retries |
-| Payload retrieval failed | Any | DLQ |
-| Max retries exceeded | `COMMUTATIVE` | DLQ |
+Every dead letter records why in `AngzarrDeadLetter.reason`: a key and its args, never text.
+
+| Scenario | Result |
+|----------|--------|
+| A fatal bug (`INTERNAL`, `UNKNOWN`, `DATA_LOSS`) | Dead-lettered and alerted at once |
+| A retryable bug that reaches the retry cap | Dead-lettered and alerted |
+| A race lost at every write until the retry cap or the race re-run cap | Dead-lettered and alerted, reason `COORDINATOR_REASON_RETRY_CAP_EXHAUSTED` (args `attempts`, `cap`); a waiting command caller answered `INTERNAL` with that key, a fact's sender `PARKED` |
+| A fact whose ingest handler fails | Dead-lettered and alerted; the sender answered `PARKED` |
+| A queued command with a caller-provided expected sequence answered `ABORTED` | Dead-lettered with `SequenceMismatchDetails`: resending it verbatim cannot succeed |
+| An event handler (policy, projector) failed | Dead-lettered after its retries |
+| A claim-checked payload could not be retrieved | Dead-lettered |
 
 ### Topic Naming
 
@@ -328,36 +277,15 @@ saga_compensation:
 
 ---
 
-## MergeStrategy and Conflicts
+## Conflict Resolution
 
-The `MergeStrategy` enum controls how sequence conflicts are handled:
+`ConflictResolution` (in `io/angzarr/v1/types.proto`) has three values; the rules on a moved stream are under [Sequence Conflicts](#sequence-conflicts), above. Which a stream supports comes from its registered state: every state supports `STRICT` and `AGGREGATE_HANDLES`, and `COMMUTATIVE` only where the state declares conflict units. With none given, the default is `COMMUTATIVE` where supported, else `STRICT`.
 
-| Strategy | Proto Value | Behavior on Conflict |
-|----------|-------------|----------------------|
-| `MERGE_COMMUTATIVE` | 0 (default) | `FAILED_PRECONDITION` — retryable with fresh state |
-| `MERGE_STRICT` | 1 | `ABORTED` — immediate rejection, no retry |
-| `MERGE_AGGREGATE_HANDLES` | 2 | Bypass validation — aggregate decides |
-| `MERGE_MANUAL` | 3 | `ABORTED` + route to DLQ |
-
-### When to Use Each
-
-| Use Case | Strategy | Why |
-|----------|----------|-----|
+| Use Case | Resolution | Why |
+|----------|------------|-----|
 | Financial operations (balance checks) | `STRICT` | Must see current state |
-| Counters, metrics | `COMMUTATIVE` | Order doesn't matter |
-| CRDT-style operations | `AGGREGATE_HANDLES` | Aggregate merges conflicts |
-| Auditable operations | `MANUAL` | Human review required |
-
-### MERGE_MANUAL Flow
-
-```
-1. Command arrives with MERGE_MANUAL
-2. Coordinator detects sequence mismatch
-3. Command NOT executed
-4. AngzarrDeadLetter created with SequenceMismatchDetails
-5. Published to DLQ topic
-6. Returns ABORTED status to caller
-```
+| Counters, sets of independent items | `COMMUTATIVE` | Disjoint changes commute |
+| CRDT-style operations | `AGGREGATE_HANDLES` | The aggregate merges the window itself |
 
 ---
 
@@ -404,25 +332,9 @@ def apply_funds_deposited(state, event):
     state.balance = event.new_balance  # Same result on retry
 ```
 
-### 2. Use Appropriate MergeStrategy
+### 2. Choose the Conflict Resolution Deliberately
 
-```python
-# Financial operations: STRICT
-@merge_strategy(MergeStrategy.STRICT)
-def handle_transfer(state, cmd):
-    if cmd.amount > state.available:
-        raise CommandRejectedError("INSUFFICIENT_FUNDS")
-
-# Counters: COMMUTATIVE
-@merge_strategy(MergeStrategy.COMMUTATIVE)
-def handle_increment(state, cmd):
-    return ValueIncremented(delta=cmd.delta)
-
-# Audit-critical: MANUAL
-@merge_strategy(MergeStrategy.MANUAL)
-def handle_compliance_action(state, cmd):
-    return ComplianceActionTaken(action=cmd.action)
-```
+Use `STRICT` where a decision must see the current state, and `COMMUTATIVE` or `AGGREGATE_HANDLES` where a stale decision can still be judged safe (see [Conflict Resolution](#conflict-resolution)).
 
 ### 3. Handle Notifications Explicitly
 
@@ -457,6 +369,6 @@ Set up alerts for DLQ message accumulation:
 
 ## Next Steps
 
-- **[Patterns Reference](/reference/patterns)** — MergeStrategy, SyncMode details
+- **[Patterns Reference](/reference/patterns)** — Conflict resolution, SyncMode details
 - **[Sagas](/components/saga)** — Cross-domain coordination
 - **[Payload Offloading](/operations/payload-offloading)** — Large message handling
