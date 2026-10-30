@@ -46,7 +46,7 @@ args = ["sequence", "type_url", "first_sequence", "last_sequence", "state_type_u
 
 [keys.PERSISTED_EVENT_CORRUPT]
 owner = "router"
-status = "INTERNAL"
+status = "DATA_LOSS"
 args = ["type_url"]
 
 [keys.ANY_DECODE_FAILED]
