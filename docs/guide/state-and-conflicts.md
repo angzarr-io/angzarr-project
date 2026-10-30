@@ -507,10 +507,14 @@ names a resolution the list lacks (`INVALID_ARGUMENT`).
 
 ## 10. Versioning commands
 
-Commands **can** be upcast. The client library runs an incoming command's
-payload through the same upcaster chain as events, by type URL, before
-dispatch. A command type URL with no handler and no upcaster path to one is
-refused `INVALID_ARGUMENT`, naming the type URL.
+Commands **can** be upcast. Your component's coordinator runs an incoming
+command's payload through the same upcaster chain as events, by type URL,
+before dispatch. The chain runs in the component's upcaster sidecar, a
+process of its own beside your business process. Your business code, and
+the client library around it, only ever see the current type. A command
+type URL that reaches no handler after upcasting is refused `INTERNAL`
+(`UNKNOWN_COMMAND_TYPE`), naming the type URL as sent and the type URL the
+chain ended at.
 
 **Prefer not to.** In order of preference:
 

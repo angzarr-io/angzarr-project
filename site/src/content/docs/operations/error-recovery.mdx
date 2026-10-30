@@ -59,13 +59,12 @@ Every distinct condition has its own reason key, so no two conditions share a ke
 |-----------|--------|--------|
 | A fold fails on a persisted event | `FOLD_FAILED` | `INTERNAL` |
 | A fold fails on an event the command emitted | `FOLD_FAILED_EMITTED` | `INTERNAL` |
-| A command type no handler claims, after upcasting | `UNKNOWN_COMMAND_TYPE` (metadata `type_url`, `upcast_type_url`) | `INVALID_ARGUMENT` |
-| A fact type no handler claims, after upcasting | `NO_FACT_HANDLER` (metadata `type_url`, `upcast_type_url`) | `INVALID_ARGUMENT` |
+| A command type no handler claims, after the coordinator upcast it | `UNKNOWN_COMMAND_TYPE` (metadata `type_url` as sent, `upcast_type_url` as delivered; the router itself reports only `type_url`, the type it was given) | `INTERNAL` |
+| A fact type no handler claims, after the coordinator upcast it | `NO_FACT_HANDLER` (metadata as for `UNKNOWN_COMMAND_TYPE`) | `INTERNAL` |
 | A pass-through `CommandRefused` the source has no `on_refused_<Command>` for | `NO_REFUSAL_HANDLER` (metadata `command_type`) | `INVALID_ARGUMENT` |
 | A dispatch to a kind the business process does not host | `NO_COMPONENT_OF_KIND` | `UNIMPLEMENTED` |
 | A policy given a book of a domain it does not consume | `POLICY_SOURCE_OUTSIDE_INPUT_DOMAIN` (metadata `domain`, `expected_domain`) | `UNIMPLEMENTED` |
 | A second component, built with or registered beside the one hosted | `DUPLICATE_COMPONENT` (metadata `component`, `component_kind`) | `INVALID_ARGUMENT` |
-| A router built with two upcaster chains | `DUPLICATE_UPCASTER_CHAIN` | `INVALID_ARGUMENT` |
 | A policy's malformed refusal fact | One key per fault: `REFUSAL_FACT_MISSING`, `REFUSAL_FACT_ADDRESSED`, `REFUSAL_FACT_NO_PAGE`, `REFUSAL_FACT_NOT_A_FACT`, `REFUSAL_FACT_IDENTIFIED`, `REFUSAL_WITHOUT_REFUSED_COMMAND`, `REFUSED_COMMAND_WITHOUT_ID`, `REFUSAL_WITHOUT_TRIGGER_STREAM` | `INTERNAL` |
 | A `Refusal` with no command, or no event | `REFUSAL_WITHOUT_COMMAND`, `REFUSAL_WITHOUT_EVENT` | `INVALID_ARGUMENT` |
 | Bytes that do not decode as the message expected | `ANY_DECODE_FAILED` (metadata `message_type`) | `INVALID_ARGUMENT` |

@@ -6,6 +6,11 @@ Feature: State Building - Aggregate State Reconstruction
 
   State building is the foundation of event sourcing - without correct
   state reconstruction, commands cannot make valid decisions.
+
+  The coordinator assembles the EventBook: the snapshot it chose as the
+  starting state, and only the pages after it (decision 14.40). The
+  business process folds every page it is given onto the starting state;
+  it never filters pages by the snapshot's sequence.
 # docs:end:state_building_contract
 
   # ==========================================================================
@@ -69,13 +74,12 @@ Feature: State Building - Aggregate State Reconstruction
     And only events 6, 7, 8, 9 should be applied
 
   @C-0287
-  Scenario: Events before snapshot are ignored
-    Given an EventBook with:
-      | snapshot_sequence | 5           |
-      | events            | seq 3, 4, 6, 7 |
-    When I build state from the EventBook
-    Then events at seq 3 and 4 should NOT be applied
-    And only events at seq 6 and 7 should be applied
+  Scenario: The coordinator delivers no event the snapshot covers
+    Given a stream with events at seq 3, 4, 6 and 7 and a usable snapshot at sequence 5
+    When the coordinator delivers a command to the stream
+    Then the delivered EventBook carries the snapshot at sequence 5
+    And it carries only the events at seq 6 and 7
+    And business code folds both of them onto the snapshot state
 
   # ==========================================================================
   # Event Application

@@ -17,12 +17,14 @@ option ruby_package = "Angzarr";
 // business process hosts exactly one. (A projector may react to several
 // input domains, and a process manager may take commands from policies of
 // several domains; that is still one component.) A
-// component's upcasters are part of it, not components of their own (see
-// upcaster.proto).
+// component's upcasters are part of it, not components of their own: they
+// run in the component's upcaster sidecar, which serves UpcasterService to
+// the component's coordinator and is not a business process (see
+// upcaster.proto; decision 14.39).
 //
 // Every business process serves ComponentService beside its kind service
 // (CommandHandlerService for an aggregate or a process manager, PolicyService or
-// ProjectorService) and, if its component upcasts, UpcasterService. The
+// ProjectorService). It never serves UpcasterService. The
 // client library answers Describe from the component's generated
 // descriptor; business code never implements it.
 //

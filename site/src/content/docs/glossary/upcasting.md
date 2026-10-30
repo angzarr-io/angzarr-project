@@ -34,11 +34,11 @@ Each upcaster handles one version transition.
 
 ## In Angzarr
 
-The `UpcasterService` gRPC service handles version transformation:
+The `UpcasterService` gRPC service handles version transformation. It is served by the component's upcaster sidecar, its own process, and called only by the component's coordinator, which upcasts events on every way out of the stream and command and fact payloads before dispatch:
 
 ```protobuf
 service UpcasterService {
-  rpc Upcast(UpcasterRequest) returns (UpcasterResponse);
+  rpc Upcast(UpcastRequest) returns (UpcastResponse);
 }
 ```
 

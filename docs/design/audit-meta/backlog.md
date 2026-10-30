@@ -709,18 +709,22 @@ index.
 
 ## VC: command versioning (pass 12)
 
-**VC-1** [clients, router] **Upcast commands and facts before dispatch,
-and refuse unknown types.**
-- What: inside `CommandHandlerService.Handle`, run the payload (Command or
-  Fact) through the library's upcaster chain (the event chain, by type URL)
-  before dispatch. Refuse a type URL that, after upcasting, reaches no
-  handler with `INVALID_ARGUMENT`: the status message names the type URL as
-  sent, and a `google.rpc.ErrorInfo` in the details carries the type URL
-  the chain ended at under metadata key `upcast_type_url`.
-  Document in each SDK that command upcasters are a temporary migration aid
-  (additive fields, or the domain handling both versions, come first).
-- Why: decisions 12.11, 14.2 and 14.8; `upcaster.proto`.
-- Settled when: scenarios C-0537 to C-0540 pass in every language.
+**VC-1** [core, angzarr-embedded, router] **The coordinator upcasts
+commands and facts before dispatch; the router refuses unknown types.**
+- What: the coordinator runs every incoming payload (Command or Fact)
+  through the component's upcaster sidecar (the event chain, by type URL)
+  before it judges the input by type and before dispatch (14.39). The
+  router holds no chain. It refuses a type URL no handler claims as
+  `INTERNAL` `UNKNOWN_COMMAND_TYPE` (`NO_FACT_HANDLER`), with `type_url`
+  the type it was given. The coordinator answers its caller with `type_url`
+  as sent and `upcast_type_url` the type the sidecar returned. Remove the
+  router's chain (`UpcasterDispatch`, `with_command_upcaster`, the C ABI's
+  `command_upcasters`). Document that command upcasters are a temporary
+  migration aid: additive fields, or the domain handling both versions,
+  come first.
+- Why: decisions 12.11, 14.2, 14.8 and 14.39; `upcaster.proto`.
+- Settled when: scenarios C-0537 to C-0540, C-0680 and C-0681 pass in each
+  coordinator, and C-0682 passes in the router's conformance suite.
 
 ## FA: the fact pipeline (pass 2)
 
@@ -1329,15 +1333,15 @@ no-op implementations only.
 **GAP-1** [core] **Upcast on every read and publish path.**
 - What: today upcasting runs only on aggregate loads, so sagas, PMs,
   projectors and queries see raw stored versions. The owning coordinator
-  upcasts its stream's events by calling its own business process's
-  `UpcasterService` on every way out: loading for `Handle` (and a PM's
+  upcasts its stream's events by calling the component's upcaster
+  sidecar's `UpcasterService` (14.39) on every way out: loading for `Handle` (and a PM's
   `process_state`), answering `EventQueryService`, and wherever stored
   events reach a subscriber (live publishing and reads of stored history:
   catch-up, gap fill, rebuild). Consumers get current shapes only and carry no upcasters. Fail on
   an unknown type URL, naming it (as annals' strict replay does). The store
   is never rewritten.
-- Why: decisions 14.22, 14.25 and 14.29 (the open question of how readers of
-  another component's stream are upcast is settled).
+- Why: decisions 14.22, 14.25, 14.29 and 14.39 (the open question of how
+  readers of another component's stream are upcast is settled).
 - Settled when: scenarios C-0584 to C-0587 pass, and golden fixtures run in
   CI.
 

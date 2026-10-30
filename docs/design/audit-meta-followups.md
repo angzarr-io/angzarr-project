@@ -265,6 +265,13 @@ event onwards, every removal reserves its number and name (see
     the `meta.EditionDeleted` event, recorded in each stream it reaches,
     propagated onward through the same flows, and only then removed with
     that stream's rows; main knows nothing of an edition.
+  - **Upcasting leaves the router** (14.39): the coordinator upcasts
+    events on every way out and every incoming command and fact payload,
+    through the component's upcaster sidecar (its own process serving
+    `UpcasterService`); the router never sees an old shape and holds no
+    chain. **Snapshots are the coordinator's** (14.40): it loads one,
+    drops the pages it covers and decides when to write one; the router
+    folds the starting state and the pages it is given.
 
 ### Worked example: hatpick's `ListState`
 
@@ -374,7 +381,8 @@ markers can go wrong.
 - **Who may send causation** (pass 12): only callers authenticated as
   framework components; clients get `PERMISSION_DENIED` (decision 12.10).
 - **Command upcasting** (pass 12): supported and discouraged (decision
-  12.11).
+  12.11); done by the coordinator through the upcaster sidecar since
+  14.39.
 - **Meta for a PM's own process events** (pass 13, PM2; revised in pass
   14): a PM is a domain, so its events carry their command's or fact's `command_id`
   and correlation and deduplicate on it (decision 14.31, superseding

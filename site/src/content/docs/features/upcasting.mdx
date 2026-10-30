@@ -190,10 +190,10 @@ def test_upcast_chain():
 
 ## Deployment
 
-Upcasters deploy with your application code. When you release a new version:
+Upcasters deploy as the component's upcaster sidecar: a process of its own beside your business process, which the component's coordinator calls on every read of the stream and for every incoming command or fact. Your business process never upcasts. When you release a new version:
 
 1. Add upcaster for old → new transformation
-2. Deploy new code
+2. Deploy the new sidecar with the new code
 3. Old events transform on read
 4. New events persist in new format
 

@@ -82,13 +82,13 @@ Upcasters handle [schema management](https://eda-visuals.boyney.io/visuals/schem
 
 ### How It Works
 
-Upcasters run in the **aggregate pod**, alongside your aggregate logic. The coordinator orchestrates the transformation:
+Upcasters run in the component's **upcaster sidecar**: a process of its own beside your business process (a container in the component's pod; in angzarr-embedded, a child process the host launches, or a Rust upcaster registered with the kernel). The coordinator calls it on every read of the stream, and for every incoming command and fact payload before dispatch. Your business process never upcasts:
 
 ```mermaid
 sequenceDiagram
     participant ES as Event Store
     participant C as ⍼ Coordinator
-    participant U as Your Upcaster
+    participant U as Your Upcaster (sidecar)
     participant A as Your Aggregate
 
     C->>ES: Read EventBook
@@ -133,20 +133,20 @@ Enable upcasting via config or environment:
 ```yaml title="illustrative - upcaster configuration"
 upcaster:
   enabled: true
-  # Optional: separate address (defaults to client logic address)
+  # The upcaster sidecar's address
   address: "localhost:50053"
 ```
 
 Or via environment variables:
 - `ANGZARR_UPCASTER_ENABLED=true`
-- `ANGZARR_UPCASTER_ADDRESS=localhost:50053` (optional)
+- `ANGZARR_UPCASTER_ADDRESS=localhost:50053` (the sidecar)
 
 ### Key Points
 
 - **Stored events remain unchanged** — immutability preserved
 - **Transformation happens on read** — lazy migration
 - **Chain upcasters** for multi-version jumps (V1 → V2 → V3)
-- **Upcasters run in the aggregate pod** — potentially separate gRPC server from your aggregate
+- **Upcasters run in the upcaster sidecar** — their own gRPC server, never your business process; the router never sees an old shape
 
 ---
 

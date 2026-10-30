@@ -119,7 +119,9 @@ behaves differently under the two runtimes. This is accepted.
   Fact with any Handling field is malformed. Strict replay: an unknown event
   type URL fails, naming it.
 - **Commands may be upcast**, with the same discouragement (decision 12.11).
-  An unknown command type with no upcaster path is refused, naming the type
+  The kernel upcasts them, through the domain's upcaster sidecar or a Rust
+  upcaster registered with it, never the router (decision 14.39). An
+  unknown command type with no upcaster path is refused, naming the type
   URL.
 - Business output is payloads, and the runtime stamps meta.
 

@@ -239,7 +239,8 @@ Settled by: a decision on layout and atomicity, then an adapter that passes the 
 Not gaps, listed so they aren't rediscovered as missing:
 
 - **Snapshots:** separate from the event write, in the storage contract.
-- **Upcasters:** event and command upcasting, in the router.
+- **Upcasters:** event and command upcasting, by the coordinator through
+  the component's upcaster sidecar (decision 14.39); never in the router.
 - **Outbox:** written atomically with events in the store's single `write`.
 - **Inbox:** deduplication on arrival, by command or fact id.
 - **Read-your-writes:** a call can wait for the system to settle.

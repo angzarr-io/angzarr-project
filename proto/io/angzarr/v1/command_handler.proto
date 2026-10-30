@@ -26,22 +26,29 @@ service CommandHandlerService {
   // conflict resolution), so decide always sees a concrete sequence. Which
   // coordinator RPC the caller used (the command mode) is not passed on.
   //
+  // Before Handle, the coordinator has also upcast the payload through the
+  // component's upcaster sidecar (decision 14.39; see upcaster.proto) and
+  // dropped the pages the snapshot covers (decision 14.40), so the library
+  // sees only current shapes, the starting state and the pages after it.
+  //
   // In the client library, in order:
-  //   1. the payload is upcast through the library's upcaster chain, by
-  //      type URL (see upcaster.proto), for a Command and a Fact alike. A
-  //      type URL that, after upcasting, reaches no registered handler is
-  //      refused INTERNAL (a bug: decision 14.37) with reason UNKNOWN_COMMAND_TYPE
-  //      (NO_FACT_HANDLER for a fact), which is also the status message
-  //      (decision 14.37: a key, never text); the status details carry a
-  //      google.rpc.ErrorInfo whose metadata key "type_url" holds the type
-  //      URL as sent and "upcast_type_url" the type URL the chain ended at.
-  //   2. reflective dispatch: the body arm picks the pipeline (Command ->
+  //   1. reflective dispatch: the body arm picks the pipeline (Command ->
   //      decide, which may reject; Fact -> ingest, which never rejects), and
-  //      the type URL picks the handler. A failing fact handler is a bug,
+  //      the type URL picks the handler. A type URL no registered handler
+  //      claims is refused INTERNAL (a bug: decision 14.37) with reason
+  //      UNKNOWN_COMMAND_TYPE (NO_FACT_HANDLER for a fact), which is also
+  //      the status message (a key, never text); the status details carry a
+  //      google.rpc.ErrorInfo whose metadata key "type_url" holds the type
+  //      URL the library was given. The coordinator answers its caller with
+  //      "type_url" as sent and "upcast_type_url" as delivered (see
+  //      upcaster.proto). A failing fact handler is a bug,
   //      not a business rejection: the fact is dead-lettered (and alerted)
   //      and the sender answered PARKED, never a rejection.
-  //   3. AGGREGATE_HANDLES and COMMUTATIVE are resolved (the nonce; see
+  //   2. AGGREGATE_HANDLES and COMMUTATIVE are resolved (the nonce; see
   //      ConflictResolution).
+  // The state the handler sees is the starting state (events.snapshot.state,
+  // when present) decoded, with every delivered page folded in order; the
+  // library never compares a page's sequence with the snapshot's.
   // The library never checks a delivered snapshot: the coordinator offers
   // only snapshots that pass its validity checks (see Snapshot in
   // types.proto), and the library folds whatever it is given.

@@ -83,7 +83,8 @@ option ruby_package = "Angzarr";
 // ComponentDescriptor.starting_types). It is then delivered with an empty
 // state. Any other input for a root with no instance is not
 // delivered; the coordinator decides, before the handler, by its type URL
-// after upcasting (decision 14.25):
+// after the coordinator has upcast it through the upcaster sidecar
+// (decisions 14.25, 14.39), against ComponentDescriptor.starting_types:
 //   - a FACT is skipped, silently: nothing is recorded, dead-lettered or
 //     alerted, and the sender is answered OK, APPLIED, with no events;
 //   - a COMMAND is refused (owner's ruling; decision 14.31):

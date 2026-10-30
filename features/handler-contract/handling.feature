@@ -1,8 +1,11 @@
-Feature: Handling a delivered command - versions, upcasting and conflicts
+Feature: Handling a delivered command - versions, unknown types and conflicts
   What the client library does around business code when the coordinator
   delivers a command or a fact: it reports the business binary's version,
-  brings an old payload type up to date, picks the handler, and settles a
-  stale command's conflicts before its events are kept.
+  picks the handler, and settles a stale command's conflicts before its
+  events are kept. It never upcasts: the coordinator has already brought
+  every payload and event up to date through the component's upcaster
+  sidecar (decision 14.39; coordinator-contract/upcasting.feature), and
+  has dropped the pages the delivered snapshot covers (decision 14.40).
 
   The business binary's version is fixed when it is built. The library
   gives it when the coordinator asks the process to describe its
@@ -13,10 +16,8 @@ Feature: Handling a delivered command - versions, upcasting and conflicts
   The order aggregate keeps a quantity per item (one conflict unit per
   item), a shipping address (its own conflict unit) and free-form notes
   (unmarked, so they conflict with everything). AddItem(item) records
-  ItemAdded(item). AddItemV1 is AddItem's old name and upcasts to AddItem;
-  the fact ItemDeliveredV1 likewise upcasts to ItemDelivered. AddLine
-  upcasts to AddLineItem, which nothing handles, and RemoveEverything is
-  neither handled nor upcast.
+  ItemAdded(item), and the fact ItemDelivered(item) is recorded as
+  received. Nothing handles RemoveEverything.
 
   Background:
     Given an "order" business binary built as version "1.4.2+build.7"
@@ -114,39 +115,16 @@ Feature: Handling a delivered command - versions, upcasting and conflicts
     And the answer carries no commands
 
   # ===========================================================================
-  # Upcasting and unknown types
+  # Unknown types
   # ===========================================================================
 
-  @upcasting
-  @C-0537
-  Scenario: An old command type is upcast and decided as the current type
-    When AddItemV1 "apple" is handled over no prior events
-    Then business code decides an AddItem for "apple"
-    And the command is accepted
-
-  @upcasting
-  @C-0538
-  Scenario: An old fact type is upcast and ingested as the current type
-    When a fact ItemDeliveredV1 "apple" is handled over no prior events
-    Then business code ingests an ItemDelivered for "apple"
-    And the fact is accepted
-
-  @upcasting
-  @C-0539
-  Scenario: A type that upcasts to something no handler claims is refused naming both types
-    When AddLine "apple" is handled over no prior events
-    Then the command is refused INTERNAL with reason UNKNOWN_COMMAND_TYPE, which is also its status message
-    And the refusal's error info carries type_url "/orders.v1.AddLine"
-    And the refusal's error info carries upcast_type_url "/orders.v1.AddLineItem"
-    And business code is not invoked
-
-  @upcasting
-  @C-0540
-  Scenario: A type with no handler and no upcaster is refused naming the type as sent
+  @unknown_type
+  @C-0682
+  Scenario: A type no handler claims is refused naming the type it was given
     When RemoveEverything "apple" is handled over no prior events
     Then the command is refused INTERNAL with reason UNKNOWN_COMMAND_TYPE, which is also its status message
     And the refusal's error info carries type_url "/orders.v1.RemoveEverything"
-    And the refusal's error info carries upcast_type_url "/orders.v1.RemoveEverything"
+    And the refusal's error info carries no upcast_type_url
     And business code is not invoked
 
   # ===========================================================================
@@ -317,13 +295,12 @@ Feature: Handling a delivered command - versions, upcasting and conflicts
       | condition                                                                         | status           | reason                             | metadata                                          |
       | the state fold fails on a persisted event at sequence 3                           | INTERNAL         | FOLD_FAILED                        | sequence "3" and state_type_url                   |
       | the state fold fails on an event the command emitted at sequence 4                | INTERNAL         | FOLD_FAILED_EMITTED                | sequence "4" and state_type_url                   |
-      | a command of type "/orders.v1.Unknown" arrives                                    | INTERNAL         | UNKNOWN_COMMAND_TYPE               | type_url and upcast_type_url "/orders.v1.Unknown" |
-      | a fact of type "/orders.v1.Unheard" arrives                                       | INTERNAL         | NO_FACT_HANDLER                    | type_url and upcast_type_url "/orders.v1.Unheard" |
+      | a command of type "/orders.v1.Unknown" arrives                                    | INTERNAL         | UNKNOWN_COMMAND_TYPE               | type_url "/orders.v1.Unknown"                    |
+      | a fact of type "/orders.v1.Unheard" arrives                                       | INTERNAL         | NO_FACT_HANDLER                    | type_url "/orders.v1.Unheard"                    |
       | a CommandRefused for RemoveEverything arrives with no on_refused_RemoveEverything | INTERNAL         | NO_REFUSAL_HANDLER                 | command_type "/orders.v1.RemoveEverything"        |
       | a policy is dispatched to the business process hosting the "order" aggregate      | UNIMPLEMENTED    | NO_COMPONENT_OF_KIND               | no other metadata                                 |
       | a policy consuming "order" is given a book of domain "inventory"                  | UNIMPLEMENTED    | POLICY_SOURCE_OUTSIDE_INPUT_DOMAIN | domain "inventory" and expected_domain "order"    |
       | the router is built with two components                                           | INTERNAL         | DUPLICATE_COMPONENT                | component "order" and component_kind "AGGREGATE"  |
-      | the router is built with two upcaster chains                                      | INTERNAL         | DUPLICATE_UPCASTER_CHAIN           | component "order" and component_kind "AGGREGATE"  |
       | a policy's OnRefused answer holds no fact                                         | INTERNAL         | REFUSAL_FACT_MISSING               | no other metadata                                 |
       | a policy's refusal fact sets its own cover or handling                            | INTERNAL         | REFUSAL_FACT_ADDRESSED             | no other metadata                                 |
       | a policy's refusal fact has no page                                               | INTERNAL         | REFUSAL_FACT_NO_PAGE               | no other metadata                                 |

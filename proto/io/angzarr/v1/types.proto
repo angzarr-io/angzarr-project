@@ -883,7 +883,10 @@ message Snapshot {
   // in full), and offers the stored bytes, unchanged, with the next
   // delivery to that stream, subject to the Validity checks above and the
   // window bound (see ContextualCommand). Neither side asks: there is no
-  // request flag.
+  // request flag. The coordinator decides when to write one; the client
+  // library never does. A delivery that offers a snapshot carries only the
+  // pages after it: the coordinator drops the pages it covers, and the
+  // client library folds what it is given (decision 14.40).
   uint64 sequence = 2;
   // The folded state. Its type URL is the state type recorded with the
   // snapshot and checked before the snapshot is offered (see Validity
@@ -960,13 +963,18 @@ message Projection {
 //   3. load, then    load the stream (snapshot and events, its head)
 //      deduplicate   FIRST, then look up (stream, command_id); a hit is
 //                    answered DUPLICATE with the stored events, and
-//                    nothing below runs;
+//                    nothing below runs. The loaded pages exclude those
+//                    the snapshot covers (decision 14.40), and the pages
+//                    and the input's payload are upcast through the
+//                    component's upcaster sidecar (decision 14.39; see
+//                    upcaster.proto) before anything below judges them;
 //   4. resolve       stamp or check expected_sequence against the head
 //                    step 3 loaded, and resolve conflict_resolution
 //                    (STRICT's ABORTED happens here);
 //   5. business code CommandHandlerService.Handle (the client library
-//                    upcasts the payload, dispatches to decide or ingest,
-//                    and resolves AGGREGATE_HANDLES / COMMUTATIVE), then
+//                    folds the delivered state, dispatches to decide or
+//                    ingest, and resolves AGGREGATE_HANDLES /
+//                    COMMUTATIVE), then
 //                    the append. A process manager's business code is
 //                    the same CommandHandlerService.Handle (a PM is a
 //                    domain; decision 14.31).
@@ -1055,16 +1063,18 @@ message Handling {
 // Reflective dispatch. The framework picks the pipeline from which body arm
 // is set (the arm's message type): a Command goes through decide (fallible:
 // it may be rejected), a Fact through ingest (infallible). Within the
-// pipeline the payload's type URL picks the handler, after the client
-// library's upcaster chain has brought an old payload type up to the
-// current one (see upcaster.proto); Command and Fact payloads alike are
-// upcast. A payload whose type URL, after upcasting, reaches no handler is
-// refused INTERNAL (a bug: decision 14.37) with reason UNKNOWN_COMMAND_TYPE
-// (NO_FACT_HANDLER for a fact), which is also the status message (decision
-// 14.37: a key, never text), and the status details carry a
-// google.rpc.ErrorInfo whose metadata key "type_url" holds the type URL as
-// sent and "upcast_type_url" the type URL the chain ended at (the sent one
-// when no upcaster applies). On
+// pipeline the payload's type URL picks the handler, after the
+// coordinator, through the component's upcaster sidecar, has brought an
+// old payload type up to the current one (decision 14.39; see
+// upcaster.proto); Command and Fact payloads alike are upcast, and the
+// client library never sees an old type. A payload whose type URL reaches
+// no handler is refused by the client library INTERNAL (a bug: decision
+// 14.37) with reason UNKNOWN_COMMAND_TYPE (NO_FACT_HANDLER for a fact),
+// which is also the status message (decision 14.37: a key, never text),
+// naming the type it was given as ErrorInfo metadata "type_url". The
+// coordinator answers its caller with that status, its ErrorInfo metadata
+// "type_url" holding the type URL as sent and "upcast_type_url" the type
+// URL the sidecar returned (the sent one when no rule applies). On
 // the wire the arm is the fact marker; in code, the handler registration (a
 // fact handler, e.g. #[handles_fact] / ingest, versus a command handler) is
 // the declaration, and the router refuses an arm that does not match the
@@ -1110,9 +1120,10 @@ message CommandPage {
 // events or reject it. Never carries a fact_origin. A rejected command
 // writes nothing, so the same command_id may be retried.
 //
-// Commands may be upcast: the client library applies the same upcaster
-// chain as for events to the payload, by type URL, before dispatch (see
-// upcaster.proto, which also explains why that is discouraged).
+// Commands may be upcast: the coordinator runs the payload through the
+// same upcaster chain as for events, by type URL, in the component's
+// upcaster sidecar, before dispatch (decision 14.39; see upcaster.proto,
+// which also explains why that is discouraged).
 message Command {
   google.protobuf.Any payload = 1; // The domain command; its type URL picks the handler
 }
@@ -1121,9 +1132,9 @@ message Command {
 // an integration), delivered through the command coordinator like any
 // command (Handle, HandleAsync or HandleSync).
 //
-// Facts are upcast like commands: the client library applies the same
-// upcaster chain to the payload, by type URL, before dispatch (see
-// upcaster.proto).
+// Facts are upcast like commands: the coordinator runs the payload through
+// the same upcaster chain, by type URL, in the component's upcaster
+// sidecar, before dispatch (decision 14.39; see upcaster.proto).
 //
 // Fact handlers are infallible: they record the fact (possibly together
 // with events that flag it, e.g. a payment received for an unknown order)
@@ -1238,8 +1249,13 @@ message ContextualCommand {
   // is the head and the window is empty.
   //
   // The snapshot, when present, has passed the coordinator's validity
-  // checks (see Snapshot); the client library decodes it without checking
-  // it again.
+  // checks (see Snapshot); it is the starting state. The coordinator has
+  // dropped every page it covers (sequence <= snapshot.sequence), so pages
+  // holds only the events after it (decision 14.40). The client library
+  // decodes the starting state without checking it again and folds every
+  // page it is given, in order, never comparing sequences with the
+  // snapshot's. Every page and the command's payload are in the current
+  // shape: the coordinator has upcast them (decision 14.39).
   EventBook events = 1;
   CommandBook command = 2;
   // When the input was accepted: stamped by the runtime that accepted it

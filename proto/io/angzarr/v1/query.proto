@@ -25,8 +25,8 @@ option ruby_package = "Angzarr";
 // registration, so it never returns a snapshot: every result carries every
 // page from sequence 0 (up to the query's point).
 //
-// Upcasting. A coordinator upcasts every event it returns through its own
-// business process's UpcasterService (see upcaster.proto).
+// Upcasting. A coordinator upcasts every event it returns through its
+// component's upcaster sidecar (see upcaster.proto; decision 14.39).
 //
 // Editions: a Query or CorrelationQuery naming an unknown edition (no fork
 // event of it exists: never created with EditionAdminService.ForkStream,

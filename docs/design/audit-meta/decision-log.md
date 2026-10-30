@@ -1281,6 +1281,8 @@ to fix the message). The rule is in the `entry_points` region of
   original ids.
 - Cost: deployments issue framework components their own mTLS identities.
 
+> **Amended by 14.39 (pass 14):** the client library no longer upcasts. The component's coordinator upcasts an incoming command's or fact's payload through the upcaster sidecar before dispatch; the router is handed the current type only. The discouragement stands.
+
 **12.11 Commands can be upcast, but it is discouraged.** The client library
 applies the same upcaster chain to an incoming command payload, by type
 URL, before dispatch. A command type URL with no handler and no upcaster
@@ -1429,6 +1431,8 @@ field.
 
 > **Amended by 14.3–14.29 (pass 14):** the coordinator pulls the descriptors (`ComponentService.Describe`); a versionless descriptor fails registration visibly in the coordinator's readiness, not with a status. One leading `v`/`V` is stripped before parsing; queries use the same rule; a response reporting a version other than the registered one is refused; a registration without a version is refused; `snapshot_refused` is NOT reserved (policy 6.6 holds); the upcast type travels in `ErrorInfo` metadata `upcast_type_url`.
 
+> **Amended by 14.39 and 14.40 (pass 14):** the client library's steps in `Handle` are dispatch, then conflicts: the coordinator has upcast the payload (14.39) and dropped the pages the snapshot covers (14.40), so the library folds the starting state and every page it is given.
+
 **14.1 `rules_version` is the build version, and the coordinator decides
 snapshot validity.** Supersedes 12.6; amends 6.8; partly restores 5.9.
 - **The business logic declares no snapshot compatibility.** It implements
@@ -1475,6 +1479,8 @@ snapshot validity.** Supersedes 12.6; amends 6.8; partly restores 5.9.
   Axon, Eventuous), here checked where the snapshot is loaded.
 
 > **Amended by 14.37 (pass 14):** the status message is the reason key, never text: an unknown command type is `UNKNOWN_COMMAND_TYPE` (a fact `NO_FACT_HANDLER`), with the sent type URL as `ErrorInfo` metadata `type_url` beside `upcast_type_url`.
+
+> **Amended by 14.39 (pass 14):** the coordinator, not the client library, upcasts Command and Fact payloads, through the upcaster sidecar. The router refuses the type it was given; the coordinator answers the caller naming both type URLs.
 
 **14.2 An unknown type after upcasting names both type URLs; facts are
 upcast too.** The client library upcasts Command and Fact payloads alike.
@@ -1525,6 +1531,8 @@ names unreserved, and `proto/buf.yaml` keeps no exception. Owner ruling,
 2026-10-19.
 
 > **Amended by 14.37 (pass 14):** the sent type URL travels in `ErrorInfo` too, as `type_url`; the status message is the reason key.
+
+> **Amended by 14.39 (pass 14):** the caller still sees `type_url` (as sent) and `upcast_type_url` (where the sidecar's chain ended), but the coordinator fills them. The router knows only the type it was given, which it reports as `type_url`.
 
 **14.8 The upcast type travels in `ErrorInfo`.** Making 14.2 concrete: the
 `INVALID_ARGUMENT` status for an unknown type after upcasting carries a
@@ -1595,6 +1603,8 @@ ruling, 2026-10-19.
   routinely; paging on that is noise, while one that stays down is not.
 
 > **Amended by 14.14 (pass 14):** the PM's state has its own field, `ProcessManagerHandleResponse.process_state` (5); it no longer rides on the last `process_events` book.
+
+> **Amended by 14.40 (pass 14):** the coordinator also loads the snapshot and drops the pages it covers. The router decodes the starting state and folds every page it is given.
 
 **14.12 The client library returns the state on every response.** The
 router returns the post-command state in
@@ -1719,6 +1729,8 @@ Owner ruling, 2026-10-20.
 
 > **Amended by 14.25 (pass 14):** the open question is settled: the owning coordinator upcasts on every read and publish path through its own business process.
 
+> **Amended by 14.39 (pass 14):** an upcaster is served by an upcaster sidecar, its own process, never by the business process. It is still part of its component: no `ComponentKind`, no descriptor, no coordinator of its own. `upcaster.proto` again allows a separate binary: the sidecar.
+
 **14.22 An upcaster is part of its component.** An upcaster belongs to
 the component whose streams it upcasts. It has no `ComponentKind`, no
 descriptor and no coordinator of its own, and `UpcasterService` is served
@@ -1764,6 +1776,8 @@ already has one destination; no example saga changed. Owner ruling,
 
 > **Amended by 14.29 (pass 14):** "publishing to the bus" means wherever stored events reach a subscriber, live publishing and reads of stored history alike.
 
+> **Amended by 14.39 (pass 14):** the coordinator calls the upcaster sidecar's `UpcasterService`, not its business process's. It also upcasts every incoming command and fact payload before dispatch. The cost moves with it: a sidecar that is down stalls the stream's loads, queries, history reads and deliveries.
+
 **14.25 The owning coordinator upcasts on every way out of its stream.**
 Amends 14.22 and settles backlog GAP-1's open question. The coordinator of
 the component that owns a stream upcasts that stream's events on every
@@ -1778,6 +1792,8 @@ upcasters of their own. The store is never rewritten. Owner ruling,
 - Cost: publishing and queries call the business process; a business
   process that is down stalls its stream's publishing and queries as well
   as its commands.
+
+> **Amended by 14.39 (pass 14):** option (a) below would mean configuring the standalone server with the stream owner's upcaster sidecar address. The question is still open.
 
 **14.26 Event-store queries may run standalone.** `EventQueryService`
 (`query.proto`) is a read-only interface independent of
@@ -1822,6 +1838,8 @@ several pages per book (the CommandBook glossary entry, `pitch.mdx`,
   to land. It would need new per-page error, outcome and deduplication
   semantics, and it is not planned. The protos describe only what holds
   now: exactly one command.
+
+> **Amended by 14.39 (pass 14):** the upcasting is the sidecar's, called by the owning coordinator.
 
 **14.29 Upcasting covers stored history, not only live publishing.**
 Amends 14.25. The coordinator publishes only what it appends, and business
@@ -2601,6 +2619,8 @@ says.** Owner rulings, 2026-10-28. Amends 14.30, 14.31 and 14.32.
 >   naming the root is no extra burden, and a callback and a default were
 >   two ways to say what the policy can write directly.
 
+> **Amended by 14.39 (pass 14):** `DUPLICATE_UPCASTER_CHAIN` is retired, because the router holds no upcaster chain. So is `DUPLICATE_COMMAND_HANDLER`, whose only condition was an old type that is also a current type. From the router, `UNKNOWN_COMMAND_TYPE` and `NO_FACT_HANDLER` carry `type_url` only, the type the router was given. The coordinator answers the caller with `type_url` as sent and `upcast_type_url`.
+
 **14.37 Errors carry a key and an argument map, never rendered English;
 the input's acceptance time is delivered.** Owner rulings, 2026-10-28.
 Amends 5.11, 14.2, 14.8 and 14.31. In the owner's words: "we should *not*
@@ -2935,6 +2955,115 @@ with a Rust table and a Python player.
 > hand; with the inputs on it, each event is a self-describing (state,
 > action) row for the model to learn from. Cost: the hand is recorded
 > twice, on the table's `TurnStarted` and on the player's `MoveDecided`.
+
+**14.39 The coordinator upcasts, through an upcaster sidecar; the router
+never sees an old shape.** Owner ruling, 2026-10-29 (plan
+`router-call-model`, later rulings). Amends 12.11, 14.1, 14.2, 14.8, 14.22,
+14.25, 14.29 and 14.37; replaces 12.11's in-router chain.
+- **Who upcasts.** Only the coordinator of the component that owns a
+  stream. As before, it upcasts that stream's events on every way out
+  (14.25, 14.29): loading for `Handle`, answering queries, and wherever
+  stored events reach a subscriber. It now also upcasts the payload of
+  every incoming Command and Fact, before it decides anything by the
+  payload's type and before dispatch. That covers a process manager's start
+  rule (14.31, B1), checked against `ComponentDescriptor.starting_types`,
+  and the per-type conflict-resolution configuration. The router (the
+  client library) has no upcaster chain and upcasts nothing. Every payload
+  and event it is handed is in the current shape.
+- **The sidecar.** An upcaster sidecar does the upcasting. It is a process
+  of its own that serves `UpcasterService` and gRPC health. It is not the
+  business process.
+  - In the distributed runtime it is a container beside the component's
+    business process and coordinator. Its address is in the coordinator's
+    configuration.
+  - In angzarr-embedded it is either a child process the host launches the
+    way it launches a remote domain, or a Rust upcaster registered with the
+    kernel in-process. The kernel calls the Rust upcaster directly, under
+    the same contract.
+- **Still part of its component.** As 14.22 says, the sidecar serves only
+  its component's domain. It has no `ComponentKind`, no descriptor and no
+  coordinator of its own, and its one caller is that component's
+  coordinator. 14.22's rule that the business process serves
+  `UpcasterService` is reversed, and `upcaster.proto` again allows an
+  upcaster deployed as a separate binary: the sidecar.
+- **One chain, by type URL.** As 12.11 had it, an upcaster's rules are keyed
+  by type URL, and the same chain covers events and inputs. The wire is
+  unchanged. The coordinator sends an input's payload as a one-page
+  `UpcastRequest` whose page carries only `payload`, and takes the payload
+  of the page returned.
+- **Unknown type after upcasting.** The router refuses a Command (or Fact)
+  whose type URL no handler claims: `INTERNAL`, `UNKNOWN_COMMAND_TYPE` (or
+  `NO_FACT_HANDLER`), with `type_url` the type it was given. The coordinator
+  holds both types. It answers the caller with the router's status, but
+  `type_url` is now the type as sent and `upcast_type_url` the type the
+  sidecar returned. With no rule applied, or no sidecar, the two are the
+  same. What the caller sees is unchanged (14.2, 14.8, 14.37). What changes
+  is who fills it in. C-0539 and C-0540 are now coordinator scenarios, and
+  the router's own refusal is C-0682.
+- **Retired with the router's chain:** `DUPLICATE_UPCASTER_CHAIN`, and the
+  build-time check that refused an old type that is also a current command
+  type (`DUPLICATE_COMMAND_HANDLER`). Nothing holds both sets now.
+- **Drafter's choices, for the owner to confirm.**
+  - No sidecar configured: nothing is upcast.
+  - A sidecar configured but unreachable or failing: the coordinator
+    delivers nothing that needs upcasting, and reports `NOT_SERVING`
+    (C-0681). A synchronous caller and a query are answered `UNAVAILABLE`
+    (retryable). Queued and reaction deliveries stay queued.
+  - A rule the sidecar fails on is a handler bug (5.8).
+  - In angzarr-embedded, a launched sidecar is a `[[domain]]` entry with
+    `kind = "upcaster"`, naming the domain it upcasts. A registered Rust
+    upcaster counts as that domain's sidecar.
+  - The wire stays unchanged, an input's payload riding in an `EventPage`.
+- **Text changed with it:** the comments of `upcaster.proto`,
+  `command_handler.proto`, `component.proto`, `types.proto`, `query.proto`
+  and `process_manager.proto`, and the wallet example's comment.
+  `handling.feature`: C-0537 to C-0540 move to `upcasting.feature`, new
+  C-0682 is the router's refusal naming the type it was given, the
+  unknown-type rows of the error table carry `type_url` only, and the
+  `DUPLICATE_UPCASTER_CHAIN` row is gone. `upcasting.feature`: the sidecar
+  in its background and description, the moved C-0537 to C-0540, and new
+  C-0680 (a start rule judged on the upcast type) and C-0681 (a sidecar
+  that is down). Also the guide's "Versioning commands", backlog VC-1 and GAP-1,
+  FUTURE.md, and the site's upcasting, components and error pages.
+- Why: the owner wants the router small enough to write one per language.
+  Upcasting is the coordinator's work already for events (14.25), and doing
+  inputs in the same place gives one upcaster per component, one call path
+  and one deployment. A router that never sees an old shape needs no chain,
+  no upcast role in the C ABI, and no upcast-aware start rule.
+- Cost: one more process per component that upcasts, and one more network
+  hop (a Unix socket in angzarr-embedded) on every load, query, history
+  read and input. A sidecar that is down stalls all of them. The coordinator
+  also rewrites the router's unknown-type refusal for its caller.
+- Aligns with: Axon and Marten run upcasters inside the framework's read
+  path, not in handler code. Here that path is the coordinator, and the
+  sidecar keeps it domain-blind.
+
+**14.40 The coordinator handles snapshots; the router only folds what it
+is given.** Owner ruling, 2026-10-29. Amends 14.1 and 14.12, and the
+`ContextualCommand` and `Snapshot` comments.
+- **Loading.** The coordinator loads the snapshot it chose (14.1, 14.21,
+  the window bound) and drops every page the snapshot covers (sequence
+  `<= snapshot.sequence`). It delivers the snapshot's state as the starting
+  state, with only the pages after it. No delivery holds a page the
+  snapshot covers.
+- **Folding.** The router decodes the starting state with the state's own
+  codec, the inverse of the state it returns. Then it folds every page it
+  is given, in order, without comparing sequences with the snapshot. It has
+  no snapshot loader and no covered-page filter. C-0287 is rewritten to
+  say the coordinator drops the covered pages.
+- **Writing.** The coordinator decides when to write a snapshot. It works
+  from the state the router returns on every answer (14.12), applies the
+  domain's storage policy, and stamps `sequence` and `rules_version`. The
+  router never decides.
+- **Wire: none.** On a delivery, `EventBook.snapshot` is the starting state.
+- Why: the coordinator already chooses the snapshot and reads the store, so
+  dropping covered pages where it reads leaves one place that knows what a
+  snapshot covers. It also shrinks the router toward one per language, as
+  14.39 does.
+- Cost: the router no longer guards against a covered page. A coordinator
+  bug that delivers one double-folds it, and nothing refuses it.
+- Aligns with: snapshots as caches the event store's reader applies
+  (Marten, Eventuous), with the handler folding only events.
 
 ## Corrections
 

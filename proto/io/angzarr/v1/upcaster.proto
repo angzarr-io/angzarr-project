@@ -12,33 +12,46 @@ option ruby_package = "Angzarr";
 // UpcasterService: transforms old event versions to current versions.
 // An upcaster is PART of the component whose streams it upcasts, never a
 // component of its own: it has no ComponentKind, no descriptor and no
-// coordinator, and it is served only by that component's own business
-// process (the one its coordinator dials), beside the component's kind
-// service.
+// coordinator, and its one caller is that component's coordinator.
+//
+// Where it runs: the upcaster SIDECAR (decision 14.39). An upcaster is
+// deployed as a separate binary, its own process serving UpcasterService
+// (and gRPC health), never the business process:
+//   - in the distributed runtime, a container beside the component's
+//     business process and coordinator, its address in the coordinator's
+//     configuration;
+//   - in angzarr-embedded, a child process the host launches as it
+//     launches a remote domain, or a Rust upcaster registered with the
+//     kernel in-process, called directly under this same contract.
+// With no sidecar configured, nothing is upcast.
 //
 // Who calls it. The coordinator of the component that owns a stream
 // upcasts that stream's events on EVERY read and publish path, by calling
-// its own business process's UpcasterService: loading the stream for
-// Handle (an aggregate's events, a process manager's process_state),
-// answering queries (EventQueryService, see query.proto), and wherever
-// stored events reach a subscriber: live publishing and every read of
-// stored history (catch-up, gap fill, rebuild) alike. (Live publishing
-// carries only what was just appended, which business code wrote in the
-// current shape; old shapes reach subscribers through stored history.) Consumers of another component's
+// the sidecar: loading the stream for Handle (an aggregate's events, a
+// process manager's state), answering queries (EventQueryService, see
+// query.proto), and wherever stored events reach a subscriber: live
+// publishing and every read of stored history (catch-up, gap fill,
+// rebuild) alike. (Live publishing carries only what was just appended,
+// which business code wrote in the current shape; old shapes reach
+// subscribers through stored history.) Consumers of another component's
 // stream (policies, process managers, projectors) therefore only ever see
 // current event shapes and have no upcasters of their own. Stored events
 // are never rewritten: upcasting happens on the way out.
 //
-// Commands can be upcast too, but should rarely be. The client library
-// applies the SAME upcaster chain, by type URL, to an incoming command's
-// payload, and to a fact's, before dispatch (inside
-// CommandHandlerService.Handle; no RPC round trip, and the coordinator,
-// being domain-blind, never upcasts). A payload whose type URL, after
-// upcasting, reaches no handler is refused INTERNAL (a bug: decision 14.37) with reason
-// UNKNOWN_COMMAND_TYPE (NO_FACT_HANDLER for a fact), which is also the
-// status message (decision 14.37), and the status details carry a
-// google.rpc.ErrorInfo whose metadata keys "type_url" and "upcast_type_url"
-// hold the type URL as sent and the type URL the chain ended at. Commands are never stored, so a command
+// Commands and facts. The same coordinator upcasts an incoming Command's or
+// Fact's payload through the SAME chain, by type URL, before it judges the
+// input by its type (a process manager's start rule, the per-type conflict
+// resolution) and before dispatch. It sends the payload as a one-page
+// UpcastRequest whose page carries only `payload`, and takes the returned
+// page's payload. The business process (the client library's router) never
+// upcasts and never sees an old shape. A payload whose type URL, after
+// upcasting, reaches no handler is refused by the router INTERNAL (a bug:
+// decision 14.37) with reason UNKNOWN_COMMAND_TYPE (NO_FACT_HANDLER for a
+// fact), which is also the status message, naming the type it was given as
+// ErrorInfo metadata "type_url". The coordinator answers its caller with
+// that status, its ErrorInfo metadata "type_url" holding the type URL as
+// sent and "upcast_type_url" the type URL the sidecar returned (the sent
+// one when no rule applies). Commands are never stored, so a command
 // upcaster only translates what an out-of-date client sends.
 //
 // Prefer, in order:
@@ -54,6 +67,12 @@ option ruby_package = "Angzarr";
 // date or release by which the old clients are gone and the upcaster is
 // deleted). Event upcasting has no such caveat: stored events never go
 // away, so their upcasters are permanent.
+//
+// Failure. A sidecar that is configured but unreachable stalls what needs
+// it: the coordinator delivers nothing it would have to upcast and
+// reports NOT_SERVING; a synchronous caller and a query are answered
+// UNAVAILABLE (retryable); queued and reaction deliveries stay queued. A
+// rule that fails (an error status from Upcast) is a handler bug.
 service UpcasterService {
   // Transform events to current version
   // Returns events in same order, transformed where applicable
