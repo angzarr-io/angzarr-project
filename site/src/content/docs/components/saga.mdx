@@ -167,12 +167,12 @@ command_index  — position of the command in the saga's output
 source_component (stamped by the coordinator) — the saga's registered name
 ```
 
-The destination appends a deferred command at its current head. There is no expected version, so no sequence or merge-strategy check runs, under any merge strategy:
+The destination appends a deferred command at its current head. There is no expected sequence, so no sequence check or conflict resolution applies (the destination stamps the head; see `Handling` in `io/angzarr/v1/types.proto`):
 
 - **Business guard:** the destination aggregate's own command handler. If the command no longer makes sense for the current state, the handler rejects it and the rejection routes back to `source` for compensation.
 - **Duplicate guard:** the provenance tuple is the idempotency key, so a redelivered trigger event does not apply the same command twice.
 
-Sagas never load target state or sequences: the coordinator invokes a saga with the triggering events only, and nothing is fetched from the destinations before the call. A saga that deliberately sets an explicit `sequence` instead opts into the destination's merge-strategy validation, exactly like an external client, and gives up deferred provenance (no idempotency key, no rejection routing).
+Sagas never load target state or sequences: the coordinator invokes a saga with the triggering events only, and nothing is fetched from the destinations before the call. A reaction command carries no `Handling` at all: one that sets an expected sequence or a conflict resolution is malformed, and is dead-lettered as a reactor bug (`Handling` in `io/angzarr/v1/types.proto`).
 
 ---
 

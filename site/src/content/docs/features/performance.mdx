@@ -9,7 +9,7 @@ An aggregate with a hundred thousand events. State rebuilt in fifty milliseconds
 
 Event sourcing rebuilds state by replaying events. A player who's been active for years might have tens of thousands of events. Replaying them on every command would be prohibitive.
 
-The framework provides three mechanisms: snapshots, async processing, and merge strategies.
+The framework provides three mechanisms: snapshots, async processing, and conflict resolution.
 
 ---
 
@@ -196,131 +196,51 @@ CASCADE sync can easily 10× your event store read load compared to async. Profi
 
 ---
 
-## Merge Strategies
+## Conflict Resolution
 
-When concurrent commands arrive for the same aggregate, the framework must decide how to handle sequence conflicts:
+When concurrent commands arrive for the same aggregate, a command that names the head it was decided against (its expected sequence) may find the stream has moved. Its conflict resolution decides what happens. The rules, normative, are the `ConflictResolution` region of `io/angzarr/v1/types.proto`:
 
 ```protobuf file=proto/io/angzarr/v1/types.proto region=conflict_resolution
 ```
 
-### MERGE_COMMUTATIVE (Default)
+Ordering is per stream: a write to another stream is never a conflict. An expected sequence *ahead* of the head is not a conflict at all: it is malformed under every resolution, refused `INVALID_ARGUMENT`, `COORDINATOR_REASON_EXPECTED_SEQUENCE_AHEAD` (decision 14.47). A command with no expected sequence is stamped with the head and never stale; a race lost at its write re-runs it on the new head, under the race re-run cap (decision 14.46).
 
-When sequences mismatch, commutative merge compares **state at expected sequence** vs **state at actual sequence** to detect which fields changed. If those fields don't overlap with what the incoming command modifies, the command proceeds—the operations commute.
+### COMMUTATIVE (the default where the state supports it)
 
-#### Algorithm
+The command is delivered with the events it did not see (the window). `decide` runs on the head state, so its invariants are checked against the window's effects. The client library then computes the **conflict units** the window changed and those the command's events change, from the state message's markers (the `conflict_units` region of `io/angzarr/v1/options.proto`), and the coordinator compares the two sets (decision 14.42). Disjoint: the events are kept. Overlapping: `ABORTED`, `COORDINATOR_REASON_CONFLICT_OVERLAP`, and nothing is persisted. There is no Replay RPC: the coordinator never reads a state, it compares unit paths.
 
-1. Command arrives expecting sequence N, but aggregate is at sequence M
-2. Replay state at N (what the command assumed)
-3. Replay state at M (current reality)
-4. Diff the two states → fields changed by intervening events
-5. Determine which fields the command would modify
-6. If disjoint → proceed; if overlap → retry with fresh state
+```text title="illustrative - disjoint units (kept)"
+Player stream, head 6; the command expected 5
+Window (sequence 5) changed:  {display_name}
+Command DepositFunds changes: {bankroll}
 
-```text title="illustrative - disjoint fields (proceed)"
-Player State @ seq 5:           Player State @ seq 6:
-  bankroll: 1000                  bankroll: 1000        (unchanged)
-  display_name: "Alice"           display_name: "Ace"   (changed)
-
-Command B: DepositFunds(500) arrives expecting seq 5, aggregate at seq 6
-
-Intervening changes: {display_name}
-Command B modifies:  {bankroll}
-
-Intersection: ∅ → disjoint → proceed without retry
+Disjoint → the command's events are persisted at sequence 6
 ```
 
-Compare to a true conflict:
+```text title="illustrative - overlapping units (refused)"
+Player stream, head 6; the command expected 5
+Window (sequence 5) changed:   {bankroll}
+Command WithdrawFunds changes: {bankroll}
 
-```text title="illustrative - overlapping fields (retry)"
-Player State @ seq 5:           Player State @ seq 6:
-  bankroll: 1000                  bankroll: 1500        (changed)
-
-Command B: WithdrawFunds(200) arrives expecting seq 5, aggregate at seq 6
-
-Intervening changes: {bankroll}
-Command B modifies:  {bankroll}
-
-Intersection: {bankroll} → overlap → must retry with seq 6 state
+Overlap → ABORTED, COORDINATOR_REASON_CONFLICT_OVERLAP
 ```
 
-#### Why State Comparison
+Fields left unmarked conflict with everything, so an unmarked change can only make COMMUTATIVE stricter. A state supports COMMUTATIVE only when it declares conflict units; otherwise the default is STRICT.
 
-Comparing states (not events) is essential. Events describe *what happened*, but states describe *what matters*. Two events might both mention `bankroll` in their payload, but if one was a no-op or the values converged, the states may still be identical. State comparison catches the actual semantic conflict.
+### STRICT
 
-#### Replay RPC
-
-The aggregate must implement a `Replay` RPC that returns state given an EventBook:
-
-```rust title="illustrative - Replay RPC"
-async fn replay(&self, events: &EventBook) -> Result<Any, Status> {
-    let state = build_state_from_events(events);
-    Ok(Any::pack(&state))
-}
-```
-
-The framework calls this twice per conflict check—once for expected sequence, once for actual. States are then diffed using protobuf field-level comparison.
-
-#### Graceful Degradation
-
-If `Replay` is unimplemented or fails, commutative merge degrades to STRICT behavior: any sequence mismatch triggers retry. This is conservative—better to retry unnecessarily than risk incorrect merges.
-
-#### Field Wildcards
-
-When the framework cannot determine which fields a command modifies, it assumes `*` (all fields). This forces retry on any sequence mismatch. To enable fine-grained commutativity, annotate commands with their field dependencies.
-
-#### Caller Retry Flow
-
-When fields overlap (or STRICT mode), the framework returns `FAILED_PRECONDITION` with sequence information. **The caller is responsible for retry**:
-
-```text title="illustrative - caller retry flow"
-1. Send command expecting sequence N
-2. Receive FAILED_PRECONDITION: "expected N, aggregate at M"
-3. Fetch current events for the aggregate
-4. Evaluate: do intervening events invalidate our intent?
-5. If still valid: rebuild command with sequence M, retry
-6. If invalid: abort or adjust business logic
-```
-
-The framework does not automatically return the intervening events—the caller must fetch them. This is intentional: the caller needs to evaluate whether the command still makes business sense given what happened. A blind retry could produce incorrect results.
-
-```python title="illustrative - retry with refetch"
-result = send_command(cmd, sequence=5)
-if result.is_precondition_failed():
-    # Fetch what happened since our last read
-    events = query_events(domain, root, after_sequence=5)
-
-    # Business decision: does our intent still hold?
-    if events_invalidate_our_action(events):
-        return Error("Action no longer valid")
-
-    # Rebuild with current sequence
-    new_sequence = events[-1].sequence + 1
-    result = send_command(cmd, sequence=new_sequence)
-```
-
-### MERGE_STRICT
-
-Reject if sequence doesn't match. Use for operations that must not be retried.
+A command behind the head is refused `ABORTED`, `COORDINATOR_REASON_EXPECTED_SEQUENCE_STALE` (args `expected`, `actual`), before business code, or at the write if another write to the same stream lands first. Nothing is persisted and the command is never re-run: the caller re-reads, re-decides and re-issues (decision 14.45). Use it where the caller's intent depends on exactly the state it read.
 
 ```text title="illustrative - strict rejection"
-Command A (seq 5) succeeds
-Command B (seq 5) → Rejected: sequence mismatch
+Command A (expects 5) succeeds; the head is now 6
+Command B (expects 5) → ABORTED, COORDINATOR_REASON_EXPECTED_SEQUENCE_STALE
 ```
 
-### MERGE_AGGREGATE_HANDLES
+### AGGREGATE_HANDLES
 
-The aggregate receives both the expected and actual state, deciding how to proceed:
+`decide` receives the window with a nonce and applies its own conflict rule. It must call `resolve_conflicts(...)` with that nonce before it returns; one that does not fails `ABORTED`, `COORDINATOR_REASON_CONFLICT_UNRESOLVED`, exactly as STRICT would have (decision 14.42).
 
-```python title="illustrative - aggregate merge handler"
-def handle_with_merge(
-    cmd: PlaceBet,
-    expected_state: HandState,
-    actual_state: HandState
-) -> MergeResult:
-    if actual_state.phase != expected_state.phase:
-        return MergeResult.reject("HAND_PHASE_CHANGED")
-    return MergeResult.proceed(compute_event(cmd, actual_state))
-```
+What a caller does with each answer, and what happens at a retry cap, is in [Error Recovery](/operations/error-recovery#sequence-conflicts).
 
 ---
 
@@ -328,8 +248,8 @@ def handle_with_merge(
 
 | Component | Pattern | Why |
 |-----------|---------|-----|
-| Hand aggregate | MERGE_STRICT | Action order matters |
-| Player aggregate | MERGE_COMMUTATIVE | Deposits can retry |
+| Hand aggregate | STRICT | Action order matters |
+| Player aggregate | COMMUTATIVE | Deposits touch only the bankroll |
 | Table aggregate | Snapshots @ 100 | Many events per session |
 | Leaderboard projector | Async | Can lag behind |
 | Balance projector | Simple sync | Visible immediately |

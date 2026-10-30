@@ -14,7 +14,7 @@ Common CQRS and Event Sourcing patterns used in angzarr.
 |----------|----------|
 | [Delivery](#delivery-patterns) | Outbox, Idempotent Consumer |
 | [Schema Evolution](#schema-evolution) | Upcasting |
-| [Coordination](#coordination-patterns) | Correlation ID, Merge Strategy, Sync Mode |
+| [Coordination](#coordination-patterns) | Correlation ID, Conflict Resolution, Sync Mode |
 | [Query](#query-patterns) | Temporal Query |
 
 ---
@@ -108,52 +108,20 @@ Links related events across aggregates:
 - Framework does NOT auto-generate—if not provided, stays empty
 - Once set, propagates through sagas and process managers
 
-### Merge Strategy
+### Conflict Resolution
 
-Controls concurrency handling for optimistic locking:
+Optimistic concurrency, per stream: a command may name the stream head it was decided against (`Handling.expected_sequence`), and its conflict resolution says what happens when the stream has moved on since. Three resolutions exist, `STRICT`, `AGGREGATE_HANDLES` and `COMMUTATIVE`; the authoritative rules are the `ConflictResolution` region and `Handling.expected_sequence` in `io/angzarr/v1/types.proto`.
 
-| Strategy | Proto Value | Conflict Behavior | gRPC Code | Retryable? |
-|----------|-------------|-------------------|-----------|------------|
-| **COMMUTATIVE** | 0 (default) | Return fresh state | `FAILED_PRECONDITION` | Yes |
-| **STRICT** | 1 | Immediate rejection | `ABORTED` | No |
-| **AGGREGATE_HANDLES** | 2 | Aggregate decides | Varies | Varies |
-| **MANUAL** | 3 | Route to DLQ | `ABORTED` | No |
+In short:
 
-**When to use each:**
+- **`STRICT`**: a command behind the head is refused `ABORTED`, `COORDINATOR_REASON_EXPECTED_SEQUENCE_STALE`, before business code. The caller re-reads and re-decides (decision 14.45).
+- **`AGGREGATE_HANDLES`**: business code receives the events the command did not see (the window) with a nonce, and applies its own conflict rule; one that never resolves the window fails `ABORTED`, `COORDINATOR_REASON_CONFLICT_UNRESOLVED`.
+- **`COMMUTATIVE`**: delivered like `AGGREGATE_HANDLES`, but the client library computes the conflict units the window and the command changed, and the coordinator keeps the command's events only if they are disjoint; an overlap fails `ABORTED`, `COORDINATOR_REASON_CONFLICT_OVERLAP` (decision 14.42).
+- **Every resolution**: an expected sequence *ahead* of the head is malformed, refused `INVALID_ARGUMENT`, `COORDINATOR_REASON_EXPECTED_SEQUENCE_AHEAD` (decision 14.47).
 
-| Use Case | Strategy | Why |
-|----------|----------|-----|
-| Financial operations | `STRICT` | Must see current balance |
-| Counters, metrics | `COMMUTATIVE` | Order doesn't matter, safe to retry |
-| CRDT-style operations | `AGGREGATE_HANDLES` | Aggregate merges conflicts |
-| Audit-critical operations | `MANUAL` | Human review required |
+Which resolutions a stream supports comes from its registered state: every state supports `STRICT` and `AGGREGATE_HANDLES`, and `COMMUTATIVE` only where the state declares conflict units (the `conflict_units` region of `io/angzarr/v1/options.proto`). With none chosen, the default is `COMMUTATIVE` where supported and `STRICT` otherwise. A command without an expected sequence is stamped with the head it decides against, so it is never stale: if it loses a race at its write, the coordinator re-runs it on the new head, under the race re-run cap (decision 14.46).
 
-<Tabs>
-<TabItem label="Python">
-
-```python
-# STRICT: Must see current balance — immediate rejection on conflict
-@merge_strategy(MergeStrategy.STRICT)
-def handle_reserve_funds(state, cmd):
-    if cmd.amount > state.available():
-        raise CommandRejectedError("INSUFFICIENT_FUNDS")
-    return FundsReserved(amount=cmd.amount)
-
-# COMMUTATIVE (default): Safe to retry with fresh state
-@merge_strategy(MergeStrategy.COMMUTATIVE)
-def handle_add_points(state, cmd):
-    return PointsAdded(points=cmd.points)
-
-# MANUAL: Route to DLQ for human review
-@merge_strategy(MergeStrategy.MANUAL)
-def handle_compliance_action(state, cmd):
-    return ComplianceActionTaken(action=cmd.action)
-```
-
-</TabItem>
-</Tabs>
-
-See [Error Recovery](/operations/error-recovery) for retry behavior and DLQ routing details.
+What each status means to a caller, which class it belongs to (decision 14.37) and what happens at a retry cap: see [Error Recovery](/operations/error-recovery).
 
 ### Sync Mode
 

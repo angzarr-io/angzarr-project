@@ -13,26 +13,29 @@ The ordered position of an event within an aggregate's timeline. Sequence number
 
 ## In Commands
 
-Commands include an **expected sequence number**. If the aggregate's current sequence doesn't match:
+A command may carry an **expected sequence** (`Handling.expected_sequence`): the stream's head, its `next_sequence`, when the command was decided. What happens when the stream has moved is the command's **conflict resolution** (`STRICT`, `AGGREGATE_HANDLES` or `COMMUTATIVE`), defined in the `ConflictResolution` region of `io/angzarr/v1/types.proto`; see [Patterns: Conflict Resolution](/reference/patterns#conflict-resolution) for a summary.
 
-| Merge Strategy | Behavior |
-|----------------|----------|
-| `MERGE_STRICT` | Reject command |
-| `MERGE_COMMUTATIVE` | Allow if mutations don't overlap |
-| `MERGE_AGGREGATE_HANDLES` | Let aggregate decide |
-| `MERGE_MANUAL` | Route to DLQ |
+- **At the head**: the command is decided against the current state.
+- **Behind the head** (stale): the resolution decides. `STRICT` refuses it `ABORTED`, `COORDINATOR_REASON_EXPECTED_SEQUENCE_STALE`; `AGGREGATE_HANDLES` and `COMMUTATIVE` deliver the events the command did not see and apply their own rule (decision 14.45).
+- **Ahead of the head**: malformed under every resolution, refused `INVALID_ARGUMENT`, `COORDINATOR_REASON_EXPECTED_SEQUENCE_AHEAD` (decision 14.47).
+- **None given**: the coordinator stamps the head it decides against, so the command is never stale; a race lost at the write re-runs it on the new head (decision 14.46).
+
+Ordering is per stream: another stream's writes never conflict.
 
 ## Example
 
 ```
-Aggregate: order-123
-Current sequence: 5
+Stream: order-123
+Events at sequences 0..4, so next_sequence (the head) is 5
 
-Command arrives expecting sequence 5
-  → Valid, produces event with sequence 6
+Command expecting 5
+  → At the head: decided, its first event persisted at sequence 5
 
-Command arrives expecting sequence 4
-  → Conflict! Handle per merge strategy
+Command expecting 3
+  → Behind the head: stale, handled per its conflict resolution
+
+Command expecting 7
+  → Ahead of the head: INVALID_ARGUMENT, COORDINATOR_REASON_EXPECTED_SEQUENCE_AHEAD
 ```
 
 ## Sequence vs Timestamp

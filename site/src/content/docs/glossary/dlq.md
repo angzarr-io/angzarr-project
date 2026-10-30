@@ -5,7 +5,7 @@ title: Dead Letter Queue (DLQ)
 
 A destination for messages that cannot be processed automatically. Messages are routed to the DLQ when:
 
-1. **Sequence mismatch** with `MERGE_MANUAL` strategy
+1. **Sequence mismatch**: a queued command with a caller-provided expected sequence answered `ABORTED` (resending it verbatim cannot succeed), or a command or fact that lost a race at every write until a retry cap (`COORDINATOR_REASON_RETRY_CAP_EXHAUSTED`; decisions 14.45 and 14.46)
 2. **Processing failures** after retry exhaustion
 3. **Payload retrieval failures** (external storage unavailable)
 4. **Compensation delivery failures** after the notification's retries are exhausted
@@ -15,7 +15,7 @@ A destination for messages that cannot be processed automatically. Messages are 
 
 Each entry carries one of four detail messages:
 
-- **SequenceMismatchDetails** — expected vs. actual sequence and the merge strategy that routed the command to the DLQ.
+- **SequenceMismatchDetails** — the expected sequence the command carried and the stream's head (its `next_sequence`) when it was refused.
 - **EventProcessingFailedDetails** — why a saga, projector, or process manager failed to process events, with retry count, transience, and a structured stack trace.
 - **PayloadRetrievalFailedDetails** — claim-check failures when an externally stored payload cannot be retrieved.
 - **CompensationDeliveryFailedDetails** — a compensation notification that could not be delivered; the entry's `rejected_command` is the notification's delivery envelope.
