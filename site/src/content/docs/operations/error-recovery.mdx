@@ -79,8 +79,9 @@ A command may name the stream head it was decided against (`Handling.expected_se
 
 | The command | The stream moved | What happens |
 |-------------|------------------|--------------|
-| `STRICT`, with an expected sequence | At load, or at the write (another write to the same stream landed first) | `ABORTED`, `COORDINATOR_REASON_EXPECTED_SEQUENCE_STALE` (args `expected`, `actual`); nothing persisted, never re-run. This key is STRICT's alone. |
-| `AGGREGATE_HANDLES` or `COMMUTATIVE`, with an expected sequence | At load | The window (the events the command did not see) is delivered with a fresh nonce, and the resolution's rule decides: an unresolved nonce is `ABORTED` `COORDINATOR_REASON_CONFLICT_UNRESOLVED`, a unit overlap `ABORTED` `COORDINATOR_REASON_CONFLICT_OVERLAP`. Never the stale key. |
+| Any resolution, with an expected sequence ahead of the head | Never: the command names a sequence the stream has not reached | Malformed: `INVALID_ARGUMENT`, `COORDINATOR_REASON_EXPECTED_SEQUENCE_AHEAD` (args `expected`, `head`), found at load, before business code; nothing persisted, never retried (decision 14.47). |
+| `STRICT`, with an expected sequence behind the head | At load, or at the write (another write to the same stream landed first) | `ABORTED`, `COORDINATOR_REASON_EXPECTED_SEQUENCE_STALE` (args `expected`, `actual`); nothing persisted, never re-run. This key is STRICT's alone. |
+| `AGGREGATE_HANDLES` or `COMMUTATIVE`, with an expected sequence behind the head | At load | The window (the events the command did not see) is delivered with a fresh nonce, and the resolution's rule decides: an unresolved nonce is `ABORTED` `COORDINATOR_REASON_CONFLICT_UNRESOLVED`, a unit overlap `ABORTED` `COORDINATOR_REASON_CONFLICT_OVERLAP`. Never the stale key. |
 | `AGGREGATE_HANDLES` or `COMMUTATIVE`, with an expected sequence | At the write, after the window was delivered | The coordinator re-delivers the widened window with a fresh nonce and the rule decides again, under the retry cap (decision 14.45). |
 | No expected sequence (the coordinator stamps the head) | At the write | The coordinator re-runs the command on the new head, waiting with backoff and jitter between runs, under the race re-run cap: a count of runs, the first included, default 10 (decision 14.46). Never the stale key. |
 
@@ -90,7 +91,7 @@ Facts (a timeout, a webhook) are never refused. A fact is always stamped, so a l
 
 ### Re-deciding a Stale Command
 
-A STRICT caller answered `COORDINATOR_REASON_EXPECTED_SEQUENCE_STALE` re-reads and re-decides:
+A STRICT caller answered `COORDINATOR_REASON_EXPECTED_SEQUENCE_STALE` re-reads and re-decides. A caller answered `COORDINATOR_REASON_EXPECTED_SEQUENCE_AHEAD` has a bug, not a conflict: re-reading cannot make that command succeed, so it fixes where its expected sequence came from.
 
 ```
 1. Command fails ABORTED, reason COORDINATOR_REASON_EXPECTED_SEQUENCE_STALE

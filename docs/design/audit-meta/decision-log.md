@@ -3556,6 +3556,11 @@ amended twice the same day (below). Follows 14.35, 14.37, 14.42 and 14.44.
   left open (C-0722 to C-0724). (3) 14.46: the caller's key at the cap,
   and the race re-run cap for a stamped re-run.
 
+> **Amended by 14.47 (2026-10-30):** the key means only "behind the
+> head". An expected sequence ahead of the head is malformed under every
+> resolution, INVALID_ARGUMENT `COORDINATOR_REASON_EXPECTED_SEQUENCE_AHEAD`;
+> C-0717 loses its ahead example.
+
 **14.46 A caller waiting at a retry cap gets its own key; a stamped re-run
 has its own cap.** Owner rulings, 2026-10-30. Follows 14.37 and 14.45.
 - **The key.** `CoordinatorReason` gains
@@ -3633,6 +3638,39 @@ has its own cap.** Owner rulings, 2026-10-30. Follows 14.37 and 14.45.
   at the cap is parked, never answered the key (C-0726); and, the
   coordinator deciding for consistency, a dead letter at either cap
   records the key as its reason.
+
+**14.47 An expected sequence ahead of the head is malformed, under every
+resolution.** Owner ruling, 2026-10-30. Amends 14.45; follows 14.37 and
+14.44.
+- **The key.** `CoordinatorReason` gains
+  `COORDINATOR_REASON_EXPECTED_SEQUENCE_AHEAD`: INVALID_ARGUMENT, args
+  `expected` (the command's `CommandBook.handling.expected_sequence`) and
+  `head` (the stream's head, its `next_sequence`). Its class is business,
+  fatal (14.37): malformed input, never retried.
+- **Every resolution.** A command whose expected sequence is greater than
+  the head (expects 7, head at 3) names a state the stream never held.
+  There is nothing to resolve and no window to deliver, so STRICT,
+  AGGREGATE_HANDLES and COMMUTATIVE alike refuse it with the key when it
+  is loaded (pipeline step 4, after deduplication: the check needs the
+  head), before business code: business code is not invoked and nothing
+  is persisted (C-0727). A head only moves forward, so a command is never
+  found ahead at its write.
+- **The stale key narrows.** `COORDINATOR_REASON_EXPECTED_SEQUENCE_STALE`
+  now means only "behind the head", under STRICT (14.45). C-0162, which
+  answered a STRICT command ahead of the stream ABORTED, is retired, and
+  C-0717 loses its ahead example.
+- The proto prose agrees: `reasons.proto`'s value comments (both keys),
+  `types.proto`'s `ConflictResolution` region, `Handling.expected_sequence`
+  and the pipeline, and `command_handler.proto`'s status codes and
+  `Handle`; `conflict_resolution.feature` adds C-0727. angzarr-proto's
+  `tests/reasons.rs` pins the key.
+- Why: the ruling. Ahead is not contention: re-reading cannot make it
+  succeed, so ABORTED ("re-read and re-decide") sent a caller into a loop,
+  and under AGGREGATE_HANDLES and COMMUTATIVE the window
+  (expected .. head-1) was undefined.
+- Cost: every coordinator compares the expected sequence with the head in
+  both directions and answers a second key; a caller that sent an ahead
+  sequence and treated ABORTED as retryable now gets a final refusal.
 
 ## Corrections
 

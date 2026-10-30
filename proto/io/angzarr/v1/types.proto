@@ -248,8 +248,9 @@ message Cover {
 
 // region conflict_resolution
 // Conflict resolution: how the aggregate coordinator treats a command whose
-// expected sequence (Handling.expected_sequence) differs from the stream's
-// head (a stale command). Carried by Handling.conflict_resolution. Three
+// expected sequence (Handling.expected_sequence) is behind the stream's
+// head (a stale command). An expected sequence AHEAD of the head is no
+// conflict at all, under any resolution: it is malformed (below). Carried by Handling.conflict_resolution. Three
 // resolutions: STRICT, AGGREGATE_HANDLES and COMMUTATIVE. (Renamed from
 // MergeStrategy: Axon calls the same choice conflict resolution.)
 //
@@ -310,7 +311,19 @@ message Cover {
 // The concurrency window is the run of events the command did not see:
 // sequences handling.expected_sequence .. head-1 (see ContextualCommand).
 //
-// STRICT: any mismatch rejects with ABORTED,
+// AHEAD of the head. A provided expected_sequence greater than the
+// stream's head (its next_sequence) names a state the stream never held:
+// there is nothing for any resolution to decide, and no window to
+// deliver. Under STRICT, AGGREGATE_HANDLES and COMMUTATIVE alike the
+// command is malformed: refused INVALID_ARGUMENT,
+// COORDINATOR_REASON_EXPECTED_SEQUENCE_AHEAD (args expected, head), when
+// it is loaded (pipeline step 4, see Handling), before business code;
+// business code is not invoked and nothing is persisted. Business, fatal
+// (decision 14.37): never retried. A head only moves forward, so a
+// command is never found ahead at its write. Every rule below concerns a
+// sequence at or behind the head (decision 14.47).
+//
+// STRICT: a sequence behind the head rejects with ABORTED,
 // COORDINATOR_REASON_EXPECTED_SEQUENCE_STALE (args expected, actual; a
 // failed test-and-set: the caller re-reads and re-issues), before business
 // code runs. STRICT runs in the coordinator.
@@ -1021,7 +1034,8 @@ message Projection {
 //                    upcaster.proto) before anything below judges them;
 //   4. resolve       stamp or check expected_sequence against the head
 //                    step 3 loaded, and resolve conflict_resolution
-//                    (STRICT's ABORTED happens here);
+//                    (STRICT's ABORTED happens here, and the refusal of
+//                    an expected_sequence ahead of the head, below);
 //   5. business code CommandHandlerService.Handle (the client library
 //                    folds the delivered state, dispatches to decide or
 //                    ingest, and resolves AGGREGATE_HANDLES /
@@ -1064,6 +1078,11 @@ message Projection {
 //     command_id is the refused command's); a Command with fact_origin
 //     (see the command_identity region);
 //   - a set UUID that is not 16 bytes, or a set empty Cover.edition.
+// One more is malformed but needs the head, so it is refused at step 4,
+// after deduplication and still before business code: an
+// expected_sequence ahead of the head, under every resolution
+// (INVALID_ARGUMENT, COORDINATOR_REASON_EXPECTED_SEQUENCE_AHEAD, args
+// expected and head; see ConflictResolution; decision 14.47).
 // A client's malformed command is answered INVALID_ARGUMENT, by every
 // coordinator RPC (HandleAsync included: it validates before enqueueing).
 // causation_id from a caller not authenticated as a framework component is
@@ -1090,10 +1109,15 @@ message Handling {
   // The stream state the command was issued against: the expected
   // next_sequence of the target stream.
   //
-  // If provided, the command is rejected before business code (ABORTED,
-  // COORDINATOR_REASON_EXPECTED_SEQUENCE_STALE, args expected and actual)
-  // unless the stream is at expected_sequence, or the resolved conflict
-  // resolution is
+  // If provided and AHEAD of the stream's head (greater than its
+  // next_sequence), the command is malformed under every resolution:
+  // refused before business code, INVALID_ARGUMENT,
+  // COORDINATOR_REASON_EXPECTED_SEQUENCE_AHEAD (args expected and head),
+  // and nothing is persisted (decision 14.47).
+  //
+  // If provided and BEHIND the head, the command is rejected before
+  // business code (ABORTED, COORDINATOR_REASON_EXPECTED_SEQUENCE_STALE,
+  // args expected and actual) unless the resolved conflict resolution is
   // AGGREGATE_HANDLES or COMMUTATIVE, in which case the events since
   // expected_sequence are delivered with the command and a conflict rule is
   // applied: under AGGREGATE_HANDLES decide receives them and applies its

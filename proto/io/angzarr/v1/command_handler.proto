@@ -192,12 +192,15 @@ message ConflictReport {
 //   Business, fatal: FAILED_PRECONDITION, INVALID_ARGUMENT, NOT_FOUND,
 //               ALREADY_EXISTS, OUT_OF_RANGE, PERMISSION_DENIED (among
 //               them a field or route reserved for framework components;
-//               see entry_points). Final: never retried; a refused policy
+//               see entry_points; and an expected_sequence ahead of the
+//               stream's head, under every resolution, INVALID_ARGUMENT
+//               COORDINATOR_REASON_EXPECTED_SEQUENCE_AHEAD, decision
+//               14.47). Final: never retried; a refused policy
 //               command reaches the policy's OnRefused (policy.proto,
 //               Refusals).
 //   Business, immediate return: ABORTED, "re-read and re-decide": the
-//               framework's conflicts (a stale or mismatched
-//               expected_sequence under STRICT,
+//               framework's conflicts (an expected_sequence behind the
+//               head under STRICT,
 //               COORDINATOR_REASON_EXPECTED_SEQUENCE_STALE; a COMMUTATIVE
 //               overlap; an unresolved conflict window), or a handler's
 //               own choice under its own key. Returned at once to an outside caller, who re-reads
@@ -242,8 +245,12 @@ message ConflictReport {
 // letter's reason (AngzarrDeadLetter.reason) is
 // COORDINATOR_REASON_RETRY_CAP_EXHAUSTED with the same args.
 // ABORTED COORDINATOR_REASON_EXPECTED_SEQUENCE_STALE is STRICT's failed
-// test-and-set: the command's caller-provided expected_sequence is not the
-// stream's head, found at load or at the write (decision 14.45, amended).
+// test-and-set: the command's caller-provided expected_sequence is behind
+// the stream's head, found at load or at the write (decision 14.45,
+// amended). One AHEAD of the head is no conflict under any resolution: it
+// is malformed, refused at load before business code, INVALID_ARGUMENT
+// COORDINATOR_REASON_EXPECTED_SEQUENCE_AHEAD (args expected, head), and
+// nothing is persisted (types.proto, ConflictResolution; decision 14.47).
 // Under AGGREGATE_HANDLES and COMMUTATIVE a moved stream is never answered
 // this key: the window is delivered and the resolution's own rule decides
 // (an unresolved window is COORDINATOR_REASON_CONFLICT_UNRESOLVED, a
@@ -289,8 +296,10 @@ service CommandHandlerCoordinatorService {
   // every write until the race re-run cap, is answered OK with
   // outcome.delivery PARKED and no events ("accepted, parked"; it is
   // dead-lettered). outcome.projections and outcome.projector_failures are
-  // always empty. Rejected: a gRPC error status, and nothing is written (a
-  // stale expected sequence under STRICT is ABORTED,
+  // always empty. Rejected: a gRPC error status, and nothing is written (an
+  // expected sequence ahead of the head, under any resolution, is
+  // INVALID_ARGUMENT, COORDINATOR_REASON_EXPECTED_SEQUENCE_AHEAD; a stale
+  // one, behind the head, under STRICT is ABORTED,
   // COORDINATOR_REASON_EXPECTED_SEQUENCE_STALE; a command that lost a race
   // at every write until a cap is INTERNAL,
   // COORDINATOR_REASON_RETRY_CAP_EXHAUSTED, and dead-lettered; see the

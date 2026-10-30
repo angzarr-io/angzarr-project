@@ -1,7 +1,10 @@
 Feature: Conflict resolution - how the coordinator treats a stale command
   A command may say which stream head it was decided against (its expected
   sequence). When the stream has moved on since, the command is stale, and
-  its conflict resolution decides what happens. Three resolutions exist:
+  its conflict resolution decides what happens. An expected sequence ahead
+  of the head is not stale but malformed, under every resolution: refused
+  INVALID_ARGUMENT with reason COORDINATOR_REASON_EXPECTED_SEQUENCE_AHEAD
+  before business code runs (decision 14.47). Three resolutions exist:
 
   - STRICT: a stale command is rejected as ABORTED, with reason
     COORDINATOR_REASON_EXPECTED_SEQUENCE_STALE, before business code runs;
@@ -38,6 +41,10 @@ Feature: Conflict resolution - how the coordinator treats a stale command
   answered INTERNAL with that reason; a fact, never refused, is answered
   PARKED instead (decision 14.46). Reaction commands (from policies; a process manager sends
   none, decision 14.31) never carry an expected sequence or a resolution.
+
+  Retired with decision 14.47: C-0162, which answered a STRICT command
+  ahead of the stream ABORTED; C-0727 now refuses it, under every
+  resolution, as malformed.
 
   Background:
     Given an "order" aggregate whose registered state supports COMMUTATIVE
@@ -98,14 +105,6 @@ Feature: Conflict resolution - how the coordinator treats a stale command
     And no events are persisted
 
   @strict
-  @C-0162
-  Scenario: Strict - a command ahead of the stream is rejected
-    Given an AddItem command with conflict resolution STRICT targeting sequence 5
-    When the coordinator processes the command
-    Then the command fails with ABORTED status
-    And no events are persisted
-
-  @strict
   @C-0717
   Scenario Outline: Strict - a stale command names its expected sequence and the head
     Given an AddItem command with conflict resolution STRICT targeting sequence <expected>
@@ -116,7 +115,25 @@ Feature: Conflict resolution - how the coordinator treats a stale command
     Examples:
       | expected |
       | 1        |
-      | 5        |
+      | 2        |
+
+  @conflict_resolution
+  @C-0727
+  Scenario Outline: A command ahead of the stream is malformed under every resolution
+    Given an AddItem command with conflict resolution <resolution> targeting sequence <expected>
+    When the coordinator processes the command
+    Then the command fails INVALID_ARGUMENT with reason COORDINATOR_REASON_EXPECTED_SEQUENCE_AHEAD, expected "<expected>" and head "3", and nothing is persisted
+    And business code is not invoked
+    And the command is never answered COORDINATOR_REASON_EXPECTED_SEQUENCE_STALE
+
+    Examples:
+      | resolution        | expected |
+      | STRICT            | 4        |
+      | STRICT            | 7        |
+      | AGGREGATE_HANDLES | 4        |
+      | AGGREGATE_HANDLES | 7        |
+      | COMMUTATIVE       | 4        |
+      | COMMUTATIVE       | 7        |
 
   # ===========================================================================
   # AGGREGATE_HANDLES - business code owns the conflict rule
