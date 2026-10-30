@@ -123,23 +123,17 @@ Which resolutions a stream supports comes from its registered state: every state
 
 What each status means to a caller, which class it belongs to (decision 14.37) and what happens at a retry cap: see [Error Recovery](/operations/error-recovery).
 
-### Sync Mode
+### Command Modes
 
-Controls when command processing returns to caller:
+How much of a command's processing returns to the caller is chosen by the RPC called:
 
-| Mode | Proto Value | Description | Use Case |
-|------|-------------|-------------|----------|
-| **UNSPECIFIED** | 0 | Fire and forget (async) | Background tasks |
-| **SIMPLE** | 1 | Wait for projectors only | Read-after-write consistency |
-| **CASCADE** | 2 | Wait for projectors + saga cascade | Full sync (expensive) |
+| RPC | Mode | Projectors | Policies | Use Case |
+|-----|------|------------|----------|----------|
+| `HandleAsync` | ASYNC | Async | Async | Fire-and-forget: validated and enqueued, nothing about the decision comes back |
+| `Handle` | DECISION | Async | Async | Accept or reject synchronously; returns the persisted events |
+| `HandleSync` | SIMPLE | Sync | Async | Read-after-write: also waits for the domain's synchronous projectors |
 
-**Trade-offs:**
-
-| Mode | Latency | Consistency | Cost |
-|------|---------|-------------|------|
-| UNSPECIFIED | Lowest | Eventual | Cheapest |
-| SIMPLE | Medium | Read-your-writes | Moderate |
-| CASCADE | Highest | Full | Expensive |
+No mode waits for reactions. Policies always run asynchronously, after the command's events are persisted, and the commands they send are separate commands with their own outcomes. Every mode publishes the persisted events downstream: there is no mode that writes silently. (Synchronous cascades were removed, decision 2.1: they coupled aggregates' availability and hid partial failure.)
 
 ---
 

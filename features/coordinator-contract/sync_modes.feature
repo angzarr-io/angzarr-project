@@ -8,23 +8,19 @@ Feature: Sync modes - how much downstream work a command waits for
     synchronous answer.
   - SIMPLE: projectors run synchronously and their projections are in the
     response; policies/PMs run asynchronously.
-  - CASCADE: projectors and policies/PMs run synchronously, recursively through
-    the commands they emit.
-  - ISOLATED: nothing downstream runs, sync or async; events are not
-    published to the bus.
 
   An unset sync_mode (SYNC_MODE_UNSPECIFIED) is ASYNC. DECISION exists for
   callers that need only the accept/reject outcome synchronously.
   PageHeader.sync_mode on a CommandPage is that command's own mode. The
   caller's mode is a floor for everything its command sets off: a reaction
   command runs with the stronger of the caller's mode and its own
-  (ASYNC < DECISION < SIMPLE < CASCADE). Its own mode can raise how much of
-  it the caller waits for, never lower it, so a caller asking for CASCADE
-  always observes the whole chain. When unset the caller's mode applies.
+  (ASYNC < DECISION < SIMPLE). Its own mode can raise how much of it the
+  caller waits for, never lower it. When unset the caller's mode applies.
 
-  ISOLATED always holds: a reaction command marked ISOLATED stays ISOLATED
-  under any caller's mode. Its events set off nothing downstream, so the
-  chain ends there and the caller has nothing further to wait for.
+  CASCADE, ISOLATED and the cascade error modes are deleted (decision 2.1,
+  backlog RM-1): no mode waits for reactions, and every mode publishes the
+  persisted events downstream. Their scenarios (C-0430, C-0431, C-0432,
+  C-0433) are retired.
 
   Background:
     Given an "order" aggregate that accepts CreateOrder and rejects CancelOrder for unknown orders
@@ -65,32 +61,6 @@ Feature: Sync modes - how much downstream work a command waits for
     And the response contains the OrderSummary projection for the OrderCreated event
     And the OrderFulfillment policy has not run when the response is returned
     And the OrderCreated event is published to the bus
-
-  @C-0430
-  Scenario: CASCADE waits for projectors and policies
-    When a CreateOrder command is handled with sync_mode CASCADE
-    Then the response contains the OrderSummary projection
-    And the ReserveStock command has been handled by "inventory" when the response is returned
-
-  @C-0431
-  Scenario: CASCADE propagates to commands emitted downstream
-    Given a projector "StockLevels" subscribed to "inventory"
-    When a CreateOrder command is handled with sync_mode CASCADE
-    Then the StockLevels projector has processed the StockReserved event when the response is returned
-
-  @C-0432
-  Scenario: ISOLATED persists without any downstream reaction
-    When a CreateOrder command is handled with sync_mode ISOLATED
-    Then the response contains the OrderCreated event
-    And the response contains no projections
-    And the OrderCreated event is not published to the bus
-    And neither the OrderSummary projector nor the OrderFulfillment policy ever receives it
-
-  @C-0433
-  Scenario: ISOLATED still rejects invalid commands
-    When a CancelOrder command for an unknown order is handled with sync_mode ISOLATED
-    Then the command fails with the handler's rejection reason
-    And no events are persisted
 
   # The scenarios that were here (C-0434, C-0435, C-0507, C-0508, C-0512)
   # had a process manager emit reaction commands with their own

@@ -618,7 +618,7 @@ The **same Gherkin scenarios** validate all language implementations. `angzarr-p
 ```text title="canonical feature layout"
 angzarr-project/features/acceptance/
 ├── poker_game.feature      # End-to-end poker flow
-└── sync_modes.feature      # Commit vs cascade semantics
+└── sync_modes.feature      # What each command mode waits for
 ```
 
 Each of the six language repos (Python, Rust, Go, Java, C#, C++) implements **169 step definitions** against the same features — same behavior, same assertions, different runtimes.

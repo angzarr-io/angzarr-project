@@ -73,21 +73,21 @@ On command arrival:
 
 That said, sync modes have legitimate uses: user-facing flows where read-after-write consistency matters, or integration points where downstream systems expect synchronous semantics. Use them surgically, not as a default.
 
-Trade consistency for throughput with three modes:
+Trade consistency for throughput with three modes, one RPC each:
 
 | Mode | Behavior | Use Case |
 |------|----------|----------|
-| **Async** (default) | Command returns immediately | High throughput, eventual consistency |
-| **Simple** | Wait for projectors only | Read-after-write for local domain |
-| **Cascade** | Wait for projectors + saga commands | Cross-domain consistency (expensive) |
+| **Async** (`HandleAsync`) | Validated and enqueued; returns before the decision | High throughput, eventual consistency |
+| **Decision** (`Handle`) | Returns the decision and the persisted events | Accept or reject synchronously |
+| **Simple** (`HandleSync`) | Also waits for the domain's synchronous projectors | Read-after-write for the local domain |
 
 ```mermaid
 flowchart LR
-    subgraph async["Async (default)"]
+    subgraph async["Async / Decision"]
         c1["Command"] --> a1["Aggregate"] --> e1["Event"]
         e1 -.-> p1["Projector"]
-        e1 -.-> s1["Saga"]
-        c1 --> r1["Return ✓"]
+        e1 -.-> s1["Policy"]
+        a1 --> r1["Return ✓"]
     end
 ```
 
@@ -97,53 +97,21 @@ flowchart LR
         c2["Command"] --> a2["Aggregate"] --> e2["Event"]
         e2 --> p2["Projector"]
         p2 --> r2["Return ✓"]
-        e2 -.-> s2["Saga"]
+        e2 -.-> s2["Policy"]
     end
 ```
 
-```mermaid
-flowchart LR
-    subgraph cascade["Cascade Sync"]
-        c3["Command"] --> a3["Aggregate"] --> e3["Event"]
-        e3 --> p3["Projector"]
-        e3 --> s3["Saga"] --> c4["Command₂"] --> a4["Aggregate₂"] --> e4["Event₂"]
-        e4 --> p4["Projector₂"]
-        p4 --> r3["Return ✓"]
-    end
-```
-
-Sync mode is specified per-command by the caller:
-
-```python title="illustrative - sync mode selection"
-# Async (default): fire-and-forget, high throughput
-send_command(PlayerAction(action=FOLD))
-
-# Simple sync: wait for projectors in this domain
-result = send_command(
-    DepositFunds(amount=1000),
-    sync_mode=SyncMode.SYNC_MODE_SIMPLE,
-)
-# Local projections guaranteed updated
-
-# Cascade sync: wait for full saga chain to complete
-result = send_command(
-    CompleteOrder(order_id=order_id),
-    sync_mode=SyncMode.SYNC_MODE_CASCADE,
-)
-# All downstream domains have processed and projected
-```
+No mode waits for reactions: policies always run asynchronously, and the commands they send are separate commands with their own outcomes. Synchronous cascades across domains were removed (decision 2.1); a caller that needs to see downstream effects follows the command's `correlation_id` on the event stream.
 
 ### When to Use Each
 
 | Mode | Latency | Consistency | Example |
 |------|---------|-------------|---------|
 | Async | Lowest | Eventual | Player folds, leaderboard updates |
+| Decision | Low | The decision itself | A bet is accepted or refused |
 | Simple | Medium | Local read-after-write | Deposit shows in balance immediately |
-| Cascade | Highest | Cross-domain | Order completion triggers fulfillment, inventory reserved |
 
-Cascade sync follows the entire event chain: if Order → Fulfillment → Inventory, the original command won't return until Inventory's projectors complete. Use sparingly—the latency cost compounds with each hop.
-
-Projectors and sagas are unaware of sync mode—they just process events. The framework decides whether to wait based on the command request.
+Projectors and policies are unaware of the mode: they just process events. The framework decides whether to wait based on the RPC called.
 
 ### How Sync Recovery Works
 
@@ -174,25 +142,6 @@ When a sync command completes, the coordinator knows the resulting event's seque
 3. Only then returns to the caller
 
 This bypasses the bus entirely for consistency—the event store is the source of truth.
-
-### Why CASCADE Is Expensive
-
-CASCADE compounds this cost at every hop:
-
-| Hops | Operations | Example |
-|------|------------|---------|
-| 1 | 1 aggregate + N projectors polled | Simple sync |
-| 2 | 2 aggregates + 2×N projectors polled | Order → Fulfillment |
-| 3 | 3 aggregates + 3×N projectors polled | Order → Fulfillment → Inventory |
-
-Each hop adds:
-- **Event store load**: Polling queries multiply with depth
-- **Latency**: Sequential waits through the saga chain
-- **Coordination overhead**: Tracking sequences across domains
-
-:::warning
-CASCADE sync can easily 10× your event store read load compared to async. Profile carefully before using in hot paths. If you find yourself needing CASCADE frequently, consider whether your domain boundaries are correct—tightly coupled sync requirements often indicate domains that should be merged.
-:::
 
 ---
 
@@ -253,7 +202,6 @@ What a caller does with each answer, and what happens at a retry cap, is in [Err
 | Table aggregate | Snapshots @ 100 | Many events per session |
 | Leaderboard projector | Async | Can lag behind |
 | Balance projector | Simple sync | Visible immediately |
-| Order completion | Cascade sync | Fulfillment must be ready |
 
 ---
 

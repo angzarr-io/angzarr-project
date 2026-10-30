@@ -303,7 +303,7 @@ service BusinessCoordinator {
 
 message CommandResponse {
   EventBook events = 1;              // Events from the command
-  repeated Projection projections = 2; // Sync projector results (full cascade)
+  repeated Projection projections = 2; // Sync projector results (HandleSync)
 }
 ```
 
@@ -366,123 +366,42 @@ When synchronous, the `SagaResponse` returns commands that the framework execute
 
 ## Synchronous Operation Patterns
 
-Angzarr provides two distinct mechanisms for getting results back to callers. Choose based on your consistency and observability needs.
+How much of a command's processing the caller waits for is a call-level choice, never part of the command: one RPC per mode on the command handler coordinator (`CommandHandlerCoordinatorService` in `command_handler.proto`).
 
-### Sync Mode
+| RPC | Mode | Projectors | Policies | Use Case |
+|-----|------|------------|----------|----------|
+| `HandleAsync` | ASYNC | Async | Async | Fire-and-forget, eventual consistency |
+| `Handle` | DECISION | Async | Async | Accept or reject synchronously |
+| `HandleSync` | SIMPLE | Sync | Async | Read-after-write for this domain |
 
-Synchronous processing is controlled via the `SyncMode` enum on commands and events:
+No mode waits for reactions. Synchronous cascades across domains were removed (decision 2.1): they coupled one aggregate's availability to every aggregate downstream of it and hid partial failure. Policies always run asynchronously; the commands they send are separate commands with their own outcomes, and a refused one comes back to the policy's source as a refusal fact.
 
-```protobuf
-enum SyncMode {
-  SYNC_MODE_NONE = 0;     // Async: fire and forget (default)
-  SYNC_MODE_SIMPLE = 1;   // Sync projectors only, no saga cascade
-  SYNC_MODE_CASCADE = 2;  // Full sync: projectors + saga cascade (expensive)
-}
+### Observing Effects: the Event Stream
 
-message SyncCommandBook {
-  CommandBook command = 1;
-  SyncMode sync_mode = 2;
-}
+To observe what a command sets off downstream rather than wait for it, subscribe to the event stream filtered by the command's `correlation_id`:
+
+```protobuf file=proto/io/angzarr/v1/stream.proto region=event_stream_service
 ```
 
-| Mode | Projectors | Sagas | Use Case |
-|------|------------|-------|----------|
-| `NONE` | Async | Async | Fire-and-forget, eventual consistency |
-| `SIMPLE` | Sync | Async | Read-after-write for single aggregate |
-| `CASCADE` | Sync | Sync (recursive) | Full transactional consistency across aggregates |
-
-### The Cascade Flow (SYNC_MODE_CASCADE)
-
-When `sync_mode = CASCADE`, the framework orchestrates the full cascade before returning:
-
-```mermaid
-flowchart TD
-    Client([Client])
-    Client --> BC["BusinessCoordinator.Handle(CommandBook)"]
-    BC --> BL["BusinessLogic.Handle()"]
-    BL --> Events["events"]
-    Events --> Persist["Persist events"]
-    Persist --> SagaC["SagaCoordinator.HandleSync(events)"]
-    SagaC --> Saga["Saga.HandleSync()"]
-    Saga --> SagaResp["SagaResponse(commands)"]
-    SagaResp --> Recursive["Recursive: each command<br/>goes through BusinessCoordinator"]
-    Recursive -.-> BC
-    Persist --> ProjC["ProjectorCoordinator.HandleSync<br/>(all events from cascade)"]
-    ProjC --> Proj["Projector.HandleSync()"]
-    Proj --> Projection["Projection"]
-    Projection --> Response["CommandResponse<br/>{ events, projections[] }"]
-    Response --> Client
-```
-
-The key insight: saga-returned commands are executed recursively through the same sync path, and projectors see the *entire* cascade—not just the initial command's events.
-
-**Warning: `SYNC_MODE_CASCADE` is expensive and should be avoided when possible.** Each step adds latency: aggregate hydration, business logic execution, event persistence, saga evaluation, and projector updates—multiplied by every aggregate touched. A saga fanning out to ten aggregates takes roughly ten times longer than a single-aggregate command. `SYNC_MODE_NONE` with eventual consistency is the better default.
-
-That said, cascade mode exists because it will be necessary at times. Some workflows genuinely require atomic consistency guarantees before returning to the caller. When you need it, you need it—just understand the cost.
-
-### SYNC_MODE_SIMPLE: Read-After-Write Without Cascade
-
-For most read-after-write scenarios, `SYNC_MODE_SIMPLE` is sufficient—projectors run synchronously for the immediate command's events, but sagas fire asynchronously:
-
-```mermaid
-flowchart TD
-    Client([Client])
-    Client --> BC["BusinessCoordinator.Handle(CommandBook)<br/>[sync_mode = SIMPLE]"]
-    BC --> BL["BusinessLogic.Handle()"]
-    BL --> Events["events"]
-    Events --> Persist["Persist events"]
-    Persist --> SagaAsync["SagaCoordinator.Handle(events)<br/>← Async, returns immediately"]
-    Persist --> ProjSync["ProjectorCoordinator.HandleSync(events)<br/>← Sync, waits"]
-    ProjSync --> Proj["Projector.HandleSync()"]
-    Proj --> Projection["Projection"]
-    Projection --> Response["CommandResponse<br/>{ events, projections[] }"]
-    Response --> Client
-```
+Every command or fact a policy sends carries its trigger's `correlation_id` unchanged, so one subscription follows the whole workflow across aggregate boundaries.
 
 **Use when:**
-- REST/GraphQL APIs need to return the updated state for *this* aggregate
-- UI requires immediate feedback after user action
-- Saga effects can be eventually consistent
-
-**Trade-off:** Sagas run asynchronously—the caller won't see saga-triggered events in the response. If a saga fails, compensation happens out-of-band.
-
-### Gateway Streaming: Observing Effects in Real-Time
-
-When you need to observe events as they happen rather than waiting for completion, use the gateway's streaming interface:
-
-```protobuf
-service CommandGateway {
-  // Send command, stream events as they occur
-  rpc ExecuteStream(CommandBook) returns (stream EventBook) {}
-
-  // Stream until N events received
-  rpc ExecuteStreamResponseCount(ExecuteStreamCountRequest) returns (stream EventBook) {}
-
-  // Stream for specified duration
-  rpc ExecuteStreamResponseTime(ExecuteStreamTimeRequest) returns (stream EventBook) {}
-}
-```
-
-Events are correlated via `correlation_id` on `Cover`, which is shared by both `CommandBook` and `EventBook`. This allows clients to track causally-related events across aggregate boundaries.
-
-**Use when:**
-- Building reactive UIs that update progressively as events cascade
+- Building reactive UIs that update progressively as downstream events arrive
 - Debugging or tracing command effects through the system
 - Long-running workflows where you want incremental feedback
-- Fire-and-observe patterns where the client doesn't need to block
 
-**Trade-off:** Client must handle streaming; must decide when "done" (count, timeout, or explicit signal).
+**Trade-off:** the client handles a stream and decides when it is done (a count, a timeout, or an event it waits for).
 
 ### Choosing the Right Mode
 
-| Requirement | NONE | SIMPLE | CASCADE | Gateway Stream |
-|-------------|------|--------|---------|----------------|
-| Return updated read model | No | Yes (this aggregate) | Yes (full cascade) | No (raw events) |
-| See saga effects | No | No (async) | Yes (sync) | Yes (as they occur) |
-| Latency | Minimal | + projectors | + full cascade | Minimal |
-| Connection model | Request-response | Request-response | Request-response | Long-lived stream |
+| Requirement | HandleAsync | Handle | HandleSync | Event stream |
+|-------------|-------------|--------|------------|--------------|
+| Know the decision | No | Yes | Yes | Yes (as events) |
+| Return updated read model | No | No | Yes (this domain) | No (raw events) |
+| See downstream effects | No | No | No | Yes (as they occur) |
+| Latency | Minimal | + decision | + projectors | Minimal |
 
-**Recommendation:** Start with `SYNC_MODE_NONE` (eventual consistency). Move to `SIMPLE` when you need read-after-write. Reserve `CASCADE` for workflows that genuinely require atomic cross-aggregate consistency. Use gateway streaming for debugging or reactive UIs.
+**Recommendation:** start with `Handle` (or `HandleAsync` where nothing about the decision is needed). Move to `HandleSync` when you need read-after-write. Use the event stream to watch a workflow unfold.
 
 ---
 

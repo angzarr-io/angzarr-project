@@ -126,39 +126,17 @@ flowchart TB
 
 ⍼ Angzarr provides mechanisms for controlling [sync vs async communication](https://eda-visuals.boyney.io/visuals/sync-vs-async) — when results return to callers.
 
-### SyncMode
+### Command modes
 
-| Mode | Projectors | Sagas | Use Case |
-|------|------------|-------|----------|
-| `NONE` | Async | Async | Fire-and-forget, eventual consistency |
-| `SIMPLE` | Sync | Async | Read-after-write for single aggregate |
-| `CASCADE` | Sync | Sync (recursive) | Synchronous cross-aggregate workflows |
+How much of a command's processing the caller waits for is a call-level choice, never part of the command: one RPC per mode.
 
-### The Cascade Flow
+| RPC | Mode | Projectors | Policies | Use Case |
+|-----|------|------------|----------|----------|
+| `HandleAsync` | ASYNC | Async | Async | Fire-and-forget: validated and enqueued, nothing about the decision comes back |
+| `Handle` | DECISION | Async | Async | Accept or reject synchronously; returns the persisted events |
+| `HandleSync` | SIMPLE | Sync | Async | Read-after-write: also waits for the domain's synchronous projectors |
 
-When `sync_mode = CASCADE`, the framework orchestrates the complete cascade:
-
-```mermaid
-flowchart TB
-    Client --> CHC[CommandHandlerCoordinator.Handle<br/>Domain A]
-    CHC --> BL[BusinessLogic.Handle → events]
-    BL --> Persist[Persist events]
-    Persist --> SC[SagaCoordinator.HandleSync]
-    SC --> Saga[Saga.HandleSync → commands]
-    Saga --> SC
-    SC -.->|gRPC| CHC2[CommandHandlerCoordinator.Handle<br/>Domain B]
-    CHC2 -.-> BL2[BusinessLogic.Handle → events]
-    BL2 -.-> Persist2[Persist events]
-    Persist --> PC[ProjectorCoordinator.HandleSync]
-    PC --> Resp[CommandResponse<br/>events, projections]
-    style CHC2 stroke-dasharray: 5 5
-    style BL2 stroke-dasharray: 5 5
-    style Persist2 stroke-dasharray: 5 5
-```
-
-*The dashed Domain B represents the target aggregate—sagas bridge events from one domain to commands in another. The cascade recursively waits for the target aggregate's events before returning.*
-
-**Warning**: `CASCADE` is expensive and does not provide ACID guarantees. Each step adds latency. Start with `NONE`, move to `SIMPLE` for read-after-write, reserve `CASCADE` for workflows requiring synchronous cross-aggregate coordination.
+No mode waits for reactions. Policies always run asynchronously, after the command's events are persisted, and the commands they send are separate commands with their own outcomes. Every mode publishes the persisted events downstream: there is no mode that writes silently. (Synchronous cascades were removed, decision 2.1: they coupled aggregates' availability and hid partial failure.)
 
 ### Event Streaming
 

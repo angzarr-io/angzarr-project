@@ -80,7 +80,7 @@ This approach isn't free. It adds architectural complexity.
 
 **Eventual consistency** is the default—and encouraged—pattern. After a write, read models update asynchronously. For most domains, this latency (milliseconds to seconds) is acceptable and enables horizontal scaling.
 
-When specific operations *must* be synchronous, Angzarr supports synchronous flows, including cascaded synchronous flows across sagas. These are more expensive and discouraged for routine operations, but available when business requirements demand immediate consistency. If *most* of your operations require synchronous responses, a traditional CRUD architecture may be a better fit.
+When specific operations *must* be synchronous, Angzarr lets a caller wait for the decision (`Handle`) or for the domain's own projections too (`HandleSync`). Reactions across domains always run asynchronously. If *most* of your operations require synchronous responses, a traditional CRUD architecture may be a better fit.
 
 ---
 

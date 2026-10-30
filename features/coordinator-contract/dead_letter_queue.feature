@@ -18,7 +18,6 @@ Feature: Dead letter queue routing
     (processing_failed details)
   - claim-check payloads that cannot be retrieved
     (payload_retrieval_failed details)
-  - CASCADE requests with cascade_error_mode DEAD_LETTER
 
   Compensation is no longer part of the contract (RM-2), so its sources are
   gone: C-0448 (a compensation handler's RevocationResponse sending the
