@@ -13,19 +13,19 @@ A destination for messages that cannot be processed automatically. Messages are 
 
 ## DLQ Entry Types
 
-Each entry carries one of four detail messages:
+Each entry carries exactly one of four detail messages, chosen by its reason (the mapping on `AngzarrDeadLetter.rejection_details`):
 
 - **SequenceMismatchDetails** — the expected sequence the command carried and the stream's head (its `next_sequence`) when it was refused.
-- **EventProcessingFailedDetails** — why a saga, projector, or process manager failed to process events, with retry count, transience, and a structured stack trace.
+- **CommandRefusedDetails** — a typed business refusal of an asynchronous command: the refusal's type and the refusal object itself.
+- **ProcessingFailedDetails** — why a handler or the coordinator failed to process the entry's events, command or edition removal, with retry count, transience, and a structured stack trace.
 - **PayloadRetrievalFailedDetails** — claim-check failures when an externally stored payload cannot be retrieved.
-- **CompensationDeliveryFailedDetails** — a compensation notification that could not be delivered; the entry's `rejected_command` is the notification's delivery envelope.
 
 ```protobuf file=proto/io/angzarr/v1/types.proto region=dlq_details
 ```
 
 ### Stack traces
 
-`EventProcessingFailedDetails.stack_trace` carries a Sentry-compatible structured capture from the [sererr](https://sererr.fyi) schema: per-frame function/file/line, optional source context, and an `ExceptionMechanism` that links chain entries. The array is the cause chain, most-causal-first; the originating caught error is the last element. Producers capture it at the originating failure site, not at the DLQ-publish layer, and operators read it from the status console's DLQ detail view. See [Stack-trace Proto](/reference/stack-trace-proto) for the shape and producer/consumer conventions.
+`ProcessingFailedDetails.stack_trace` carries a Sentry-compatible structured capture from the [sererr](https://sererr.fyi) schema: per-frame function/file/line, optional source context, and an `ExceptionMechanism` that links chain entries. The array is the cause chain, most-causal-first; the originating caught error is the last element. Producers capture it at the originating failure site, not at the DLQ-publish layer, and operators read it from the status console's DLQ detail view. See [Stack-trace Proto](/reference/stack-trace-proto) for the shape and producer/consumer conventions.
 
 ## Topic Structure
 

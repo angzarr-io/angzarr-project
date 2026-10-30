@@ -3690,13 +3690,13 @@ resolution.** Owner ruling, 2026-10-30. Amends 14.45; follows 14.37 and
   dead-lettered with that key as its reason and alerted (C-0729).
 
 **14.48 Every dead letter carries the details variant its reason
-chooses.** Owner ruling, 2026-10-30. Follows 14.37, 14.45, 14.46 and
-14.47.
+chooses.** Owner rulings, 2026-10-30, amended the same day (below).
+Follows 14.37, 14.45, 14.46 and 14.47.
 - **The rule.** Every dead letter carries exactly one
   `rejection_details` variant (`dead_letter_queue.feature`), and its
   reason chooses which. The mapping is written once, on
   `AngzarrDeadLetter.rejection_details` in `types.proto`; this entry and
-  the features refer to it. No variant is added.
+  the features refer to it.
 - **The sequence keys carry `SequenceMismatchDetails`.**
   `COORDINATOR_REASON_EXPECTED_SEQUENCE_STALE` maps its args `expected`
   and `actual` to `expected_sequence` and `actual_sequence`;
@@ -3707,44 +3707,78 @@ chooses.** Owner ruling, 2026-10-30. Follows 14.37, 14.45, 14.46 and
   key, reach a dead letter only on an asynchronous command carrying its
   caller's expected sequence, which `command_handler.proto` (status codes)
   already dead-letters with `SequenceMismatchDetails`.
-- **Every other key carries `EventProcessingFailedDetails`**, its
-  `failure` the reason's Diagnostic: `COORDINATOR_REASON_RETRY_CAP_EXHAUSTED`
+- **A typed refusal carries `CommandRefusedDetails`.** A new variant,
+  `command_refused` (17): `refusal_type` (1) and the refusal object as a
+  `google.protobuf.Any` (2), kept whole for an asynchronous command
+  refused `ROUTER_REASON_COMMAND_REFUSED`. A new variant rather than an
+  `Any` added to the processing variant: a refusal is the handler's
+  answer, not a failure, so `retry_count`, `is_transient` and
+  `stack_trace` would mean nothing beside it, and the admin API's
+  `RejectionType` (`REJECTION_TYPE_COMMAND_REFUSED`, 4) can filter
+  refusals apart from bugs. A typed refusal always travels as that key,
+  so a handler's own business key (an untyped Diagnostic) stays with the
+  processing variant.
+- **Every other key carries `ProcessingFailedDetails`**, its `failure`
+  the reason's Diagnostic: `COORDINATOR_REASON_RETRY_CAP_EXHAUSTED`
   (`retry_count` its `attempts`, `is_transient` true, with or without an
   expected sequence: `expected_sequence` is the command's
   `handling.expected_sequence`, which a stamped command or a fact does not
-  carry), a business, fatal refusal of an asynchronous command
-  (`ROUTER_REASON_COMMAND_REFUSED`, `COORDINATOR_REASON_PM_NO_INSTANCE`, a
-  handler's own key; `retry_count` 0, `is_transient` false), every fatal
-  bug, and a retryable bug at its cap. Its fields (a Diagnostic, a retry
-  count, transience, a captured stack) fit each; its comment is widened
-  from "a policy/projector failed to process events" to the dead letter's
-  payload, events or a command. A claim-checked payload that cannot be
+  carry), an untyped business, fatal refusal of an asynchronous command
+  (`COORDINATOR_REASON_PM_NO_INSTANCE`, a handler's own key; `retry_count`
+  0, `is_transient` false), every fatal bug, a failed edition removal,
+  and a retryable bug at its cap. A claim-checked payload that cannot be
   retrieved keeps `PayloadRetrievalFailedDetails`.
+- **The rename.** `EventProcessingFailedDetails` is renamed
+  `ProcessingFailedDetails`, its oneof field `event_processing_failed`
+  `processing_failed`, and `REJECTION_TYPE_EVENT_PROCESSING_FAILED`
+  `REJECTION_TYPE_PROCESSING_FAILED`, since it now carries commands and
+  removals too. Every field number and enum number is unchanged, so the
+  binary wire is compatible; the generated types, the JSON field name and
+  the enum's name (the string `dlq_entries.rejection_type` stores) change.
+- **Keys for the two dead letters that had none.**
+  `COORDINATOR_REASON_POLICY_COMMAND_WITH_HANDLING` (INTERNAL; args
+  `domain`, `command_type`): a reaction command carrying Handling, refused
+  by the policy's coordinator or, reaching its destination, dead-lettered
+  there as a reactor bug (C-0552). None of the four
+  `COORDINATOR_REASON_POLICY_COMMAND_*` keys matched: they name the
+  destination, edition, root and correlation checks.
+  `COORDINATOR_REASON_EDITION_REMOVAL_FAILED` (INTERNAL; args `edition`,
+  `attempts`, `cause`): a deleted edition's rows in one stream could not
+  be removed (C-0641). Its payload is the new arm
+  `failed_edition_removal` (18), an `EventBook`: the stream as its cover,
+  its `meta.EditionDeleted` as the one page (`meta/events.proto` imports
+  `types.proto`, so the meta message cannot be named here). Replay
+  attempts the removal again.
+- **A retryable bug at its cap records its own key**, as last answered,
+  never `COORDINATOR_REASON_RETRY_CAP_EXHAUSTED`, which stays the key for
+  write races only (14.46); the `AngzarrDeadLetter.reason` comment and the
+  key's value comment say so.
 - **Never a dead letter's reason:** the readiness keys, the `HostReason`
   keys, `ROUTER_REASON_NO_HANDLERS_REGISTERED`,
   `ROUTER_REASON_DUPLICATE_COMPONENT` and `ROUTER_REASON_HANDLER_PANICKED`
   (only ever a cause).
-- **Left for the owner.** (1) A typed refusal of an asynchronous command
-  (`ROUTER_REASON_COMMAND_REFUSED`) keeps its `refusal_type`, but no
-  variant holds the refusal object itself (`failure` is a Diagnostic, not
-  an `Any`). (2) `EventProcessingFailedDetails` keeps its name though it
-  now carries commands. (3) Some dead letters name no key: a reaction
-  command that is a reactor bug (C-0552), and a failed edition removal
-  (`meta.proto`), which has no payload arm either. (4) Whether a
-  retryable bug at its cap records `COORDINATOR_REASON_RETRY_CAP_EXHAUSTED`
-  (the `reason` comment's "at the retry cap") or its own key (14.46 gives
-  the key to write races only); either way the variant is
-  `EventProcessingFailedDetails`. (5) `dead_letter_queue.feature` still
-  names compensation sources and a `compensation_delivery_failed` variant
-  the proto does not have (RM-2).
+- **Compensation leaves the feature.** Compensation is no longer part of
+  the contract (RM-2): `dead_letter_queue.feature` drops its compensation
+  sources and the `compensation_delivery_failed` variant the proto never
+  had, and retires C-0448; the DLQ glossary page drops
+  `CompensationDeliveryFailedDetails`.
 - `dead_letter_queue.feature` adds C-0730 (an asynchronous command ahead),
-  C-0731 (an asynchronous STRICT command behind) and C-0732 (a retry cap,
-  stamped and AGGREGATE_HANDLES). C-0443 already pins STRICT stale's
-  details; C-0731 adds its key.
-- Why: the ruling. The feature promised exactly one variant without
+  C-0731 (an asynchronous STRICT command behind), C-0732 (a retry cap,
+  stamped and AGGREGATE_HANDLES) and C-0733 (a typed refusal's object
+  kept); C-0552 and C-0641 pin their new keys. angzarr-proto's
+  `tests/diagnostics.rs` pins the variants' numbers (13 kept, 17, 18) and
+  `tests/reasons.rs` the two keys.
+- Why: the rulings. The feature promised exactly one variant without
   saying which, so two coordinators could dead-letter the same refusal
   differently, and the admin API's `RejectionType` filter would split them.
-- Cost: every coordinator fills the details for each key as mapped.
+- Cost: every coordinator fills the details for each key as mapped;
+  readers of the renamed types and JSON field update.
+- **Amendment, 2026-10-30.** Owner rulings on the first draft's open
+  points: the typed refusal is kept (`CommandRefusedDetails`); the
+  processing variant is renamed; the reactor-bug command and the failed
+  edition removal get keys (and the removal a payload arm); a retryable
+  bug at its cap records its own key; the compensation text is removed
+  and C-0448 retired.
 
 ## Corrections
 

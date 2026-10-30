@@ -27,8 +27,9 @@ option ruby_package = "Angzarr::Status";
 enum RejectionType {
   REJECTION_TYPE_UNSPECIFIED = 0;
   REJECTION_TYPE_SEQUENCE_MISMATCH = 1;
-  REJECTION_TYPE_EVENT_PROCESSING_FAILED = 2;
+  REJECTION_TYPE_PROCESSING_FAILED = 2; // REJECTION_TYPE_EVENT_PROCESSING_FAILED until decision 14.48, amended
   REJECTION_TYPE_PAYLOAD_RETRIEVAL_FAILED = 3;
+  REJECTION_TYPE_COMMAND_REFUSED = 4;
 }
 
 // One row from `dlq_entries`, surfaced via the API. The `payload`
@@ -39,7 +40,8 @@ enum RejectionType {
 // JSON rendering of the same data, so operators see structured
 // content in one round-trip without writing client-side decode logic.
 // Nested `Any` payloads (rejected_command.page.command.payload or
-// rejected_command.page.fact.payload, rejected_events.pages[].payload) are
+// rejected_command.page.fact.payload, rejected_events.pages[].payload,
+// command_refused.refusal) are
 // recursively decoded via the
 // framework `DescriptorPool`. User-domain types not yet in the pool
 // stay as `{"@type": type_url, "value_b64": "..."}` placeholders.

@@ -133,7 +133,9 @@ Feature: Editions are per-stream forks, and the fork travels with the data
     Given "player" "p-1" is forked into edition "what-if"
     And the edition store refuses to remove the rows of edition "what-if"
     When DeleteEdition deletes "what-if" and its EditionDeleted has propagated onward
-    Then the failed removal is dead-lettered and an alert is raised
+    Then the failed removal is dead-lettered with reason COORDINATOR_REASON_EDITION_REMOVAL_FAILED and edition "what-if", and an alert is raised
+    And the dead letter's failed_edition_removal is "player" "p-1"'s stream in edition "what-if" with its EditionDeleted event
+    And the dead letter's processing_failed details have failure code COORDINATOR_REASON_EDITION_REMOVAL_FAILED
 
   @editions
   @C-0642

@@ -6,8 +6,9 @@
 //! unreserved (6.6), so their old bytes decode to nothing.
 
 use angzarr_proto::v1::{
-    angzarr_dead_letter, refusal_response, AngzarrDeadLetter, ContextualCommand, Diagnostic,
-    EventProcessingFailedDetails, PayloadRetrievalFailedDetails, ProjectorFailure, RefusalResponse,
+    angzarr_dead_letter, refusal_response, AngzarrDeadLetter, CommandRefusedDetails,
+    ContextualCommand, Diagnostic, EventBook, PayloadRetrievalFailedDetails,
+    ProcessingFailedDetails, ProjectorFailure, RefusalResponse,
 };
 use prost::{Message, Name};
 
@@ -127,19 +128,17 @@ fn a_dead_letter_gives_its_reason_as_a_diagnostic_in_field_16() {
             Default::default(),
         )),
         reason: Some(no_root()),
-        rejection_details: Some(
-            angzarr_dead_letter::RejectionDetails::EventProcessingFailed(
-                EventProcessingFailedDetails {
-                    failure: Some(Diagnostic {
-                        code: "INVENTORY_UNAVAILABLE".into(),
-                        ..Default::default()
-                    }),
-                    retry_count: 3,
-                    is_transient: true,
+        rejection_details: Some(angzarr_dead_letter::RejectionDetails::ProcessingFailed(
+            ProcessingFailedDetails {
+                failure: Some(Diagnostic {
+                    code: "INVENTORY_UNAVAILABLE".into(),
                     ..Default::default()
-                },
-            ),
-        ),
+                }),
+                retry_count: 3,
+                is_transient: true,
+                ..Default::default()
+            },
+        )),
         ..Default::default()
     };
     assert_eq!(round_trip(&letter), letter);
@@ -156,14 +155,14 @@ fn a_dead_letter_gives_its_reason_as_a_diagnostic_in_field_16() {
 
 #[test]
 fn the_dlq_details_carry_their_failure_as_a_diagnostic() {
-    let processing = EventProcessingFailedDetails {
+    let processing = ProcessingFailedDetails {
         failure: Some(Diagnostic::default()),
         ..Default::default()
     };
     assert_eq!(first_tag(&processing), (5 << 3) | 2);
     assert_eq!(
-        EventProcessingFailedDetails::decode(&*text_field(1, "inventory service down")).unwrap(),
-        EventProcessingFailedDetails::default()
+        ProcessingFailedDetails::decode(&*text_field(1, "inventory service down")).unwrap(),
+        ProcessingFailedDetails::default()
     );
     let retrieval = PayloadRetrievalFailedDetails {
         failure: Some(Diagnostic::default()),
@@ -187,4 +186,43 @@ fn a_contextual_command_carries_when_its_input_was_accepted_in_field_4() {
     };
     assert_eq!(round_trip(&accepted), accepted);
     assert_eq!(first_tag(&accepted), (4 << 3) | 2);
+}
+
+/// Decision 14.48, amended: the renamed processing variant keeps field 13,
+/// so a dead letter written before the rename decodes unchanged; the typed
+/// refusal is field 17 and the failed edition removal field 18.
+#[test]
+fn the_dead_letter_variants_keep_their_numbers() {
+    let processing = AngzarrDeadLetter {
+        rejection_details: Some(angzarr_dead_letter::RejectionDetails::ProcessingFailed(
+            ProcessingFailedDetails::default(),
+        )),
+        ..Default::default()
+    };
+    assert_eq!(first_tag(&processing), (13 << 3) | 2);
+    let refused = CommandRefusedDetails {
+        refusal_type: "order.OutOfStock".into(),
+        refusal: Some(prost_types::Any {
+            type_url: "type.googleapis.com/order.OutOfStock".into(),
+            value: vec![0x0a, 0x01, 0x78],
+        }),
+    };
+    assert_eq!(first_tag(&refused), (1 << 3) | 2);
+    let letter = AngzarrDeadLetter {
+        rejection_details: Some(angzarr_dead_letter::RejectionDetails::CommandRefused(
+            refused.clone(),
+        )),
+        ..Default::default()
+    };
+    // Field 17, length-delimited: a two-byte tag, 0x8a 0x01.
+    assert_eq!(letter.encode_to_vec()[..2], [0x8a, 0x01]);
+    assert_eq!(round_trip(&letter), letter);
+    let removal = AngzarrDeadLetter {
+        payload: Some(angzarr_dead_letter::Payload::FailedEditionRemoval(
+            EventBook::default(),
+        )),
+        ..Default::default()
+    };
+    // Field 18, length-delimited: a two-byte tag, 0x92 0x01.
+    assert_eq!(removal.encode_to_vec()[..2], [0x92, 0x01]);
 }

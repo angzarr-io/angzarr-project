@@ -1097,7 +1097,8 @@ message Projection {
 // exists: never created, or deleted) NOT_FOUND (see the
 // entry_points region in command_handler.proto). A reaction command has no
 // caller to answer, so it is dead-lettered as a reactor bug (and alerted),
-// never delivered.
+// never delivered; one that carries Handling, with reason
+// COORDINATOR_REASON_POLICY_COMMAND_WITH_HANDLING.
 //
 // Reaction commands (emitted by policies; a process manager emits none) carry
 // NO Handling at all: expected_sequence and conflict_resolution are both
@@ -1516,13 +1517,26 @@ message SequenceMismatchDetails {
   uint64 actual_sequence = 2; // What the stream was at (its next_sequence)
 }
 
+// A typed business refusal of an asynchronous command, for DLQ entries
+// (decision 14.48, amended): the refusal object the handler answered, kept
+// whole, as the wire carries it in the status details. The dead letter's
+// reason is ROUTER_REASON_COMMAND_REFUSED with the same refusal_type.
+message CommandRefusedDetails {
+  // The refusal's fully-qualified type name, as the reason's refusal_type
+  // arg.
+  string refusal_type = 1;
+  // The refusal object itself (one of the command's `refuses` types).
+  google.protobuf.Any refusal = 2;
+}
+
 // Failure details for DLQ entries: why a handler, or the coordinator,
 // failed to process the dead letter's payload. Events a policy, process
-// manager or projector could not process, and every command or fact the
-// mapping on AngzarrDeadLetter.rejection_details assigns here (a bug, a
-// business, fatal refusal of an asynchronous command, a retry cap;
-// decision 14.48).
-message EventProcessingFailedDetails {
+// manager or projector could not process, and every command, fact or
+// removal the mapping on AngzarrDeadLetter.rejection_details assigns here
+// (a bug, an untyped business, fatal refusal of an asynchronous command, a
+// retry cap; decision 14.48). Named EventProcessingFailedDetails until
+// 14.48's amendment; the field numbers are unchanged.
+message ProcessingFailedDetails {
   Diagnostic failure = 5; // The handler's failure: its code and args, never its text (decision 14.37)
   uint32 retry_count = 2; // Number of retry attempts before DLQ routing
   bool is_transient = 3; // Whether the failure is considered transient
@@ -1566,9 +1580,12 @@ message PayloadRetrievalFailedDetails {
 //   rejected_events   re-delivered to the one component that failed
 //                     (source_component), never re-published to every
 //                     subscriber.
+//   failed_edition_removal  the removal of that stream's rows of the
+//                     edition attempted again (meta.proto, DeleteEdition).
 //
-// The stream concerned is the payload's own cover (rejected_command.cover or
-// rejected_events.cover); the entry does not repeat it.
+// The stream concerned is the payload's own cover (rejected_command.cover,
+// rejected_events.cover or failed_edition_removal.cover); the entry does not
+// repeat it.
 message AngzarrDeadLetter {
   oneof payload {
     // Command that failed, stored with its ids assigned (command_id and
@@ -1580,14 +1597,25 @@ message AngzarrDeadLetter {
     // stamps the current head.
     CommandBook rejected_command = 2;
     EventBook rejected_events = 9; // Events that failed (policy/projector failures)
+    // An edition removal that failed (meta.proto, DeleteEdition): the
+    // stream whose rows of the edition could not be removed, as its cover,
+    // and its meta.EditionDeleted event, as recorded there, as the one
+    // page. An EventBook, since meta/events.proto imports this file.
+    // Reason COORDINATOR_REASON_EDITION_REMOVAL_FAILED (decision 14.48,
+    // amended).
+    EventBook failed_edition_removal = 18;
   }
   // Why it was dead-lettered: a key and its args, never text (decision
   // 14.37). A typed business rejection is code ROUTER_REASON_COMMAND_REFUSED with arg
-  // refusal_type, as on the wire; the object itself rides in the payload
-  // where there is one (a CommandRefused fact's refusal). A command or
-  // fact the coordinator gave up on at the retry cap or the race re-run
-  // cap is code COORDINATOR_REASON_RETRY_CAP_EXHAUSTED with args attempts
-  // and cap, as answered to a waiting caller (decision 14.46). An
+  // refusal_type, as on the wire; the object itself rides in
+  // command_refused (CommandRefusedDetails). A command or fact the
+  // coordinator gave up on after losing write races, at the retry cap
+  // (AGGREGATE_HANDLES and COMMUTATIVE re-deliveries) or the race re-run
+  // cap, is code COORDINATOR_REASON_RETRY_CAP_EXHAUSTED with args attempts
+  // and cap, as answered to a waiting caller (decision 14.46); that key is
+  // for write races only. A retryable bug dead-lettered at its cap records
+  // the bug's own key and args, as last answered, never
+  // COORDINATOR_REASON_RETRY_CAP_EXHAUSTED (decision 14.48, amended). An
   // asynchronous command (HandleAsync) refused by a business, fatal key,
   // COORDINATOR_REASON_EXPECTED_SEQUENCE_AHEAD among them, records that
   // key and its args (decision 14.47). Which rejection_details variant a
@@ -1608,14 +1636,17 @@ message AngzarrDeadLetter {
   //     COORDINATOR_REASON_CONFLICT_OVERLAP and a handler's own ABORTED
   //     key, on an asynchronous command that carries its caller's
   //     expected_sequence (command_handler.proto, status codes).
-  // event_processing_failed: failure is the same Diagnostic as reason.
+  // command_refused: a typed business refusal of an asynchronous command.
+  //   - ROUTER_REASON_COMMAND_REFUSED: refusal_type is the reason's arg,
+  //     refusal the object. A typed refusal always travels as this key; a
+  //     handler's own business key is an untyped Diagnostic, below.
+  // processing_failed: failure is the same Diagnostic as reason.
   //   - COORDINATOR_REASON_RETRY_CAP_EXHAUSTED, a command or fact at either
-  //     cap, with or without an expected sequence: retry_count is arg
-  //     attempts, is_transient true.
-  //   - A business, fatal refusal of an asynchronous command
-  //     (ROUTER_REASON_COMMAND_REFUSED, COORDINATOR_REASON_PM_NO_INSTANCE,
-  //     a handler's own business key; 14.37): retry_count 0, is_transient
-  //     false.
+  //     write-race cap, with or without an expected sequence: retry_count
+  //     is arg attempts, is_transient true.
+  //   - An untyped business, fatal refusal of an asynchronous command
+  //     (COORDINATOR_REASON_PM_NO_INSTANCE, a handler's own business key;
+  //     14.37): retry_count 0, is_transient false.
   //   - A fatal bug (INTERNAL, UNKNOWN, DATA_LOSS):
   //     ROUTER_REASON_UNHANDLED_HANDLER_ERROR, ROUTER_REASON_FOLD_FAILED,
   //     ROUTER_REASON_FOLD_FAILED_EMITTED,
@@ -1631,12 +1662,18 @@ message AngzarrDeadLetter {
   //     COORDINATOR_REASON_REFUSAL_FACT_IDENTIFIED,
   //     COORDINATOR_REASON_POLICY_COMMAND_OUTSIDE_DESTINATION,
   //     COORDINATOR_REASON_POLICY_COMMAND_OUTSIDE_EDITION,
-  //     COORDINATOR_REASON_POLICY_COMMAND_NO_ROOT and
-  //     COORDINATOR_REASON_POLICY_COMMAND_OTHER_CORRELATION: retry_count 0,
-  //     is_transient false, stack_trace when captured.
+  //     COORDINATOR_REASON_POLICY_COMMAND_NO_ROOT,
+  //     COORDINATOR_REASON_POLICY_COMMAND_OTHER_CORRELATION and
+  //     COORDINATOR_REASON_POLICY_COMMAND_WITH_HANDLING (also a reaction
+  //     command refused at its destination, as rejected_command):
+  //     retry_count 0, is_transient false, stack_trace when captured.
+  //   - COORDINATOR_REASON_EDITION_REMOVAL_FAILED, with the
+  //     failed_edition_removal payload: retry_count the attempts made,
+  //     is_transient as the store's failure was judged.
   //   - A retryable bug, or a policy step's ABORTED re-run, at its cap
-  //     (ROUTER_REASON_NO_COMPONENT_OF_KIND, a handler's retryable bug):
-  //     retry_count the attempts made, is_transient true.
+  //     (ROUTER_REASON_NO_COMPONENT_OF_KIND, a handler's retryable bug),
+  //     its reason the bug's own key as last answered: retry_count the
+  //     attempts made, is_transient true.
   // payload_retrieval_failed: a claim-checked payload (PayloadReference)
   // that cannot be retrieved.
   // Never a dead letter's reason: the readiness keys, the HostReason keys,
@@ -1644,8 +1681,9 @@ message AngzarrDeadLetter {
   // and ROUTER_REASON_HANDLER_PANICKED (only ever a cause).
   oneof rejection_details {
     SequenceMismatchDetails sequence_mismatch = 12; // Sequence conflict details
-    EventProcessingFailedDetails event_processing_failed = 13; // Handler failure details
+    ProcessingFailedDetails processing_failed = 13; // Handler or coordinator failure details
     PayloadRetrievalFailedDetails payload_retrieval_failed = 14; // Payload store failure details
+    CommandRefusedDetails command_refused = 17; // Typed business refusal
   }
   google.protobuf.Timestamp occurred_at = 7;
   map<string, string> metadata = 8; // Additional context

@@ -221,7 +221,9 @@ enum CoordinatorReason {
   // fact is never answered this: at the race re-run cap it is parked (OK,
   // PARKED). A command or fact dead-lettered at either cap records this
   // key, with the same args, as its AngzarrDeadLetter.reason, whether or
-  // not a caller was waiting. (Decision 14.46.)
+  // not a caller was waiting. (Decision 14.46.) The key is for write races
+  // only: a retryable bug dead-lettered at its cap records its own key, as
+  // last answered (decision 14.48, amended).
   COORDINATOR_REASON_RETRY_CAP_EXHAUSTED = 21;
   // INVALID_ARGUMENT. Args: expected, head. Every resolution (STRICT,
   // AGGREGATE_HANDLES, COMMUTATIVE). The command set
@@ -242,6 +244,23 @@ enum CoordinatorReason {
   // sequence behind the head is COORDINATOR_REASON_EXPECTED_SEQUENCE_STALE
   // under STRICT. (Decision 14.47.)
   COORDINATOR_REASON_EXPECTED_SEQUENCE_AHEAD = 22;
+  // INTERNAL. Args: domain, command_type. A reaction command (a policy's)
+  // that carries Handling (an expected_sequence or a conflict_resolution),
+  // which a reaction command never may (types.proto, Handling): refused by
+  // the policy's coordinator (PolicyResponse.reactions), its trigger
+  // dead-lettered, or, if one reaches its destination, refused there
+  // before business code and dead-lettered as a reactor bug, with this key
+  // as its AngzarrDeadLetter.reason. Never delivered. (Decision 14.48,
+  // amended.)
+  COORDINATOR_REASON_POLICY_COMMAND_WITH_HANDLING = 23;
+  // INTERNAL. Args: edition, attempts, cause. The rows of a deleted
+  // edition in one stream could not be removed (meta.proto,
+  // DeleteEdition): the removal is dead-lettered (the stream and its
+  // meta.EditionDeleted as AngzarrDeadLetter.failed_edition_removal) with
+  // this key as its reason, and alerted. `attempts` is how many removals
+  // were tried, `cause` the store's failure. Never answered to a caller:
+  // DeleteEdition has already answered. (Decision 14.48, amended.)
+  COORDINATOR_REASON_EDITION_REMOVAL_FAILED = 24;
 
   // Retired by 14.37.
   reserved

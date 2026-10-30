@@ -87,7 +87,9 @@ service EditionAdminService {
   // removed stream) is refused NOT_FOUND and re-creates nothing; only
   // ForkStream brings the name back. Answers once
   // the origins have recorded it. A removal that genuinely fails is
-  // dead-lettered and alerted. Main is never touched.
+  // dead-lettered (AngzarrDeadLetter.failed_edition_removal, reason
+  // COORDINATOR_REASON_EDITION_REMOVAL_FAILED) and alerted. Main is never
+  // touched.
   //   INVALID_ARGUMENT  name is empty (a name is required; main is unnamed
   //                     and can never be deleted);
   //   NOT_FOUND         the edition is unknown (no stream of it is forked

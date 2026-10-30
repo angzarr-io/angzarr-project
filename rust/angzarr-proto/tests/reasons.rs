@@ -114,6 +114,9 @@ fn the_owners_keys_are_these() {
     assert!(coordinator().contains(&"COORDINATOR_REASON_RETRY_CAP_EXHAUSTED"));
     // Decision 14.47.
     assert!(coordinator().contains(&"COORDINATOR_REASON_EXPECTED_SEQUENCE_AHEAD"));
+    // Decision 14.48, amended.
+    assert!(coordinator().contains(&"COORDINATOR_REASON_POLICY_COMMAND_WITH_HANDLING"));
+    assert!(coordinator().contains(&"COORDINATOR_REASON_EDITION_REMOVAL_FAILED"));
     let all: Vec<_> = [router(), host(), coordinator()].concat();
     let distinct: BTreeSet<_> = all.iter().collect();
     assert_eq!(all.len(), distinct.len(), "a key in two enums");

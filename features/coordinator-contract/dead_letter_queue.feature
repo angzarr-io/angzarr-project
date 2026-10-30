@@ -2,8 +2,8 @@ Feature: Dead letter queue routing
   Messages the framework cannot process and must not drop are published as
   AngzarrDeadLetter to the per-domain topic "angzarr.dlq.{domain}", where
   domain is the domain of the dead letter's cover. A dead letter carries
-  either the rejected command (rejected_command) or the events that failed
-  (rejected_events), a reason (a Diagnostic: a code and its args, never
+  the rejected command (rejected_command), the events that failed
+  (rejected_events) or a failed edition removal (failed_edition_removal), a reason (a Diagnostic: a code and its args, never
   rendered text; decision 14.37), exactly one rejection_details variant, chosen by
   its reason (the mapping on AngzarrDeadLetter.rejection_details in types.proto;
   decision 14.48), occurred_at, and the producing component's
@@ -13,15 +13,16 @@ Feature: Dead letter queue routing
   Sources of dead letters:
   - queued commands whose own expected sequence is stale (sequence_mismatch
     details)
+  - queued commands refused with a typed refusal (command_refused details)
   - policy / PM / projector handler failures once retries are exhausted
-    (event_processing_failed details)
+    (processing_failed details)
   - claim-check payloads that cannot be retrieved
     (payload_retrieval_failed details)
   - CASCADE requests with cascade_error_mode DEAD_LETTER
-  - compensation handlers answering RevocationResponse with
-    send_to_dead_letter_queue
-  - compensation notifications whose delivery exhausts its retries
-    (compensation_delivery_failed details; see compensation_delivery.feature)
+
+  Compensation is no longer part of the contract (RM-2), so its sources are
+  gone: C-0448 (a compensation handler's RevocationResponse sending the
+  rejected command to the dead letter queue) is retired.
 
   @C-0443
   Scenario: A queued command with a stale expected sequence is dead-lettered with mismatch details
@@ -42,7 +43,7 @@ Feature: Dead letter queue routing
     Then the policy handler is attempted 3 times
     And a dead letter is published to "angzarr.dlq.order"
     And the dead letter carries the OrderCreated event as rejected_events
-    And the dead letter's event_processing_failed details have failure code INVENTORY_UNAVAILABLE and retry_count 3
+    And the dead letter's processing_failed details have failure code INVENTORY_UNAVAILABLE and retry_count 3
     And the dead letter's source_component is "OrderFulfillment" with source_component_type "policy"
 
   @C-0445
@@ -58,7 +59,7 @@ Feature: Dead letter queue routing
     Given a policy "OrderFulfillment" subscribed to "order" whose handler fails permanently with code UNKNOWN_EVENT_VERSION
     When an OrderCreated event for "order-1" is delivered to the policy
     Then the policy handler is attempted once
-    And the dead letter's event_processing_failed details have is_transient false and retry_count 0
+    And the dead letter's processing_failed details have is_transient false and retry_count 0
 
   @C-0447
   Scenario: An unretrievable claim-check payload is dead-lettered
@@ -67,15 +68,6 @@ Feature: Dead letter queue routing
     When the event is delivered to the policy "OrderFulfillment"
     Then a dead letter is published to "angzarr.dlq.order"
     And the dead letter's payload_retrieval_failed details have storage_type S3 and uri "s3://payloads/abc.bin"
-
-  @C-0448
-  Scenario: A compensation handler can send the rejected command to the dead letter queue
-    Given a policy "OrderFulfillment" whose ReserveStock command for "inventory" is rejected with code OUT_OF_STOCK
-    And the order aggregate's compensation handler answers with a RevocationResponse requesting send_to_dead_letter_queue
-    When the rejection is delivered to the "order" aggregate
-    Then a dead letter is published to "angzarr.dlq.inventory"
-    And the dead letter carries the rejected ReserveStock command
-    And the dead letter's reason has code OUT_OF_STOCK
 
   @C-0449
   Scenario: A dead letter is not published when processing succeeds
@@ -92,7 +84,7 @@ Feature: Dead letter queue routing
     When an OrderCreated event for "order-1" is delivered to the policy
     Then a dead letter is published to "angzarr.dlq.order"
     And the dead letter's reason has code INVENTORY_UNAVAILABLE and arg sku "sku-1"
-    And the dead letter's event_processing_failed details have failure code INVENTORY_UNAVAILABLE and arg sku "sku-1"
+    And the dead letter's processing_failed details have failure code INVENTORY_UNAVAILABLE and arg sku "sku-1"
     And no field of the dead letter carries the text "inventory service down"
 
   @C-0730
@@ -134,10 +126,22 @@ Feature: Dead letter queue routing
     Then a dead letter is published to "angzarr.dlq.order"
     And the dead letter carries the rejected command
     And the dead letter's reason has code COORDINATOR_REASON_RETRY_CAP_EXHAUSTED, arg attempts "3" and arg cap "3"
-    And the dead letter's event_processing_failed details have failure code COORDINATOR_REASON_RETRY_CAP_EXHAUSTED, retry_count 3 and is_transient true
+    And the dead letter's processing_failed details have failure code COORDINATOR_REASON_RETRY_CAP_EXHAUSTED, retry_count 3 and is_transient true
     And the dead letter carries no other rejection_details variant
 
     Examples:
       | cap             | handling                                                        | report                                                                  |
       | race re-run cap | with no expected sequence and no conflict resolution            |                                                                         |
       | retry cap       | with conflict resolution AGGREGATE_HANDLES targeting sequence 1 | , reporting the conflict nonce it was delivered as its resolved nonce   |
+
+  @C-0733
+  Scenario: An asynchronous command refused with a typed refusal keeps the refusal object
+    # Decision 14.48, amended: the refusal object rides in command_refused,
+    # whole, as the wire carried it.
+    Given a "wallet" aggregate that refuses HoldFunds with FAILED_PRECONDITION reason INSUFFICIENT_AVAILABLE_FUNDS and the refusal object InsufficientFunds with available 200 and requested 500 when funds are short
+    When a HoldFunds command for 500 on wallet "p-1" is sent asynchronously
+    Then a dead letter is published to "angzarr.dlq.wallet"
+    And the dead letter carries the rejected command
+    And the dead letter's reason has code ROUTER_REASON_COMMAND_REFUSED and arg refusal_type naming InsufficientFunds
+    And the dead letter's command_refused details have refusal_type naming InsufficientFunds and the InsufficientFunds refusal object packed, with available 200 and requested 500
+    And the dead letter carries no other rejection_details variant

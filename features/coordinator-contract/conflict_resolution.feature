@@ -438,7 +438,7 @@ Feature: Conflict resolution - how the coordinator treats a stale command
     Given a policy-emitted AddItem command targeting sequence 1
     When the coordinator processes the command
     Then the command is not delivered to business code
-    And the command is dead-lettered and an alert is raised
+    And the command is dead-lettered with reason COORDINATOR_REASON_POLICY_COMMAND_WITH_HANDLING, domain "order" and command_type "AddItem", and an alert is raised
     And no events are persisted
 
   @reaction

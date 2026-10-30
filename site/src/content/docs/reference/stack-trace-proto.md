@@ -77,7 +77,7 @@ message CapturedError {
 }
 ```
 
-`EventProcessingFailedDetails.stack_trace` is `repeated CapturedError`
+`ProcessingFailedDetails.stack_trace` is `repeated CapturedError`
 — a flat cause chain, **most-causal-first** (the originating caught
 error is the LAST element). Sentry's `exception.values` uses this same
 ordering; `mechanism.exception_id` and `mechanism.parent_id` carry the
@@ -90,7 +90,7 @@ tree linkage.
    `std::backtrace::Backtrace`'s default `Display`. Rust producers
    normalize on encode.
 2. **Chain shape** — flat array on the enclosing message
-   (`EventProcessingFailedDetails.stack_trace`), most-causal-first.
+   (`ProcessingFailedDetails.stack_trace`), most-causal-first.
    Position is identified by `mechanism.exception_id`; parent by
    `mechanism.parent_id`. Matches Sentry's `exception.values`.
 3. **`frames` is required.** If a producer can't structure frames,
@@ -259,7 +259,7 @@ gRPC error-model tooling), see
 ## Consumer guidance (UIs / clients)
 
 - The capture is the `repeated CapturedError stack_trace` field on
-  `EventProcessingFailedDetails`. Iterate it most-causal-first.
+  `ProcessingFailedDetails`. Iterate it most-causal-first.
 - For each entry, render `frames` as a list. Hide `!in_app` frames
   behind a "show framework frames" toggle.
 - If a frame has populated `context_line` / `pre_context` /

@@ -227,8 +227,10 @@ message PolicyResponse {
   //     COORDINATOR_REASON_POLICY_COMMAND_NO_ROOT (domain, command_type);
   //   - correlation: unset or exactly the trigger's; another is
   //     COORDINATOR_REASON_POLICY_COMMAND_OTHER_CORRELATION (domain, command_type);
-  //   - no Handling (expected_sequence or conflict_resolution), no
-  //     command_id or causation_id that differs from the stamp, no Fact
+  //   - no Handling (expected_sequence or conflict_resolution); otherwise
+  //     COORDINATOR_REASON_POLICY_COMMAND_WITH_HANDLING (domain,
+  //     command_type);
+  //   - no command_id or causation_id that differs from the stamp, no Fact
   //     and no fact_origin: a policy's business code emits Commands only,
   //     and its refusal facts come from OnRefused (PolicyService, Refusals).
   // Any failed check is a policy bug: the whole answer is refused INTERNAL,
