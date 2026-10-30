@@ -203,7 +203,7 @@ impl<T: EventStore + SnapshotStore + PositionStore + ?Sized> Store for T {}
 /// Opt-in: delete a stream, its snapshot, its command ids and every
 /// handler's position on it. It restarts at 0. Its own call.
 ///
-/// **Guarded by the head the caller read** (proposal 14.43). A purge is a
+/// **Guarded by the head the caller read** (14.43). A purge is a
 /// decision made on a read: the stream is deleted only if it is still at
 /// `expected`, its head as [`EventStore::read`] gives it (the same length a
 /// [`Write`]'s `expected` is checked against). Otherwise it is refused
@@ -216,6 +216,8 @@ impl<T: EventStore + SnapshotStore + PositionStore + ?Sized> Store for T {}
 /// - An edition stream's head is its head as read (main's events below its
 ///   fork, then its own); a purge removes only its own rows, never main's,
 ///   and it reads as main's again.
+/// - A known limit (ABA): a head is a length, so a stream purged and
+///   re-created to the same length in between passes the guard.
 ///
 /// Answers how many events it removed.
 pub trait Purge: MaybeSend + MaybeSync {

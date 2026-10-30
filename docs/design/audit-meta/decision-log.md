@@ -3343,10 +3343,9 @@ language.
   tier plays the part of a TCK (a technology compatibility kit), as the
   Reactive Streams TCK does for its implementations.
 
-**14.43 (PROPOSAL, for the owner) A purge is guarded by the head its
-caller read.** Drafted 2026-10-29 for the owner's ruling of that date:
-angzarr-ports' `Purge` gains an expected-head guard. The guard itself is
-ruled; the shape below is proposed, and nothing in it is ruled yet.
+**14.43 A purge is guarded by the head its caller read.** Owner rulings,
+2026-10-29: angzarr-ports' `Purge` gains an expected-head guard, and the
+shape below, guarding by length, was approved with its red tests.
 - **The bug.** A purge is a decision made on a read. taskloom's prune reads
   a stream, sees a removal, then purges it. Unguarded, a task re-created
   under the same id between the read and the purge, or a second prune
@@ -3367,13 +3366,14 @@ ruled; the shape below is proposed, and nothing in it is ruled yet.
   still holds (a snapshot, positions) and answers 0. A purge at more than 0
   is a conflict, and that is how the second of two prunes that read the
   same head learns that the first got there before it.
-- **Editions.** An edition stream's head is its head as read: main's
-  events below its fork, then its own (14.32). A purge removes only the
-  stream's own rows, never main's, and afterwards the stream reads as
-  main's again. A purge does not replace `Editions::remove_deleted`.
+- **Editions.** A purge of an edition stream is allowed, guarded by its
+  head as read: main's events below its fork, then its own (14.32). It
+  removes only the stream's own rows, never main's, and afterwards the
+  stream reads as main's again. A purge does not replace
+  `Editions::remove_deleted`.
 - **Positions go only when the purge lands.** They are removed in the same
   atomic step as the events, or not at all.
-- Red tests: angzarr-project `spec/20261019-draft`, `rust/angzarr-ports`
+- Tests: angzarr-project `spec/20261019-draft`, `rust/angzarr-ports`
   (`contract.rs`'s `purge` section: `a_purge_at_the_streams_head_removes_it`,
   `a_purge_at_a_stale_head_is_a_conflict_and_removes_nothing`,
   `a_purge_of_an_absent_stream_is_at_zero`,
@@ -3382,11 +3382,14 @@ ruled; the shape below is proposed, and nothing in it is ruled yet.
   bugs `PurgeIgnoresTheHead`, `RefusedPurgeTakesPositions` and
   `PurgeGuardsByMain`). angzarr-embedded `feat/purge-expected-head` runs the
   same section on `SqliteStore`.
-- Open: a head is a length, so it cannot tell a stream from one purged and
-  re-created to the same length (ABA). Closing that would need the guard to
-  carry the last event's identity as well. Also open: whether a purge of an
-  edition stream should be allowed at all, and what a purge of main does to
-  the edition streams forked from it, which read main below their forks.
+- **Known limit: ABA.** A head is a length, so the guard cannot tell a
+  stream from one that was purged and re-created to the same length in
+  between: a purge at that length deletes the new stream. Closing it would
+  need the guard to carry the last event's identity as well; the owner
+  chose the length alone.
+- Open: a purge of main does nothing to the edition streams forked from
+  it, which read main's events below their forks, so a forked stream loses
+  that history. Whether it should do something is not decided.
 - Why: the ruling. It is the same optimistic check that every write makes,
   applied to the one destructive call that lacked it.
 - Cost: every caller passes a head, so a caller that held none now makes a
