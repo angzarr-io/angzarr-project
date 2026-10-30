@@ -45,39 +45,12 @@ Command expecting 7
 
 Use sequence for state reconstruction; use timestamp for temporal queries.
 
-## Fact Sequences
+## Facts
 
-Not all events come from command processing. External facts (payment confirmations, delivery updates) use a **FactSequence** marker instead of an integer:
+Not every event comes from a decision. A **fact** (payment confirmed, delivery updated) is something that already happened outside the system. It is delivered through the command coordinator like any command, its `CommandPage.body` a `Fact` rather than a `Command`, and its handler records it and never refuses it.
 
-```protobuf
-message EventPage {
-  oneof sequence_type {
-    uint32 sequence = 1;        // Normal: position in stream
-    FactSequence fact = 5;      // External fact marker
-  }
-}
+A fact carries no sequence of its own and is never checked against one: a `Fact` that sets any `Handling` field is malformed. The coordinator always stamps the stream's head, so the events the fact's handler records get ordinary sequence numbers, and downstream consumers (policies, projectors, process managers) see them like any other events.
 
-message FactSequence {
-  string source = 1;            // Origin system (e.g., "stripe")
-  string description = 2;       // Human-readable description
-}
-```
+Its origin rides on `CommandPage.fact_origin` (`FactOrigin { external_id, description }`) and is copied onto every event the fact produces (`EventMeta.fact`). The fact's `command_id` is derived from `fact_origin.external_id`, so a redelivery of the same external id to the same stream is deduplicated, like any command.
 
-The idempotency key lives on `Cover.external_id`, not in FactSequence. This ensures:
-- System-wide propagation through sagas, PMs, and projectors
-- Consistent deduplication at every coordinator
-- Full traceability from external source to all effects
-
-### FactSequence Elimination
-
-The `FactSequence` marker is **replaced with a real sequence number at persistence time**. When the coordinator receives a fact event:
-
-1. Routes to aggregate (if `route_facts_to_aggregate = true`, the default)
-2. Aggregate updates state and returns events
-3. Coordinator assigns the next sequence number
-4. Persists with `sequence` instead of `fact`
-5. Publishes event with valid sequence
-
-Downstream consumers (sagas, projectors, process managers) always receive events with proper sequence numbers—they never see `FactSequence` markers.
-
-See [Commands vs Facts](/components/commands-vs-facts) for details.
+See [Commands vs Facts](/components/commands-vs-facts) and the `Fact` and `FactOrigin` messages in `io/angzarr/v1/types.proto`.

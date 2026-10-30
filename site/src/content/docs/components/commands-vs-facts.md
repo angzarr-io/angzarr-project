@@ -39,7 +39,7 @@ Traditional CQRS conflates two distinct concepts:
 | Request for action | Command | "Please do X" — rejectable |
 | Notification of fact | Command | "X happened" — not rejectable |
 
-When a saga receives `PaymentProcessedByStripe` and needs to inform the Order aggregate, it sends a "command" like `RecordPaymentReceived`. But this isn't really a command — the aggregate can't refuse to acknowledge that payment occurred.
+When a policy receives `PaymentProcessedByStripe` and needs to inform the Order aggregate, it sends a "command" like `RecordPaymentReceived`. But this isn't really a command — the aggregate can't refuse to acknowledge that payment occurred.
 
 This creates awkward patterns:
 - Aggregates with commands that "can never fail"
@@ -91,114 +91,68 @@ Many systems use an [ACL](https://learn.microsoft.com/en-us/azure/architecture/p
 
 ## Angzarr's Solution
 
-Angzarr addresses this by allowing sagas and external systems to pass **events** (not commands) to aggregates, distinguished by a **fact sequence indicator**.
+Angzarr delivers a fact through the same command coordinator as a command (`Handle`, `HandleAsync` or `HandleSync`), and tells them apart by the page's body: `CommandPage.body` is a `Command` or a `Fact`.
 
-### Commands vs Fact Events
+### Commands vs Facts
 
-| Message Type | PageHeader.sequence_type | Validation | Concurrency |
-|--------------|--------------------------|------------|-------------|
-| Command (client) | `sequence` (integer) | Full business rules | Optimistic locking |
-| Command (saga) | `angzarr_deferred` | Full business rules | Framework-managed |
-| Fact (external) | `external_deferred` | Idempotency only | Append-only |
+| Message | `CommandPage.body` | Handler | Can be refused | Sequence |
+|---------|--------------------|---------|----------------|----------|
+| Command (client) | `Command` | `decide` | Yes | Optional expected sequence, per its conflict resolution |
+| Command (policy) | `Command` | `decide` | Yes | None: the destination stamps its head |
+| Fact (external) | `Fact`, with `fact_origin` | `ingest` | No | None: the coordinator stamps the head |
 
-When the aggregate coordinator receives a fact event:
-1. **No business validation** — the fact already happened
-2. **Idempotency check** — prevent duplicate recording via `PageHeader.external_deferred.external_id`
-3. **Direct append** — no optimistic concurrency conflict possible
-4. **State transition** — the `evolve` function updates aggregate state
+When the coordinator receives a fact:
+1. **Validation** — a `Fact` requires `fact_origin` with a non-empty `external_id`, and never carries any `Handling` field
+2. **Idempotency** — its `command_id` is derived from `fact_origin.external_id`, so a redelivery to the same stream is answered `DUPLICATE`, like any command
+3. **Ingest** — the fact's handler records it (possibly with events that flag it, e.g. a payment for an unknown order) and never refuses it
+4. **Append** — at the stream's head: no sequence check, no conflict resolution
+
+A failing fact handler is a bug, not a refusal: the fact is dead-lettered and alerted, and the sender is answered "accepted, parked" (`OK`, `Outcome.delivery` `PARKED`), never a rejection.
 
 ### Protocol Structure
 
-**Key design:** The idempotency key (`external_id`) lives in `PageHeader.external_deferred`, keeping `Cover` focused on aggregate identity while `PageHeader` handles sequencing. The `ExternalDeferredSequence` carries both the idempotency key and a human-readable description. This ensures:
-- Consistent deduplication at the coordinator
-- Clear provenance tracking for audit trails
-- Human-readable context for debugging
+```protobuf file=proto/io/angzarr/v1/types.proto region=command_page
+```
+
+Where a fact came from rides on `CommandPage.fact_origin` (`FactOrigin { external_id, description }`) and is copied onto every event the fact produces (`EventMeta.fact`), so the audit trail shows which events were externally sourced.
 
 ### Flow Comparison
 
-**Traditional command flow (saga-to-aggregate):**
-```text title="illustrative - traditional command flow"
-Saga receives: OrderCompleted
-Saga emits:    RecordPayment command (sequence=5)
-Aggregate:     Validate → Accept/Reject → Emit PaymentRecorded
+**Policy flow (a command for another domain):**
+```text title="illustrative - policy command flow"
+Policy receives: OrderCompleted
+Policy emits:    StartFulfillment command (no ids, no Handling)
+Coordinator:     Stamps causation, command_id, correlation → delivers
+Destination:     decide → Accept (events at its head) / Refuse (a refusal fact back to the source)
 ```
 
-**Angzarr saga flow (command with deferred sequence):**
-```text title="illustrative - Angzarr saga flow"
-Saga receives: OrderCompleted
-Saga emits:    StartFulfillment command
-               - PageHeader.angzarr_deferred (framework-stamped)
-Coordinator:   Validate → Accept/Reject → Assign sequence → Persist
+**External fact flow (webhook):**
+```text title="illustrative - fact flow"
+Stripe webhook: PaymentReceived fact
+               - fact_origin.external_id = "pi_xxx"
+               - fact_origin.description = "Stripe webhook"
+Coordinator:   Derive command_id → deduplicate → ingest → append at head → publish
 ```
 
-**Angzarr external fact flow (webhook injection):**
-```text title="illustrative - Angzarr fact flow"
-Stripe webhook: PaymentReceived event
-               - PageHeader.external_deferred.external_id = "pi_xxx"
-               - PageHeader.external_deferred.description = "Stripe webhook"
-Coordinator:   Check external_id → Assign sequence → Append → Publish
-```
-
-### Fact Processing Pipeline
-
-The coordinator handles fact events through a configurable pipeline:
-
-```text title="illustrative - fact processing pipeline"
-Fact Event arrives (with ExternalDeferredSequence)
-        ↓
-Check idempotency (external_deferred.external_id)
-        ↓
-[If route_to_handler = true]  ←── Default: true
-        ↓
-Route to aggregate for state update
-        ↓
-Aggregate returns event
-        ↓
-Coordinator assigns real sequence number
-        ↓
-Persist event (sequence assigned in PageHeader)
-        ↓
-Publish event (with valid sequence)
-```
-
-**Key behavior:** The `ExternalDeferredSequence` marker triggers deferred sequence assignment. When the aggregate returns events, the coordinator:
-
-1. Takes the next available sequence number for the aggregate root
-2. Replaces `external_deferred` with `sequence` in the `PageHeader`
-3. Persists and publishes the event with a valid sequence
-
-Downstream consumers (sagas, projectors, process managers) always receive events with proper sequence numbers. The deferred sequence is purely an ingestion-time marker.
-
-#### Configuration
-
-| Setting | Default | Description |
-|---------|---------|-------------|
-| `route_to_handler` | `true` | When true, fact events are routed to the aggregate for state updates before persistence. When false, facts are persisted directly without aggregate involvement. |
-
-Setting `route_to_handler = true` (the default) allows aggregates to:
-- Update their internal state based on the fact
-- Emit additional events in response to the fact
-- Maintain consistency with their domain model
-
-Setting it to `false` is useful for pure append-only fact logging where aggregate state isn't needed.
+Downstream consumers (policies, projectors, process managers) see the events a fact produces like any other events, with ordinary sequence numbers.
 
 ### Benefits
 
-1. **Semantic clarity**: Facts are events, not commands. The type system reflects reality.
+1. **Semantic clarity**: Facts are not commands. The type system reflects reality.
 
 2. **No fake validation**: Aggregates don't need "commands that can't fail."
 
-3. **Correct concurrency**: Facts don't compete with decisions — they're additive observations.
+3. **Correct concurrency**: Facts don't compete with decisions — they're recorded at the head.
 
 4. **Idempotency by design**: External IDs naturally deduplicate (Stripe payment ID, tracking number, etc.).
 
-5. **Audit trail accuracy**: Events are labeled as externally-sourced vs internally-decided.
+5. **Audit trail accuracy**: Events record their fact origin, externally sourced vs internally decided.
 
 ---
 
 ## When to Use Each
 
-### Use Commands (with sequence) when:
+### Use Commands when:
 
 - The aggregate is making a **decision**
 - Business rules can **reject** the request
@@ -210,11 +164,11 @@ Setting it to `false` is useful for pure append-only fact logging where aggregat
 - `ReserveFunds` — check available balance
 - `PlaceBet` — validate game state, bet limits
 
-### Use Fact Events (with external_deferred) when:
+### Use Facts when:
 
 - Something **already happened** in the external world
 - The aggregate must **acknowledge**, not decide
-- Multiple notifications of the same fact should **deduplicate**
+- Several deliveries of the same fact should **deduplicate**
 - The source is an external system or physical reality
 
 **Examples:**
@@ -225,100 +179,17 @@ Setting it to `false` is useful for pure append-only fact logging where aggregat
 
 ---
 
-## External Fact Injection
+## Policies Send Commands, Not Facts
 
-External systems inject facts via the `HandleEvent` RPC:
-
-```rust title="illustrative - external fact injection"
-// Stripe webhook handler injects payment fact
-async fn handle_stripe_webhook(payload: StripeEvent) {
-    let event_request = EventRequest {
-        events: Some(EventBook {
-            cover: Some(Cover {
-                domain: "order".into(),
-                root: order_id.into(),
-                ..Default::default()
-            }),
-            pages: vec![EventPage {
-                header: Some(PageHeader {
-                    sequence_type: Some(ExternalDeferred(ExternalDeferredSequence {
-                        external_id: payload.payment_intent_id.clone(),  // Stripe ID for idempotency
-                        description: "Stripe webhook".into(),
-                    })),
-                }),
-                payload: Some(Event(Any::pack(PaymentReceived {
-                    order_id,
-                    amount: payload.amount,
-                }))),
-                ..Default::default()
-            }],
-            ..Default::default()
-        }),
-        route_to_handler: true,
-        ..Default::default()
-    };
-
-    client.handle_event(event_request).await;
-}
-```
-
-The aggregate coordinator handles fact events differently:
-- Checks idempotency via `PageHeader.external_deferred.external_id`
-- Skips business validation (fact already happened)
-- Assigns sequence number and appends to event stream
-- Publishes with assigned sequence to downstream consumers
-
-## Saga-Produced Commands
-
-Sagas translate events between domains. They return `SagaResponse` containing commands (not facts):
-
-```rust title="illustrative - saga producing commands"
-impl SagaHandler for OrderFulfillmentSaga {
-    async fn handle(&self, source: &EventBook) -> Result<SagaResponse, Status> {
-        let mut commands = Vec::new();
-
-        for page in &source.pages {
-            if let Some(order_completed) = extract_event::<OrderCompleted>(&page) {
-                // Saga produces command for fulfillment domain
-                // Framework stamps angzarr_deferred with source info
-                commands.push(CommandBook {
-                    cover: Some(Cover {
-                        domain: "fulfillment".into(),
-                        root: order_completed.order_id.into(),
-                        ..Default::default()
-                    }),
-                    // Exactly one command per book; the framework stamps
-                    // its ids, and a reaction command carries no Handling.
-                    page: Some(CommandPage {
-                        body: Some(command_page::Body::Command(Command {
-                            payload: Some(Any::from_msg(&StartFulfillment {
-                                order_id: order_completed.order_id,
-                                items: order_completed.items.clone(),
-                            })?),
-                        })),
-                        ..Default::default()
-                    }),
-                    ..Default::default()
-                });
-            }
-        }
-
-        Ok(SagaResponse { commands, events: vec![] })
-    }
-}
-```
-
-The framework stamps `angzarr_deferred` on saga-produced commands with source aggregate info for:
-- Provenance tracking (which event triggered this command)
-- Compensation routing (rejection flows back to source aggregate)
+A policy's business code emits Commands only. The one fact a policy delivers is a **refusal fact**: when a target refuses one of its commands, the policy's coordinator builds a fact of the refusal for the stream of the triggering event (see [Policies: Refusals](/components/policy#refusals)). A policy that returns a Fact, or a Command carrying `fact_origin`, is a policy bug (`COORDINATOR_REASON_POLICY_COMMAND_IS_FACT`, `COORDINATOR_REASON_POLICY_COMMAND_FACT_ORIGIN`).
 
 ---
 
 ## Related Concepts
 
 - [Command](/glossary/command) — Requests that may be rejected
-- [Event](/glossary/event) — Immutable facts (internal or external)
-- [Saga](/glossary/saga) — Domain bridges that emit commands (with angzarr_deferred)
+- [Event](/glossary/event) — Immutable records of what happened
+- [Policy](/glossary/policy) — Domain bridges that emit commands
 - [Sequence](/glossary/sequence) — Optimistic concurrency for commands
 
 ---

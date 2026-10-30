@@ -50,91 +50,74 @@ Facts from external systems often arrive multiple times (webhook retries, networ
 
 ## How It Works
 
-Facts need two things that regular commands don't:
+A fact travels through the same command coordinator as a command (`Handle`, `HandleAsync` or `HandleSync`). What makes it a fact is its page: `CommandPage.body` is a `Fact` rather than a `Command`, and it carries a **fact origin**.
 
-1. **An idempotency key** — Stripe might retry that webhook five times. You need to record the payment exactly once.
-2. **A marker saying "I'm a fact"** — So the coordinator knows to assign a sequence number rather than expect one.
-
-These concerns live in different places, and understanding why matters.
-
-### The Cover: Aggregate Identity
-
-Every event has a **Cover** — metadata identifying the aggregate (domain, root, edition) and optional correlation ID for cross-domain tracing.
-
-```protobuf file=proto/io/angzarr/v1/types.proto region=cover
+```protobuf file=proto/io/angzarr/v1/types.proto region=command_page
 ```
 
-The Cover identifies *which* aggregate the event belongs to. For facts, the idempotency key lives in the `PageHeader`'s `ExternalDeferredSequence`, not the Cover.
+Facts need two things that regular commands don't:
 
-### The PageHeader: Sequence Type Selection
-
-The `PageHeader` tells the coordinator how to handle sequencing.
-
-The `external_deferred` variant is **transient**—after processing, it's replaced with a real `sequence` number. The event then looks like any other sequenced event. The `external_id` within the deferred sequence provides idempotency.
+1. **An idempotency key** — Stripe might retry that webhook five times. You need to record the payment exactly once. It is `fact_origin.external_id`: the fact's `command_id` is derived from it, so a redelivery to the same stream is answered `DUPLICATE`, with the first delivery's events.
+2. **No sequence** — a fact is never checked against a sequence and never conflict-resolved. The coordinator stamps the stream's head; a `Fact` that sets any `Handling` field is malformed and refused `INVALID_ARGUMENT`.
 
 ### Processing Flow
 
-The coordinator handles facts in five steps:
+The coordinator handles a fact the way it handles any command, through the one pipeline:
 
-1. Checks idempotency via `external_id` in `ExternalDeferredSequence`
-2. Routes the fact to the aggregate's **fact handler** for its type (refused with `ROUTER_REASON_NO_FACT_HANDLER` if the aggregate does not declare the type)
-3. **Replaces** the `external_deferred` with a real `sequence` number
-4. Persists the event
-5. Publishes to downstream consumers
+1. Validates it (`fact_origin` with a non-empty `external_id`; no `Handling`)
+2. Derives its `command_id` from `fact_origin.external_id` and deduplicates on the addressed stream
+3. Routes it to the component's **fact handler** for its type (`ROUTER_REASON_NO_FACT_HANDLER` if there is none)
+4. Appends the events the handler records at the stream's head, each carrying the fact's origin (`EventMeta.fact`)
+5. Publishes them to downstream consumers, with ordinary sequence numbers
+
+A failing fact handler is a bug, never a refusal: the fact is dead-lettered and alerted, and the sender is answered "accepted, parked" (`OK`, `PARKED`).
 
 ---
 
 ## Idempotency in Practice
 
-Here's how you emit a fact with proper idempotency:
+Here's how you send a fact with proper idempotency:
 
-```python title="illustrative - fact emission"
-cover = Cover(
-    domain="payments",
-    root=payment_id,
-)
-
-fact_event = EventPage(
-    header=PageHeader(
-        external_deferred=ExternalDeferredSequence(
+```python title="illustrative - fact delivery"
+book = CommandBook(
+    cover=Cover(domain="payments", root=payment_id),
+    page=CommandPage(
+        fact=Fact(payload=Any.pack(PaymentConfirmed(
+            amount=Money(amount=5000, currency="USD"),
+            provider="stripe",
+        ))),
+        fact_origin=FactOrigin(
             external_id="stripe_pi_abc123",  # Idempotency key
             description="Payment intent succeeded",
         ),
     ),
-    event=Any.pack(PaymentConfirmed(
-        amount=Money(amount=5000, currency="USD"),
-        provider="stripe",
-    )),
 )
+client.handle(book)
 ```
 
-After processing:
-- `header.sequence = 42` (assigned, replacing `external_deferred`)
-
-Webhook retries? Network hiccups? Duplicate deliveries? The coordinator checks `external_id`, finds it already exists, and silently ignores the duplicate.
+Webhook retries? Network hiccups? Duplicate deliveries? The derived `command_id` is the same every time, so the coordinator finds the events it already recorded and answers `DUPLICATE` instead of recording again.
 
 ---
 
 ## Declaring Facts
 
-An aggregate declares the event types it accepts as facts with `facts` on its component options. Code generation emits one fact handler per entry, and the generated dispatch routes each fact to the handler for its fully-qualified type.
+A fact type is declared on its message, like a command, with the `(io.angzarr.v1.command)` option and `fact: true`. It is owned by exactly one component, an aggregate or a process manager; code generation emits one fact handler for it, and the generated dispatch routes each fact to the handler for its type.
 
 ```protobuf title="illustrative - fact declaration"
-message OrderState {
-  option (io.angzarr.v1.component) = {
-    kind: COMPONENT_KIND_AGGREGATE
-    domain: "order"
-    facts: "shipping.ShipmentDispatched"
-    facts: "payment.PaymentCaptured"
+message ShipmentDispatched {
+  option (io.angzarr.v1.command) = {
+    component: "examples.v1.OrderState"
+    fact: true
   };
+  string order_id = 1;
 }
 ```
 
-A fact handler **records** the fact; it cannot refuse it. It receives the fact and the rebuilt state and returns the events to persist—the fact itself, optionally followed by events that flag it (for example a `ShipmentDiscrepancy` when the order was not expecting a shipment).
+A fact handler **records** the fact; it cannot refuse it. It receives the fact and the rebuilt state and returns the events to persist, optionally including events that flag it (for example a `ShipmentDiscrepancy` when the order was not expecting a shipment).
 
 ```python title="illustrative - fact handler"
 def on_shipment_dispatched_fact(self, state, fact):
-    events = [fact]
+    events = [ShipmentRecorded(order_id=fact.order_id)]
     if not state.awaiting_shipment:
         events.append(ShipmentDiscrepancy(order_id=state.order_id, reason="not awaiting shipment"))
     return events
@@ -142,12 +125,11 @@ def on_shipment_dispatched_fact(self, state, fact):
 
 | Situation | Result |
 |-----------|--------|
-| Fact type declared in `facts` | Routed to its fact handler; recorded |
-| Fact type not declared | Refused as a wiring error: `INTERNAL`, error code `ROUTER_REASON_NO_FACT_HANDLER`; nothing persisted |
+| Fact type with a fact handler | Routed to it; recorded |
+| No handler for the fact's type | Refused as a wiring error: `INTERNAL`, `ROUTER_REASON_NO_FACT_HANDLER`; nothing persisted |
+| `refuses` set on a fact type | Generation fails: a fact cannot be refused |
 
-`facts` is allowed only on aggregates. Sagas and process managers that inject facts declare the types in `emits_facts`; `angzarr lint` fails when an emitted fact type is not declared in `facts` by an aggregate that owns one of the component's output domains, so the mismatch surfaces at build time instead of as a refused fact at run time.
-
-An operator replaying or repairing a stream can set `EventRequest.skip_handler` to persist facts directly without handler invocation.
+A policy never sends a fact: its business code emits Commands only. The one fact a policy delivers is the refusal fact of a refused command, to its own source domain (see [Policies: Refusals](/components/policy#refusals)).
 
 ---
 

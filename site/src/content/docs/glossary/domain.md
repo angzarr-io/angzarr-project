@@ -49,14 +49,14 @@ All three domains belong to one bounded context because one team owns them with 
 - Anemic aggregates—intentionally simple (like Angzarr's demo examples) or accidentally under-designed. Anemic aggregates multiply because decision logic lives elsewhere.
 - Early system evolution before aggregates absorb the decisions they should own
 
-## Implications for Sagas
+## Implications for Policies
 
 Because Angzarr domains aren't bounded contexts:
 
-- **Sagas within a bounded context**: Internal coordination. The aggregates share ubiquitous language—no translation needed. These are *not* ACLs.
-- **Sagas crossing bounded contexts**: True ACLs. They translate between different ubiquitous languages. A thick translation layer here signals modeling problems.
+- **Policies within a bounded context**: Internal coordination. The aggregates share ubiquitous language—no translation needed. These are *not* ACLs.
+- **Policies crossing bounded contexts**: True ACLs. They translate between different ubiquitous languages. A thick translation layer here signals modeling problems.
 
-The saga's *code* looks the same either way. The difference is semantic—whether translation is happening or just routing.
+The policy's *code* looks the same either way. The difference is semantic—whether translation is happening or just routing.
 
 ## Why This Design?
 
@@ -75,11 +75,11 @@ labels:
   angzarr.io/bounded-context: "game-ops"
   angzarr.io/domain: "player"
 
-# On sagas, also indicate type
+# On policies, also indicate type
 labels:
-  angzarr.io/saga-type: "acl"      # crosses BC boundary
+  angzarr.io/policy-type: "acl"      # crosses BC boundary
   # or
-  angzarr.io/saga-type: "internal" # within BC
+  angzarr.io/policy-type: "internal" # within BC
 ```
 
 This makes bounded context membership queryable and enables policy enforcement without framework-level modeling.

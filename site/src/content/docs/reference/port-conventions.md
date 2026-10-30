@@ -42,7 +42,7 @@ Each pod uses a base port (e.g., 50050, 50060) with offsets 0-9:
 
 Each language gets a distinct range for concurrent local development:
 
-| Language | Base Range | Aggregates | Sagas | Projectors |
+| Language | Base Range | Aggregates | Policies | Projectors |
 |----------|------------|------------|-------|------------|
 | Rust | 50050-50199 | 50050-50109 | 50110-50139 | 50140-50159 |
 | Go | 50200-50349 | 50200-50259 | 50260-50289 | 50290-50309 |

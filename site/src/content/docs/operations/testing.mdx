@@ -387,7 +387,7 @@ Test Angzarr **framework internals** using synthetic aggregates (`EchoAggregate`
 - IPC event bus (named pipes, domain filtering)
 - gRPC over UDS transport
 - Channel bus pub/sub delivery
-- Saga activation and cross-domain command routing
+- Policy activation and cross-domain command routing
 - Snapshot/recovery, lossy bus resilience
 
 ### Gherkin Example
@@ -395,7 +395,7 @@ Test Angzarr **framework internals** using synthetic aggregates (`EchoAggregate`
 ```gherkin title="tests/interfaces/features/event_bus.feature"
 Feature: EventBus interface
   The EventBus distributes committed events to interested subscribers. After
-  an aggregate persists events, the bus broadcasts them to sagas, projectors,
+  an aggregate persists events, the bus broadcasts them to policies, projectors,
   and process managers that need to react.
 
   Background:
@@ -598,7 +598,7 @@ Scenario: Cannot reserve more than available balance
 
 #### Cross-Domain Scenarios
 
-Show saga/PM translations explicitly without exposing implementation:
+Show policy/PM translations explicitly without exposing implementation:
 
 ```gherkin title="illustrative"
 Scenario: Order completion triggers fulfillment

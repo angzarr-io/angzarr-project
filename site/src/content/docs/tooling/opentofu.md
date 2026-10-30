@@ -117,7 +117,7 @@ flowchart TB
         subgraph NS[angzarr Namespace]
             Order[Order Agg]
             Inventory[Inventory Agg]
-            Saga[Saga]
+            Policy[Policy]
         end
         PG & RMQ --- NS
     end
@@ -217,7 +217,7 @@ module "order" {
     upcaster = { enabled = true }
   }
 
-  sagas = {
+  policies = {
     fulfillment = {
       target_domain = "fulfillment"
       env           = {}
@@ -231,10 +231,10 @@ module "order" {
   images = {
     grpc_gateway          = local.images.grpc_gateway
     coordinator_aggregate = local.images.coordinator_aggregate
-    coordinator_saga      = local.images.coordinator_saga
+    coordinator_policy      = local.images.coordinator_policy
     coordinator_projector = local.images.coordinator_projector
     logic                 = local.domain_images.order.logic
-    saga_logic            = local.domain_images.order.saga_logic
+    policy_logic            = local.domain_images.order.policy_logic
     projector_logic       = local.domain_images.order.projector_logic
   }
 
@@ -341,7 +341,7 @@ module "order" {
 
   images = {
     coordinator_aggregate = "gcr.io/project/angzarr-aggregate:latest"
-    coordinator_saga      = "gcr.io/project/angzarr-saga:latest"
+    coordinator_policy      = "gcr.io/project/angzarr-policy:latest"
     coordinator_projector = "gcr.io/project/angzarr-projector:latest"
     logic                 = "gcr.io/project/agg-order:latest"
   }
@@ -512,7 +512,7 @@ module "order" {
     resources     = { cpu = "1", memory = "512Mi" }
   }
 
-  sagas = {
+  policies = {
     fulfillment = {
       target_domain = "fulfillment"
       min_instances = 1
@@ -524,8 +524,8 @@ module "order" {
     grpc_gateway          = "${module.ecr.images.grpc_gateway}:${var.image_tag}"
     coordinator_aggregate = "${module.ecr.images.coordinator_aggregate}:${var.image_tag}"
     logic                 = "${module.ecr.registry_url}/order-logic:${var.image_tag}"
-    saga_logic = {
-      fulfillment = "${module.ecr.registry_url}/saga-order-fulfillment:${var.image_tag}"
+    policy_logic = {
+      fulfillment = "${module.ecr.registry_url}/policy-order-fulfillment:${var.image_tag}"
     }
   }
 
@@ -597,7 +597,7 @@ module "order" {
 
   images = {
     coordinator_aggregate = "123456789.dkr.ecr.us-east-1.amazonaws.com/angzarr-aggregate:latest"
-    coordinator_saga      = "123456789.dkr.ecr.us-east-1.amazonaws.com/angzarr-saga:latest"
+    coordinator_policy      = "123456789.dkr.ecr.us-east-1.amazonaws.com/angzarr-policy:latest"
     coordinator_projector = "123456789.dkr.ecr.us-east-1.amazonaws.com/angzarr-projector:latest"
     logic                 = "123456789.dkr.ecr.us-east-1.amazonaws.com/agg-order:latest"
   }

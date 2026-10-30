@@ -13,7 +13,7 @@ Event-sourced systems are inherently observable—every state change is recorded
 - **Dead letter queues** capturing failures
 - **Structured tracing** through the event flow
 
-When something goes wrong in a poker hand, you can trace the entire flow: from player action to saga to table update to final outcome.
+When something goes wrong in a poker hand, you can trace the entire flow: from player action to policy to table update to final outcome.
 
 ---
 
@@ -50,8 +50,8 @@ send_command(
     correlation_id="session-abc-123",
 )
 
-# Subsequent sagas inherit it
-# TableJoined → saga → PlayerSeated
+# Subsequent policies inherit it
+# TableJoined → policy → PlayerSeated
 # All carry the same correlation_id
 ```
 
@@ -101,26 +101,25 @@ angzarr dlq discard --domain=hand --before=2024-01-15
 
 ---
 
-## Saga Rejection Tracking
+## Policy Refusal Tracking
 
-When a saga command is rejected, the framework records:
+When a target refuses a policy's command, it records nothing, and the policy's coordinator delivers one refusal fact to the stream of the triggering event. By default that is the standard `CommandRefused`:
 
-*Illustrative — RejectionNotification:*
+*Illustrative — CommandRefused:*
 
 | Field | Example Value |
 |-------|---------------|
-| `rejected_command` | `DeductFromPlayerStack` |
-| `code` | `"INSUFFICIENT_BALANCE"` |
-| `reason` | `{code: "INSUFFICIENT_BALANCE", args: {available: "40", requested: "100"}}`: a key and its args, never text (decision 14.37) |
-| `issuer_name` | `"saga-hand-player"` |
-| `issuer_type` | `"saga"` |
-| `source_aggregate` | `{domain: "hand", root: ...}` |
-| `source_event_sequence` | `42` |
+| `command` | the refused `DeductFromPlayerStack` command, as delivered (its ids stamped) |
+| `refusal` | the target's typed refusal object, packed: `InsufficientBalance { available: 40, requested: 100 }` |
+| `trigger` | the triggering event's `EventRef`: `{domain: "hand", root: ..., sequence: 42}` |
 
-The rejection flows back to the source aggregate for compensation. The audit trail shows:
+The fact's id is the refused command's id, and it carries the trigger's correlation. The source records it in its own stream and decides what it means, so the audit trail shows:
 1. What was attempted
-2. Why it failed
-3. How it was compensated
+2. Why it was refused
+3. What the source did about it
+
+```protobuf file=proto/io/angzarr/v1/types.proto region=refusal_facts
+```
 
 ---
 
@@ -160,9 +159,9 @@ The framework emits structured logs at key points:
 | Level | Use |
 |-------|-----|
 | `error` | Unrecoverable failures, DLQ entries |
-| `warn` | Rejections, retries, compensation |
+| `warn` | Rejections, refusals, retries |
 | `info` | Command/event flow, lifecycle |
-| `debug` | State reconstruction, saga routing |
+| `debug` | State reconstruction, policy routing |
 
 ---
 
@@ -177,7 +176,7 @@ The framework exposes metrics for monitoring:
 | `angzarr_events_total` | Events persisted |
 | `angzarr_replay_duration_seconds` | State reconstruction time |
 | `angzarr_dlq_depth` | Dead letter queue depth, by domain |
-| `angzarr_saga_latency_seconds` | Saga processing time |
+| `angzarr_policy_latency_seconds` | Policy processing time |
 
 Expose via Prometheus endpoint:
 
@@ -207,7 +206,7 @@ Each command becomes a span. Child spans track:
 - State reconstruction
 - Business logic execution
 - Event persistence
-- Saga dispatch
+- Policy dispatch
 - Projector updates
 
 Correlation IDs link traces across services.
@@ -224,9 +223,6 @@ angzarr events --domain=hand --root=hand-xyz-789
 
 # Trace the full session
 angzarr events --correlation-id=session-abc-123
-
-# Check for rejections
-angzarr events --domain=hand --root=hand-xyz-789 --type=RejectionNotification
 
 # Replay the hand to verify
 angzarr replay --domain=hand --root=hand-xyz-789 --output=json

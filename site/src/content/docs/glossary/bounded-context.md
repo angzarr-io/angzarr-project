@@ -44,11 +44,11 @@ These are three Angzarr domains within one bounded context.
 
 ## Implications
 
-### For Sagas
+### For Policies
 
-Sagas connect Angzarr domains. Whether a saga is an ACL depends on whether it crosses bounded context boundaries:
+Policies connect Angzarr domains. Whether a policy is an ACL depends on whether it crosses bounded context boundaries:
 
-| Saga Type | Crosses BC? | Translation? | Example |
+| Policy Type | Crosses BC? | Translation? | Example |
 |-----------|-------------|--------------|---------|
 | Internal coordination | No | Minimal—shared language | `table` → `hand` within Game Ops |
 | Anti-Corruption Layer | Yes | Heavy—different languages | Game Ops → Payments |
@@ -59,11 +59,11 @@ The code looks similar; the semantic weight differs. Use infrastructure tagging 
 # Helm values or K8s labels
 labels:
   angzarr.io/bounded-context: "game-ops"
-  angzarr.io/saga-type: "acl"  # or "internal"
+  angzarr.io/policy-type: "acl"  # or "internal"
 ```
 
 This enables:
-- Querying all ACLs: `kubectl get pods -l angzarr.io/saga-type=acl`
+- Querying all ACLs: `kubectl get pods -l angzarr.io/policy-type=acl`
 - Grouping by bounded context in dashboards
 - Policy enforcement (e.g., ACLs require additional review)
 
@@ -72,7 +72,7 @@ This enables:
 Bounded contexts should align with team ownership. When planning Angzarr deployments:
 1. Identify your bounded contexts (team/language boundaries)
 2. Map Angzarr domains to contexts
-3. Sagas within a context = internal; across contexts = ACLs
+3. Policies within a context = internal; across contexts = ACLs
 4. Thick ACLs suggest misaligned boundaries
 
 ## References

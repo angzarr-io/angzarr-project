@@ -1,10 +1,9 @@
 ---
 title: Error Recovery
 ---
-import { Tabs, TabItem } from '@astrojs/starlight/components';
 
 
-Angzarr's error recovery follows from one rule: the gRPC status alone decides an error's class (decision 14.37), and the class decides what happens next. A business error goes back to its caller; a retryable bug is retried with backoff up to a cap; anything that cannot be finished is dead-lettered and alerted for an operator. A refused policy command becomes a refusal fact for the policy's source domain (see Saga Refusals, below).
+Angzarr's error recovery follows from one rule: the gRPC status alone decides an error's class (decision 14.37), and the class decides what happens next. A business error goes back to its caller; a retryable bug is retried with backoff up to a cap; anything that cannot be finished is dead-lettered and alerted for an operator. A refused policy command becomes a refusal fact for the policy's source domain (see Policy Refusals, below).
 
 ---
 
@@ -178,14 +177,14 @@ Dead letters require manual review. Common actions:
 
 ---
 
-## Saga Refusals
+## Policy Refusals
 
-A target that refuses a saga's command (a business rejection, optionally with a typed refusal object) records nothing. The saga's coordinator calls `OnRefused`, and the saga builds one refusal fact for its own source domain: the standard `CommandRefused` passed through with the refusal object packed (the default), or a domestic fact its callback translates the refusal into (where the CLI selects translate at code generation). The fact's id is the refused command's id. The coordinator writes it to the outbox in the same transaction that clears the command's entry. The source records the fact and decides what it means.
+A target that refuses a policy's command (a business rejection, optionally with a typed refusal object) records nothing. The policy's coordinator calls `OnRefused`, and the policy builds one refusal fact for its own source domain: the standard `CommandRefused` passed through with the refusal object packed (the default), or a domestic fact its callback translates the refusal into (where the CLI selects translate at code generation). The fact's id is the refused command's id. The coordinator writes it to the outbox in the same transaction that clears the command's entry. The source records the fact and decides what it means.
 
 | What happened | What happens |
 |---------------|--------------|
-| A business rejection | The refusal fact goes to the saga's source, retried, deduplicated by the refused command's id |
-| A pass-through refusal the source has no handler for | The fact is refused `ROUTER_REASON_NO_REFUSAL_HANDLER`, dead-lettered for a human, and alerted; found only at run time, since nothing declares what a saga sends |
+| A business rejection | The refusal fact goes to the policy's source, retried, deduplicated by the refused command's id |
+| A pass-through refusal the source has no handler for | The fact is refused `ROUTER_REASON_NO_REFUSAL_HANDLER`, dead-lettered for a human, and alerted; found only at run time, since nothing declares what a policy sends |
 | The translating callback fails | The refusal is dead-lettered and alerted |
 | A retryable failure | The command is retried |
 | Any other terminal failure | The command is dead-lettered and alerted: a bug |
@@ -206,81 +205,6 @@ A process manager is a domain, so its failures are an aggregate's: a refused com
 
 ---
 
-## Saga Compensation
-
-:::caution[Removed from the contract]
-The compensation and notification path below is deleted from the current contract (backlog RM-2). A target that refuses records nothing; the saga delivers a refusal fact to its own source domain (see Saga Refusals, above). This section describes the prior implementation until the page is rewritten (backlog DOC-2).
-:::
-
-When a saga-issued command is rejected, angzarr notifies the original aggregate so it can emit compensation events.
-
-### Compensation Flow
-
-```
-1. Saga emits command to target aggregate
-2. Target aggregate rejects (business rule violation)
-3. Coordinator records a RejectionNotification in its compensation outbox,
-   then acknowledges the triggering event
-4. Outbox delivers the Notification to the source aggregate
-   (at least once; retried with backoff; dead-lettered on exhaustion)
-5. Source aggregate emits compensation events
-   OR
-   Source aggregate returns RevocationResponse flags
-```
-
-### Notification vs Event
-
-| Aspect | Notification | Event |
-|--------|--------------|-------|
-| In the event stream? | Never | Yes |
-| Sequence? | No | Yes |
-| Delivery | Coordinator outbox, at least once | Bus, from the stream |
-| Purpose | Compensation | State change |
-
-Notifications trigger behavior but aren't part of the event stream. Their delivery is durable: see [Delivery Guarantees](/features/compensation#delivery-guarantees).
-
-### RejectionNotification
-
-### Handling Rejections
-
-The source aggregate registers rejection handlers using `@rejected` decorators. The framework dispatches based on the rejected command's domain and type — no if/else chains needed.
-
-<Tabs>
-<TabItem label="Python">
-
-**[`examples/python/player/agg/rejected.py`](https://github.com/benjaminabbitt/angzarr/blob/main/examples/python/player/agg/rejected.py)**
-
-```python file=vendor/examples/python/player/agg/rejected.py region=rejected_handler
-```
-
-</TabItem>
-</Tabs>
-
-### RevocationResponse Flags
-
-When an aggregate cannot handle a rejection, it returns flags:
-
-| Flag | Effect |
-|------|--------|
-| `emit_system_revocation` | Emit `SagaCompensationFailed` event to fallback domain |
-| `send_to_dead_letter_queue` | Route to DLQ for manual review |
-| `escalate` | Trigger webhook notification |
-| `abort` | Stop saga chain, propagate error to caller |
-
-### Configuration
-
-```yaml
-saga_compensation:
-  fallback_domain: "system"                    # Domain for SagaCompensationFailed events
-  fallback_emit_system_revocation: true        # Default when aggregate returns empty
-  fallback_send_to_dlq: true
-  fallback_escalate: false
-  dead_letter_queue_url: "amqp://..."          # Optional DLQ URL
-  escalation_webhook_url: "https://..."        # Optional webhook for alerts
-```
-
----
-
 ## Conflict Resolution
 
 `ConflictResolution` (in `io/angzarr/v1/types.proto`) has three values; the rules on a moved stream are under [Sequence Conflicts](#sequence-conflicts), above. Which a stream supports comes from its registered state: every state supports `STRICT` and `AGGREGATE_HANDLES`, and `COMMUTATIVE` only where the state declares conflict units. With none given, the default is `COMMUTATIVE` where supported, else `STRICT`.
@@ -290,33 +214,6 @@ saga_compensation:
 | Financial operations (balance checks) | `STRICT` | Must see current state |
 | Counters, sets of independent items | `COMMUTATIVE` | Disjoint changes commute |
 | CRDT-style operations | `AGGREGATE_HANDLES` | The aggregate merges the window itself |
-
----
-
-## Escalation
-
-For critical failures, angzarr can trigger alerts via webhooks:
-
-```yaml
-saga_compensation:
-  escalation_webhook_url: "https://ops.example.com/alerts"
-```
-
-Webhook payload:
-
-```json
-{
-  "saga_name": "saga-table-player",
-  "triggering_aggregate": {
-    "domain": "table",
-    "root": "550e8400-e29b-41d4-a716-446655440000"
-  },
-  "triggering_sequence": 5,
-  "reason": { "code": "INSUFFICIENT_FUNDS", "args": { "available": "120", "requested": "500" } },
-  "compensation_reason": { "code": "COMPENSATION_EMPTY_RESPONSE" },
-  "occurred_at": "2024-01-15T10:30:00Z"
-}
-```
 
 ---
 
@@ -340,21 +237,17 @@ def apply_funds_deposited(state, event):
 
 Use `STRICT` where a decision must see the current state, and `COMMUTATIVE` or `AGGREGATE_HANDLES` where a stale decision can still be judged safe (see [Conflict Resolution](#conflict-resolution)).
 
-### 3. Handle Notifications Explicitly
+### 3. Handle Refusals Explicitly
 
-Don't ignore `RejectionNotification` — either compensate or escalate:
+A refused policy command comes back to the source as a refusal fact. Give the source a handler for every refusal it can receive (`on_refused_<Command>` for a pass-through `CommandRefused`, or the domestic fact a translating policy returns), and record what the refusal means in the source's own events:
 
-```python
-def handle_rejection(state, rejection):
-    if can_compensate(rejection):
-        return build_compensation_event(rejection)
-    else:
-        return RevocationResponse(
-            send_to_dead_letter_queue=True,
-            escalate=True,
-            reason="CANNOT_COMPENSATE",
-        )
+```python title="illustrative - refusal handler"
+def on_refused_join_table(self, refusal, state):
+    # The table refused the seat: release the funds reserved for it.
+    return [FundsReleased(amount=state.reserved, reason="table refused the seat")]
 ```
+
+A refusal with no handler is answered `ROUTER_REASON_NO_REFUSAL_HANDLER`, dead-lettered and alerted: found only at run time.
 
 ### 4. Monitor DLQ Depth
 
@@ -374,5 +267,5 @@ Set up alerts for DLQ message accumulation:
 ## Next Steps
 
 - **[Patterns Reference](/reference/patterns)** — Conflict resolution, SyncMode details
-- **[Sagas](/components/saga)** — Cross-domain coordination
+- **[Policies](/components/policy)** — Cross-domain coordination
 - **[Payload Offloading](/operations/payload-offloading)** — Large message handling

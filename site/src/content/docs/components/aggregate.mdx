@@ -126,7 +126,7 @@ class Player(CommandHandler[PlayerState]):
 
 Facts arrive from:
 
-- **Sagas/PMs** asserting cross-domain decisions
+- **Policies/PMs** asserting cross-domain decisions
 - **External systems** (payment confirmations, IoT sensors)
 - **Human overrides** (floor manager rulings)
 
@@ -165,7 +165,7 @@ On subsequent commands, only events after the snapshot are loaded.
 
 ## Next Steps
 
-- **[Sagas](/components/saga)** — Cross-domain command orchestration
+- **[Policies](/components/policy)** — Cross-domain command orchestration
 - **[Projectors](/components/projector)** — Building read models
 - **[Commands vs Facts](/features/facts)** — When to use facts over commands
 - **[Testing](/operations/testing)** — Three-level testing strategy

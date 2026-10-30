@@ -117,7 +117,7 @@ that don't embed.
 
 ### Embed at capture time (preferred)
 
-Each producer (saga / projector / process-manager binary) embeds its
+Each producer (policy / projector / process-manager binary) embeds its
 own source tree at build time, gzip-compressed. At capture time the
 producer looks up each frame's `file` and slices ±N lines around
 `line` into `context_line` / `pre_context` / `post_context`.

@@ -6,7 +6,7 @@ import { Tabs, TabItem } from '@astrojs/starlight/components';
 
 A **projector** subscribes to events and performs side effects—typically building read models, writing to databases, or streaming to external systems. Projectors transform the event stream into query-optimized views.
 
-Unlike aggregates and sagas, projectors are **read-only** from the event sourcing perspective. They observe events but never emit commands back to aggregates.
+Unlike aggregates and policies, projectors are **read-only** from the event sourcing perspective. They observe events but never emit commands back to aggregates.
 
 ---
 

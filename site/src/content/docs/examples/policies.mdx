@@ -1,0 +1,53 @@
+---
+title: Policy Examples
+---
+import { Tabs, TabItem } from '@astrojs/starlight/components';
+
+
+Cross-domain coordination examples from the poker domain.
+
+:::note[Example code predates the rename]
+The example repositories still name this component a saga and still carry a compensation handler; they follow the contract (policies, refusal facts) when they are reworked.
+:::
+
+---
+
+## Policy: Table → Hand
+
+When a table starts a hand, the **table-hand policy** translates the table domain's `HandStarted` event into a hand domain `DealCards` command.
+
+Policies are classes with handler decorators — the same OO pattern as aggregates. All six languages use this.
+
+<Tabs>
+<TabItem label="Python">
+
+```python file=vendor/examples/python/table/saga-hand/main.py region=saga
+```
+
+</TabItem>
+</Tabs>
+
+---
+
+## Refusals
+
+When a policy's command is refused, the target records nothing, and the policy's coordinator delivers one refusal fact to the stream of the triggering event: the standard `CommandRefused` (handled by the source's `on_refused_<Command>`), or a domestic fact the policy translates the refusal into. The source decides what the refusal means and records its own events. See [Policies: Refusals](/components/policy#refusals).
+
+---
+
+## Policy Principles
+
+1. **Stateless** — Each event processed independently
+2. **Minimal logic** — Just translate fields between domains
+3. **Single source** — Events from one domain only
+4. **Single destination** — Commands to one domain only
+5. **No destination state** — The coordinator stamps each command's identity; the destination appends it at its head
+
+---
+
+
+## Next Steps
+
+- **[Aggregates](/examples/aggregates)** — Handler examples
+- **[Process Managers](/components/process-manager)** — Multi-domain orchestration
+- **[Testing](/operations/testing)** — Policy testing with Gherkin

@@ -77,9 +77,9 @@ Watch individual example crates:
 | `ex-proj-accounting` | accounting projector |
 | `ex-proj-web` | web projector |
 | `ex-proj-logging` | logging projector |
-| `ex-saga-cancel` | cancellation saga |
-| `ex-saga-fulfill` | fulfillment saga |
-| `ex-saga-loyalty` | loyalty-earn saga |
+| `ex-policy-cancel` | cancellation policy |
+| `ex-policy-fulfill` | fulfillment policy |
+| `ex-policy-loyalty` | loyalty-earn policy |
 | `ex-e2e` | e2e tests |
 
 ### Language-Specific Jobs
@@ -104,7 +104,7 @@ Watch individual example crates:
 | Job | Binary |
 |-----|--------|
 | `bin-aggregate` | angzarr-aggregate |
-| `bin-saga` | angzarr-saga |
+| `bin-policy` | angzarr-policy |
 | `bin-projector` | angzarr-projector |
 | `bin-gateway` | angzarr-gateway |
 | `bin-stream` | angzarr-stream |

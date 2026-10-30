@@ -76,7 +76,7 @@ examples/features/
 │   ├── player.feature           # Player aggregate behavior
 │   ├── table.feature            # Table aggregate behavior
 │   ├── hand.feature             # Hand aggregate behavior
-│   ├── saga.feature             # Saga patterns
+│   ├── policy.feature             # Policy patterns
 │   ├── process_manager.feature  # PM patterns
 │   ├── projector.feature        # Projector patterns
 │   └── ...
@@ -123,8 +123,8 @@ Feature: Player Aggregate
 | Tag | Purpose |
 |-----|---------|
 | `@player`, `@table`, `@hand` | Filter by domain |
-| `@aggregate`, `@saga`, `@pm` | Filter by component type |
-| `@reservation`, `@compensation` | Filter by pattern |
+| `@aggregate`, `@policy`, `@pm` | Filter by component type |
+| `@reservation`, `@policy_refusal` | Filter by pattern |
 | `@wip` | Work in progress (skip in CI) |
 | `@slow` | Long-running tests |
 

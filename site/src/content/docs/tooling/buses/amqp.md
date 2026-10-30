@@ -47,7 +47,7 @@ flowchart LR
     EX["Exchange: angzarr.events<br/>(topic)"]
     EX -->|"player.#"| PP[queue: player-projector]
     EX -->|"player.#"| OP[queue: output-projector]
-    EX -->|"hand.#"| HS[queue: hand-saga]
+    EX -->|"hand.#"| HS[queue: hand-policy]
 ```
 
 ### Routing Keys

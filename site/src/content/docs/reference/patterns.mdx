@@ -106,7 +106,7 @@ Links related events across aggregates:
 **Propagation rules:**
 - Client provides correlation_id on initial command (if cross-domain tracking needed)
 - Framework does NOT auto-generate—if not provided, stays empty
-- Once set, propagates through sagas and process managers
+- Once set, propagates through policies and process managers
 
 ### Conflict Resolution
 
@@ -171,10 +171,10 @@ print(f"Balance at {yesterday}: {state.bankroll}")
 |----------|-----|
 | **What-if analysis** | Branch at sequence N, apply hypothetical commands |
 | **Historical branches** | Explore alternative histories |
-| **Saga coordination** | Reactions stay in their trigger's edition, and fork the streams they reach |
+| **Policy coordination** | Reactions stay in their trigger's edition, and fork the streams they reach |
 | **Speculative execution** | Execute commands speculatively, merge or discard |
 
-**Per-stream forks** (decisions 14.32 and 14.35): forking an origin stream starts the edition; the fork travels with the data, each saga command forking the stream it reaches at that stream's head. There is no global position, so there is no fork at one store-wide moment.
+**Per-stream forks** (decisions 14.32 and 14.35): forking an origin stream starts the edition; the fork travels with the data, each policy command forking the stream it reaches at that stream's head. There is no global position, so there is no fork at one store-wide moment.
 
 ```python
 # Create a what-if branch by forking the player's stream
@@ -210,21 +210,21 @@ snapshot = Snapshot(
 
 ## Component Coordination
 
-### Saga vs Process Manager
+### Policy vs Process Manager
 
-| Aspect | Saga | Process Manager |
+| Aspect | Policy | Process Manager |
 |--------|------|-----------------|
 | **State** | Stateless | Own event stream |
 | **Input** | Single domain | Multiple domains |
 | **Identity** | None | correlation_id |
 | **Timeouts** | No | Yes |
 
-**Rule of thumb:** Start with sagas. Upgrade to PM when you need state or multi-domain input.
+**Rule of thumb:** Start with policies. Upgrade to PM when you need state or multi-domain input.
 
 ---
 
 ## Next Steps
 
 - **[Aggregates](/components/aggregate)** — Command handling
-- **[Sagas](/components/saga)** — Cross-domain coordination
+- **[Policies](/components/policy)** — Cross-domain coordination
 - **[Process Managers](/components/process-manager)** — Stateful orchestration

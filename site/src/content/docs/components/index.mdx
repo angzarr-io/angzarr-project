@@ -13,7 +13,7 @@ import { Tabs, TabItem } from '@astrojs/starlight/components';
 | Component | Input | Output | State | Use Case |
 |-----------|-------|--------|-------|----------|
 | **[Aggregate](/components/aggregate)** | Commands | Events | Via events | Domain logic, consistency boundary |
-| **[Saga](/components/saga)** | Events (single domain) | Commands | Stateless | Cross-domain translation |
+| **[Policy](/components/policy)** | Events (single domain) | Commands | Stateless | Cross-domain translation |
 | **[Projector](/components/projector)** | Events (single domain preferred) | Side effects | Local only | Read models, external systems |
 | **[Process Manager](/components/process-manager)** | Events (multi-domain) | Commands | Own event stream | Stateful multi-domain workflows |
 | **[Upcaster](#upcaster)** | Old events | New events | None | Schema evolution |
@@ -30,13 +30,13 @@ Use when you need to:
 
 **Every domain has exactly one aggregate.**
 
-### Saga
+### Policy
 Use when you need to:
 - Translate events from domain A into commands for domain B
 - React to events without maintaining state
 - Keep cross-domain coordination simple
 
-**Sagas subscribe to ONE domain only.** For multi-domain subscription, use a Process Manager.
+**Policies subscribe to ONE domain only.** For multi-domain subscription, use a Process Manager.
 
 ### Projector
 Use when you need to:
@@ -61,9 +61,9 @@ Use when you need to:
 
 ---
 
-## Saga vs Projector vs Process Manager
+## Policy vs Projector vs Process Manager
 
-| Aspect | Saga | Projector | Process Manager |
+| Aspect | Policy | Projector | Process Manager |
 |--------|------|-----------|-----------------|
 | **Output** | Commands | Side effects | Commands |
 | **State** | None | Local (in-memory) | Own event stream |
@@ -72,7 +72,7 @@ Use when you need to:
 | **Failure impact** | Workflow incomplete | Stale read models | Workflow incomplete |
 | **Timeouts** | No | No | Yes |
 
-**Rule of thumb:** Start with sagas. Upgrade to Process Manager when you need state tracking or multi-domain input. Use projectors for read models.
+**Rule of thumb:** Start with policies. Upgrade to Process Manager when you need state tracking or multi-domain input. Use projectors for read models.
 
 ---
 
@@ -153,7 +153,7 @@ Or via environment variables:
 ## Next Steps
 
 - **[Aggregates](/components/aggregate)** — Command handling and event emission
-- **[Sagas](/components/saga)** — Cross-domain coordination
+- **[Policies](/components/policy)** — Cross-domain coordination
 - **[Projectors](/components/projector)** — Building read models
 - **[Process Managers](/components/process-manager)** — Stateful orchestration
 - **[Framework Projectors](/components/framework-projectors)** — Built-in operational projectors

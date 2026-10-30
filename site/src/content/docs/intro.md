@@ -4,7 +4,7 @@ title: Introduction to Angzarr
 import { Tabs, TabItem } from '@astrojs/starlight/components';
 
 
-**⍼ Angzarr** is a polyglot framework for building event-sourced systems. You write business logic in any language with [gRPC support](https://grpc.io/docs/languages/)—the framework handles event persistence, saga coordination, projection management, and all the infrastructure complexity that typically derails CQRS/ES projects.
+**⍼ Angzarr** is a polyglot framework for building event-sourced systems. You write business logic in any language with [gRPC support](https://grpc.io/docs/languages/)—the framework handles event persistence, policy coordination, projection management, and all the infrastructure complexity that typically derails CQRS/ES projects.
 
 The symbol ⍼ (U+237C, "angzarr") has existed in Unicode since 2002 without a defined purpose. The right angle represents the origin point—your event store. The zigzag arrow represents events cascading through your system. We gave it meaning.
 
@@ -32,10 +32,10 @@ Angzarr inverts the typical framework relationship. Rather than providing librar
 |------------|---------------|-----------|
 | Commands in `.proto` | Aggregate handlers | Event persistence |
 | Events in `.proto` | Projector handlers | Optimistic concurrency |
-| State in `.proto` | Saga handlers | Snapshot management |
+| State in `.proto` | Policy handlers | Snapshot management |
 | | | Event upcasting |
 | | | Event distribution |
-| | | Saga coordination |
+| | | Policy coordination |
 | | | Schema evolution |
 
 Your business logic receives commands with full event history and emits events. No database connections. No message bus configuration. No retry logic. Pure domain logic.
@@ -66,10 +66,10 @@ flowchart LR
     end
 
     subgraph Consumers[Event Consumers]
-        subgraph SagaPod[Saga Pod]
-            SAGA_COORD[⍼ Sidecar]
-            SAGA[Your Saga]
-            SAGA_COORD <--> SAGA
+        subgraph PolicyPod[Policy Pod]
+            POLICY_COORD[⍼ Sidecar]
+            POLICY[Your Policy]
+            POLICY_COORD <--> POLICY
         end
 
         subgraph PrjPod[Projector Pod]
@@ -90,9 +90,9 @@ flowchart LR
     GW -->|cmd| AGG_COORD
     AGG_COORD <--> ES
     AGG_COORD --> BUS
-    BUS --> SAGA_COORD
+    BUS --> POLICY_COORD
     BUS --> PRJ_COORD
-    SAGA_COORD -->|cmd| AGG_COORD2
+    POLICY_COORD -->|cmd| AGG_COORD2
     AGG_COORD2 <--> ES
 
     style AggPod2 stroke-dasharray: 5 5
@@ -100,7 +100,7 @@ flowchart LR
     style AGG2 stroke-dasharray: 5 5
 ```
 
-*The dashed Domain B represents any additional domain(s)—sagas bridge events from one domain to commands in another. Real systems have multiple domains, each with its own aggregate.*
+*The dashed Domain B represents any additional domain(s)—policies bridge events from one domain to commands in another. Real systems have multiple domains, each with its own aggregate.*
 
 Each component type runs in its own pod with an ⍼ Angzarr sidecar. Your code handles business logic; the sidecar handles persistence, messaging, and coordination.
 
@@ -159,7 +159,7 @@ If you're evaluating Angzarr for your organization:
 Ready to build:
 
 - **[Getting Started](./getting-started)** — Prerequisites, installation, first aggregate
-- **[Components](/components/aggregate)** — Aggregates, sagas, projectors, process managers
+- **[Components](/components/aggregate)** — Aggregates, policies, projectors, process managers
 - **[Examples](/examples/aggregates)** — Code samples in all six languages
 
 ---

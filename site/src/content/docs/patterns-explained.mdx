@@ -218,13 +218,13 @@ flowchart LR
 
 [Learn more →](/components/projector)
 
-### Sagas
+### Policies
 
 The **domain translator**. Subscribes to events from one domain and emits commands to another.
 
 ```mermaid
 flowchart LR
-    A[Domain A Events] --> S[Saga] --> B[Domain B Commands]
+    A[Domain A Events] --> S[Policy] --> B[Domain B Commands]
 ```
 
 - Bridges bounded contexts
@@ -232,7 +232,7 @@ flowchart LR
 - Handles cross-domain workflows (order completed → start fulfillment)
 - Contains minimal logic—just field mapping
 
-[Learn more →](/components/saga)
+[Learn more →](/components/policy)
 
 ### Process Managers
 
@@ -240,15 +240,15 @@ The **stateful orchestrator**. Tracks long-running workflows across multiple dom
 
 ```mermaid
 flowchart LR
-    E["Events<br/>(several domains)"] --> SI[Sagas] --> K["Commands"] --> PM[Process Manager]
-    PM --> P["Its own events"] --> SO[Sagas] --> C[Commands]
+    E["Events<br/>(several domains)"] --> SI[Policies] --> K["Commands"] --> PM[Process Manager]
+    PM --> P["Its own events"] --> SO[Policies] --> C[Commands]
 ```
 
 - Maintains workflow state via correlation ID
 - Handles complex multi-step processes
-- Is a domain: sagas turn other domains' events into commands to it, which it may refuse; it also takes facts (timeouts, webhooks), which it never refuses
-- Sends no commands: it records the data each next step needs, and a saga from its domain builds the command
-- Hears of a target's refusal as a fact from the saga that asked (passed through, or translated), and decides the next step from its own state
+- Is a domain: policies turn other domains' events into commands to it, which it may refuse; it also takes facts (timeouts, webhooks), which it never refuses
+- Sends no commands: it records the data each next step needs, and a policy from its domain builds the command
+- Hears of a target's refusal as a fact from the policy that asked (passed through, or translated), and decides the next step from its own state
 - Used sparingly—adds complexity
 
 [Learn more →](/components/process-manager)
@@ -266,8 +266,8 @@ flowchart LR
 | **Event Store** | Append-only database of events. The source of truth. |
 | **Projection** | Read-optimized view derived from events. Eventually consistent. |
 | **Projector** | Component that builds projections from event streams. |
-| **Saga** | Stateless service bridging events in one domain to commands in another; when a command is refused, it delivers a fact of the refusal to its own domain. |
-| **Process Manager** | Stateful workflow coordinator across multiple domains, and a domain like any other: it takes commands (from sagas) and facts, and records its own events; sagas carry its decisions to other domains. |
+| **Policy** | Stateless service bridging events in one domain to commands in another; when a command is refused, it delivers a fact of the refusal to its own domain. |
+| **Process Manager** | Stateful workflow coordinator across multiple domains, and a domain like any other: it takes commands (from policies) and facts, and records its own events; policies carry its decisions to other domains. |
 | **Snapshot** | Cached aggregate state for replay optimization. |
 | **Correlation ID** | Identifier linking related events across domains. |
 

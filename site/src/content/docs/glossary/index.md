@@ -13,7 +13,7 @@ This glossary defines key terms used throughout the Angzarr documentation, organ
 | Term | Abbr | Description |
 |------|------|-------------|
 | [Aggregate](/glossary/aggregate) | agg | Domain logic. Commands in, events out. Single domain source of truth. |
-| [Saga](/glossary/saga) | sag | Domain bridge. Events from one domain, commands to another. Stateless. |
+| [Policy](/glossary/policy) | - | Domain bridge. Events from one domain, commands to another. Stateless. |
 | [Projector](/glossary/projector) | prj | Read model builder. Events in, external output. |
 | [Process Manager](/glossary/process-manager) | pmg | Multi-domain orchestrator. Stateful correlation via correlation ID. |
 | [Coordinator](/glossary/coordinator) | - | Angzarr sidecar handling infrastructure concerns. |
@@ -30,7 +30,7 @@ Angzarr "domain" ≠ DDD "bounded context". Multiple Angzarr domains may exist w
 | [Bounded Context](/glossary/bounded-context) | DDD: semantic/team boundary. Not directly modeled by Angzarr. May contain multiple domains. |
 | [Aggregate Root](/glossary/aggregate-root) | Entry point entity. All external references go through the root. |
 
-## Commands, Events & Notifications
+## Commands & Events
 
 Understanding the differences is critical:
 
@@ -103,7 +103,7 @@ The table below maps terminology across Domain-Driven Design, CQRS/Event Sourcin
 | **Entry point** | Aggregate Root | Aggregate Root | Root (in Cover) | Angzarr uses UUID; DDD allows domain-specific IDs |
 | **Request to change** | - | Command | Command | Imperative, can be rejected |
 | **Record of change** | Domain Event | Event | Event | Past tense, immutable, persisted |
-| **Cross-domain translation** | Anti-Corruption Layer | Saga | Saga | Angzarr saga = ACL when crossing BC boundaries; internal coordination otherwise |
+| **Cross-domain translation** | Anti-Corruption Layer | Saga / Policy | Policy | Angzarr policy = ACL when crossing BC boundaries; internal coordination otherwise |
 | **Stateful workflow** | - | Saga / Process Manager | Process Manager | Angzarr distinguishes: PM has state, correlation ID as root |
 | **Read model** | - | Projection / Read Model | Projection | Query-optimized view built from events |
 | **Read model builder** | - | Projector / Denormalizer | Projector | Angzarr: events in, external output |
@@ -128,8 +128,8 @@ The table below maps terminology across Domain-Driven Design, CQRS/Event Sourcin
 | **Domain** | *(none—see note)* | Aggregate namespace and deployment unit; one domain = one aggregate type |
 | **Cover** | - | Identity envelope: domain + root + correlation + edition |
 | **Edition** | - | Timeline branching for speculative execution |
-| **Fact** | Event | Event without preceding command; receiving domain assigns sequence; retains source traceability |
-| **Notification** | - | Compensation signal delivered at least once from the coordinator outbox; never in the event stream |
+| **Fact** | Event | Something that already happened outside the system, delivered like a command but never refused; its handler records it; its origin is kept on every event it produces |
+| **Refusal fact** | - | The one fact a policy delivers: a refusal of its command, recorded in the stream of the triggering event |
 | **Coordinator** | - | Sidecar handling infrastructure (routing, storage, bus) |
 | **Target** | - | Subscription filter: domain + event types |
 | **CommandBook** | - | Command collection with concurrency metadata |
@@ -142,7 +142,7 @@ Angzarr "domain" is **not** equivalent to DDD "bounded context." A bounded conte
 
 | Situation | DDD Says | CQRS/ES Says | Angzarr Does |
 |-----------|----------|--------------|--------------|
-| **Saga output** | N/A | Events (typically) | Commands (deferred: appended at the destination head; a rejection routes back for compensation) or Facts (receiving domain assigns sequence) |
+| **Policy output** | N/A | Events (typically) | Commands only (the destination stamps its head; a refusal comes back to the source as a refusal fact) |
 | **Cross-context calls** | Avoid synchronous | Avoid synchronous | Supported but discouraged; indicates boundary debt |
 | **Aggregate size** | "Just big enough" | Small, enforce one invariant | Decision-containing; can be larger if cohesive |
 | **Domain events** | Stay in context | May cross contexts | Integration events cross; domain events are internal |
@@ -154,15 +154,15 @@ When reading DDD literature:
 - **"Domain"** → the overall problem space (no Angzarr equivalent)
 - **"Subdomain"** → business capability; may map to one or more Angzarr domains
 - **"Bounded Context"** → organizational/team boundary; may contain multiple Angzarr domains; not directly modeled
-- **"Anti-Corruption Layer"** → saga that crosses bounded context boundaries (vs. internal coordination saga)
+- **"Anti-Corruption Layer"** → policy that crosses bounded context boundaries (vs. internal coordination policy)
 
 When reading CQRS/ES articles:
-- **"Saga"** → could be Angzarr Saga (stateless) or Process Manager (stateful)—check if it has state
+- **"Saga"** → could be an Angzarr Policy (stateless) or Process Manager (stateful)—check if it has state
 - **"Projection"** → Angzarr Projection (the data) built by a Projector (the component)
 - **"Event Stream"** → Angzarr EventBook
 
 When reading Angzarr docs:
 - **"Domain"** → aggregate namespace/deployment unit; NOT equivalent to DDD bounded context
-- **"Saga"** → may be internal coordination (within BC) or ACL (crossing BC)—depends on organizational boundaries
-- **"Fact"** → event without preceding command; receiving domain assigns sequence; retains source traceability
+- **"Policy"** → may be internal coordination (within BC) or ACL (crossing BC)—depends on organizational boundaries
+- **"Fact"** → something that already happened outside the system; never refused; its origin is kept on the events it produces
 - **"Edition"** → unique to Angzarr, enables speculative execution

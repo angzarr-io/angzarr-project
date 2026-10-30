@@ -286,31 +286,29 @@ flowchart LR
 
 The correlation ID (`abc-123`) flows through all events in the workflow. The PM:
 
-1. Receives events from multiple domains filtered by correlation ID
+1. Takes commands and facts from several domains (policies into its domain build them from those domains' events), keyed by correlation ID
 2. Maintains its own event-sourced state (keyed by correlation ID)
-3. Emits **commands** or **facts** to other domains, preserving the correlation ID
+3. Records each next step as its own event; policies from its domain turn those events into commands for other domains, preserving the correlation ID
 
 ### Commands vs Facts
 
-Sagas and PMs can emit either:
+A domain takes two kinds of input:
 
-| Output | Validation | Can Reject | Use Case |
-|--------|------------|------------|----------|
-| **Command** | Goes through aggregate validation | Yes | Request an action that may fail |
-| **Fact** | Injected directly, bypasses validation | No | Assert external reality the aggregate must accept |
+| Input | Validation | Can Reject | Use Case |
+|-------|------------|------------|----------|
+| **Command** | Decided by the handler | Yes | Request an action that may fail |
+| **Fact** | Recorded by its handler, never refused | No | Assert external reality the domain must accept |
 
 Facts represent things that have already happened—the aggregate cannot reject reality. Examples:
 
-- "The hand says it's your turn" → Player aggregate must accept this
 - "Payment processor confirmed charge" → Order aggregate must record it
 - "Tournament system assigned seating" → Table aggregate must honor it
 
-```python title="illustrative - command vs fact emission"
-# Saga emitting a command (can be rejected)
-yield Command(domain="player", type=DeductChips(amount=100))
+A policy emits **commands** only. The one fact a policy delivers is a refusal fact: a refusal of its command, recorded in the stream of the event that triggered it.
 
-# Saga emitting a fact (cannot be rejected)
-yield Fact(domain="player", type=TurnAssigned(hand_id=hand_id))
+```python title="illustrative - policy emitting a command"
+# Policy emitting a command (can be refused)
+yield Command(domain="player", type=DeductChips(amount=100))
 ```
 
 See **[Commands vs Facts](/features/facts)** for idempotency handling, external system integration, and detailed examples.
@@ -319,14 +317,14 @@ This enables complex orchestration patterns:
 
 | Pattern | Description |
 |---------|-------------|
-| **Saga** | Stateless domain translation (no PM needed) |
+| **Policy** | Stateless domain translation (no PM needed) |
 | **Choreography** | Domains react to events independently |
 | **Orchestration** | PM coordinates sequence, handles failures |
 
 PMs scale the same way as aggregates—each correlation ID is independent. A PM instance can handle any correlation ID; the event store partitions by root.
 
 :::note
-Sagas are stateless translators (one domain → one domain). When you need to correlate events across multiple domains or maintain workflow state, use a process manager. The correlation ID is your aggregate root.
+Policies are stateless translators (one domain → one domain). When you need to correlate events across multiple domains or maintain workflow state, use a process manager. The correlation ID is your aggregate root.
 :::
 
 ---

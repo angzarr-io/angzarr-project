@@ -26,7 +26,7 @@ The Angzarr project uses Gherkin feature files to specify behavior—these are *
 
 Your acceptance testing strategy is your own. Use whatever works for your team—unit tests, integration tests, property-based testing, or yes, Cucumber/Gherkin if that fits your workflow.
 
-The complexity that remains is inherent to distributed systems: synchronous versus asynchronous operations. When should a command wait for projections to update before responding? When should a saga fire-and-forget versus block for completion? These are domain decisions that no framework can make for you. Angzarr provides the mechanisms—synchronous projectors, blocking saga coordination—but choosing when to use them requires understanding your consistency requirements.
+The complexity that remains is inherent to distributed systems: synchronous versus asynchronous operations. When should a command wait for projections to update before responding? When should a policy fire-and-forget versus block for completion? These are domain decisions that no framework can make for you. Angzarr provides the mechanisms—synchronous projectors, blocking policy coordination—but choosing when to use them requires understanding your consistency requirements.
 
 Raw performance for single operations will also be poor compared to direct database writes. The gRPC roundtrip, event history loading, and persistence overhead add latency that a simple INSERT cannot match. The framework pays for itself in throughput under load (burst handling, independent scaling) and in reduced development time—not in single-request latency benchmarks.
 
@@ -40,7 +40,7 @@ Teams adopting CQRS/ES face a consistent set of challenges:
 
 - **Infrastructure gravity**: Event stores, message buses, projection databases, and their failure modes dominate early development cycles. Business logic becomes entangled with persistence concerns.
 - **Schema management**: Events are append-only and permanent. Schema evolution—adding fields, deprecating event types, maintaining backward compatibility across years of stored events—requires discipline that frameworks rarely enforce.
-- **Operational complexity**: Snapshotting, projection rebuilds, idempotency, exactly-once delivery, and saga coordination demand specialized knowledge. Each concern leaks into application code.
+- **Operational complexity**: Snapshotting, projection rebuilds, idempotency, exactly-once delivery, and policy coordination demand specialized knowledge. Each concern leaks into application code.
 - **Language lock-in**: Most CQRS/ES frameworks assume a single-language ecosystem. Organizations with mixed stacks either maintain parallel implementations or force standardization.
 
 The result: CQRS/ES often remains confined to greenfield projects with dedicated teams, despite its suitability for complex domains.
@@ -57,10 +57,10 @@ Angzarr inverts the typical framework relationship. Rather than providing librar
 |------------|---------------|-----------|
 | Commands in `.proto` | gRPC `BusinessLogic` service | Event persistence |
 | Events in `.proto` | gRPC `Projector` services | Optimistic concurrency |
-| Read models in `.proto` | gRPC `Saga` services | Snapshot management |
+| Read models in `.proto` | gRPC `Policy` services | Snapshot management |
 | | | Event upcasting |
 | | | Event distribution |
-| | | Saga coordination |
+| | | Policy coordination |
 | | | Schema evolution rules |
 
 ### What Angzarr Handles (So You Don't)
@@ -85,9 +85,9 @@ Angzarr inverts the typical framework relationship. Rather than providing librar
 
 **Protocol Buffers define the contract.** Commands, events, queries, and read models are declared in `.proto` files. This schema becomes the source of truth—for serialization, validation, documentation, and cross-service compatibility. Protobuf's established rules for backward-compatible evolution apply directly to your event schema.
 
-**gRPC provides the boundary.** Business logic—aggregates, command handlers, event handlers, saga orchestrators—runs as gRPC services in any supported language. The framework communicates exclusively through generated protobuf messages over gRPC. Domain code *may* import Angzarr client libraries to simplify development, but this is not required — the only contract is gRPC + protobuf.
+**gRPC provides the boundary.** Business logic—aggregates, command handlers, event handlers, policy orchestrators—runs as gRPC services in any supported language. The framework communicates exclusively through generated protobuf messages over gRPC. Domain code *may* import Angzarr client libraries to simplify development, but this is not required — the only contract is gRPC + protobuf.
 
-**The framework handles the rest.** Event persistence, command routing, event distribution, snapshot storage, idempotency, and saga state management run within Angzarr's Rust core. Your business logic receives commands with full event history and emits events. Side effects stay on one side of the gRPC boundary.
+**The framework handles the rest.** Event persistence, command routing, event distribution, snapshot storage, idempotency, and policy delivery (the outbox, retries, refusals) run within Angzarr's Rust core. Your business logic receives commands with full event history and emits events. Side effects stay on one side of the gRPC boundary.
 
 ```mermaid
 flowchart TB
@@ -99,19 +99,19 @@ flowchart TB
             BC["Business<br/>Coordinator"]
             PC["Projector<br/>Coordinator"]
             EQ["Event<br/>Query"]
-            SC["Saga<br/>Coordinator"]
+            SC["Policy<br/>Coordinator"]
         end
         BL <-->|gRPC| BC
     end
 
-    subgraph Pod2["Pod: Saga"]
-        subgraph YourCode2["Your Saga"]
-            SAGA["Saga<br/>(Python)"]
+    subgraph Pod2["Pod: Policy"]
+        subgraph YourCode2["Your Policy"]
+            POLICY["Policy<br/>(Python)"]
         end
         subgraph Sidecar2["Angzarr Sidecar (~8MB)"]
             SC2["..."]
         end
-        SAGA <-->|gRPC| SC2
+        POLICY <-->|gRPC| SC2
     end
 
     subgraph Infra["Infrastructure"]
@@ -338,29 +338,24 @@ Synchronous projections enable CQRS patterns where commands must return updated 
 
 ---
 
-## Saga Coordination
+## Policy Coordination
 
-Long-running business processes span multiple aggregates and external systems. Angzarr's saga coordinator manages state and compensation without requiring your saga logic to handle persistence or delivery guarantees.
+Business processes span several domains. A **policy** translates events of its one source domain into commands for its one destination domain; its coordinator stamps each command's identity, delivers it through a transactional outbox, and retries retryable failures, so the policy's own logic handles neither persistence nor delivery.
 
-Sagas receive EventBooks (triggering events from any aggregate), execute business logic, and emit commands to other aggregates:
-
-```protobuf
-message SagaResponse {
-  repeated CommandBook commands = 1;  // Commands to execute on other aggregates
+```protobuf title="abridged from io/angzarr/v1/policy.proto"
+service PolicyService {
+  // Source events in, commands for the destination domain out.
+  rpc Handle(EventBook) returns (PolicyResponse);
+  // A refusal of one of its commands: the translated fact, or none.
+  rpc OnRefused(Refusal) returns (OnRefusedResponse);
 }
 
-service Saga {
-  rpc Handle(EventBook) returns (google.protobuf.Empty);      // Async
-  rpc HandleSync(EventBook) returns (SagaResponse);            // Sync
-}
-
-service SagaCoordinator {
-  rpc Handle(EventBook) returns (google.protobuf.Empty);      // Route to sagas
-  rpc HandleSync(EventBook) returns (SagaResponse);            // Sync pipeline
+message PolicyResponse {
+  repeated PolicyReaction reactions = 2;  // Per triggering page, the commands returned
 }
 ```
 
-When synchronous, the `SagaResponse` returns commands that the framework executes before returning to the caller—enabling complex orchestrations to complete within a single request-response cycle.
+Policies always run asynchronously, after the source's events are persisted. When a target refuses a policy's command, the target records nothing, and the policy's coordinator delivers one refusal fact to the stream of the triggering event; the source decides what the refusal means. Anything that needs state, or several destinations, is a process manager.
 
 ---
 
@@ -477,7 +472,7 @@ projectors:
     address: localhost:50052
     synchronous: true
 
-sagas:
+policies:
   - name: order-fulfillment
     address: localhost:50053
 ```
@@ -565,28 +560,28 @@ just deploy
 
 ## Observability
 
-Implementing teams get OpenTelemetry instrumentation for free. The sidecar/coordinator layer instruments every pipeline—aggregate command handling, saga orchestration, process manager workflows, and projector event processing—so business logic code requires zero observability boilerplate.
+Implementing teams get OpenTelemetry instrumentation for free. The sidecar/coordinator layer instruments every pipeline—aggregate command handling, policy orchestration, process manager workflows, and projector event processing—so business logic code requires zero observability boilerplate.
 
 ### What You Get Without Writing Any Instrumentation Code
 
-Every command, saga, and projector execution is traced and metered at the coordinator level. The granularity is the `Handle` boundary—the exact point where the framework calls into your business logic:
+Every command, policy, and projector execution is traced and metered at the coordinator level. The granularity is the `Handle` boundary—the exact point where the framework calls into your business logic:
 
 | Pipeline | Traced Spans | Metrics |
 |----------|-------------|---------|
 | Aggregate | `aggregate.handle`, `aggregate.execute`, `aggregate.load_events`, `aggregate.persist`, `aggregate.post_persist`, `aggregate.sync_projectors` | `angzarr.command.duration`, `angzarr.command.total` |
-| Saga | `saga.orchestrate`, `saga.retry`, `orchestration.fetch`, `orchestration.execute` | `angzarr.saga.duration`, `angzarr.saga.retry.total`, `angzarr.saga.compensation.total` |
+| Policy | `policy.orchestrate`, `policy.retry`, `orchestration.fetch`, `orchestration.execute` | `angzarr.policy.duration`, `angzarr.policy.retry.total` |
 | Process Manager | `pm.orchestrate`, `orchestration.fetch`, `orchestration.execute` | `angzarr.pm.duration` |
 | Projector | `projector.handle` | `angzarr.projector.duration` |
 | Event Bus | — | `angzarr.bus.publish.duration`, `angzarr.bus.publish.total` |
 | Storage | — | `angzarr.storage.duration_seconds`, `angzarr.events.stored_total`, `angzarr.events.loaded_total`, `angzarr.snapshots.stored_total`, `angzarr.positions.updated_total` |
 
-Every span carries the `correlation_id` as a field, so distributed traces follow a command through aggregate execution, saga fan-out, and downstream projections without any manual context propagation.
+Every span carries the `correlation_id` as a field, so distributed traces follow a command through aggregate execution, policy fan-out, and downstream projections without any manual context propagation.
 
 ### How It Works
 
 Angzarr layers observability at three levels:
 
-**1. Structured tracing (always on).** Every orchestration function is annotated with `#[tracing::instrument]`. Spans are named by pipeline phase (`aggregate.execute`, `saga.orchestrate`, etc.) and carry domain, root, and correlation_id as structured fields. These work with any `tracing` subscriber—console output, JSON, or OpenTelemetry.
+**1. Structured tracing (always on).** Every orchestration function is annotated with `#[tracing::instrument]`. Spans are named by pipeline phase (`aggregate.execute`, `policy.orchestrate`, etc.) and carry domain, root, and correlation_id as structured fields. These work with any `tracing` subscriber—console output, JSON, or OpenTelemetry.
 
 **2. Storage metrics (always on).** An aspect-oriented `Instrumented` wrapper decorates all storage implementations (event store, snapshot store, position store) with counters and latency histograms. This is applied at service composition time, not inside implementations—storage code stays clean:
 
@@ -597,8 +592,8 @@ let store = Instrumented::new(store, "sqlite");
 ```
 
 **3. OpenTelemetry export (opt-in via `otel` feature).** When built with `--features otel`, the sidecar exports all three telemetry signals via OTLP:
-- **Traces** — Every pipeline span (`aggregate.execute`, `saga.orchestrate`, etc.) is exported as OTLP spans. W3C TraceContext propagation from inbound gRPC headers means traces from your client through the sidecar to your business logic appear as a single distributed trace.
-- **Metrics** — Command duration, saga duration, bus publish latency, storage operation counters, and all other instruments are exported as OTLP metrics with domain and outcome labels.
+- **Traces** — Every pipeline span (`aggregate.execute`, `policy.orchestrate`, etc.) is exported as OTLP spans. W3C TraceContext propagation from inbound gRPC headers means traces from your client through the sidecar to your business logic appear as a single distributed trace.
+- **Metrics** — Command duration, policy duration, bus publish latency, storage operation counters, and all other instruments are exported as OTLP metrics with domain and outcome labels.
 - **Logs** — Structured tracing events are exported as OTLP logs, correlated with traces via trace/span IDs.
 
 All three signals flow through a single OTLP endpoint (gRPC or HTTP), making the observability backend a deployment choice rather than a code change.
@@ -623,7 +618,7 @@ On Kubernetes, the included observability stack deploys alongside your applicati
 - **Tempo** — Distributed trace storage
 - **Prometheus** — Metrics storage (via Collector remote write)
 - **Loki** — Log aggregation
-- **Grafana** — Pre-configured dashboards for command pipeline, saga execution, and projector throughput
+- **Grafana** — Pre-configured dashboards for command pipeline, policy execution, and projector throughput
 
 Grafana is available immediately after deployment with no additional setup. Dashboards visualize the full command lifecycle across domains.
 
@@ -648,14 +643,14 @@ The `correlation_id` on `Cover` is the thread connecting all operations in a wor
 flowchart LR
     subgraph Workflow["correlation_id = abc-123"]
         A["CreateOrder"] --> B["aggregate.execute"]
-        B --> C["saga.orchestrate"]
+        B --> C["policy.orchestrate"]
         C --> D["orchestration.execute"]
         D --> E["aggregate.execute<br/>(downstream)"]
         B --> F["projector.handle"]
     end
 ```
 
-In a log aggregation system, filtering by `correlation_id=abc-123` shows the entire workflow across all aggregates, sagas, and projectors—without the implementing team adding a single log line.
+In a log aggregation system, filtering by `correlation_id=abc-123` shows the entire workflow across all aggregates, policies, and projectors—without the implementing team adding a single log line.
 
 ---
 
@@ -713,7 +708,7 @@ For detailed comparison against AWS Lambda + Step Functions, GCP Cloud Run, Axon
 
 - **[Getting Started](/getting-started)** — Prerequisites, installation, and your first domain
 - **[Architecture](/architecture)** — Core concepts and data flow
-- **[Components](/components)** — Aggregates, sagas, projectors, process managers
+- **[Components](/components)** — Aggregates, policies, projectors, process managers
 
 ---
 

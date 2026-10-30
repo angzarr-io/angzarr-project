@@ -5,7 +5,7 @@ title: CommandBook
 
 Exactly one command, addressed to one aggregate stream, with how it is to be
 handled. A CommandBook is the request itself: the coordinator's `Handle`,
-`HandleAsync` and `HandleSync` take it directly. Sagas and process managers
+`HandleAsync` and `HandleSync` take it directly. Policies and process managers
 emit CommandBooks too, one per command.
 
 ## Structure

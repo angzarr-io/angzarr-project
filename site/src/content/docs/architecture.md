@@ -47,7 +47,7 @@ Commands use a similar envelope, but a **CommandBook** carries exactly one comma
 |-------------|--------|---------|
 | **CommandHandlerCoordinator** | Commands → Aggregates | Command handling, event persistence |
 | **ProjectorCoordinator** | Events → Projectors | Read model updates, side effects |
-| **SagaCoordinator** | Events → Sagas | Cross-domain command orchestration |
+| **PolicyCoordinator** | Events → Policies | Cross-domain command orchestration |
 | **ProcessManagerCoordinator** | Events → PMs | Stateful multi-domain workflows |
 
 ```mermaid
@@ -57,9 +57,9 @@ flowchart TB
     Agg[Your Aggregate]
     ES[(Event Store)]
     BUS[Message Bus]
-    SC[SagaCoordinator]
+    SC[PolicyCoordinator]
     PC[ProjectorCoordinator]
-    Saga[Your Saga]
+    Policy[Your Policy]
     Proj[Your Projector]
     RM[(Read Model<br/>Postgres, Redis)]
 
@@ -69,7 +69,7 @@ flowchart TB
     CHC -->|AMQP/Kafka| BUS
     BUS -->|AMQP/Kafka| SC
     BUS -->|AMQP/Kafka| PC
-    SC <-->|gRPC| Saga
+    SC <-->|gRPC| Policy
     SC -->|gRPC| CHC
     PC <-->|gRPC| Proj
     Proj -->|SQL| RM
@@ -92,10 +92,10 @@ flowchart TB
         AggCode <-->|gRPC| AggSidecar
     end
 
-    subgraph SagaPod[Saga Pod]
-        Saga[Saga Logic]
-        SagaSidecar[⍼ Saga Coordinator]
-        Saga <-->|gRPC| SagaSidecar
+    subgraph PolicyPod[Policy Pod]
+        Policy[Policy Logic]
+        PolicySidecar[⍼ Policy Coordinator]
+        Policy <-->|gRPC| PolicySidecar
     end
 
     subgraph PrjPod[Projector Pod]
@@ -106,9 +106,9 @@ flowchart TB
 
     AggSidecar -->|SQL| ES[(Event Store)]
     AggSidecar -->|AMQP/Kafka| MB[Message Bus]
-    MB -->|AMQP/Kafka| SagaSidecar
+    MB -->|AMQP/Kafka| PolicySidecar
     MB -->|AMQP/Kafka| PrjSidecar
-    SagaSidecar -->|gRPC| AggSidecar
+    PolicySidecar -->|gRPC| AggSidecar
     PrjSidecar -.->|gRPC| AggSidecar
     Prj -->|SQL| PrjDB[(Projection DB)]
 ```
@@ -166,7 +166,7 @@ Events are correlated via `correlation_id` on `Cover`, allowing clients to track
 
 ### Message Bus Backends
 
-⍼ Angzarr uses [publish/subscribe messaging](https://eda-visuals.boyney.io/visuals/publish-subscribe) to distribute events to sagas and projectors.
+⍼ Angzarr uses [publish/subscribe messaging](https://eda-visuals.boyney.io/visuals/publish-subscribe) to distribute events to policies and projectors.
 
 | Backend | Status | Use Case |
 |---------|--------|----------|
@@ -200,16 +200,16 @@ bus:
 
 ## Observability
 
-Every command, saga, and projector execution is traced and metered at the coordinator level—your code requires zero observability boilerplate.
+Every command, policy, and projector execution is traced and metered at the coordinator level—your code requires zero observability boilerplate.
 
 | Pipeline | Traced Spans | Metrics |
 |----------|-------------|---------|
 | Aggregate | `aggregate.handle`, `aggregate.execute` | `angzarr.command.duration` |
-| Saga | `saga.orchestrate`, `orchestration.execute` | `angzarr.saga.duration` |
+| Policy | `policy.orchestrate`, `orchestration.execute` | `angzarr.policy.duration` |
 | Process Manager | `pm.orchestrate` | `angzarr.pm.duration` |
 | Projector | `projector.handle` | `angzarr.projector.duration` |
 
-Every span carries the `correlation_id`, so distributed traces follow commands through aggregate execution, saga fan-out, and downstream projections without manual context propagation.
+Every span carries the `correlation_id`, so distributed traces follow commands through aggregate execution, policy fan-out, and downstream projections without manual context propagation.
 
 When built with `--features otel`, the sidecar exports traces, metrics, and logs via OTLP to any compatible backend (Grafana, Datadog, AWS X-Ray, GCP Cloud Trace).
 
@@ -227,6 +227,6 @@ For visual explanations of event-driven architecture concepts (events, messaging
 
 ## Next Steps
 
-- **[Components](/components/aggregate)** — Aggregate, saga, projector, process manager deep dives
+- **[Components](/components/aggregate)** — Aggregate, policy, projector, process manager deep dives
 - **[Getting Started](./getting-started)** — Set up your first aggregate
 - **[Patterns](/reference/patterns)** — Advanced usage patterns

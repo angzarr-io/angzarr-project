@@ -13,15 +13,15 @@ Events use **past tense** naming - they describe what happened:
 - `PlayerRegistered`
 - `FundsDeposited`
 
-## Event vs Command vs Notification
+## Event vs Command vs Fact
 
-| Aspect | Event | Command | Notification |
-|--------|-------|---------|--------------|
-| Tense | Past | Imperative | Present |
-| Persisted | Yes | No (transient) | No (durable delivery, never in the stream) |
-| Sequenced | Yes | Yes (expected) | No |
-| Rejectable | No | Yes | N/A |
-| Example | `OrderCreated` | `CreateOrder` | `RejectionNotification` |
+| Aspect | Event | Command | Fact |
+|--------|-------|---------|------|
+| Tense | Past | Imperative | Past |
+| Persisted | Yes | No (transient) | No: the events its handler records are |
+| Sequenced | Yes | Optional expected sequence | Never: the head is stamped |
+| Rejectable | No | Yes | No |
+| Example | `OrderCreated` | `CreateOrder` | `PaymentReceived` (from Stripe) |
 
 ## In Angzarr
 
@@ -36,9 +36,9 @@ Events are stored in the [Event Store](/glossary/event-store) and are the source
 
 Events can originate from:
 - **Internal decisions**: Aggregate processed a command and decided to emit events
-- **External facts**: Saga or external system reporting something that already happened
+- **External facts**: An external system reporting something that already happened (or a policy's refusal fact)
 
-External facts use a [FactSequence](/components/commands-vs-facts) marker instead of a sequence number. The idempotency key (`Cover.external_id`) propagates through the entire system, enabling:
-- Deduplication at every coordinator
-- Full traceability from external system to all downstream effects
-- Consistent handling across sagas, process managers, and projectors
+An external fact is delivered as a command whose body is a `Fact` (see [Commands vs Facts](/components/commands-vs-facts)). Its origin (`CommandPage.fact_origin`) is copied onto every event it produces (`EventMeta.fact`), and its `command_id` is derived from `fact_origin.external_id`, enabling:
+- Deduplication of redeliveries to the same stream
+- Traceability from the external system to the events it caused
+- Ordinary sequence numbers on those events, for every downstream consumer

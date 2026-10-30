@@ -19,6 +19,10 @@ export default defineConfig({
 		'/blog/page/4': '/blog/4',
 		// Docusaurus archive → blog index
 		'/blog/archive': '/blog',
+		// Sagas renamed policies (2026-10-28 ruling)
+		'/components/saga': '/components/policy',
+		'/glossary/saga': '/glossary/policy',
+		'/examples/sagas': '/examples/policies',
 	},
 	markdown: {
 		remarkPlugins: [
@@ -177,7 +181,7 @@ document.addEventListener('astro:after-swap', run);
 					items: [
 						{ label: 'Why Poker', slug: 'examples/why-poker' },
 						{ label: 'Aggregates', slug: 'examples/aggregates' },
-						{ label: 'Sagas', slug: 'examples/sagas' },
+						{ label: 'Policies', slug: 'examples/policies' },
 						{ label: 'Projectors', slug: 'examples/projectors' },
 						{ label: 'Language Notes', slug: 'examples/language-notes' },
 					],

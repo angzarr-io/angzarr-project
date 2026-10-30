@@ -9,7 +9,7 @@ Poker was chosen as the example domain for ⍼ Angzarr because it exercises **ev
 
 Poker has a small vocabulary of event types but generates them as fast as they can be processed. A single hand produces 20+ events in rapid succession: cards dealt, blinds posted, actions taken, community cards revealed, pot awarded. This creates a **challenging scenario** that stress-tests the framework—the kind of rapid-fire event processing that may be sustained in real-world systems during peak load. If ⍼ Angzarr handles poker's pace, it handles production traffic.
 
-A poker application isn't artificially complex—it's exactly as complex as real business software. The patterns that make poker work (fund reservation, saga compensation, state machines, cross-domain coordination) are the same patterns that power airlines, billing systems, and claims processing.
+A poker application isn't artificially complex—it's exactly as complex as real business software. The patterns that make poker work (fund reservation, refusals across domains, state machines, cross-domain coordination) are the same patterns that power airlines, billing systems, and claims processing.
 
 **When you understand how poker works in ⍼ Angzarr, you understand how to build any event-sourced system.**
 
@@ -66,9 +66,9 @@ These domains mirror real business separations:
 
 **Same pattern applies to**: inventory holds, payment authorizations, hotel bookings, ticket reservations.
 
-### 2. Saga Compensation
+### 2. Refusals Across Domains
 
-**Poker**: Player emits `FundsReserved` → saga issues `JoinTable` → table rejects (full) → player must emit `FundsReleased` to restore available balance.
+**Poker**: Player emits `FundsReserved` → policy issues `JoinTable` → table refuses (full) and records nothing → the refusal comes back to the player as a refusal fact → player emits `FundsReleased` to restore available balance.
 
 **Same pattern applies to**: payment→fulfillment rollback, order→inventory release, booking→calendar release.
 
@@ -78,12 +78,12 @@ These domains mirror real business separations:
 
 **Same pattern applies to**: order fulfillment, insurance claims, approval workflows, onboarding flows.
 
-### 4. Cross-Domain Coordination (Sagas)
+### 4. Cross-Domain Coordination (Policies)
 
-**Poker sagas**:
-- `saga-table-hand`: HandStarted → DealCards
-- `saga-hand-player`: PotAwarded → DepositFunds (winner gets chips)
-- `saga-hand-table`: HandComplete → EndHand
+**Poker policies**:
+- `policy-table-hand`: HandStarted → DealCards
+- `policy-hand-player`: PotAwarded → DepositFunds (winner gets chips)
+- `policy-hand-table`: HandComplete → EndHand
 
 **Same pattern applies to**: order→fulfillment, payment→ledger, user→notification.
 
@@ -119,8 +119,7 @@ All six language implementations (Python, Go, Rust, Java, C#, C++) run against t
 examples/features/
 ├── player.feature      # Player aggregate behavior
 ├── table.feature       # Table aggregate behavior
-├── hand.feature        # Hand aggregate behavior
-└── compensation.feature # Cross-domain compensation
+└── hand.feature        # Hand aggregate behavior
 ```
 
 Each language has its own step definitions, but the specifications are shared. This guarantees identical business behavior across all implementations.
@@ -159,9 +158,9 @@ The author is developing a board game with ⍼ Angzarr—but primarily because *
 Every feature file in ⍼ Angzarr's test suite uses poker examples not because poker is special, but because it requires every pattern the framework provides. Understanding the poker domain means understanding:
 
 - How aggregates maintain consistency boundaries
-- How sagas translate between domains
+- How policies translate between domains
 - How process managers coordinate long-running workflows
-- How compensation handles distributed failures
+- How refusals come back to the domain that asked
 - How projectors build read models
 - How snapshots optimize performance
 - How concurrency is managed at scale
@@ -173,5 +172,5 @@ Every feature file in ⍼ Angzarr's test suite uses poker examples not because p
 ## Next Steps
 
 - **[Aggregates](/examples/aggregates)** — Handler examples in all languages
-- **[Sagas](/examples/sagas)** — Cross-domain coordination examples
+- **[Policies](/examples/policies)** — Cross-domain coordination examples
 - **[Testing](/operations/testing)** — Gherkin specifications

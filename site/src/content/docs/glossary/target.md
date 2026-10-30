@@ -34,6 +34,6 @@ ANGZARR_SUBSCRIPTIONS="order:OrderCreated,OrderCompleted;inventory"
 
 | Component | Typical Target |
 |-----------|---------------|
-| Saga | Single domain, specific events |
+| Policy | Single domain, specific events |
 | Process Manager | Multiple domains |
 | Projector | Single domain, all or specific events |

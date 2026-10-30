@@ -57,7 +57,7 @@ SNS provides fan-out to SQS queues:
 flowchart LR
     TP["SNS Topic: angzarr-events-player"] --> PP[SQS: player-projector-queue]
     TP --> OP1[SQS: output-projector-queue]
-    TH["SNS Topic: angzarr-events-hand"] --> HS[SQS: hand-saga-queue]
+    TH["SNS Topic: angzarr-events-hand"] --> HS[SQS: hand-policy-queue]
     TH --> OP2[SQS: output-projector-queue]
 ```
 

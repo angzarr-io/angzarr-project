@@ -4,20 +4,20 @@ title: Process Managers
 import { Tabs, TabItem } from '@astrojs/starlight/components';
 
 
-A **process manager** coordinates multi-domain workflows with state tracking. Unlike stateless sagas, process managers maintain their own event stream keyed by correlation ID, enabling complex orchestration patterns.
+A **process manager** coordinates multi-domain workflows with state tracking. Unlike stateless policies, process managers maintain their own event stream keyed by correlation ID, enabling complex orchestration patterns.
 
-A process manager **is a domain**. Like any domain it takes **commands**, which it may refuse, and **facts** (timeouts, webhooks, refusal facts), which it never refuses. It subscribes to no domain: when it must hear what happened in another domain, a saga from that domain turns the event into a command to it. Everything it emits is its own events: to act on another domain it records an event carrying the data that domain's command needs, and a saga from the PM's domain builds the command. It is served exactly as an aggregate is, by the same command-handler services.
+A process manager **is a domain**. Like any domain it takes **commands**, which it may refuse, and **facts** (timeouts, webhooks, refusal facts), which it never refuses. It subscribes to no domain: when it must hear what happened in another domain, a policy from that domain turns the event into a command to it. Everything it emits is its own events: to act on another domain it records an event carrying the data that domain's command needs, and a policy from the PM's domain builds the command. It is served exactly as an aggregate is, by the same command-handler services.
 
 ---
 
 ## When to Use Process Managers
 
-| Use Case | Saga | Process Manager |
+| Use Case | Policy | Process Manager |
 |----------|------|-----------------|
 | Single event → single command | ✓ | |
-| Fan-out to multiple domains | ✓ (one saga per destination) | |
+| Fan-out to multiple domains | ✓ (one policy per destination) | |
 | Multi-step workflow with state | | ✓ |
-| Gathers what happened in several domains (as facts, through sagas) | | ✓ |
+| Gathers what happened in several domains (as facts, through policies) | | ✓ |
 | State machine transitions | | ✓ |
 | Timeouts and retries | | ✓ |
 
@@ -38,7 +38,7 @@ Process managers should be **lightweight state machines** coordinating across do
 |---------|----------------|
 | PM has complex validation logic | Logic belongs in domain aggregate |
 | PM state mirrors aggregate state | Redundant—query the aggregate |
-| PM handles single-domain workflow | Use saga or aggregate instead |
+| PM handles single-domain workflow | Use policy or aggregate instead |
 | PM event stream grows large | Too much responsibility—split domains |
 
 **Rule of thumb:** If a PM does more than track phases and record what should happen next, reconsider your architecture. The PM's job is orchestration, not computation.
@@ -47,14 +47,14 @@ Process managers should be **lightweight state machines** coordinating across do
 
 ## Example: Hand Flow PM
 
-The HandFlowPM orchestrates poker hand phases across table and hand domains. Sagas into its domain tell it what happened, as commands; it records each next step as its own event; sagas from its domain turn those events into commands:
+The HandFlowPM orchestrates poker hand phases across table and hand domains. Policies into its domain tell it what happened, as commands; it records each next step as its own event; policies from its domain turn those events into commands:
 
 ```mermaid
 sequenceDiagram
     participant T as Table
-    participant SI as Sagas into hand-flow
+    participant SI as Policies into hand-flow
     participant PM as HandFlowPM
-    participant SO as Sagas from hand-flow
+    participant SO as Policies from hand-flow
     participant H as Hand
 
     T-->>SI: HandStarted
@@ -73,7 +73,7 @@ sequenceDiagram
 ```
 
 :::caution[Example code predates the contract]
-The Python snippets below come from the examples repository, which still shows a PM reacting to other domains' events and returning commands. Under the current contract (decision 14.31) a PM is a domain: sagas send it commands, and it returns only its own events, from which sagas build each command.
+The Python snippets below come from the examples repository, which still shows a PM reacting to other domains' events and returning commands. Under the current contract (decision 14.31) a PM is a domain: policies send it commands, and it returns only its own events, from which policies build each command.
 :::
 
 PMs extend the client library's `ProcessManager` base class; handler methods are registered by decorator / attribute / macro. State lives on the instance.
@@ -109,11 +109,11 @@ Process managers use the **correlation ID** as their aggregate root:
 ```protobuf file=proto/io/angzarr/v1/types.proto region=cover
 ```
 
-A command or fact addressed to a PM names its instance: its cover is the PM's domain with the instance's root. A saga always names its command's root, for a PM as for an aggregate: by convention the event's correlation ID, unchanged, or another root (a uniqueness PM keyed by username, say). Either way the command carries the event's correlation ID unchanged (decision 14.36). All events in a workflow share the same correlation ID, allowing the PM to:
-- Hear, through sagas, what happened in several domains
+A command or fact addressed to a PM names its instance: its cover is the PM's domain with the instance's root. A policy always names its command's root, for a PM as for an aggregate: by convention the event's correlation ID, unchanged, or another root (a uniqueness PM keyed by username, say). Either way the command carries the event's correlation ID unchanged (decision 14.36). All events in a workflow share the same correlation ID, allowing the PM to:
+- Hear, through policies, what happened in several domains
 - Maintain workflow state across its inputs
 - Track progress through the state machine
-- Record the data each next step needs, for a saga to send on
+- Record the data each next step needs, for a policy to send on
 
 ### Which inputs start an instance
 
@@ -125,32 +125,32 @@ A PM declares which of its command and fact types are **starting** inputs (`star
 
 | | What it is | Who sends it |
 |-|-----------|--------------|
-| **Input: a command** | A request the PM may refuse | A saga from another domain (turning that domain's event into a command), or a client |
-| **Input: a fact** | Something that already happened, never refused | A timer or webhook, or a refusal fact from a saga from the PM's domain |
-| **Output: its own events** | What the PM decided, with the data the next step needs | Sagas from the PM's domain turn them into commands |
+| **Input: a command** | A request the PM may refuse | A policy from another domain (turning that domain's event into a command), or a client |
+| **Input: a fact** | Something that already happened, never refused | A timer or webhook, or a refusal fact from a policy from the PM's domain |
+| **Output: its own events** | What the PM decided, with the data the next step needs | Policies from the PM's domain turn them into commands |
 
 ```python title="illustrative"
-# The saga from "hand" to the PM's domain tells the PM, as a command.
-def on_hand_complete(event: HandComplete, ctx: SagaContext):
+# The policy from "hand" to the PM's domain tells the PM, as a command.
+def on_hand_complete(event: HandComplete, ctx: PolicyContext):
     return CommandBook(domain="hand-flow", root=ctx.correlation_id,
                        command=RecordHandComplete(winner_root=event.winner_root,
                                                   pot=event.pot))
 ```
 
-Its only output is its own events. To act on another domain, it records an event that carries the command's data, and the saga for (the PM's domain, that domain) builds the command:
+Its only output is its own events. To act on another domain, it records an event that carries the command's data, and the policy for (the PM's domain, that domain) builds the command:
 
 ```python title="illustrative"
 # The PM records what should happen next, with the data the command needs.
 def handle_hand_complete(cmd: RecordHandComplete, state: WorkflowState):
     return PotAwarded(player_root=cmd.winner_root, amount=cmd.pot)
 
-# The saga from the PM's domain to "player" builds the command.
+# The policy from the PM's domain to "player" builds the command.
 def on_pot_awarded(event: PotAwarded):
     return CommandBook(domain="player", root=event.player_root,
                        command=TransferChips(amount=event.amount))
 ```
 
-The coordinator, not the handler, deduplicates, as for any domain: a redelivered command or fact is found on the PM's stream by its id before the handler runs, and the handler is not called again. A saga's command gets its id from the event it reacts to, so a saga re-run sends the same id.
+The coordinator, not the handler, deduplicates, as for any domain: a redelivered command or fact is found on the PM's stream by its id before the handler runs, and the handler is not called again. A policy's command gets its id from the event it reacts to, so a policy re-run sends the same id.
 
 ---
 
@@ -172,11 +172,11 @@ On restart, the PM rebuilds state by replaying its own events.
 
 ## Replies and Refusals
 
-A PM tracks the replies to the steps it starts. Its event carries the instance's correlation ID, so the saga's command built from it carries that correlation, and so do the target's events. The saga from the target's domain to the PM's domain turns the replies the PM needs into commands to the instance under that correlation.
+A PM tracks the replies to the steps it starts. Its event carries the instance's correlation ID, so the policy's command built from it carries that correlation, and so do the target's events. The policy from the target's domain to the PM's domain turns the replies the PM needs into commands to the instance under that correlation.
 
-A target that **refuses** a saga's command records nothing, and may return a **typed refusal object** of its own domain (e.g. the wallet's `InsufficientFunds { available, requested }`). The command names it in its annotation, as it names its events with `emits`: `refuses: "examples.v1.InsufficientFunds"` on `HoldFunds`, so the generated handler returns its events or an `InsufficientFunds` refusal. The refusal goes back to the saga, which builds one **refusal fact** for the exact stream of its triggering event (domain, root and edition); when that source is the PM, the PM decides the next step from its own state. The fact's id is the refused command's id. Two modes, chosen per saga or per command by the `angzarr` CLI when the code is generated (pass-through is its default; no proto option carries the mode):
+A target that **refuses** a policy's command records nothing, and may return a **typed refusal object** of its own domain (e.g. the wallet's `InsufficientFunds { available, requested }`). The command names it in its annotation, as it names its events with `emits`: `refuses: "examples.v1.InsufficientFunds"` on `HoldFunds`, so the generated handler returns its events or an `InsufficientFunds` refusal. The refusal goes back to the policy, which builds one **refusal fact** for the exact stream of its triggering event (domain, root and edition); when that source is the PM, the PM decides the next step from its own state. The fact's id is the refused command's id. Two modes, chosen per policy or per command by the `angzarr` CLI when the code is generated (pass-through is its default; no proto option carries the mode):
 
-- **Pass-through (default).** The saga's generated code builds the standard `CommandRefused { command, refusal, trigger }`, and nothing else, with the typed refusal object packed in `refusal`. The PM defines a handler for the foreign command's refusal, and its generated dispatch routes to it:
+- **Pass-through (default).** The policy's generated code builds the standard `CommandRefused { command, refusal, trigger }`, and nothing else, with the typed refusal object packed in `refusal`. The PM defines a handler for the foreign command's refusal, and its generated dispatch routes to it:
 
   ```python title="illustrative"
   def on_refused_hold_funds(refusal: CommandRefused, state: BuyInState):
@@ -185,7 +185,7 @@ A target that **refuses** a saga's command records nothing, and may return a **t
                          available=funds.available, requested=funds.requested)
   ```
 
-- **Translate (selected per command in the CLI).** The saga's callback reads the typed refusal object and returns a domestic fact, so the PM never refers to the foreign protos. This is why translate exists: `CommandRefused` carries only the foreign object, so a domain that does not want to unpack it, or import the foreign protos, has the saga unpack it and hand over a domestic fact:
+- **Translate (selected per command in the CLI).** The policy's callback reads the typed refusal object and returns a domestic fact, so the PM never refers to the foreign protos. This is why translate exists: `CommandRefused` carries only the foreign object, so a domain that does not want to unpack it, or import the foreign protos, has the policy unpack it and hand over a domestic fact:
 
   ```python title="illustrative"
   def on_refused_confirm_seat(refusal: Refusal) -> SeatConfirmationRefused:
@@ -194,9 +194,9 @@ A target that **refuses** a saga's command records nothing, and may return a **t
                                      reason=seat.reason)
   ```
 
-Nothing declares which commands a saga sends, so a refusal with no handler at its source is found at run time: it is dead-lettered and alerted.
+Nothing declares which commands a policy sends, so a refusal with no handler at its source is found at run time: it is dead-lettered and alerted.
 
-The refusal fact is unrefusable, so compensation cannot loop. There is no notification or compensation channel. A hard failure of the saga's command (anything but a business rejection) is retried when retryable and otherwise dead-lettered, as for any saga command.
+The refusal fact is unrefusable, so a refusal cannot loop. There is no separate notification channel: the refusal is an ordinary fact in the PM's own stream. A hard failure of the policy's command (anything but a business rejection) is retried when retryable and otherwise dead-lettered, as for any policy command.
 
 ---
 
@@ -210,9 +210,9 @@ See [Roadmap](../roadmap#process-manager-timeouts) for details.
 
 ---
 
-## PM vs Saga
+## PM vs Policy
 
-| Aspect | Saga | Process Manager |
+| Aspect | Policy | Process Manager |
 |--------|------|-----------------|
 | **State** | Stateless | Stateful (own event stream) |
 | **Identity** | None | correlation_id |
@@ -223,15 +223,15 @@ See [Roadmap](../roadmap#process-manager-timeouts) for details.
 | **Timeouts** | No | Planned |
 | **Complexity** | Low | Higher |
 
-A component declares three separate domain roles in `ComponentOptions`: `domain` is the stream it owns, `input_domain` / `(event).domain` are the domains it subscribes to, and `output_domain` is the one domain a saga sends to. A process manager declares only `domain`: it subscribes to nothing and sends nothing but its own events.
+A component declares three separate domain roles in `ComponentOptions`: `domain` is the stream it owns, `input_domain` / `(event).domain` are the domains it subscribes to, and `output_domain` is the one domain a policy sends to. A process manager declares only `domain`: it subscribes to nothing and sends nothing but its own events.
 
-**Rule of thumb**: Start with sagas. Upgrade to PM when you need state tracking across steps or what happened in several domains.
+**Rule of thumb**: Start with policies. Upgrade to PM when you need state tracking across steps or what happened in several domains.
 
 ---
 
 ## Next Steps
 
-- **[Sagas](/components/saga)** — Simpler stateless coordination
+- **[Policies](/components/policy)** — Simpler stateless coordination
 - **[Commands vs Facts](/features/facts)** — Commands, facts, and why a PM records both as facts
 - **[Why Poker](/examples/why-poker#5-process-manager-orchestration)** — PM patterns in poker
 - **[Testing](/operations/testing)** — Testing PMs with Gherkin

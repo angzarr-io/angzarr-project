@@ -12,7 +12,7 @@ flowchart LR
     subgraph Sidecars[Angzarr Sidecars]
         Coord[Coordinator]
         Proj[Projector]
-        Saga[Saga]
+        Policy[Policy]
     end
     subgraph Collector[OTel Collector]
         OTLP[OTLP Receiver]
@@ -79,9 +79,8 @@ export OTEL_RESOURCE_ATTRIBUTES=deployment.environment=prod,service.version=1.0.
 
 | Metric | Type | Labels | Description |
 |--------|------|--------|-------------|
-| `angzarr.saga.duration` | Histogram | name | Saga execution time |
-| `angzarr.saga.retry.total` | Counter | name | Saga retry attempts |
-| `angzarr.saga.compensation.total` | Counter | name | Compensations triggered |
+| `angzarr.policy.duration` | Histogram | name | Policy execution time |
+| `angzarr.policy.retry.total` | Counter | name | Policy retry attempts |
 | `angzarr.pm.duration` | Histogram | name | Process manager execution time |
 | `angzarr.projector.duration` | Histogram | name | Projector handling time |
 
@@ -92,7 +91,7 @@ export OTEL_RESOURCE_ATTRIBUTES=deployment.environment=prod,service.version=1.0.
 | `domain` | Aggregate domain (e.g., `player`, `table`) |
 | `outcome` | `success`, `rejected`, `error` |
 | `bus_type` | `amqp`, `kafka`, `channel`, `ipc` |
-| `component` | `aggregate`, `saga`, `projector`, `process_manager` |
+| `component` | `aggregate`, `policy`, `projector`, `process_manager` |
 | `name` | Component instance name |
 
 ---
@@ -102,8 +101,8 @@ export OTEL_RESOURCE_ATTRIBUTES=deployment.environment=prod,service.version=1.0.
 Angzarr propagates W3C TraceContext headers across gRPC boundaries, enabling distributed tracing through:
 
 - Client → Coordinator → Business Logic
-- Event Bus → Projector/Saga → Business Logic
-- Saga → Target Aggregate
+- Event Bus → Projector/Policy → Business Logic
+- Policy → Target Aggregate
 
 Each span includes:
 - `domain` attribute
@@ -151,7 +150,7 @@ Pre-built dashboards are deployed automatically:
 
 - **Command Pipeline** — Throughput, latency percentiles, error rates
 - **Event Bus** — Publish throughput, latency distribution
-- **Orchestration** — Saga execution, retry rates, compensations
+- **Orchestration** — Policy execution, retry rates
 
 ---
 
@@ -169,13 +168,13 @@ groups:
         annotations:
           summary: "High command latency on {{ $labels.domain }}"
 
-      - alert: SagaCompensationSpike
-        expr: rate(angzarr_saga_compensation_total[5m]) > 0.1
+      - alert: PolicyRetrySpike
+        expr: rate(angzarr_policy_retry_total[5m]) > 0.1
         for: 2m
         labels:
           severity: critical
         annotations:
-          summary: "Saga compensations increasing"
+          summary: "Policy retries increasing"
 ```
 
 ---

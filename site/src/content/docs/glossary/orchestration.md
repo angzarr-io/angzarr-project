@@ -7,11 +7,11 @@ Two fundamental patterns for coordinating distributed workflows.
 
 ## Orchestration
 
-A central coordinator (saga/PM) explicitly controls the workflow:
+A central coordinator (a process manager) explicitly controls the workflow:
 
 ```mermaid
 flowchart LR
-    O["Orchestrator<br/>(Saga)"] --> A[Aggregate A]
+    O["Orchestrator<br/>(Process Manager)"] --> A[Aggregate A]
     O --> B[Aggregate B]
     O --> C[Aggregate C]
 ```
@@ -22,7 +22,7 @@ flowchart LR
 - Easier to understand/debug
 - Single point of failure
 
-**In Angzarr:** [Sagas](/glossary/saga) and [Process Managers](/glossary/process-manager) implement orchestration.
+**In Angzarr:** [Process Managers](/glossary/process-manager) implement orchestration: a PM records each next step as its own event, and [policies](/glossary/policy) from its domain turn those events into commands.
 
 ## Choreography
 
@@ -41,14 +41,14 @@ flowchart LR
 - Harder to trace workflows
 - More resilient
 
-**In Angzarr:** Multiple sagas can create choreographed behavior by each reacting to different events.
+**In Angzarr:** Multiple policies can create choreographed behavior by each reacting to different events.
 
 ## When to Use Each
 
 | Scenario | Pattern |
 |----------|---------|
 | Complex multi-step workflow | Orchestration (PM) |
-| Simple domain translation | Orchestration (Saga) |
+| Simple domain translation | Choreography (Policy) |
 | Independent reactions | Choreography |
 | Need central monitoring | Orchestration |
 | Maximum decoupling | Choreography |
@@ -56,6 +56,6 @@ flowchart LR
 ## Hybrid Approach
 
 Angzarr supports combining both:
-- Sagas for explicit domain translation
-- Multiple sagas reacting to same events (choreography)
+- Policies for explicit domain translation
+- Multiple policies reacting to same events (choreography)
 - Process managers for complex orchestration

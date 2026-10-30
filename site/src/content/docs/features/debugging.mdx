@@ -169,24 +169,24 @@ No database resets. No re-seeding. No cleanup.
 
 ---
 
-## Debugging Sagas
+## Debugging Policies
 
-Same pattern works for saga issues. Fetch events from the source domain, replay through your saga logic:
+Same pattern works for policy issues. Fetch events from the source domain, replay through your policy logic:
 
-```python title="illustrative - saga debugging"
-# Fetch events that triggered the saga
+```python title="illustrative - policy debugging"
+# Fetch events that triggered the policy
 source_events = query_client.get_event_book(source_query)
 
-# Replay through saga: a saga sees only its triggering events
-request = SpeculateSagaRequest(
-    request=SagaHandleRequest(source=source_events),
+# Replay through policy: a policy sees only its triggering events
+request = SpeculatePolicyRequest(
+    request=PolicyHandleRequest(source=source_events),
 )
 
-# Debug your saga logic
-response = client.saga(request)
+# Debug your policy logic
+response = client.policy(request)
 
 for cmd in response.commands:
-    print(f"Saga would emit: {cmd.cover.domain}/{cmd}")
+    print(f"Policy would emit: {cmd.cover.domain}/{cmd}")
 ```
 
 ---
@@ -235,17 +235,17 @@ player_result = speculative_client.aggregate(
     )
 )
 
-# 4. Replay saga translation
-saga_result = speculative_client.saga(
-    SpeculateSagaRequest(
-        request=SagaHandleRequest(source=player_result.events),  # FundsReserved
+# 4. Replay policy translation
+policy_result = speculative_client.policy(
+    SpeculatePolicyRequest(
+        request=PolicyHandleRequest(source=player_result.events),  # FundsReserved
     )
 )
 
-# 5. Replay Table command (from saga)
+# 5. Replay Table command (from policy)
 table_result = speculative_client.aggregate(
     SpeculateAggregateRequest(
-        command=saga_result.commands[0],
+        command=policy_result.commands[0],
         events=table_events.pages,
     )
 )

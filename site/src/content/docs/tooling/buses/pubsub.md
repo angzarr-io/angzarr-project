@@ -55,7 +55,7 @@ export GOOGLE_APPLICATION_CREDENTIALS="/path/to/service-account.json"
 flowchart LR
     TP["Topic: angzarr-events-player"] --> PP[Subscription: player-projector]
     TP --> OP1[Subscription: output-projector]
-    TH["Topic: angzarr-events-hand"] --> HS[Subscription: hand-saga]
+    TH["Topic: angzarr-events-hand"] --> HS[Subscription: hand-policy]
     TH --> OP2[Subscription: output-projector]
 ```
 
