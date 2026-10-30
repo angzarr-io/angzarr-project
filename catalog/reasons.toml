@@ -171,7 +171,12 @@ owner = "coordinator"
 status = "READINESS"
 args = ["component", "component_kind"]
 
-[keys.POLICY_DOMAINS_INVALID]
+[keys.POLICY_INPUT_COUNT]
+owner = "coordinator"
+status = "READINESS"
+args = ["component", "input_count"]
+
+[keys.POLICY_NO_OUTPUT_DOMAIN]
 owner = "coordinator"
 status = "READINESS"
 args = ["component"]

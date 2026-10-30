@@ -78,8 +78,8 @@ Feature: Component discovery - the coordinator asks the business process what it
       | is an AGGREGATE with no state                               | MISSING_STATE_TYPE          |
       | is a PROJECTOR with a state                                 | STATE_ON_STATELESS_KIND     |
       | is an AGGREGATE listing starting types                      | STARTING_TYPES_ON_NON_PM    |
-      | is a POLICY with no output domain                           | POLICY_DOMAINS_INVALID      |
-      | is a POLICY with two input domains                          | POLICY_DOMAINS_INVALID      |
+      | is a POLICY with no output domain                           | POLICY_NO_OUTPUT_DOMAIN     |
+      | is a POLICY with two input domains                          | POLICY_INPUT_COUNT          |
       | is a PROCESS_MANAGER with an output domain                  | OUTPUT_DOMAIN_ON_NON_POLICY |
 
   @discovery

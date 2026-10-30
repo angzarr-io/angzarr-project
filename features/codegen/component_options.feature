@@ -105,7 +105,7 @@ Feature: Component declarations - lint warnings and errors
     And its (command) entry for "fulfillment.StartFulfillment" sets starts
     And its (command) entry for "fulfillment.RecordStockReserved" does not
     When the component's descriptor is generated
-    Then the descriptor lists starting type "/fulfillment.StartFulfillment"
+    Then the descriptor lists starting type "fulfillment.StartFulfillment"
     And the descriptor lists no input domains
 
   @C-0611

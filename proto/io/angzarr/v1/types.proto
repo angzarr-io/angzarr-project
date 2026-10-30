@@ -668,7 +668,7 @@ message FactOrigin {
 // cause is HANDLER_PANICKED), and what escaped stays in the handler's log.
 // A handler that fails with the language's unclassified error has no cause.
 // In a language with only exceptions (Python), the client library exports a
-// named unclassified exception for that: raising it is a bug with no
+// named unclassified exception for that (angzarr_client.UnclassifiedError): raising it is a bug with no
 // cause, and any other exception is a panic, cause HANDLER_PANICKED
 // (decision 14.42; C-0669).
 //
@@ -1543,9 +1543,9 @@ enum ComponentKind {
 // starting_types on a kind other than PROCESS_MANAGER
 // (STARTING_TYPES_ON_NON_PM); no state on an AGGREGATE or PROCESS_MANAGER
 // (MISSING_STATE_TYPE), or a state on a POLICY or PROJECTOR
-// (STATE_ON_STATELESS_KIND); for a POLICY, other than exactly one input or
-// no output_domain (POLICY_DOMAINS_INVALID); an output_domain on any other
-// kind (OUTPUT_DOMAIN_ON_NON_POLICY).
+// (STATE_ON_STATELESS_KIND); for a POLICY, other than exactly one input
+// (POLICY_INPUT_COUNT) or no output_domain (POLICY_NO_OUTPUT_DOMAIN); an
+// output_domain on any other kind (OUTPUT_DOMAIN_ON_NON_POLICY).
 message ComponentDescriptor {
   string name = 1;
   ComponentKind kind = 5;

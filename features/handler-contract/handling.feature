@@ -217,7 +217,8 @@ Feature: Handling a delivered command - versions, unknown types and conflict rep
   @C-0669
   Scenario Outline: A handler bug is answered with a code, never the text of what escaped
     # Decision 14.42: in a language with only exceptions (Python), the
-    # client library exports a named unclassified exception; raising it is
+    # client library exports a named unclassified exception
+    # (angzarr_client.UnclassifiedError); raising it is
     # "an unclassified error" below, and any other exception is "panics".
     Given business code for AddItem <fails>
     When AddItem "apple" is handled over no prior events
