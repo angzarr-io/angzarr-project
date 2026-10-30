@@ -2,9 +2,10 @@
 """Reason-key catalog gate (decisions 14.37 and 14.42).
 
 Checks catalog/reasons.toml: every key is SCREAMING_SNAKE, its owner is
-`router` or `coordinator`, its status a gRPC status name or READINESS, its
-args snake_case names; no key is both active and retired; and no retired key
-is named in the given directories' .feature and .proto files.
+`router`, `host` or `coordinator`, its status a gRPC status name or
+READINESS, its args snake_case names; no key is both active and retired;
+and no retired key is named in the given directories' .feature and .proto
+files.
 
 Usage: check_reasons.py CATALOG DIR [DIR ...]
 Exits 0 when all hold, 1 otherwise (one line per problem).
@@ -19,7 +20,7 @@ from pathlib import Path
 
 KEY_RE = re.compile(r"^[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)*$")
 ARG_RE = re.compile(r"^[a-z][a-z0-9_]*$")
-OWNERS = {"router", "coordinator"}
+OWNERS = {"router", "host", "coordinator"}
 STATUSES = {
     "READINESS", "CANCELLED", "UNKNOWN", "INVALID_ARGUMENT", "DEADLINE_EXCEEDED",
     "NOT_FOUND", "ALREADY_EXISTS", "PERMISSION_DENIED", "RESOURCE_EXHAUSTED",

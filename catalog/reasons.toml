@@ -1,13 +1,14 @@
 # The framework's reason-key catalog (decisions 14.37 and 14.42).
 #
 # One entry per key: the component that answers it (`router`: the client
-# library's router, in every language; `coordinator`: core's coordinator
-# and the angzarr-embedded kernel), the gRPC status it travels with, and
-# the names of its args (the ErrorInfo metadata keys). A key that never
-# travels as a status but is a readiness refusal (logged and alerted, see
-# component.proto) has `status = "READINESS"`. `cause` args flatten a
-# wrapped key and its args as `cause` and `cause.<arg>` (types.proto, the
-# diagnostic region).
+# library's router, in every language; `host`: the client library's
+# component host, in every language (parity/client/hosting.feature);
+# `coordinator`: core's coordinator and the angzarr-embedded kernel), the
+# gRPC status it travels with, and the names of its args (the ErrorInfo
+# metadata keys). A key that never travels as a status but is a readiness
+# refusal (logged and alerted, see component.proto) has `status =
+# "READINESS"`. `cause` args flatten a wrapped key and its args as `cause`
+# and `cause.<arg>` (types.proto, the diagnostic region).
 #
 # Each language's constants are generated from this file; nothing else
 # defines a framework key. Which class a status is (decision 14.37's four
@@ -88,6 +89,13 @@ args = []
 owner = "router"
 status = "INTERNAL"
 args = ["component", "component_kind"]
+
+# --- answered by the component host ----------------------------------------
+
+[keys.UPCASTER_WITH_COMPONENT]
+owner = "host"        # it refuses to start: an upcaster is its own sidecar (14.39)
+status = "INTERNAL"
+args = ["component"]
 
 # --- answered by the coordinator --------------------------------------------
 
