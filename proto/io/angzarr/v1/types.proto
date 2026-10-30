@@ -672,12 +672,13 @@ message FactOrigin {
 // cause, and any other exception is a panic, cause HANDLER_PANICKED
 // (decision 14.42; C-0669).
 //
-// The reason-key catalog. Every framework key, the component that answers
-// it (the router or the coordinator), the gRPC status it travels with and
-// its arg names are listed once, in angzarr-project's catalog/reasons.toml;
-// each language's constants are generated from it (decision 14.42). Which
-// class a status is (decision 14.37's four classes) is the coordinator's to
-// decide, never the router's. A catalog keys a typed refusal by
+// The framework's reason keys. Every framework key, the component that
+// answers it (the router, the component host or the coordinator), the gRPC
+// status it travels with and its arg names are listed once, as the enums of
+// reasons.proto (RouterReason, HostReason, CoordinatorReason; decision
+// 14.44); a key travels as its value's bare name. Which class a status is
+// (decision 14.37's four classes) is the coordinator's to decide, never
+// the router's. A Fluent catalog keys a typed refusal by
 // its fully-qualified type name with each "." replaced by "-" (a Fluent id
 // has no dots).
 //

@@ -277,7 +277,7 @@ event onwards, every removal reserves its number and name (see
     checks (from `PolicyResponse.reactions`), refusal-fact building and
     addressing, envelope guards and conflict judgement (from
     `CommandHandlerResponse.conflict`) are the coordinator's; the reason
-    keys live in `catalog/reasons.toml`; router-ffi is retired and Python
+    keys live in `reasons.proto`'s enums (14.44); router-ffi is retired and Python
     gets a native router, both held to the handler-contract tier.
 
 ### Worked example: hatpick's `ListState`

@@ -117,11 +117,24 @@ check-gherkin *dirs="features parity":
         "pip install --quiet --disable-pip-version-check --root-user-action=ignore gherkin-official=={{GHERKIN_VERSION}} && python scripts/check_gherkin_parse.py {{dirs}}"
 
 # Required contract gates (proto-breaking is optional and run by hand)
-contracts: proto-lint test-check-feature-ids check-feature-ids check-gherkin check-rules check-reasons
+contracts: proto-lint test-check-feature-ids check-feature-ids check-gherkin check-rules check-retired-reasons
 
-# The reason-key catalog's shape, and no retired key named in features or protos
-check-reasons:
-    python3 scripts/check_reasons.py catalog/reasons.toml features proto
+# No retired reason key is named in the features, the protos or the site
+# docs (the generated Proto API page aside). The retired keys are the names reasons.proto reserves (decision
+# 14.44); protoc refuses them as values, this catches them in prose.
+check-retired-reasons:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    keys=$(grep -E '^[[:space:]]*reserved[[:space:]]+"' proto/io/angzarr/v1/reasons.proto \
+        | grep -oE '"[A-Z0-9_]+"' | tr -d '"' | sort -u | paste -sd'|')
+    [ -n "$keys" ] || { echo "FAIL check-retired-reasons: reasons.proto reserves no name" >&2; exit 1; }
+    rc=0
+    grep -rnwE "($keys)" features proto site/src/content/docs --exclude=reasons.proto --exclude=proto-api.md || rc=$?
+    case "$rc" in
+        0) echo "FAIL check-retired-reasons: the lines above name a retired reason key" >&2; exit 1 ;;
+        1) echo "ok   check-retired-reasons ($(tr '|' '\n' <<< "$keys" | wc -l) retired keys, none named)" ;;
+        *) exit "$rc" ;;
+    esac
 
 # Unit tests for the scenario-ID checker
 test-check-feature-ids:
