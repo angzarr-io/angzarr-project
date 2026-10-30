@@ -2633,6 +2633,8 @@ says.** Owner rulings, 2026-10-28. Amends 14.30, 14.31 and 14.32.
 
 > **Amended by 14.42 (pass 14):** the reason keys, their owner, status and arg names live in `catalog/reasons.toml` and are generated per language. Classification by status is the coordinator's. Many router keys retire or move to the coordinator (14.42 lists them). A language with only exceptions marks a bug with no cause by a named unclassified error.
 
+> **Amended by 14.44 (2026-10-30):** the reason keys are the enums of `reasons.proto` (`RouterReason`, `HostReason`, `CoordinatorReason`), not a TOML catalog; a key travels as its value's bare name, and every enum reserves the retired keys. Nothing is generated per language from a catalog.
+
 **14.37 Errors carry a key and an argument map, never rendered English;
 the input's acceptance time is delivered.** Owner rulings, 2026-10-28.
 Amends 5.11, 14.2, 14.8 and 14.31. In the owner's words: "we should *not*
@@ -3170,6 +3172,8 @@ projector.
 > more than a payload is refused as the policy's bug (C-0685's keys). The
 > router hosts a `PolicyDispatch` as before: the trait serves runtimes.
 
+> **Amended by 14.44 (2026-10-30):** the reason keys are the enums of `reasons.proto` (`RouterReason`, `HostReason`, `CoordinatorReason`), not a TOML catalog; a key travels as its value's bare name, and every enum reserves the retired keys. Nothing is generated per language from a catalog.
+
 **14.42 The router keeps dispatch; everything else is the
 coordinator's.** Owner rulings, 2026-10-29 (plan `router-call-model`,
 latest rulings). Amends 2.2 (as amended by 14.31), 14.10, 14.24, 14.31,
@@ -3407,6 +3411,68 @@ shape below, guarding by length, was approved with its red tests.
   applied to the one destructive call that lacked it.
 - Cost: every caller passes a head, so a caller that held none now makes a
   read first. A purge that loses a race is retried, not merged.
+
+**14.44 The reason keys are proto enums, one per owner.** Owner ruling,
+2026-10-30. Amends 14.37 and 14.42.
+- **The ruling.** `catalog/reasons.toml`, its gate
+  `scripts/check_reasons.py` and the `check-reasons` recipe are deleted.
+  The framework's reason keys are three enums in
+  `proto/io/angzarr/v1/reasons.proto`, one per component that answers them:
+  - `RouterReason`: the client library's router, in every language.
+  - `HostReason`: the client library's component host, in every language
+    (`parity/client/hosting.feature`): `UPCASTER_WITH_COMPONENT` and
+    `NO_COMPONENTS_REGISTERED` (added by the owner), each a refusal to
+    start.
+  - `CoordinatorReason`: core's coordinator and the angzarr-embedded
+    kernel.
+
+  Each value's comment gives the status it travels with and its args;
+  "Readiness" replaces the catalog's `READINESS` pseudo-status. There are no
+  custom options. angzarr-proto compiles and embeds the file.
+- **The wire is unchanged.** A key travels as its value's NAME, bare: the
+  gRPC status message, the `ErrorInfo` reason and `Diagnostic.code` are
+  `DUPLICATE_COMPONENT`, never a number and never an enum-prefixed name.
+  buf's `ENUM_VALUE_PREFIX` rule was already excepted in `buf.yaml`, so the
+  bare names lint as they are. No message carries these enums as a field;
+  the numbers are bookkeeping, and renumbering one breaks nothing on the
+  wire. Each language reads the name off its generated enum (prost's
+  `as_str_name()`, Python's `RouterReason.Name(...)`).
+- **Retired keys are `reserved`.** Every enum reserves every key 14.37,
+  14.39 and 14.42 retired, so protoc refuses a value that brings one back
+  in any of them. A value name is unique across the package, so no key can
+  be live in two enums. This departs from 6.6's "deleted, unreserved"
+  deliberately: a reservation here guards a meaning, not stored bytes, so
+  it starts the day a key retires. The catalog's retired list had missed
+  14.37's three (`MALFORMED_REFUSAL_FACT`, `DUPLICATE_REGISTRATION`,
+  `NO_HANDLER_REGISTERED`); the enums reserve them too.
+- **The prose check stays, smaller.** `just contracts` runs
+  `check-retired-reasons`: a grep of the features, the protos and the site
+  docs for any name `reasons.proto` reserves. protoc's `reserved` stops a
+  retired key returning as a value; it cannot see a scenario or a doc page
+  naming one, and that is what the old scan was for. The grep now also
+  covers the site docs, where it found three stale rows, and every file
+  under `features/`, not only `.feature` files, where it found a fixture
+  comment naming one.
+- Why: nothing consumed the constants generated from the TOML (angzarr-cli
+  `poc/local-wiring`'s `angzarr reasons`); angzarr-router's `error::codes`,
+  angzarr-embedded's `next::reasons` and client-python's
+  `router/errors.py` each wrote the keys by hand; the one live check was a
+  router test comparing names. The TOML was a fourth format beside proto,
+  Gherkin and Fluent, with its own parser in each consumer. The protos are
+  already every language's shared input, and protoc already generates
+  each language's enum.
+- Cost:
+  - A new key is a proto change (and an angzarr-proto release), not a
+    one-line TOML entry.
+  - Tag numbers must be kept, though nothing reads them.
+  - A status and args live in comments, checked by nothing; a consumer
+    that needs them typed would need custom options.
+  - The retired list is written three times, once per enum
+    (angzarr-proto's `tests/reasons.rs` holds them equal).
+- Aligns with: Google's API design guide, where an `ErrorInfo.reason` is a
+  stable UPPER_SNAKE_CASE identifier, and google.rpc's own reasons are
+  published as proto enums (`google.api.ErrorReason`) whose value names are
+  the reason strings.
 
 ## Corrections
 
