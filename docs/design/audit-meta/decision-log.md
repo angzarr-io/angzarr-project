@@ -14,6 +14,11 @@
 > `WalletBuyInPolicy`, `TableWalletPolicy`). "player" is now the bot that
 > decides a seat's moves.
 
+> **Renamed by 14.44 (2026-10-30):** every reason key now travels with its
+> enum's prefix (`ROUTER_REASON_`, `HOST_REASON_`, `COORDINATOR_REASON_`;
+> `reasons.proto`), and the entries below are rewritten to name the keys so.
+> 14.37's old reasons and the retired keys stay bare, as they were answered.
+
 Part of the [audit-meta design record](../audit-meta-followups.md).
 
 Each entry gives the decision, why it was made, the cost accepted with it,
@@ -1480,7 +1485,7 @@ snapshot validity.** Supersedes 12.6; amends 6.8; partly restores 5.9.
 - Aligns with: snapshots as caches invalidated by a version check (Marten,
   Axon, Eventuous), here checked where the snapshot is loaded.
 
-> **Amended by 14.37 (pass 14):** the status message is the reason key, never text: an unknown command type is `UNKNOWN_COMMAND_TYPE` (a fact `NO_FACT_HANDLER`), with the sent type URL as `ErrorInfo` metadata `type_url` beside `upcast_type_url`.
+> **Amended by 14.37 (pass 14):** the status message is the reason key, never text: an unknown command type is `ROUTER_REASON_UNKNOWN_COMMAND_TYPE` (a fact `ROUTER_REASON_NO_FACT_HANDLER`), with the sent type URL as `ErrorInfo` metadata `type_url` beside `upcast_type_url`.
 
 > **Amended by 14.39 (pass 14):** the coordinator, not the client library, upcasts Command and Fact payloads, through the upcaster sidecar. The router refuses the type it was given; the coordinator answers the caller naming both type URLs.
 
@@ -1887,7 +1892,7 @@ correlation is a 16-byte `UUID` since 9.1. Owner ruling, 2026-10-27.
 
 > **Amended by 14.36 (pass 14, as amended):** "The root is the correlation" below is a convention only: a policy always names a PM command's root, keeping its trigger's correlation; a set `correlation_id` other than the cover's root is no longer malformed, so the start rule is the only rule a PM's coordinator adds to an aggregate's.
 
-> **Amended by 14.37 (pass 14):** `RefusalResponse` is `oneof reason { refusal (1) | diagnostic (3) }`; its `message` (2) is deleted, unreserved: no text crosses. A pass-through refusal with no path is answered `NO_REFUSAL_HANDLER`, not `NO_FACT_HANDLER`.
+> **Amended by 14.37 (pass 14):** `RefusalResponse` is `oneof reason { refusal (1) | diagnostic (3) }`; its `message` (2) is deleted, unreserved: no text crosses. A pass-through refusal with no path is answered `ROUTER_REASON_NO_REFUSAL_HANDLER`, not `ROUTER_REASON_NO_FACT_HANDLER`.
 
 > **Amended by 14.42 (pass 14):** the coordinator owns admission: deduplication, the refusal fact's stream check and the start rule. The router's `admit` is deleted. The coordinator also builds and addresses every refusal fact; the router answers only a translate callback's fact, or none.
 
@@ -1985,7 +1990,7 @@ and 14.30.
     stated plainly: the generator can no longer check refusal coverage
     against what a saga sends. A refusal with no path, a pass-through
     `CommandRefused` whose command type the source defines no handler for,
-    is caught only at RUN time: answered `NO_FACT_HANDLER`, dead-lettered
+    is caught only at RUN time: answered `ROUTER_REASON_NO_FACT_HANDLER`, dead-lettered
     and alerted. What the generator can still check: the `refuses`
     diagnostics above, and that a command selected for translate has its
     callback.
@@ -2037,7 +2042,7 @@ and 14.30.
   delivered, decided by the coordinator before the handler by the type URL
   after upcasting: a FACT is skipped silently (answered `APPLIED`, no
   events, nothing dead-lettered or alerted). A COMMAND is refused:
-  `FAILED_PRECONDITION` with an `ErrorInfo` reason `PM_NO_INSTANCE`,
+  `FAILED_PRECONDITION` with an `ErrorInfo` reason `COORDINATOR_REASON_PM_NO_INSTANCE`,
   recording nothing (the drafter's proposal, accepted by the owner).
   Reasons: a
   command is refusable, and a silent `APPLIED` would tell the sender a
@@ -2109,7 +2114,7 @@ and 14.30.
       dead-lettered and alerted; for B1, the `starts` / `starting_types`
       naming, the upcast type-URL match and the silent skip of a fact;
     - the start rule for a non-starting COMMAND: refused
-      (`FAILED_PRECONDITION`, `PM_NO_INSTANCE`), recording nothing;
+      (`FAILED_PRECONDITION`, `COORDINATOR_REASON_PM_NO_INSTANCE`), recording nothing;
     - the callback failure rules: only `FAILED_PRECONDITION` reaches the
       callback; a refused command with no callback is dead-lettered and
       alerted; a failing callback is dead-lettered and alerted;
@@ -2607,7 +2612,7 @@ says.** Owner rulings, 2026-10-28. Amends 14.30, 14.31 and 14.32.
 >   aggregate or process manager alike. There is no kind-specific rule:
 >   the router never knows the target's kind. A policy command with no
 >   root is a policy bug for every target: refused `INTERNAL` with
->   `ErrorInfo` reason `POLICY_COMMAND_NO_ROOT` (extras `domain` and
+>   `ErrorInfo` reason `COORDINATOR_REASON_POLICY_COMMAND_NO_ROOT` (extras `domain` and
 >   `command_type`), dead-lettered and alerted, never delivered.
 > - **No root callback and no default root.** Nothing fills in a root: the
 >   trigger's correlation is no longer given to a PM command as its root.
@@ -2616,11 +2621,11 @@ says.** Owner rulings, 2026-10-28. Amends 14.30, 14.31 and 14.32.
 >   C-0657 becomes the one any-target scenario (C-0665 is merged into it
 >   and retired); C-0664 is retired. C-0658, C-0659 and C-0660 have the
 >   policy set the root directly; C-0601 has its policy set the root to its
->   trigger's correlation. C-0666 pins `POLICY_COMMAND_OTHER_CORRELATION`.
+>   trigger's correlation. C-0666 pins `COORDINATOR_REASON_POLICY_COMMAND_OTHER_CORRELATION`.
 > - **Kept:** every command or fact a policy sends carries its trigger's
 >   correlation unchanged, and one carrying another correlation is a
 >   policy bug, refused `INTERNAL` with reason
->   `POLICY_COMMAND_OTHER_CORRELATION`, dead-lettered and alerted. A PM
+>   `COORDINATOR_REASON_POLICY_COMMAND_OTHER_CORRELATION`, dead-lettered and alerted. A PM
 >   input whose correlation differs from its root is admitted (the
 >   correlation-equals-root rule stays withdrawn). An unset correlation on
 >   a PM input is still given its cover's root (14.31).
@@ -2629,11 +2634,11 @@ says.** Owner rulings, 2026-10-28. Amends 14.30, 14.31 and 14.32.
 >   naming the root is no extra burden, and a callback and a default were
 >   two ways to say what the policy can write directly.
 
-> **Amended by 14.39 (pass 14):** `DUPLICATE_UPCASTER_CHAIN` is retired, because the router holds no upcaster chain. So is `DUPLICATE_COMMAND_HANDLER`, whose only condition was an old type that is also a current type. From the router, `UNKNOWN_COMMAND_TYPE` and `NO_FACT_HANDLER` carry `type_url` only, the type the router was given. The coordinator answers the caller with `type_url` as sent and `upcast_type_url`.
+> **Amended by 14.39 (pass 14):** `DUPLICATE_UPCASTER_CHAIN` is retired, because the router holds no upcaster chain. So is `DUPLICATE_COMMAND_HANDLER`, whose only condition was an old type that is also a current type. From the router, `ROUTER_REASON_UNKNOWN_COMMAND_TYPE` and `ROUTER_REASON_NO_FACT_HANDLER` carry `type_url` only, the type the router was given. The coordinator answers the caller with `type_url` as sent and `upcast_type_url`.
 
 > **Amended by 14.42 (pass 14):** the reason keys, their owner, status and arg names live in `catalog/reasons.toml` and are generated per language. Classification by status is the coordinator's. Many router keys retire or move to the coordinator (14.42 lists them). A language with only exceptions marks a bug with no cause by a named unclassified error.
 
-> **Amended by 14.44 (2026-10-30):** the reason keys are the enums of `reasons.proto` (`RouterReason`, `HostReason`, `CoordinatorReason`), not a TOML catalog; a key travels as its value's bare name, and every enum reserves the retired keys. Nothing is generated per language from a catalog.
+> **Amended by 14.44 (2026-10-30):** the reason keys are the enums of `reasons.proto` (`RouterReason`, `HostReason`, `CoordinatorReason`), not a TOML catalog; a key travels as its value's full name, its enum's prefix included (`ROUTER_REASON_DUPLICATE_COMPONENT`), and every enum reserves the retired keys. Every key named in this log before 14.44 is written here with its prefix, except the old reasons of 14.37's inventory and the retired keys, which were only ever answered bare. Nothing is generated per language from a catalog.
 
 **14.37 Errors carry a key and an argument map, never rendered English;
 the input's acceptance time is delivered.** Owner rulings, 2026-10-28.
@@ -2652,10 +2657,10 @@ carry the full english text, but the key and the map".
   (the `Any` of one of the command's `refuses` types): its type is the
   key, its fields the map. Any other rejection carries a diagnostic code
   plus args, its code being the reason. A handler bug carries a diagnostic
-  code plus args too: the router answers it `UNHANDLED_HANDLER_ERROR`, with
+  code plus args too: the router answers it `ROUTER_REASON_UNHANDLED_HANDLER_ERROR`, with
   the handler's own code and args as its cause, and what escaped (an
   error's text, a panic's message) stays in the handler's own log. A
-  panic's cause is `HANDLER_PANICKED`.
+  panic's cause is `ROUTER_REASON_HANDLER_PANICKED`.
 - **On the wire.** The gRPC status message IS the reason key, and the
   `google.rpc.ErrorInfo` (domain `angzarr.io`) carries the same key as its
   reason and the args as its metadata. Every distinct condition gets its
@@ -2674,44 +2679,44 @@ carry the full english text, but the key and the map".
 
   | Old reason | Condition | New key (metadata) |
   |---|---|---|
-  | `UNHANDLED_HANDLER_ERROR` | a fold fails on persisted events (`FOLD_FAILED` text) | `FOLD_FAILED` (`sequence` and `type_url`, or `first_sequence` and `last_sequence`; `state_type_url`; the fold's own failure as `cause`) |
-  | `UNHANDLED_HANDLER_ERROR` | a fold fails on an event the command emitted (`FOLD_FAILED_EMITTED` text) | `FOLD_FAILED_EMITTED` (as `FOLD_FAILED`) |
-  | `UNHANDLED_HANDLER_ERROR` | an error escaped a handler, or it panicked | `UNHANDLED_HANDLER_ERROR` (the handler's code and args as `cause`; `HANDLER_PANICKED` for a panic) |
-  | `NO_HANDLER_REGISTERED` | a command type no handler claims, after upcasting | `UNKNOWN_COMMAND_TYPE` (`type_url`, `upcast_type_url`) |
-  | `NO_HANDLER_REGISTERED` | a dispatch to a kind the business process does not host | `NO_COMPONENT_OF_KIND` |
+  | `UNHANDLED_HANDLER_ERROR` | a fold fails on persisted events (`ROUTER_REASON_FOLD_FAILED` text) | `ROUTER_REASON_FOLD_FAILED` (`sequence` and `type_url`, or `first_sequence` and `last_sequence`; `state_type_url`; the fold's own failure as `cause`) |
+  | `UNHANDLED_HANDLER_ERROR` | a fold fails on an event the command emitted (`ROUTER_REASON_FOLD_FAILED_EMITTED` text) | `ROUTER_REASON_FOLD_FAILED_EMITTED` (as `ROUTER_REASON_FOLD_FAILED`) |
+  | `UNHANDLED_HANDLER_ERROR` | an error escaped a handler, or it panicked | `ROUTER_REASON_UNHANDLED_HANDLER_ERROR` (the handler's code and args as `cause`; `ROUTER_REASON_HANDLER_PANICKED` for a panic) |
+  | `NO_HANDLER_REGISTERED` | a command type no handler claims, after upcasting | `ROUTER_REASON_UNKNOWN_COMMAND_TYPE` (`type_url`, `upcast_type_url`) |
+  | `NO_HANDLER_REGISTERED` | a dispatch to a kind the business process does not host | `ROUTER_REASON_NO_COMPONENT_OF_KIND` |
   | `NO_HANDLER_REGISTERED` | a policy given a book of a domain it does not consume | `POLICY_SOURCE_OUTSIDE_INPUT_DOMAIN` (`domain`, `expected_domain`) |
-  | `NO_FACT_HANDLER` | a fact type no handler claims | `NO_FACT_HANDLER` (`type_url`, `upcast_type_url`) |
-  | `NO_FACT_HANDLER` | a pass-through `CommandRefused` the source has no `on_refused_<Command>` for | `NO_REFUSAL_HANDLER` (`command_type`) |
-  | `DUPLICATE_REGISTRATION` | "a router hosts one component", and "this business process already hosts its one component" (the C ABI's one-at-a-time path): one condition | `DUPLICATE_COMPONENT` (`component`, `component_kind`) |
+  | `NO_FACT_HANDLER` | a fact type no handler claims | `ROUTER_REASON_NO_FACT_HANDLER` (`type_url`, `upcast_type_url`) |
+  | `NO_FACT_HANDLER` | a pass-through `CommandRefused` the source has no `on_refused_<Command>` for | `ROUTER_REASON_NO_REFUSAL_HANDLER` (`command_type`) |
+  | `DUPLICATE_REGISTRATION` | "a router hosts one component", and "this business process already hosts its one component" (the C ABI's one-at-a-time path): one condition | `ROUTER_REASON_DUPLICATE_COMPONENT` (`component`, `component_kind`) |
   | `DUPLICATE_REGISTRATION` | "a component has one upcaster chain" | `DUPLICATE_UPCASTER_CHAIN` |
   | `MISSING_COMMAND_BOOK` | a `Refusal` with no command | `REFUSAL_WITHOUT_COMMAND` |
   | `MISSING_COMMAND_BOOK` | a `Refusal` with no event | `REFUSAL_WITHOUT_EVENT` |
   | `MALFORMED_REFUSAL_FACT` (`reason` "no fact") | `OnRefusedResponse` holds no fact | `REFUSAL_FACT_MISSING` |
-  | `MALFORMED_REFUSAL_FACT` ("set the fact's cover or handling") | the policy set the fact's cover or handling | `REFUSAL_FACT_ADDRESSED` |
-  | `MALFORMED_REFUSAL_FACT` ("no page") | the fact has no page | `REFUSAL_FACT_NO_PAGE` |
-  | `MALFORMED_REFUSAL_FACT` ("the page is not a Fact") | the page is a Command | `REFUSAL_FACT_NOT_A_FACT` |
-  | `MALFORMED_REFUSAL_FACT` ("set the fact's identity") | the policy set the fact's identity | `REFUSAL_FACT_IDENTIFIED` |
+  | `MALFORMED_REFUSAL_FACT` ("set the fact's cover or handling") | the policy set the fact's cover or handling | `COORDINATOR_REASON_REFUSAL_FACT_ADDRESSED` |
+  | `MALFORMED_REFUSAL_FACT` ("no page") | the fact has no page | `COORDINATOR_REASON_REFUSAL_FACT_NO_PAGE` |
+  | `MALFORMED_REFUSAL_FACT` ("the page is not a Fact") | the page is a Command | `COORDINATOR_REASON_REFUSAL_FACT_NOT_A_FACT` |
+  | `MALFORMED_REFUSAL_FACT` ("set the fact's identity") | the policy set the fact's identity | `COORDINATOR_REASON_REFUSAL_FACT_IDENTIFIED` |
   | `MALFORMED_REFUSAL_FACT` ("no refused command") | the refusal carries no refused command | `REFUSAL_WITHOUT_REFUSED_COMMAND` |
   | `MALFORMED_REFUSAL_FACT` ("no command_id") | the refused command carries no `command_id` | `REFUSED_COMMAND_WITHOUT_ID` |
   | `MALFORMED_REFUSAL_FACT` ("no triggering stream") | the refusal carries no triggering stream | `REFUSAL_WITHOUT_TRIGGER_STREAM` |
-  | `ANY_DECODE_FAILED` ("failed to decode X", one text per message) | bytes that do not decode as the message expected: one condition | `ANY_DECODE_FAILED` (`message_type`) |
+  | `ANY_DECODE_FAILED` ("failed to decode X", one text per message) | bytes that do not decode as the message expected: one condition | `ROUTER_REASON_ANY_DECODE_FAILED` (`message_type`) |
   | none (empty code; router-ffi) | a host callback's status bytes do not decode | `HOST_STATUS_UNDECODABLE` |
   | none (router-ffi) | a null pointer crosses the C ABI | `NULL_ABI_POINTER` (`argument`) |
 
   `MALFORMED_REFUSAL_FACT`, `DUPLICATE_REGISTRATION` and
   `NO_HANDLER_REGISTERED` are retired (the last split three ways: an
-  unknown type is `UNKNOWN_COMMAND_TYPE`, the rest `NO_COMPONENT_OF_KIND`
+  unknown type is `ROUTER_REASON_UNKNOWN_COMMAND_TYPE`, the rest `ROUTER_REASON_NO_COMPONENT_OF_KIND`
   and `POLICY_SOURCE_OUTSIDE_INPUT_DOMAIN`; owner ruling, 2026-10-29). The codes that
   were already one per condition keep their key and lose their English
-  constant: `MISSING_RULES_VERSION`, `MISSING_STATE_TYPE`,
-  `STARTING_TYPES_ON_NON_PM`, `DUPLICATE_COMMAND_HANDLER`,
-  `NO_HANDLERS_REGISTERED`, `MISSING_COMMAND_BOOK`, `MISSING_COMMAND_PAGE`,
+  constant: `COORDINATOR_REASON_MISSING_RULES_VERSION`, `COORDINATOR_REASON_MISSING_STATE_TYPE`,
+  `COORDINATOR_REASON_STARTING_TYPES_ON_NON_PM`, `DUPLICATE_COMMAND_HANDLER`,
+  `ROUTER_REASON_NO_HANDLERS_REGISTERED`, `MISSING_COMMAND_BOOK`, `MISSING_COMMAND_PAGE`,
   `MISSING_COMMAND_PAYLOAD`, `MISSING_EVENT_BOOK_COVER`,
-  `EMPTY_POLICY_SOURCE`, `PERSISTED_EVENT_CORRUPT`, `CONFLICT_UNRESOLVED`,
-  `CONFLICT_OVERLAP`, `CONFLICT_RESOLUTION_UNSUPPORTED`,
-  `POLICY_COMMAND_OUTSIDE_DESTINATION`, `POLICY_COMMAND_OUTSIDE_EDITION`,
-  `POLICY_COMMAND_NO_ROOT`, `POLICY_COMMAND_OTHER_CORRELATION`,
-  `PM_NO_INSTANCE` and `REFUSAL_FACT_WRONG_STREAM`. The `fold_message`
+  `EMPTY_POLICY_SOURCE`, `ROUTER_REASON_PERSISTED_EVENT_CORRUPT`, `COORDINATOR_REASON_CONFLICT_UNRESOLVED`,
+  `COORDINATOR_REASON_CONFLICT_OVERLAP`, `ROUTER_REASON_CONFLICT_RESOLUTION_UNSUPPORTED`,
+  `COORDINATOR_REASON_POLICY_COMMAND_OUTSIDE_DESTINATION`, `COORDINATOR_REASON_POLICY_COMMAND_OUTSIDE_EDITION`,
+  `COORDINATOR_REASON_POLICY_COMMAND_NO_ROOT`, `COORDINATOR_REASON_POLICY_COMMAND_OTHER_CORRELATION`,
+  `COORDINATOR_REASON_PM_NO_INSTANCE` and `COORDINATOR_REASON_REFUSAL_FACT_WRONG_STREAM`. The `fold_message`
   metadata entry becomes the fold's `cause`.
 - **Proto text fields become key + map.** Removed fields stay unreserved
   (6.6):
@@ -2760,7 +2765,7 @@ carry the full english text, but the key and the map".
 - **Owner's rulings, 2026-10-28 (all the drafter's choices settled):**
   the decision as drafted is approved, with these:
   - A typed refusal's wire reason, and so its status message, is
-    `COMMAND_REFUSED`, with `ErrorInfo` metadata `refusal_type` naming the
+    `ROUTER_REASON_COMMAND_REFUSED`, with `ErrorInfo` metadata `refusal_type` naming the
     object's fully-qualified type and the object in the status details:
     an `ErrorInfo` reason is SCREAMING_SNAKE (AIP-193, knowledge), which a
     type name is not. A catalog keys a typed refusal by its full type name
@@ -2788,13 +2793,13 @@ carry the full english text, but the key and the map".
     (alerted and dead-lettered); UNAVAILABLE, ABORTED and the like are
     retried. (Superseded by the latest rulings below: four classes.) A handler refuses with a status from the business set and a
     key and args, or fails as a bug with a key and args
-    (`UNHANDLED_HANDLER_ERROR`, its key the `cause`). Supersedes the
+    (`ROUTER_REASON_UNHANDLED_HANDLER_ERROR`, its key the `cause`). Supersedes the
     morning's "only FAILED_PRECONDITION is a business refusal".
   - The router's own structural errors on malformed input are bugs, not
     business refusals: `MISSING_COMMAND_BOOK`, `MISSING_COMMAND_PAGE`,
-    `MISSING_COMMAND_PAYLOAD`, `UNKNOWN_COMMAND_TYPE`, `NO_FACT_HANDLER`,
-    `NO_REFUSAL_HANDLER`, `REFUSAL_WITHOUT_COMMAND`, `REFUSAL_WITHOUT_EVENT`,
-    `ANY_DECODE_FAILED` and every other condition the router answered
+    `MISSING_COMMAND_PAYLOAD`, `ROUTER_REASON_UNKNOWN_COMMAND_TYPE`, `ROUTER_REASON_NO_FACT_HANDLER`,
+    `ROUTER_REASON_NO_REFUSAL_HANDLER`, `REFUSAL_WITHOUT_COMMAND`, `REFUSAL_WITHOUT_EVENT`,
+    `ROUTER_REASON_ANY_DECODE_FAILED` and every other condition the router answered
     INVALID_ARGUMENT or NOT_FOUND are INTERNAL, alerted and dead-lettered,
     and never reach a policy's OnRefused. INVALID_ARGUMENT and NOT_FOUND
     are a handler's, for a business refusal. (A coordinator's own
@@ -2814,12 +2819,12 @@ carry the full english text, but the key and the map".
     Refusals) state the three classes instead of filing INVALID_ARGUMENT
     under "Terminal (malformed)".
   - A rebuild's applier or batched fold that panics fails the fold like
-    one that errs: `FOLD_FAILED` (`FOLD_FAILED_EMITTED` for the command's
-    own events) with cause `HANDLER_PANICKED`, the page named when an
+    one that errs: `ROUTER_REASON_FOLD_FAILED` (`ROUTER_REASON_FOLD_FAILED_EMITTED` for the command's
+    own events) with cause `ROUTER_REASON_HANDLER_PANICKED`, the page named when an
     applier panicked and the batch's range when a batched fold did. A
     snapshot loader that panics does the same, naming the snapshot
     (`sequence`, and the snapshot state's `type_url`); one that errs stays
-    `PERSISTED_EVENT_CORRUPT`.
+    `ROUTER_REASON_PERSISTED_EVENT_CORRUPT`.
 - **Owner's rulings, 2026-10-29 (late):**
   - **`ext_err_txt`.** Where angzarr converts a THIRD-PARTY library's
     error (an SQLite driver's, an I/O error, a tonic transport error, a
@@ -2864,7 +2869,7 @@ carry the full english text, but the key and the map".
     whose dependency is down PICKS the status, one of UNAVAILABLE,
     DEADLINE_EXCEEDED or RESOURCE_EXHAUSTED (angzarr-router's
     `CodedError::retryable_bug(RetryableStatus, key, args)`), and the bug
-    goes out as that status, with the reason `UNHANDLED_HANDLER_ERROR` and
+    goes out as that status, with the reason `ROUTER_REASON_UNHANDLED_HANDLER_ERROR` and
     the handler's key and args as its `cause` (scenario C-0678).
     UNIMPLEMENTED and every other status outside the three classes above
     are retryable bugs too (the framework's: a misroute, a stale
@@ -3006,8 +3011,8 @@ never sees an old shape.** Owner ruling, 2026-10-29 (plan
   `UpcastRequest` whose page carries only `payload`, and takes the payload
   of the page returned.
 - **Unknown type after upcasting.** The router refuses a Command (or Fact)
-  whose type URL no handler claims: `INTERNAL`, `UNKNOWN_COMMAND_TYPE` (or
-  `NO_FACT_HANDLER`), with `type_url` the type it was given. The coordinator
+  whose type URL no handler claims: `INTERNAL`, `ROUTER_REASON_UNKNOWN_COMMAND_TYPE` (or
+  `ROUTER_REASON_NO_FACT_HANDLER`), with `type_url` the type it was given. The coordinator
   holds both types. It answers the caller with the router's status, but
   `type_url` is now the type as sent and `upcast_type_url` the type the
   sidecar returned. With no rule applied, or no sidecar, the two are the
@@ -3163,7 +3168,7 @@ projector.
 > 91d230a, angzarr-router `feat/policy-component` b71612e):** the start rule
 > is the kernel's own code (`Registry::start_rule`), not the router's
 > `admit_rules`: membership of the upcast type's name in the descriptor's
-> `starting_types`, `PM_NO_INSTANCE` for a command and a silent skip for a
+> `starting_types`, `COORDINATOR_REASON_PM_NO_INSTANCE` for a command and a silent skip for a
 > fact, applied after the router's admit for every process manager.
 > `PolicyComponent` carries no `component_descriptor`, and its
 > `dispatch_refusal` answers the translated fact's payload or `None` (no
@@ -3172,7 +3177,7 @@ projector.
 > more than a payload is refused as the policy's bug (C-0685's keys). The
 > router hosts a `PolicyDispatch` as before: the trait serves runtimes.
 
-> **Amended by 14.44 (2026-10-30):** the reason keys are the enums of `reasons.proto` (`RouterReason`, `HostReason`, `CoordinatorReason`), not a TOML catalog; a key travels as its value's bare name, and every enum reserves the retired keys. Nothing is generated per language from a catalog.
+> **Amended by 14.44 (2026-10-30):** the reason keys are the enums of `reasons.proto` (`RouterReason`, `HostReason`, `CoordinatorReason`), not a TOML catalog; a key travels as its value's full name, its enum's prefix included (`ROUTER_REASON_DUPLICATE_COMPONENT`), and every enum reserves the retired keys. Every key named in this log before 14.44 is written here with its prefix, except the old reasons of 14.37's inventory and the retired keys, which were only ever answered bare. Nothing is generated per language from a catalog.
 
 **14.42 The router keeps dispatch; everything else is the
 coordinator's.** Owner rulings, 2026-10-29 (plan `router-call-model`,
@@ -3189,7 +3194,7 @@ language.
   C-0714), without the envelope guards that are no longer the router's.
 - **What the router does, and nothing else.**
   - It routes by type URL, refusing a type it does not handle:
-    `UNKNOWN_COMMAND_TYPE`, `NO_FACT_HANDLER`, or `NO_REFUSAL_HANDLER` for
+    `ROUTER_REASON_UNKNOWN_COMMAND_TYPE`, `ROUTER_REASON_NO_FACT_HANDLER`, or `ROUTER_REASON_NO_REFUSAL_HANDLER` for
     a `CommandRefused` with no `on_refused_<Command>`.
   - It folds the starting state and every page it is given (14.40).
   - It runs decide or ingest, and answers the events, the state and the
@@ -3203,9 +3208,9 @@ language.
 - **Admission.** The router's `admit` is deleted, and there is no admit
   RPC. The coordinator owns all three of admit's jobs:
   - deduplication (pipeline step 3, as before);
-  - the refusal fact's stream check (`REFUSAL_FACT_WRONG_STREAM`, input
+  - the refusal fact's stream check (`COORDINATOR_REASON_REFUSAL_FACT_WRONG_STREAM`, input
     validation);
-  - a process manager's start rule (`PM_NO_INSTANCE`, or a silent skip for
+  - a process manager's start rule (`COORDINATOR_REASON_PM_NO_INSTANCE`, or a silent skip for
     a fact), judged against `ComponentDescriptor.starting_types` by the
     type name after upcasting (14.39).
 
@@ -3215,15 +3220,15 @@ language.
   `rules_version`. The business process answers `Describe` with it
   unchanged, and the router holds no descriptor logic. The coordinator
   validates it and refuses, as a readiness failure:
-  - an empty version (`MISSING_RULES_VERSION`);
+  - an empty version (`COORDINATOR_REASON_MISSING_RULES_VERSION`);
   - starting types on a kind that is not a process manager
-    (`STARTING_TYPES_ON_NON_PM`);
-  - an aggregate or process manager with no state (`MISSING_STATE_TYPE`);
-  - a policy or projector with a state (`STATE_ON_STATELESS_KIND`);
-  - a policy with other than exactly one input (`POLICY_INPUT_COUNT`,
+    (`COORDINATOR_REASON_STARTING_TYPES_ON_NON_PM`);
+  - an aggregate or process manager with no state (`COORDINATOR_REASON_MISSING_STATE_TYPE`);
+  - a policy or projector with a state (`COORDINATOR_REASON_STATE_ON_STATELESS_KIND`);
+  - a policy with other than exactly one input (`COORDINATOR_REASON_POLICY_INPUT_COUNT`,
     arg `input_count`);
-  - a policy with no output domain (`POLICY_NO_OUTPUT_DOMAIN`);
-  - an output domain on any other kind (`OUTPUT_DOMAIN_ON_NON_POLICY`).
+  - a policy with no output domain (`COORDINATOR_REASON_POLICY_NO_OUTPUT_DOMAIN`);
+  - an output domain on any other kind (`COORDINATOR_REASON_OUTPUT_DOMAIN_ON_NON_POLICY`).
 
   **Wire:** `ComponentDescriptor.output_domain` (8), for a policy only.
 - **Error catalog.** `catalog/reasons.toml` in angzarr-project lists every
@@ -3243,12 +3248,12 @@ language.
   whole answer as a policy bug: nothing is delivered, and the trigger is
   dead-lettered and alerted. The rules:
   - **Destination:** the cover's domain is the descriptor's output domain
-    (`POLICY_COMMAND_OUTSIDE_DESTINATION`).
+    (`COORDINATOR_REASON_POLICY_COMMAND_OUTSIDE_DESTINATION`).
   - **Edition:** unset, or the trigger's. An unset edition is stamped with
-    the trigger's (`POLICY_COMMAND_OUTSIDE_EDITION`).
-  - **Root:** named (`POLICY_COMMAND_NO_ROOT`).
+    the trigger's (`COORDINATOR_REASON_POLICY_COMMAND_OUTSIDE_EDITION`).
+  - **Root:** named (`COORDINATOR_REASON_POLICY_COMMAND_NO_ROOT`).
   - **Correlation:** unset, or the trigger's
-    (`POLICY_COMMAND_OTHER_CORRELATION`).
+    (`COORDINATOR_REASON_POLICY_COMMAND_OTHER_CORRELATION`).
 
   A command's index within its reaction is the index its derived id is
   built from. **Wire:** `PolicyResponse.commands` (1) is deleted,
@@ -3264,8 +3269,8 @@ language.
   - addresses every refusal fact and stamps its identity, as
     `address_refusal_fact` did;
   - refuses, as a policy bug, a translated fact that is more than a
-    payload (`REFUSAL_FACT_ADDRESSED`, `REFUSAL_FACT_NO_PAGE`,
-    `REFUSAL_FACT_NOT_A_FACT`, `REFUSAL_FACT_IDENTIFIED`; C-0685).
+    payload (`COORDINATOR_REASON_REFUSAL_FACT_ADDRESSED`, `COORDINATOR_REASON_REFUSAL_FACT_NO_PAGE`,
+    `COORDINATOR_REASON_REFUSAL_FACT_NOT_A_FACT`, `COORDINATOR_REASON_REFUSAL_FACT_IDENTIFIED`; C-0685).
 
   **Wire:** none (an unset `OnRefusedResponse.fact` now means no
   translation).
@@ -3277,14 +3282,14 @@ language.
   - **AGGREGATE_HANDLES:** the router reports the nonce the handler passed
     to `resolve_conflicts`, empty if it never called it. The coordinator
     accepts the events only if that is the nonce it delivered
-    (`CONFLICT_UNRESOLVED`, ABORTED).
+    (`COORDINATOR_REASON_CONFLICT_UNRESOLVED`, ABORTED).
   - **COMMUTATIVE:** the router reports `window = changed(expected, head)`
     and `mine = changed(head, head + events)`. The coordinator applies
-    options.proto's Overlap rule (`CONFLICT_OVERLAP`, ABORTED, metadata
+    options.proto's Overlap rule (`COORDINATOR_REASON_CONFLICT_OVERLAP`, ABORTED, metadata
     `window_units` and `command_units`).
 
   Either way a failed judgement persists nothing. The router keeps
-  `CONFLICT_RESOLUTION_UNSUPPORTED` for a COMMUTATIVE delivery to a state
+  `ROUTER_REASON_CONFLICT_RESOLUTION_UNSUPPORTED` for a COMMUTATIVE delivery to a state
   with no resolver. **Wire:** `CommandHandlerResponse.conflict` (4), a
   `ConflictReport { resolved_nonce, window_units, command_units }`. It is
   field 4, not 3, because the deleted `snapshot_refused` (3, a bool) must
@@ -3292,10 +3297,10 @@ language.
 - **Panics (C-0669).** In a language with only exceptions (Python), the
   client library exports a named unclassified exception
   (`angzarr_client.UnclassifiedError`). Raising it is a
-  bug with no cause (`UNHANDLED_HANDLER_ERROR`). Any other exception is a
-  panic: `UNHANDLED_HANDLER_ERROR` with cause `HANDLER_PANICKED`. Rust is
+  bug with no cause (`ROUTER_REASON_UNHANDLED_HANDLER_ERROR`). Any other exception is a
+  panic: `ROUTER_REASON_UNHANDLED_HANDLER_ERROR` with cause `ROUTER_REASON_HANDLER_PANICKED`. Rust is
   unchanged: an unclassified error has no cause, and a panic is
-  `HANDLER_PANICKED`.
+  `ROUTER_REASON_HANDLER_PANICKED`.
 - **Retired keys** (listed in the catalog):
   - `MISSING_COMMAND_BOOK`, `MISSING_COMMAND_PAGE`,
     `MISSING_COMMAND_PAYLOAD`, `MISSING_EVENT_BOOK_COVER`,
@@ -3307,7 +3312,7 @@ language.
     `REFUSAL_WITHOUT_TRIGGER_STREAM`: the coordinator builds the `Refusal`
     from its own outbox entry.
   - `HOST_STATUS_UNDECODABLE` and `NULL_ABI_POINTER`: router-ffi is gone.
-  - `ANY_DECODE_FAILED` for a `ContextualCommand`'s bytes: the key stays
+  - `ROUTER_REASON_ANY_DECODE_FAILED` for a `ContextualCommand`'s bytes: the key stays
     for payloads.
 - **Moved to the coordinator's or the CLI's tier:**
   - C-0583 to `policy_addressing.feature`.
@@ -3328,13 +3333,13 @@ language.
 - **Drafter's choices, confirmed by the owner (2026-10-29):**
   - the catalog's form, a TOML file, and its `READINESS` pseudo-status;
   - the new keys, one per condition as 14.37 requires:
-    `STATE_ON_STATELESS_KIND`, `POLICY_INPUT_COUNT`,
-    `POLICY_NO_OUTPUT_DOMAIN` and `OUTPUT_DOMAIN_ON_NON_POLICY` (the
+    `COORDINATOR_REASON_STATE_ON_STATELESS_KIND`, `COORDINATOR_REASON_POLICY_INPUT_COUNT`,
+    `COORDINATOR_REASON_POLICY_NO_OUTPUT_DOMAIN` and `COORDINATOR_REASON_OUTPUT_DOMAIN_ON_NON_POLICY` (the
     drafted `POLICY_DOMAINS_INVALID`, which covered two conditions, was
     split before it was ever answered);
   - one reaction per handled page, an empty one included, and none for an
     unhandled page;
-  - `UNKNOWN_COMMAND_TYPE` stays in the router. The generated descriptor
+  - `ROUTER_REASON_UNKNOWN_COMMAND_TYPE` stays in the router. The generated descriptor
     does not list the handled types;
   - Python's unclassified exception is `angzarr_client.UnclassifiedError`;
   - the `PolicyResponse` wire break (field 1 deleted, unreserved) is
@@ -3412,47 +3417,57 @@ shape below, guarding by length, was approved with its red tests.
 - Cost: every caller passes a head, so a caller that held none now makes a
   read first. A purge that loses a race is retried, not merged.
 
-**14.44 The reason keys are proto enums, one per owner.** Owner ruling,
-2026-10-30. Amends 14.37 and 14.42.
+**14.44 The reason keys are proto enums, one per owner, under buf's
+standard names.** Owner rulings, 2026-10-30. Amends 14.37 and 14.42.
 - **The ruling.** `catalog/reasons.toml`, its gate
   `scripts/check_reasons.py` and the `check-reasons` recipe are deleted.
   The framework's reason keys are three enums in
   `proto/io/angzarr/v1/reasons.proto`, one per component that answers them:
   - `RouterReason`: the client library's router, in every language.
   - `HostReason`: the client library's component host, in every language
-    (`parity/client/hosting.feature`): `UPCASTER_WITH_COMPONENT` and
-    `NO_COMPONENTS_REGISTERED` (added by the owner), each a refusal to
-    start.
+    (`parity/client/hosting.feature`): `HOST_REASON_UPCASTER_WITH_COMPONENT`
+    and `HOST_REASON_NO_COMPONENTS_REGISTERED` (added by the owner), each a
+    refusal to start.
   - `CoordinatorReason`: core's coordinator and the angzarr-embedded
     kernel.
 
   Each value's comment gives the status it travels with and its args;
   "Readiness" replaces the catalog's `READINESS` pseudo-status. There are no
   custom options. angzarr-proto compiles and embeds the file.
-- **The wire is unchanged.** A key travels as its value's NAME, bare: the
-  gRPC status message, the `ErrorInfo` reason and `Diagnostic.code` are
-  `DUPLICATE_COMPONENT`, never a number and never an enum-prefixed name.
-  buf's `ENUM_VALUE_PREFIX` rule was already excepted in `buf.yaml`, so the
-  bare names lint as they are. No message carries these enums as a field;
-  the numbers are bookkeeping, and renumbering one breaks nothing on the
-  wire. Each language reads the name off its generated enum (prost's
-  `as_str_name()`, Python's `RouterReason.Name(...)`).
+- **The wire strings change.** A key travels as its value's FULL name, the
+  enum's prefix included: the gRPC status message, the `ErrorInfo` reason
+  and `Diagnostic.code` were `DUPLICATE_COMPONENT` and are now
+  `ROUTER_REASON_DUPLICATE_COMPONENT`, never a number. The enums follow
+  buf's standard lint with no exception: `ENUM_VALUE_PREFIX` and
+  `ENUM_ZERO_VALUE_SUFFIX` leave `buf.yaml`'s `except` list, and
+  `ENUM_VALUE_PREFIX` is ignored for the blackjack example's `cards.proto`
+  alone (its `Suit` values are the example's, in its own repos). The owner
+  accepted the change over keeping bare names behind a lint exception: the
+  enums lint as any proto does, and a key names its owner. Every feature,
+  proto comment, guide, site page, backlog line and decision in this repo
+  that named a key now names it prefixed; where this log quotes an old
+  reason (14.37's inventory) or a retired key, it stays bare, as it was
+  answered. No message carries these enums as a field: the numbers are
+  bookkeeping, and renumbering one breaks nothing on the wire. Each
+  language reads the name off its generated enum (prost's
+  `as_str_name()`, Python's `RouterReason.Name(...)`), and each Fluent
+  catalog's message ids change with the keys.
 - **Retired keys are `reserved`.** Every enum reserves every key 14.37,
-  14.39 and 14.42 retired, so protoc refuses a value that brings one back
-  in any of them. A value name is unique across the package, so no key can
-  be live in two enums. This departs from 6.6's "deleted, unreserved"
-  deliberately: a reservation here guards a meaning, not stored bytes, so
-  it starts the day a key retires. The catalog's retired list had missed
-  14.37's three (`MALFORMED_REFUSAL_FACT`, `DUPLICATE_REGISTRATION`,
+  14.39 and 14.42 retired, under its own prefix
+  (`ROUTER_REASON_MISSING_COMMAND_BOOK`), so protoc refuses a value that
+  brings one back in any of them. This departs from 6.6's "deleted,
+  unreserved" deliberately: a reservation here guards a meaning, not stored
+  bytes, so it starts the day a key retires. The catalog's retired list had
+  missed 14.37's three (`MALFORMED_REFUSAL_FACT`, `DUPLICATE_REGISTRATION`,
   `NO_HANDLER_REGISTERED`); the enums reserve them too.
 - **The prose check stays, smaller.** `just contracts` runs
-  `check-retired-reasons`: a grep of the features, the protos and the site
-  docs for any name `reasons.proto` reserves. protoc's `reserved` stops a
-  retired key returning as a value; it cannot see a scenario or a doc page
-  naming one, and that is what the old scan was for. The grep now also
-  covers the site docs, where it found three stale rows, and every file
-  under `features/`, not only `.feature` files, where it found a fixture
-  comment naming one.
+  `check-reason-names`, a grep of the features, the protos and the site
+  docs that refuses a retired key, bare or prefixed, and a live key without
+  its prefix. protoc's `reserved` stops a retired key returning as a
+  value; it cannot see a scenario or a doc page naming one, and that is
+  what the old scan was for. The grep now also covers the site docs, where
+  it found three stale rows, and every file under `features/`, not only
+  `.feature` files, where it found a fixture comment naming one.
 - Why: nothing consumed the constants generated from the TOML (angzarr-cli
   `poc/local-wiring`'s `angzarr reasons`); angzarr-router's `error::codes`,
   angzarr-embedded's `next::reasons` and client-python's
@@ -3462,6 +3477,10 @@ shape below, guarding by length, was approved with its red tests.
   already every language's shared input, and protoc already generates
   each language's enum.
 - Cost:
+  - Every wire string changes, so every router, coordinator, client
+    library, Fluent catalog and test that names a key changes with it, in
+    one coordinated step.
+  - Keys are longer, and the prefix repeats the owner in every log line.
   - A new key is a proto change (and an angzarr-proto release), not a
     one-line TOML entry.
   - Tag numbers must be kept, though nothing reads them.
@@ -3469,10 +3488,9 @@ shape below, guarding by length, was approved with its red tests.
     that needs them typed would need custom options.
   - The retired list is written three times, once per enum
     (angzarr-proto's `tests/reasons.rs` holds them equal).
-- Aligns with: Google's API design guide, where an `ErrorInfo.reason` is a
-  stable UPPER_SNAKE_CASE identifier, and google.rpc's own reasons are
-  published as proto enums (`google.api.ErrorReason`) whose value names are
-  the reason strings.
+- Aligns with: buf's standard style guide for enum values. Diverges from
+  Google's own reasons (`google.api.ErrorReason`), whose value names, used
+  as `ErrorInfo.reason`, carry no prefix.
 
 ## Corrections
 
