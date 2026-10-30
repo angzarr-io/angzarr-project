@@ -22,9 +22,13 @@ Feature: Conflict resolution - how the coordinator treats a stale command
 
   The stream may also move between a command's load and its write, when
   another write to the same stream lands first (decision 14.45; ordering is
-  per stream, so no other stream's writes matter). A command with an
-  expected sequence then fails ABORTED with reason
-  COORDINATOR_REASON_EXPECTED_SEQUENCE_STALE, under every resolution. A
+  per stream, so no other stream's writes matter). Under STRICT a command
+  with an expected sequence then fails ABORTED with reason
+  COORDINATOR_REASON_EXPECTED_SEQUENCE_STALE; that key is STRICT's alone
+  (decision 14.45, amended). Under AGGREGATE_HANDLES and COMMUTATIVE a
+  moved stream is never answered that key: the resolution's own rule
+  decides. What they do when the stream moves after the window is delivered
+  and before the write is not yet decided, so no scenario here says. A
   command without one is decided against the head, so it is never stale:
   the coordinator re-runs it on the new head. Reaction commands (from policies; a process manager sends
   none, decision 14.31) never carry an expected sequence or a resolution.
@@ -203,6 +207,22 @@ Feature: Conflict resolution - how the coordinator treats a stale command
     And an ItemAdded event is persisted at sequence 3
 
   @conflict_resolution
+  @C-0721
+  Scenario Outline: A moved stream is never stale outside STRICT - the resolution's own rule decides
+    Given an AddItem command with conflict resolution <resolution> targeting sequence 1
+    And the business process answers an ItemAdded event, reporting <reported>
+    When the coordinator processes the command
+    Then business code receives the events at sequences 1 and 2 as the window
+    And <outcome>
+
+    Examples:
+      | resolution        | reported                                                     | outcome                                                                                               |
+      | AGGREGATE_HANDLES | the conflict nonce it was delivered as its resolved nonce    | an ItemAdded event is persisted at sequence 3                                                         |
+      | AGGREGATE_HANDLES | no resolved nonce                                            | the command fails ABORTED with reason COORDINATOR_REASON_CONFLICT_UNRESOLVED and nothing is persisted |
+      | COMMUTATIVE       | window units "items[pear]" and command units "items[apple]"  | an ItemAdded event is persisted at sequence 3                                                         |
+      | COMMUTATIVE       | window units "items[pear]" and command units "items[pear]"   | the command fails ABORTED with reason COORDINATOR_REASON_CONFLICT_OVERLAP and nothing is persisted    |
+
+  @conflict_resolution
   @C-0172
   Scenario Outline: The resolution decides how a stale command is delivered
     Given an AddItem command with conflict resolution <resolution> targeting sequence 1
@@ -219,20 +239,14 @@ Feature: Conflict resolution - how the coordinator treats a stale command
   # A same-stream race at the write (decision 14.45)
   # ===========================================================================
 
-  @write_race
+  @write_race @strict
   @C-0718
-  Scenario Outline: A command with an expected sequence that loses a race at its write is stale
-    Given an AddItem command with conflict resolution <resolution> targeting sequence 3
+  Scenario: Strict - a command with an expected sequence that loses a race at its write is stale
+    Given an AddItem command with conflict resolution STRICT targeting sequence 3
     And another write to the "order" stream lands at sequence 3 after the command is loaded and before it is written
     When the coordinator processes the command
     Then the command fails ABORTED with reason COORDINATOR_REASON_EXPECTED_SEQUENCE_STALE, expected "3" and actual "4", and nothing is persisted
     And the coordinator does not re-run the command
-
-    Examples:
-      | resolution        |
-      | STRICT            |
-      | AGGREGATE_HANDLES |
-      | COMMUTATIVE       |
 
   @write_race
   @C-0719

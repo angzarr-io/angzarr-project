@@ -282,11 +282,16 @@ message Cover {
 // re-runs it on the new head (optimistic concurrency, per stream only;
 // decision 14.45).
 //
-// A command whose sender provided expected_sequence is never re-run. If
-// another write to the same stream lands between its load and its write,
-// under any resolution, it fails ABORTED with
-// COORDINATOR_REASON_EXPECTED_SEQUENCE_STALE (args expected, actual) and
-// nothing is persisted (decision 14.45).
+// A command whose sender provided expected_sequence is never re-run.
+// COORDINATOR_REASON_EXPECTED_SEQUENCE_STALE is STRICT's alone: under
+// STRICT, a stream that has moved, found at load or because another write
+// to the same stream lands between the command's load and its write, fails
+// the command ABORTED with that key (args expected, actual) and nothing is
+// persisted. Under AGGREGATE_HANDLES and COMMUTATIVE a moved stream is
+// never answered that key: each applies its own rule, below (decision
+// 14.45, amended). What AGGREGATE_HANDLES and COMMUTATIVE do when another
+// write to the same stream lands after the window is delivered and before
+// the command's write is not yet decided.
 //
 // The concurrency window is the run of events the command did not see:
 // sequences handling.expected_sequence .. head-1 (see ContextualCommand).
@@ -295,9 +300,10 @@ message Cover {
 // COORDINATOR_REASON_EXPECTED_SEQUENCE_STALE (args expected, actual; a
 // failed test-and-set: the caller re-reads and re-issues), before business
 // code runs. STRICT runs in the coordinator.
-// AGGREGATE_HANDLES: no coordinator check; decide receives the events since
-// the expected sequence (the window) with the command and applies its own
-// conflict rule. The window is always delivered as pages: the snapshot
+// AGGREGATE_HANDLES: no coordinator check (never
+// COORDINATOR_REASON_EXPECTED_SEQUENCE_STALE); decide receives the events
+// since the expected sequence (the window) with the command and applies its
+// own conflict rule. The window is always delivered as pages: the snapshot
 // delivered with the command is at or below expected_sequence-1, never one
 // that has already folded part of the window (see ContextualCommand).
 //
@@ -315,7 +321,9 @@ message Cover {
 // examined the conflicting events.)
 //
 // COMMUTATIVE: the client library resolves the window automatically, so
-// business code writes no conflict logic. The window and the nonce are
+// business code writes no conflict logic (and the coordinator never answers
+// COORDINATOR_REASON_EXPECTED_SEQUENCE_STALE: an overlap is
+// COORDINATOR_REASON_CONFLICT_OVERLAP). The window and the nonce are
 // delivered exactly as under AGGREGATE_HANDLES, and the same snapshot rule
 // applies (the delivered snapshot is at or below expected_sequence-1, so
 // the window arrives as pages). The library, not the handler, then computes
@@ -1079,11 +1087,14 @@ message Handling {
   // a concrete sequence.
   //
   // At the write the stream may have moved again: another write to the same
-  // stream landed after the load. A provided expected_sequence then fails
-  // the command ABORTED, COORDINATOR_REASON_EXPECTED_SEQUENCE_STALE, under
-  // any resolution; a stamped one is re-run by the coordinator on the new
-  // head (decision 14.45). Ordering is per stream: no other stream's writes
-  // matter.
+  // stream landed after the load. Under STRICT a provided expected_sequence
+  // then fails the command ABORTED,
+  // COORDINATOR_REASON_EXPECTED_SEQUENCE_STALE; a stamped one is re-run by
+  // the coordinator on the new head (decision 14.45). Under
+  // AGGREGATE_HANDLES and COMMUTATIVE a provided expected_sequence is never
+  // answered that key; what they do when the stream moves after the window
+  // is delivered is not yet decided (decision 14.45, amended). Ordering is
+  // per stream: no other stream's writes matter.
   optional uint64 expected_sequence = 1;
   // What to do with a stale expected_sequence (see ConflictResolution).
   // Unspecified: the configured default.

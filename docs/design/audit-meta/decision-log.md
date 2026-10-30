@@ -3536,6 +3536,22 @@ loses a race is re-run.** Owner ruling, 2026-10-30. Follows 14.35, 14.37,
 - Cost: every coordinator (core's and angzarr-embedded's) answers the key
   and re-runs a stamped command that loses a race; a re-run invokes
   business code again, so a handler sees the same command twice.
+- **Amended, 2026-10-30 (owner correction).** The owner's words: "strict
+  only on expected seq"; "aggregate handles and commutative should follow
+  their rules". `COORDINATOR_REASON_EXPECTED_SEQUENCE_STALE` is STRICT's
+  alone, at load (C-0717) and at the write (C-0718, now STRICT-only). Under
+  AGGREGATE_HANDLES and COMMUTATIVE a command with an expected sequence
+  whose stream moved is never answered the key: the window is delivered
+  and the resolution's own rule decides (the nonce, 14.42:
+  `COORDINATOR_REASON_CONFLICT_UNRESOLVED`; unit overlap, 14.42:
+  `COORDINATOR_REASON_CONFLICT_OVERLAP`; C-0721). A command without an
+  expected sequence that loses a same-stream race is still re-run on the
+  new head (C-0719). Open: what AGGREGATE_HANDLES and COMMUTATIVE do when
+  another write to the same stream lands after the window is delivered and
+  before the command's write; their rules judge only the window delivered
+  at load, so no scenario asserts it until the owner rules.
+  `reasons.proto`, `types.proto`, `command_handler.proto` and
+  `conflict_resolution.feature` say so.
 
 ## Corrections
 
