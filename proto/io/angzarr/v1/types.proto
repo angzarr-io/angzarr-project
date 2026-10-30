@@ -391,7 +391,7 @@ message Cover {
 enum ConflictResolution {
   CONFLICT_RESOLUTION_UNSPECIFIED = 0; // Not specified: the configured default applies (COMMUTATIVE if the state supports it, else STRICT)
   CONFLICT_RESOLUTION_COMMUTATIVE = 1; // Accepted iff the window and the command change disjoint conflict units (options.proto): the client library reports them, the coordinator judges
-  CONFLICT_RESOLUTION_STRICT = 2; // Reject on sequence mismatch (optimistic concurrency)
+  CONFLICT_RESOLUTION_STRICT = 2; // Reject a command behind the head, ABORTED (optimistic concurrency); one ahead is malformed under every resolution
   CONFLICT_RESOLUTION_AGGREGATE_HANDLES = 3; // decide receives the window and applies its own conflict rule
 }
 
