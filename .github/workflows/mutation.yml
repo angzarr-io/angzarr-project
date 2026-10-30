@@ -1,7 +1,8 @@
 # The mutation full pass of rust/angzarr-ports, weekly and by hand: `just
 # mutation-test` (its justfile) mutates the whole crate and judges the kill
-# rate against MUTATION_THRESHOLD. The pre-push gate (`mutation-push`) judges
-# only what a push adds; this pass catches what has drifted under it. The
+# rate against MUTATION_THRESHOLD. No git hook runs mutation; `mutation-push`
+# judges what a push adds, by hand, and this pass catches what has drifted
+# under it. The
 # crate needs protoc (angzarr-proto) and a stable toolchain.
 # All logic lives in justfile recipes; this workflow only invokes them.
 name: Mutation

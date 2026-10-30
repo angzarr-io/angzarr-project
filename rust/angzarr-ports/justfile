@@ -62,8 +62,8 @@ mutation-test:
 
 # Mutation-test only the lines the diff PATCH changes (paths relative to this
 # crate, a/ and b/ prefixes; this tree's lines on the b side), judged the same
-# way, in place: the pre-push `mutation-push` (the repository's justfile)
-# runs it in a throwaway tree of the pushed commit. Exits 4 when the tests
+# way, in place: `mutation-push` (the repository's justfile, by hand) runs it
+# in a throwaway tree of the pushed commit. Exits 4 when the tests
 # fail unmutated (cargo-mutants' baseline), so no mutant can be judged.
 mutation-diff PATCH:
     @just --justfile '{{justfile_directory()}}/justfile' _mutation target/mutants-push '{{PATCH}}' --in-place

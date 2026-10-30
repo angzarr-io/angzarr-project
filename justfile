@@ -147,8 +147,12 @@ check-reason-names:
 test-check-feature-ids:
     python3 -m unittest scripts/test_check_feature_ids.py
 
-# lefthook's pre-push step, given the remote's name and git's pushed refs on
-# stdin: mutation-test what each pushed ref changes in rust/angzarr-ports
+# By hand (no git hook runs mutation), given the remote's name and git's
+# pre-push refs on stdin; for the current branch against origin:
+#
+#     echo "refs/heads/B $(git rev-parse HEAD) refs/heads/B 0" | just mutation-push origin
+#
+# Mutation-test what each ref given changes in rust/angzarr-ports
 # (`mutation-diff` there, judged by its MUTATION_THRESHOLD), in that commit's
 # tree checked out alone (rust/angzarr-ports/target/push-tree), so an
 # unpushed edit cannot pass or fail it. The diff's base is the merge base of
@@ -161,8 +165,7 @@ test-check-feature-ids:
 # Red tests (cargo-mutants' baseline fails, exit 4) cannot be judged: pushed
 # to a branch other than the default one they pass, with a warning that the
 # branch cannot merge until they pass; pushed to the default branch they are
-# refused. `lefthook` is what lefthook.yml passes to stop lefthook skipping
-# it, and is ignored.
+# refused. `lefthook` is ignored.
 [positional-arguments]
 mutation-push remote *lefthook:
     #!/usr/bin/env bash
