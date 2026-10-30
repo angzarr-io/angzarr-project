@@ -19,7 +19,9 @@
 //! `EditionSummary` and `DeleteEditionRequest`; editions are per-stream
 //! forks; `EditionAdminService` itself is not generated), the framework
 //! meta-events of `io.angzarr.v1.meta` (`v1::meta`: `EditionCreated` and
-//! `EditionDeleted`), plus
+//! `EditionDeleted`), the framework's reason keys from `reasons.proto`
+//! (`RouterReason`, `HostReason`, `CoordinatorReason`: a key travels as its
+//! value's bare name, `as_str_name()`, never its number), plus
 //! `sererr.v1`, which `types.proto` imports. Every
 //! message implements [`prost::Name`] with no type-name domain, so
 //! `prost_types::Any::from_msg` yields type URLs of the form

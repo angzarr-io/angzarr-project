@@ -2,7 +2,8 @@
 //! canonical protos (lifted from angzarr-router's `crates/router/build.rs`).
 //!
 //! Only `types.proto` (with `sererr/v1/sererr.proto`, which it imports),
-//! `upcaster.proto`, `options.proto`, `meta.proto` and the meta-events'
+//! `upcaster.proto`, `options.proto`, `meta.proto`, `reasons.proto` (the
+//! framework's reason-key enums) and the meta-events'
 //! `meta/events.proto` (package `io.angzarr.v1.meta`) are compiled. prost generates the
 //! option messages (`ConflictUnit`, `ComponentOptions`, ...) but not the
 //! `extend` declarations, which it ignores; their values are read from
@@ -50,6 +51,7 @@ fn main() {
         root.join("io/angzarr/v1/upcaster.proto"),
         root.join("io/angzarr/v1/options.proto"),
         root.join("io/angzarr/v1/meta.proto"),
+        root.join("io/angzarr/v1/reasons.proto"),
         root.join("io/angzarr/v1/meta/events.proto"),
         root.join("sererr/v1/sererr.proto"),
     ];

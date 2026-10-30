@@ -46,6 +46,7 @@ pub const FILES: &[ProtoFile] = embedded![
     "io/angzarr/v1/upcaster.proto",
     "io/angzarr/v1/options.proto",
     "io/angzarr/v1/meta.proto",
+    "io/angzarr/v1/reasons.proto",
     "io/angzarr/v1/meta/events.proto",
     "sererr/v1/sererr.proto",
     "google/api/annotations.proto",

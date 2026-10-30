@@ -1,0 +1,166 @@
+syntax = "proto3";
+package io.angzarr.v1;
+
+option csharp_namespace = "Angzarr";
+option go_package = "github.com/benjaminabbitt/angzarr/client/go/proto/io/angzarr/v1;angzarr";
+option java_multiple_files = true;
+option java_package = "io.angzarr";
+option ruby_package = "Angzarr";
+
+// The framework's reason keys (decisions 14.37, 14.42 and 14.44): every key
+// angzarr answers, once, in the enum of the component that answers it.
+//
+//   RouterReason       the client library's router, in every language
+//   HostReason         the client library's component host, in every
+//                      language (parity/client/hosting.feature)
+//   CoordinatorReason  core's coordinator and the angzarr-embedded kernel
+//
+// The key on the wire is the VALUE'S NAME, bare: the gRPC status message,
+// the google.rpc.ErrorInfo reason and Diagnostic.code are
+// "DUPLICATE_COMPONENT", never a number and never an enum-prefixed name
+// (so buf's ENUM_VALUE_PREFIX is excepted in buf.yaml). The numbers are
+// bookkeeping only: no message carries these enums as a field, nothing
+// encodes a key by its number, and renumbering one breaks nothing on the
+// wire. Each *_UNSPECIFIED value exists because proto3 demands a zero; it
+// is never answered. A value name is unique across the package (protobuf's
+// enum scoping), so no key can be live in two enums.
+//
+// Each value's comment gives the gRPC status it travels with and the names
+// of its args (the ErrorInfo metadata keys and Diagnostic.args names).
+// "Readiness" means the key never travels as a status: it is a readiness
+// refusal, logged and alerted (component.proto). A `cause` arg flattens a
+// wrapped key and its args as `cause` and `cause.<arg>` (types.proto, the
+// diagnostic region). Which class a status is (decision 14.37's four
+// classes) is the coordinator's to decide, not listed here. English for a
+// key comes from a Fluent catalog keyed by it, never from this file.
+//
+// A retired key is never answered again and never reused for another
+// meaning. Each enum reserves every retired name, so protoc refuses a value
+// that would bring one back in any of them. Unlike a removed field (policy
+// 6.6, buf.yaml), a retired key is reserved from the moment it retires: the
+// reservation guards a meaning, not stored bytes.
+
+// Keys the client library's router answers.
+enum RouterReason {
+  ROUTER_REASON_UNSPECIFIED = 0;
+  // INTERNAL, or the retryable status a handler picks (C-0678). Args:
+  // cause.
+  UNHANDLED_HANDLER_ERROR = 1;
+  // INTERNAL. No args. Travels only as UNHANDLED_HANDLER_ERROR's cause.
+  HANDLER_PANICKED = 2;
+  // FAILED_PRECONDITION. Args: refusal_type.
+  COMMAND_REFUSED = 3;
+  // INTERNAL. Args: sequence, type_url, first_sequence, last_sequence,
+  // state_type_url, cause.
+  FOLD_FAILED = 4;
+  // INTERNAL. Args: sequence, type_url, first_sequence, last_sequence,
+  // state_type_url, cause.
+  FOLD_FAILED_EMITTED = 5;
+  // DATA_LOSS. Args: type_url.
+  PERSISTED_EVENT_CORRUPT = 6;
+  // INTERNAL. Args: message_type, ext_err_txt.
+  ANY_DECODE_FAILED = 7;
+  // INTERNAL. Args: type_url, upcast_type_url. The router sends type_url
+  // only; the coordinator relays it with upcast_type_url (14.39).
+  UNKNOWN_COMMAND_TYPE = 8;
+  // INTERNAL. Args: type_url, upcast_type_url. Relayed as
+  // UNKNOWN_COMMAND_TYPE is.
+  NO_FACT_HANDLER = 9;
+  // INTERNAL. Args: command_type.
+  NO_REFUSAL_HANDLER = 10;
+  // INTERNAL. No args.
+  CONFLICT_RESOLUTION_UNSUPPORTED = 11;
+  // UNIMPLEMENTED. No args.
+  NO_COMPONENT_OF_KIND = 12;
+  // INTERNAL. No args.
+  NO_HANDLERS_REGISTERED = 13;
+  // INTERNAL. Args: component, component_kind.
+  DUPLICATE_COMPONENT = 14;
+
+  // Retired by 14.37.
+  reserved "MALFORMED_REFUSAL_FACT", "DUPLICATE_REGISTRATION", "NO_HANDLER_REGISTERED";
+  // Retired by 14.39.
+  reserved "DUPLICATE_UPCASTER_CHAIN", "DUPLICATE_COMMAND_HANDLER";
+  // Retired by 14.42.
+  reserved "MISSING_COMMAND_BOOK", "MISSING_COMMAND_PAGE", "MISSING_COMMAND_PAYLOAD";
+  reserved "MISSING_EVENT_BOOK_COVER", "EMPTY_POLICY_SOURCE", "POLICY_SOURCE_OUTSIDE_INPUT_DOMAIN";
+  reserved "REFUSAL_FACT_MISSING", "REFUSAL_WITHOUT_COMMAND", "REFUSAL_WITHOUT_EVENT";
+  reserved "REFUSAL_WITHOUT_REFUSED_COMMAND", "REFUSED_COMMAND_WITHOUT_ID", "REFUSAL_WITHOUT_TRIGGER_STREAM";
+  reserved "HOST_STATUS_UNDECODABLE", "NULL_ABI_POINTER";
+}
+
+// Keys the client library's component host answers. Each is a refusal to
+// start, raised as the language's configuration error.
+enum HostReason {
+  HOST_REASON_UNSPECIFIED = 0;
+  // INTERNAL. Args: component. An upcaster is its own sidecar (14.39),
+  // never hosted beside a component.
+  UPCASTER_WITH_COMPONENT = 1;
+  // INTERNAL. No args. A host with no component registered (C-0504).
+  NO_COMPONENTS_REGISTERED = 2;
+
+  // Retired by 14.37.
+  reserved "MALFORMED_REFUSAL_FACT", "DUPLICATE_REGISTRATION", "NO_HANDLER_REGISTERED";
+  // Retired by 14.39.
+  reserved "DUPLICATE_UPCASTER_CHAIN", "DUPLICATE_COMMAND_HANDLER";
+  // Retired by 14.42.
+  reserved "MISSING_COMMAND_BOOK", "MISSING_COMMAND_PAGE", "MISSING_COMMAND_PAYLOAD";
+  reserved "MISSING_EVENT_BOOK_COVER", "EMPTY_POLICY_SOURCE", "POLICY_SOURCE_OUTSIDE_INPUT_DOMAIN";
+  reserved "REFUSAL_FACT_MISSING", "REFUSAL_WITHOUT_COMMAND", "REFUSAL_WITHOUT_EVENT";
+  reserved "REFUSAL_WITHOUT_REFUSED_COMMAND", "REFUSED_COMMAND_WITHOUT_ID", "REFUSAL_WITHOUT_TRIGGER_STREAM";
+  reserved "HOST_STATUS_UNDECODABLE", "NULL_ABI_POINTER";
+}
+
+// Keys core's coordinator and the angzarr-embedded kernel answer.
+enum CoordinatorReason {
+  COORDINATOR_REASON_UNSPECIFIED = 0;
+  // ABORTED. No args.
+  CONFLICT_UNRESOLVED = 1;
+  // ABORTED. Args: window_units, command_units.
+  CONFLICT_OVERLAP = 2;
+  // FAILED_PRECONDITION. Args: type_url.
+  PM_NO_INSTANCE = 3;
+  // INTERNAL. Args: domain.
+  REFUSAL_FACT_WRONG_STREAM = 4;
+  // INTERNAL. Args: expected_domain, actual_domain.
+  POLICY_COMMAND_OUTSIDE_DESTINATION = 5;
+  // INTERNAL. Args: expected_edition, actual_edition.
+  POLICY_COMMAND_OUTSIDE_EDITION = 6;
+  // INTERNAL. Args: domain, command_type.
+  POLICY_COMMAND_NO_ROOT = 7;
+  // INTERNAL. Args: domain, command_type.
+  POLICY_COMMAND_OTHER_CORRELATION = 8;
+  // INTERNAL. No args.
+  REFUSAL_FACT_ADDRESSED = 9;
+  // INTERNAL. No args.
+  REFUSAL_FACT_NO_PAGE = 10;
+  // INTERNAL. No args.
+  REFUSAL_FACT_NOT_A_FACT = 11;
+  // INTERNAL. No args.
+  REFUSAL_FACT_IDENTIFIED = 12;
+  // Readiness. Args: component.
+  MISSING_RULES_VERSION = 13;
+  // Readiness. Args: component, component_kind.
+  MISSING_STATE_TYPE = 14;
+  // Readiness. Args: component, component_kind.
+  STARTING_TYPES_ON_NON_PM = 15;
+  // Readiness. Args: component, component_kind.
+  STATE_ON_STATELESS_KIND = 16;
+  // Readiness. Args: component, input_count.
+  POLICY_INPUT_COUNT = 17;
+  // Readiness. Args: component.
+  POLICY_NO_OUTPUT_DOMAIN = 18;
+  // Readiness. Args: component, component_kind.
+  OUTPUT_DOMAIN_ON_NON_POLICY = 19;
+
+  // Retired by 14.37.
+  reserved "MALFORMED_REFUSAL_FACT", "DUPLICATE_REGISTRATION", "NO_HANDLER_REGISTERED";
+  // Retired by 14.39.
+  reserved "DUPLICATE_UPCASTER_CHAIN", "DUPLICATE_COMMAND_HANDLER";
+  // Retired by 14.42.
+  reserved "MISSING_COMMAND_BOOK", "MISSING_COMMAND_PAGE", "MISSING_COMMAND_PAYLOAD";
+  reserved "MISSING_EVENT_BOOK_COVER", "EMPTY_POLICY_SOURCE", "POLICY_SOURCE_OUTSIDE_INPUT_DOMAIN";
+  reserved "REFUSAL_FACT_MISSING", "REFUSAL_WITHOUT_COMMAND", "REFUSAL_WITHOUT_EVENT";
+  reserved "REFUSAL_WITHOUT_REFUSED_COMMAND", "REFUSED_COMMAND_WITHOUT_ID", "REFUSAL_WITHOUT_TRIGGER_STREAM";
+  reserved "HOST_STATUS_UNDECODABLE", "NULL_ABI_POINTER";
+}
