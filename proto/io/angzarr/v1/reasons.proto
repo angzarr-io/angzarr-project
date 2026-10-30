@@ -50,7 +50,8 @@ enum RouterReason {
   // INTERNAL, or the retryable status a handler picks (C-0678). Args:
   // cause.
   ROUTER_REASON_UNHANDLED_HANDLER_ERROR = 1;
-  // INTERNAL. No args. Travels only as ROUTER_REASON_UNHANDLED_HANDLER_ERROR's cause.
+  // INTERNAL. No args. Travels only as
+  // ROUTER_REASON_UNHANDLED_HANDLER_ERROR's cause.
   ROUTER_REASON_HANDLER_PANICKED = 2;
   // FAILED_PRECONDITION. Args: refusal_type.
   ROUTER_REASON_COMMAND_REFUSED = 3;

@@ -3439,9 +3439,11 @@ standard names.** Owner rulings, 2026-10-30. Amends 14.37 and 14.42.
   and `Diagnostic.code` were `DUPLICATE_COMPONENT` and are now
   `ROUTER_REASON_DUPLICATE_COMPONENT`, never a number. The enums follow
   buf's standard lint with no exception: `ENUM_VALUE_PREFIX` and
-  `ENUM_ZERO_VALUE_SUFFIX` leave `buf.yaml`'s `except` list, and
-  `ENUM_VALUE_PREFIX` is ignored for the blackjack example's `cards.proto`
-  alone (its `Suit` values are the example's, in its own repos). The owner
+  `ENUM_ZERO_VALUE_SUFFIX` leave `buf.yaml`'s `except` list, with no
+  per-file exception either: the blackjack example's `Suit` values become
+  `SUIT_CLUBS`, `SUIT_DIAMONDS`, `SUIT_HEARTS` and `SUIT_SPADES`, each
+  keeping its number (owner ruling, 2026-10-30), so a stored `Card`
+  decodes as before and only the JSON names change. The owner
   accepted the change over keeping bare names behind a lint exception: the
   enums lint as any proto does, and a key names its owner. Every feature,
   proto comment, guide, site page, backlog line and decision in this repo
