@@ -148,10 +148,10 @@ Feature: Conflict resolution - how the coordinator treats a stale command
     Then <outcome>
 
     Examples:
-      | reported                  | outcome                                                                          |
-      | resolved nonce "n-1"      | an ItemAdded event is persisted at sequence 3                                    |
-      | no resolved nonce         | the command fails ABORTED with reason CONFLICT_UNRESOLVED and nothing is persisted |
-      | resolved nonce "made-up"  | the command fails ABORTED with reason CONFLICT_UNRESOLVED and nothing is persisted |
+      | reported                 | outcome                                                                                               |
+      | resolved nonce "n-1"     | an ItemAdded event is persisted at sequence 3                                                         |
+      | no resolved nonce        | the command fails ABORTED with reason COORDINATOR_REASON_CONFLICT_UNRESOLVED and nothing is persisted |
+      | resolved nonce "made-up" | the command fails ABORTED with reason COORDINATOR_REASON_CONFLICT_UNRESOLVED and nothing is persisted |
 
   # ===========================================================================
   # COMMUTATIVE - delivered like AGGREGATE_HANDLES
@@ -166,13 +166,13 @@ Feature: Conflict resolution - how the coordinator treats a stale command
     Then <outcome>
 
     Examples:
-      | window            | mine                       | outcome                                                                                                      |
-      | "items[pear]"     | "items[apple]"             | an ItemAdded event is persisted at sequence 3                                                                |
-      | "items[pear]"     | "items[pear]"              | the command fails ABORTED with reason CONFLICT_OVERLAP, window_units "items[pear]" and command_units "items[pear]", and nothing is persisted |
-      | "items[42]"       | "items[42].weight"         | the command fails ABORTED with reason CONFLICT_OVERLAP and nothing is persisted                              |
-      | "items[4]"        | "items[42]"                | an ItemAdded event is persisted at sequence 3                                                                |
-      | "*notes"          | "items[apple]"             | the command fails ABORTED with reason CONFLICT_OVERLAP and nothing is persisted                              |
-      | none              | "items[apple]"             | an ItemAdded event is persisted at sequence 3                                                                |
+      | window        | mine               | outcome                                                                                                                                                         |
+      | "items[pear]" | "items[apple]"     | an ItemAdded event is persisted at sequence 3                                                                                                                   |
+      | "items[pear]" | "items[pear]"      | the command fails ABORTED with reason COORDINATOR_REASON_CONFLICT_OVERLAP, window_units "items[pear]" and command_units "items[pear]", and nothing is persisted |
+      | "items[42]"   | "items[42].weight" | the command fails ABORTED with reason COORDINATOR_REASON_CONFLICT_OVERLAP and nothing is persisted                                                              |
+      | "items[4]"    | "items[42]"        | an ItemAdded event is persisted at sequence 3                                                                                                                   |
+      | "*notes"      | "items[apple]"     | the command fails ABORTED with reason COORDINATOR_REASON_CONFLICT_OVERLAP and nothing is persisted                                                              |
+      | none          | "items[apple]"     | an ItemAdded event is persisted at sequence 3                                                                                                                   |
 
   @commutative
   @C-0149

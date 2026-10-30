@@ -63,7 +63,7 @@ Feature: Process manager delivery - a process manager is a domain, behind its ow
     And "Fulfillment" also takes a RecordStockReserved command, which is not a starting input
     And "Fulfillment" has no instance for correlation "0192a6b0-0000-7000-8000-000000000013"
     When a client sends a RecordStockReserved command to "fulfillment" root "0192a6b0-0000-7000-8000-000000000013"
-    Then the client is answered FAILED_PRECONDITION with reason PM_NO_INSTANCE
+    Then the client is answered FAILED_PRECONDITION with reason COORDINATOR_REASON_PM_NO_INSTANCE
     And "Fulfillment" is not called
     And nothing is appended to stream "fulfillment" root "0192a6b0-0000-7000-8000-000000000013"
 

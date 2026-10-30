@@ -18,7 +18,7 @@ Feature: Fact injection
   (ComponentOptions.facts); each is handled by its fact handler, which
   records the fact and may add events that flag it but cannot refuse it.
   A fact of an undeclared type is a wiring error: refused with
-  INTERNAL / NO_FACT_HANDLER (a bug, dead-lettered and alerted; decision
+  INTERNAL / ROUTER_REASON_NO_FACT_HANDLER (a bug, dead-lettered and alerted; decision
   14.37) and nothing is persisted.
 
   Facts vs Commands vs Notifications:
@@ -86,7 +86,7 @@ Feature: Fact injection
   Scenario: A fact of a type the aggregate does not declare is refused and nothing is persisted
     Given an "order" aggregate with 3 existing events
     When an OrderRefunded fact with external_id "refund-R1" is injected into the "order" aggregate
-    Then the injection fails with INTERNAL and angzarr error code NO_FACT_HANDLER
+    Then the injection fails with INTERNAL and angzarr error code ROUTER_REASON_NO_FACT_HANDLER
     And the "order" aggregate still has 3 events
     And external_id "refund-R1" is not recorded as processed
 

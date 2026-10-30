@@ -40,7 +40,7 @@ service CommandHandlerService {
   //      decide, which may reject; Fact -> ingest, which never rejects), and
   //      the type URL picks the handler. A type URL no registered handler
   //      claims is refused INTERNAL (a bug: decision 14.37) with reason
-  //      UNKNOWN_COMMAND_TYPE (NO_FACT_HANDLER for a fact), which is also
+  //      ROUTER_REASON_UNKNOWN_COMMAND_TYPE (ROUTER_REASON_NO_FACT_HANDLER for a fact), which is also
   //      the status message (a key, never text); the status details carry a
   //      google.rpc.ErrorInfo whose metadata key "type_url" holds the type
   //      URL the library was given. The coordinator answers its caller with
@@ -130,7 +130,7 @@ message ConflictReport {
   // AGGREGATE_HANDLES: the nonce the handler passed to resolve_conflicts,
   // empty when it never called it. The coordinator accepts the events only
   // if it equals ContextualCommand.conflict_nonce; otherwise ABORTED,
-  // CONFLICT_UNRESOLVED.
+  // COORDINATOR_REASON_CONFLICT_UNRESOLVED.
   bytes resolved_nonce = 1;
   // COMMUTATIVE: changed(state at expected_sequence, head), the units the
   // window changed, as unit paths.
@@ -138,7 +138,7 @@ message ConflictReport {
   // COMMUTATIVE: changed(head, head with the command's events folded in),
   // the units the command changed. The coordinator accepts the events only
   // if window_units and command_units do not overlap (options.proto,
-  // Overlap); otherwise ABORTED, CONFLICT_OVERLAP, metadata window_units and
+  // Overlap); otherwise ABORTED, COORDINATOR_REASON_CONFLICT_OVERLAP, metadata window_units and
   // command_units.
   repeated string command_units = 3;
 }
@@ -205,11 +205,11 @@ message ConflictReport {
 //               backoff below, then dead-lettering it and alerting. Never a
 //               policy's OnRefused.
 //   Bug, fatal: INTERNAL, UNKNOWN, DATA_LOSS (a handler bug is INTERNAL
-//               UNHANDLED_HANDLER_ERROR, its own key the cause). Never
+//               ROUTER_REASON_UNHANDLED_HANDLER_ERROR, its own key the cause). Never
 //               retried; alerted and dead-lettered at once, and never a
 //               policy's OnRefused.
 //   Bug, retryable: UNAVAILABLE, DEADLINE_EXCEEDED, RESOURCE_EXHAUSTED
-//               (a handler's retryable bug picks one: UNHANDLED_HANDLER_ERROR,
+//               (a handler's retryable bug picks one: ROUTER_REASON_UNHANDLED_HANDLER_ERROR,
 //               its own key the cause), UNIMPLEMENTED and every other code.
 //               Retried, on by default, with exponential backoff and jitter
 //               up to a cap (the scale, the jitter factor and the cap are

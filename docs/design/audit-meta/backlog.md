@@ -191,7 +191,7 @@ dead-lettering from core is PR-6.
   root and edition),
   and takes the refused command's id as such a fact's id. A refusal with
   no path (a pass-through `CommandRefused` the source answers
-  `NO_REFUSAL_HANDLER`, decision 14.37) and a failing translating callback are
+  `ROUTER_REASON_NO_REFUSAL_HANDLER`, decision 14.37) and a failing translating callback are
   dead-lettered and alerted: coverage is checked only at run time.
 - What (clients, router): a command's generated handler result is its
   events or one of its `(command).refuses` types, the chosen refusal
@@ -699,7 +699,7 @@ index.
   `Describe` with it. The PM's coordinator refuses a non-PM descriptor
   listing starting types; for a correlation with no instance it skips a
   non-starting fact silently (answered `APPLIED`, no events) and refuses
-  a non-starting command (`FAILED_PRECONDITION`, `PM_NO_INSTANCE`).
+  a non-starting command (`FAILED_PRECONDITION`, `COORDINATOR_REASON_PM_NO_INSTANCE`).
 - Why: decision 14.31 (annals ruling B1, adapted; the command case
   ruled by the owner, 2026-10-28); `CommandOptions.starts` (`options.proto`),
   `ComponentDescriptor.starting_types` (`types.proto`),
@@ -715,7 +715,7 @@ commands and facts before dispatch; the router refuses unknown types.**
   through the component's upcaster sidecar (the event chain, by type URL)
   before it judges the input by type and before dispatch (14.39). The
   router holds no chain. It refuses a type URL no handler claims as
-  `INTERNAL` `UNKNOWN_COMMAND_TYPE` (`NO_FACT_HANDLER`), with `type_url`
+  `INTERNAL` `ROUTER_REASON_UNKNOWN_COMMAND_TYPE` (`ROUTER_REASON_NO_FACT_HANDLER`), with `type_url`
   the type it was given. The coordinator answers its caller with `type_url`
   as sent and `upcast_type_url` the type the sidecar returned. Remove the
   router's chain (`UpcasterDispatch`, `with_command_upcaster`, the C ABI's
@@ -1293,9 +1293,9 @@ no-op implementations only.
 - What: the status message is the reason key and `ErrorInfo` carries the
   args; the English `messages` constants and every literal message go;
   each condition of decision 14.37's inventory gets its own key; a
-  business rejection carries its typed refusal (`COMMAND_REFUSED`,
+  business rejection carries its typed refusal (`ROUTER_REASON_COMMAND_REFUSED`,
   `refusal_type`) or its code and args; a handler bug is
-  `UNHANDLED_HANDLER_ERROR` with the handler's diagnostic as `cause`;
+  `ROUTER_REASON_UNHANDLED_HANDLER_ERROR` with the handler's diagnostic as `cause`;
   `RefusalResponse` is built as `refusal` or `diagnostic`; `fold_message`
   becomes the fold's `cause`.
 - Why: decision 14.37; `types.proto` (the `diagnostic` region).

@@ -238,7 +238,7 @@ event onwards, every removal reserves its number and name (see
     its own events out; no triggers; served by `CommandHandlerService` like
     an aggregate (`ProcessManagerService` and its messages deleted). Only
     declared starting inputs start an instance (B1; a non-starting fact is
-    skipped silently, a non-starting command refused, PM_NO_INSTANCE).
+    skipped silently, a non-starting command refused, COORDINATOR_REASON_PM_NO_INSTANCE).
     `EventMeta.triggering_event`, `ProcessManagerCoordinatorService` and
     `EventConsumer.applies` are deleted.
   - **Refusals (2.2 amended):** a saga's target refuses and records

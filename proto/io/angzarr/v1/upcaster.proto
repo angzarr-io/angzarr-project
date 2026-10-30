@@ -46,7 +46,7 @@ option ruby_package = "Angzarr";
 // page's payload. The business process (the client library's router) never
 // upcasts and never sees an old shape. A payload whose type URL, after
 // upcasting, reaches no handler is refused by the router INTERNAL (a bug:
-// decision 14.37) with reason UNKNOWN_COMMAND_TYPE (NO_FACT_HANDLER for a
+// decision 14.37) with reason ROUTER_REASON_UNKNOWN_COMMAND_TYPE (ROUTER_REASON_NO_FACT_HANDLER for a
 // fact), which is also the status message, naming the type it was given as
 // ErrorInfo metadata "type_url". The coordinator answers its caller with
 // that status, its ErrorInfo metadata "type_url" holding the type URL as

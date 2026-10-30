@@ -134,7 +134,7 @@ Feature: State Building - Aggregate State Reconstruction
     Given an event with corrupted payload bytes
     When I attempt to build state
     Then an error should be raised
-    And the error's reason is PERSISTED_EVENT_CORRUPT, with the event's type_url in its args
+    And the error's reason is ROUTER_REASON_PERSISTED_EVENT_CORRUPT, with the event's type_url in its args
 
   @C-0294
   Scenario: Missing required field in event

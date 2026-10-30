@@ -58,7 +58,7 @@ Feature: Handling a delivered command - versions, unknown types and conflict rep
     # One business process is one component (decision 14.19).
     Given the "order" business binary has its "order" aggregate registered
     When a <kind> component "<name>" is registered in the same business process
-    Then the registration is refused with reason DUPLICATE_COMPONENT, naming the "order" aggregate already registered
+    Then the registration is refused with reason ROUTER_REASON_DUPLICATE_COMPONENT, naming the "order" aggregate already registered
     And the business process describes only the "order" aggregate
 
     Examples:
@@ -102,7 +102,7 @@ Feature: Handling a delivered command - versions, unknown types and conflict rep
   @C-0682
   Scenario: A type no handler claims is refused naming the type it was given
     When RemoveEverything "apple" is handled over no prior events
-    Then the command is refused INTERNAL with reason UNKNOWN_COMMAND_TYPE, which is also its status message
+    Then the command is refused INTERNAL with reason ROUTER_REASON_UNKNOWN_COMMAND_TYPE, which is also its status message
     And the refusal's error info carries type_url "/orders.v1.RemoveEverything"
     And the refusal's error info carries no upcast_type_url
     And business code is not invoked
@@ -209,7 +209,7 @@ Feature: Handling a delivered command - versions, unknown types and conflict rep
   Scenario: A typed refusal is its refusal object: its type is the key, its fields the map
     Given business code refuses AddItem with the refusal object ItemOutOfStock with item "apple" and on_hand 0
     When AddItem "apple" is handled over no prior events
-    Then the command is refused FAILED_PRECONDITION with reason COMMAND_REFUSED, which is also its status message
+    Then the command is refused FAILED_PRECONDITION with reason ROUTER_REASON_COMMAND_REFUSED, which is also its status message
     And the refusal's error info carries refusal_type "orders.v1.ItemOutOfStock"
     And the refusal's status details carry the ItemOutOfStock with item "apple" and on_hand 0
 
@@ -222,34 +222,34 @@ Feature: Handling a delivered command - versions, unknown types and conflict rep
     # "an unclassified error" below, and any other exception is "panics".
     Given business code for AddItem <fails>
     When AddItem "apple" is handled over no prior events
-    Then the command is refused INTERNAL with reason UNHANDLED_HANDLER_ERROR, which is also its status message
+    Then the command is refused INTERNAL with reason ROUTER_REASON_UNHANDLED_HANDLER_ERROR, which is also its status message
     And the refusal's error info carries <cause>
     And no part of the answer carries the text "<text>"
 
     Examples:
-      | fails                                                          | cause                      | text                |
-      | fails with an unclassified error whose text is "connection reset" | no cause                | connection reset    |
-      | panics with "index out of bounds"                              | cause "HANDLER_PANICKED"   | index out of bounds |
+      | fails                                                             | cause                                  | text                |
+      | fails with an unclassified error whose text is "connection reset" | no cause                               | connection reset    |
+      | panics with "index out of bounds"                                 | cause "ROUTER_REASON_HANDLER_PANICKED" | index out of bounds |
 
   @error_keys
   @C-0672
-  Scenario: A handler bug with its own code crosses as that code and its args, nested under UNHANDLED_HANDLER_ERROR
+  Scenario: A handler bug with its own code crosses as that code and its args, nested under ROUTER_REASON_UNHANDLED_HANDLER_ERROR
     Given business code for AddItem fails with code LEDGER_OFFLINE and arg ledger "main", and logs "the ledger is offline" for itself
     When AddItem "apple" is handled over no prior events
-    Then the command is refused INTERNAL with reason UNHANDLED_HANDLER_ERROR, which is also its status message
+    Then the command is refused INTERNAL with reason ROUTER_REASON_UNHANDLED_HANDLER_ERROR, which is also its status message
     And the refusal's error info carries cause "LEDGER_OFFLINE" and cause.ledger "main"
     And no part of the answer carries the text "the ledger is offline"
 
   @error_keys
   @C-0678
-  Scenario Outline: A handler bug it marks retryable crosses as the status it picks, its code nested under UNHANDLED_HANDLER_ERROR
+  Scenario Outline: A handler bug it marks retryable crosses as the status it picks, its code nested under ROUTER_REASON_UNHANDLED_HANDLER_ERROR
     # Decision 14.37 (owner's rulings, 2026-10-29, latest): the handler
     # picks the retryable status, and they are not interchangeable:
     # UNAVAILABLE resend, DEADLINE_EXCEEDED resend only if idempotent,
     # RESOURCE_EXHAUSTED wait longer.
     Given business code for AddItem fails with a retryable bug under <status>, code LEDGER_OFFLINE and arg ledger "main", and logs "the ledger is offline" for itself
     When AddItem "apple" is handled over no prior events
-    Then the command is refused <status> with reason UNHANDLED_HANDLER_ERROR, which is also its status message
+    Then the command is refused <status> with reason ROUTER_REASON_UNHANDLED_HANDLER_ERROR, which is also its status message
     And the refusal's error info carries cause "LEDGER_OFFLINE" and cause.ledger "main"
     And no part of the answer carries the text "the ledger is offline"
 
@@ -281,16 +281,16 @@ Feature: Handling a delivered command - versions, unknown types and conflict rep
     And the refusal's error info carries <metadata>
 
     Examples:
-      | condition                                                                         | status           | reason                             | metadata                                          |
-      | the state fold fails on a persisted event at sequence 3                           | INTERNAL         | FOLD_FAILED                        | sequence "3" and state_type_url                   |
-      | the state fold fails on an event the command emitted at sequence 4                | INTERNAL         | FOLD_FAILED_EMITTED                | sequence "4" and state_type_url                   |
-      | a command of type "/orders.v1.Unknown" arrives                                    | INTERNAL         | UNKNOWN_COMMAND_TYPE               | type_url "/orders.v1.Unknown"                    |
-      | a fact of type "/orders.v1.Unheard" arrives                                       | INTERNAL         | NO_FACT_HANDLER                    | type_url "/orders.v1.Unheard"                    |
-      | a CommandRefused for RemoveEverything arrives with no on_refused_RemoveEverything | INTERNAL         | NO_REFUSAL_HANDLER                 | command_type "/orders.v1.RemoveEverything"        |
-      | a policy is dispatched to the business process hosting the "order" aggregate      | UNIMPLEMENTED    | NO_COMPONENT_OF_KIND               | no other metadata                                 |
-      | the router is built with two components                                           | INTERNAL         | DUPLICATE_COMPONENT                | component "order" and component_kind "AGGREGATE"  |
-      | a CommandRefused fact arrives whose payload does not decode                       | INTERNAL         | ANY_DECODE_FAILED                  | message_type "io.angzarr.v1.CommandRefused"       |
-      | a COMMUTATIVE command reaches a state with no resolver                            | INTERNAL         | CONFLICT_RESOLUTION_UNSUPPORTED    | no other metadata                                 |
+      | condition                                                                         | status        | reason                                        | metadata                                         |
+      | the state fold fails on a persisted event at sequence 3                           | INTERNAL      | ROUTER_REASON_FOLD_FAILED                     | sequence "3" and state_type_url                  |
+      | the state fold fails on an event the command emitted at sequence 4                | INTERNAL      | ROUTER_REASON_FOLD_FAILED_EMITTED             | sequence "4" and state_type_url                  |
+      | a command of type "/orders.v1.Unknown" arrives                                    | INTERNAL      | ROUTER_REASON_UNKNOWN_COMMAND_TYPE            | type_url "/orders.v1.Unknown"                    |
+      | a fact of type "/orders.v1.Unheard" arrives                                       | INTERNAL      | ROUTER_REASON_NO_FACT_HANDLER                 | type_url "/orders.v1.Unheard"                    |
+      | a CommandRefused for RemoveEverything arrives with no on_refused_RemoveEverything | INTERNAL      | ROUTER_REASON_NO_REFUSAL_HANDLER              | command_type "/orders.v1.RemoveEverything"       |
+      | a policy is dispatched to the business process hosting the "order" aggregate      | UNIMPLEMENTED | ROUTER_REASON_NO_COMPONENT_OF_KIND            | no other metadata                                |
+      | the router is built with two components                                           | INTERNAL      | ROUTER_REASON_DUPLICATE_COMPONENT             | component "order" and component_kind "AGGREGATE" |
+      | a CommandRefused fact arrives whose payload does not decode                       | INTERNAL      | ROUTER_REASON_ANY_DECODE_FAILED               | message_type "io.angzarr.v1.CommandRefused"      |
+      | a COMMUTATIVE command reaches a state with no resolver                            | INTERNAL      | ROUTER_REASON_CONFLICT_RESOLUTION_UNSUPPORTED | no other metadata                                |
 
   # ===========================================================================
   # Folding what it is given (decision 14.40)

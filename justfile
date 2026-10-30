@@ -117,24 +117,31 @@ check-gherkin *dirs="features parity":
         "pip install --quiet --disable-pip-version-check --root-user-action=ignore gherkin-official=={{GHERKIN_VERSION}} && python scripts/check_gherkin_parse.py {{dirs}}"
 
 # Required contract gates (proto-breaking is optional and run by hand)
-contracts: proto-lint test-check-feature-ids check-feature-ids check-gherkin check-rules check-retired-reasons
+contracts: proto-lint test-check-feature-ids check-feature-ids check-gherkin check-rules check-reason-names
 
-# No retired reason key is named in the features, the protos or the site
-# docs (the generated Proto API page aside). The retired keys are the names reasons.proto reserves (decision
-# 14.44); protoc refuses them as values, this catches them in prose.
-check-retired-reasons:
+# The features, the protos and the site docs (the generated Proto API page
+# aside) name no retired reason key, bare or prefixed, and no live key
+# without its enum's prefix (decision 14.44). reasons.proto is the list:
+# protoc refuses a reserved name as a value, this catches names in prose.
+check-reason-names:
     #!/usr/bin/env bash
     set -euo pipefail
-    keys=$(grep -E '^[[:space:]]*reserved[[:space:]]+"' proto/io/angzarr/v1/reasons.proto \
-        | grep -oE '"[A-Z0-9_]+"' | tr -d '"' | sort -u | paste -sd'|')
-    [ -n "$keys" ] || { echo "FAIL check-retired-reasons: reasons.proto reserves no name" >&2; exit 1; }
-    rc=0
-    grep -rnwE "($keys)" features proto site/src/content/docs --exclude=reasons.proto --exclude=proto-api.md || rc=$?
-    case "$rc" in
-        0) echo "FAIL check-retired-reasons: the lines above name a retired reason key" >&2; exit 1 ;;
-        1) echo "ok   check-retired-reasons ($(tr '|' '\n' <<< "$keys" | wc -l) retired keys, none named)" ;;
-        *) exit "$rc" ;;
-    esac
+    proto=proto/io/angzarr/v1/reasons.proto
+    prefixes='(ROUTER|HOST|COORDINATOR)_REASON_'
+    # A reserved name sits on a line of its own in a `reserved` list.
+    retired=$(grep -E "^[[:space:]]+\"${prefixes}[A-Z0-9_]+\"[,;]$" "$proto" | tr -d ' ",;' \
+        | sed -E "s/^${prefixes}//" | sort -u | paste -sd'|')
+    live=$(grep -oE "^[[:space:]]+${prefixes}[A-Z0-9_]+ = [1-9]" "$proto" \
+        | sed -E "s/^[[:space:]]+${prefixes}//; s/ = .*//" | sort -u | paste -sd'|')
+    [ -n "$retired" ] && [ -n "$live" ] || { echo "FAIL check-reason-names: no keys read from $proto" >&2; exit 1; }
+    scan() { grep -rnwE "$1" features proto site/src/content/docs --exclude=reasons.proto --exclude=proto-api.md; }
+    failed=0
+    rc=0; scan "(${prefixes})?(${retired})" || rc=$?
+    case "$rc" in 0) echo "FAIL check-reason-names: the lines above name a retired reason key" >&2; failed=1 ;; 1) ;; *) exit "$rc" ;; esac
+    rc=0; scan "(${live})" || rc=$?
+    case "$rc" in 0) echo "FAIL check-reason-names: the lines above name a reason key without its enum's prefix" >&2; failed=1 ;; 1) ;; *) exit "$rc" ;; esac
+    [ "$failed" = 0 ] || exit 1
+    echo "ok   check-reason-names ($(tr '|' '\n' <<< "$live" | wc -l) live keys prefixed, $(tr '|' '\n' <<< "$retired" | wc -l) retired keys unnamed)"
 
 # Unit tests for the scenario-ID checker
 test-check-feature-ids:

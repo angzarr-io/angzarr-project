@@ -27,12 +27,12 @@ angzarr-router's own `conformance/`, which this replaces.
 |---|---|---|
 | applier | `test.counter.Increased` | folds into state: `count += 1` |
 | command | `test.counter.IncreaseBy { n }` | `n > 0` emits `n` `Increased` events; `n == 0` is the rejection `VALUE_NOT_POSITIVE`, nothing emitted |
-| command | `test.counter.FailHard` | fails with the language's unclassified error: `UNHANDLED_HANDLER_ERROR`, no cause |
+| command | `test.counter.FailHard` | fails with the language's unclassified error: `ROUTER_REASON_UNHANDLED_HANDLER_ERROR`, no cause |
 
 The `IncreaseBy` handler also records the `CommandContext` it observed
 (`next_sequence`, `had_prior_events`), so scenarios can assert the
 historical evidence the router supplies. A command no handler claims
-(`test.counter.Reserve`) is `UNKNOWN_COMMAND_TYPE`, before any fold.
+(`test.counter.Reserve`) is `ROUTER_REASON_UNKNOWN_COMMAND_TYPE`, before any fold.
 
 ## What the router does not do
 

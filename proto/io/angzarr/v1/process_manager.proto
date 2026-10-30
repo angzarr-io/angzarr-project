@@ -59,7 +59,7 @@ option ruby_package = "Angzarr";
 // edition; see Cover.edition), and the root is the one the input's cover
 // names. A policy addressing a PM names that root, as it does for any
 // target (decision 14.36, as amended): nothing fills one in, and a policy
-// command with no root is a policy bug (POLICY_COMMAND_NO_ROOT;
+// command with no root is a policy bug (COORDINATOR_REASON_POLICY_COMMAND_NO_ROOT;
 // PolicyResponse.commands in policy.proto). By convention a policy may set
 // it to its trigger's correlation_id, unchanged (decision 14.30): no
 // derivation (no hash, no UUIDv5) and no text fallback, since a
@@ -91,7 +91,7 @@ option ruby_package = "Angzarr";
 //     alerted, and the sender is answered OK, APPLIED, with no events;
 //   - a COMMAND is refused (owner's ruling; decision 14.31):
 //     FAILED_PRECONDITION, with a google.rpc.ErrorInfo of reason
-//     PM_NO_INSTANCE, recording nothing, as any business rejection. A
+//     COORDINATOR_REASON_PM_NO_INSTANCE, recording nothing, as any business rejection. A
 //     policy's refused command then yields its refusal fact to the policy's
 //     source, which decides what an unstarted process means for it. The
 //     alternative, a silent skip answered APPLIED with no events, would

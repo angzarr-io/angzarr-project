@@ -49,23 +49,23 @@ Every error angzarr sends carries a **key** and an **argument map**, never rende
 |-------|---------|---------|
 | A gRPC status | The status message, and the `google.rpc.ErrorInfo` reason (domain `angzarr.io`) | The `ErrorInfo` metadata |
 | A message (`RefusalResponse`, `ProjectorFailure`, `AngzarrDeadLetter`, the DLQ details) | `Diagnostic.code` | `Diagnostic.args` |
-| A typed refusal object | Its type (on the wire, reason `COMMAND_REFUSED` with metadata `refusal_type`) | Its fields |
+| A typed refusal object | Its type (on the wire, reason `ROUTER_REASON_COMMAND_REFUSED` with metadata `refusal_type`) | Its fields |
 
-This holds for business code too. A handler's typed refusal is its refusal object; any other rejection, and every handler bug, carries a diagnostic code and its args. No free text crosses any boundary: a handler bug is answered `UNHANDLED_HANDLER_ERROR`, carrying the handler's own diagnostic as its cause (a panic's cause is `HANDLER_PANICKED`), and what the error or panic said stays in the handler's own log. A wrapped cause is flattened into the args: its code under the arg's name and its args under `<name>.<arg>`.
+This holds for business code too. A handler's typed refusal is its refusal object; any other rejection, and every handler bug, carries a diagnostic code and its args. No free text crosses any boundary: a handler bug is answered `ROUTER_REASON_UNHANDLED_HANDLER_ERROR`, carrying the handler's own diagnostic as its cause (a panic's cause is `ROUTER_REASON_HANDLER_PANICKED`), and what the error or panic said stays in the handler's own log. A wrapped cause is flattened into the args: its code under the arg's name and its args under `<name>.<arg>`.
 
-Every distinct condition has its own reason key, so no two conditions share a key and differ only by text. The framework's keys are the enums of `io/angzarr/v1/reasons.proto` (in the Proto API reference), one per component that answers them (`RouterReason`, `HostReason`, `CoordinatorReason`), each value's comment giving its status and args; on the wire a key is the value's bare name. Some of them:
+Every distinct condition has its own reason key, so no two conditions share a key and differ only by text. The framework's keys are the enums of `io/angzarr/v1/reasons.proto` (in the Proto API reference), one per component that answers them (`RouterReason`, `HostReason`, `CoordinatorReason`), each value's comment giving its status and args; on the wire a key is the value's full name, its enum's prefix included (`ROUTER_REASON_DUPLICATE_COMPONENT`). Some of them:
 
 | Condition | Reason | Status |
 |-----------|--------|--------|
-| A fold fails on a persisted event | `FOLD_FAILED` | `INTERNAL` |
-| A fold fails on an event the command emitted | `FOLD_FAILED_EMITTED` | `INTERNAL` |
-| A command type no handler claims, after the coordinator upcast it | `UNKNOWN_COMMAND_TYPE` (metadata `type_url` as sent, `upcast_type_url` as delivered; the router itself reports only `type_url`, the type it was given) | `INTERNAL` |
-| A fact type no handler claims, after the coordinator upcast it | `NO_FACT_HANDLER` (metadata as for `UNKNOWN_COMMAND_TYPE`) | `INTERNAL` |
-| A pass-through `CommandRefused` the source has no `on_refused_<Command>` for | `NO_REFUSAL_HANDLER` (metadata `command_type`) | `INTERNAL` |
-| A dispatch to a kind the business process does not host | `NO_COMPONENT_OF_KIND` | `UNIMPLEMENTED` |
-| A second component, built with or registered beside the one hosted | `DUPLICATE_COMPONENT` (metadata `component`, `component_kind`) | `INTERNAL` |
-| A policy's translated refusal fact that is more than a payload (the coordinator's check) | One key per fault: `REFUSAL_FACT_ADDRESSED`, `REFUSAL_FACT_NO_PAGE`, `REFUSAL_FACT_NOT_A_FACT`, `REFUSAL_FACT_IDENTIFIED` | `INTERNAL` |
-| Bytes that do not decode as the message expected | `ANY_DECODE_FAILED` (metadata `message_type`, and the decoder's own text as `ext_err_txt`) | `INTERNAL` |
+| A fold fails on a persisted event | `ROUTER_REASON_FOLD_FAILED` | `INTERNAL` |
+| A fold fails on an event the command emitted | `ROUTER_REASON_FOLD_FAILED_EMITTED` | `INTERNAL` |
+| A command type no handler claims, after the coordinator upcast it | `ROUTER_REASON_UNKNOWN_COMMAND_TYPE` (metadata `type_url` as sent, `upcast_type_url` as delivered; the router itself reports only `type_url`, the type it was given) | `INTERNAL` |
+| A fact type no handler claims, after the coordinator upcast it | `ROUTER_REASON_NO_FACT_HANDLER` (metadata as for `ROUTER_REASON_UNKNOWN_COMMAND_TYPE`) | `INTERNAL` |
+| A pass-through `CommandRefused` the source has no `on_refused_<Command>` for | `ROUTER_REASON_NO_REFUSAL_HANDLER` (metadata `command_type`) | `INTERNAL` |
+| A dispatch to a kind the business process does not host | `ROUTER_REASON_NO_COMPONENT_OF_KIND` | `UNIMPLEMENTED` |
+| A second component, built with or registered beside the one hosted | `ROUTER_REASON_DUPLICATE_COMPONENT` (metadata `component`, `component_kind`) | `INTERNAL` |
+| A policy's translated refusal fact that is more than a payload (the coordinator's check) | One key per fault: `COORDINATOR_REASON_REFUSAL_FACT_ADDRESSED`, `COORDINATOR_REASON_REFUSAL_FACT_NO_PAGE`, `COORDINATOR_REASON_REFUSAL_FACT_NOT_A_FACT`, `COORDINATOR_REASON_REFUSAL_FACT_IDENTIFIED` | `INTERNAL` |
+| Bytes that do not decode as the message expected | `ROUTER_REASON_ANY_DECODE_FAILED` (metadata `message_type`, and the decoder's own text as `ext_err_txt`) | `INTERNAL` |
 
 ---
 
@@ -235,12 +235,12 @@ A target that refuses a saga's command (a business rejection, optionally with a 
 | What happened | What happens |
 |---------------|--------------|
 | A business rejection | The refusal fact goes to the saga's source, retried, deduplicated by the refused command's id |
-| A pass-through refusal the source has no handler for | The fact is refused `NO_REFUSAL_HANDLER`, dead-lettered for a human, and alerted; found only at run time, since nothing declares what a saga sends |
+| A pass-through refusal the source has no handler for | The fact is refused `ROUTER_REASON_NO_REFUSAL_HANDLER`, dead-lettered for a human, and alerted; found only at run time, since nothing declares what a saga sends |
 | The translating callback fails | The refusal is dead-lettered and alerted |
 | A retryable failure | The command is retried |
 | Any other terminal failure | The command is dead-lettered and alerted: a bug |
-| A policy's command names no root, whatever its target | Refused `INTERNAL`, `POLICY_COMMAND_NO_ROOT` (with `domain` and `command_type`); dead-lettered and alerted, never delivered |
-| A policy's command carries a correlation other than its trigger's | Refused `INTERNAL`, `POLICY_COMMAND_OTHER_CORRELATION`; dead-lettered and alerted, never delivered |
+| A policy's command names no root, whatever its target | Refused `INTERNAL`, `COORDINATOR_REASON_POLICY_COMMAND_NO_ROOT` (with `domain` and `command_type`); dead-lettered and alerted, never delivered |
+| A policy's command carries a correlation other than its trigger's | Refused `INTERNAL`, `COORDINATOR_REASON_POLICY_COMMAND_OTHER_CORRELATION`; dead-lettered and alerted, never delivered |
 
 ## Process Manager Failures
 
@@ -249,7 +249,7 @@ A process manager is a domain, so its failures are an aggregate's: a refused com
 | What happened | What the coordinator does | What the sender sees |
 |---------------|---------------------------|----------------------|
 | A non-starting fact for a correlation with no instance | Skips it; nothing is recorded, dead-lettered or alerted | `APPLIED` with no events |
-| A non-starting command for a correlation with no instance | Refuses it, recording nothing | `FAILED_PRECONDITION`, `PM_NO_INSTANCE` |
+| A non-starting command for a correlation with no instance | Refuses it, recording nothing | `FAILED_PRECONDITION`, `COORDINATOR_REASON_PM_NO_INSTANCE` |
 
 ---
 

@@ -232,10 +232,10 @@ coordinator share the work (decision 14.42). The client library:
    answers the events with `window` and `mine`.
 
 The coordinator then keeps the events if `window` and `mine` are disjoint.
-Otherwise the command fails `ABORTED` (`CONFLICT_OVERLAP`), exactly as under
+Otherwise the command fails `ABORTED` (`COORDINATOR_REASON_CONFLICT_OVERLAP`), exactly as under
 STRICT, and nothing is persisted. Under AGGREGATE_HANDLES the client library
 likewise reports the nonce your `decide` passed to `resolve_conflicts`, and
-the coordinator refuses the command (`CONFLICT_UNRESOLVED`) unless it is the
+the coordinator refuses the command (`COORDINATOR_REASON_CONFLICT_UNRESOLVED`) unless it is the
 one delivered.
 
 Step 3 is the important one. **Every invariant that `decide` checks is
@@ -519,7 +519,7 @@ before dispatch. The chain runs in the component's upcaster sidecar, a
 process of its own beside your business process. Your business code, and
 the client library around it, only ever see the current type. A command
 type URL that reaches no handler after upcasting is refused `INTERNAL`
-(`UNKNOWN_COMMAND_TYPE`), naming the type URL as sent and the type URL the
+(`ROUTER_REASON_UNKNOWN_COMMAND_TYPE`), naming the type URL as sent and the type URL the
 chain ended at.
 
 **Prefer not to.** In order of preference:

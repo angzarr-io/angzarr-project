@@ -44,14 +44,14 @@ Feature: Counter aggregate dispatch
   Scenario: An unclassified failure surfaces as a coded error
     Given a new counter
     When the operator triggers a hard failure
-    Then the command fails with UNHANDLED_HANDLER_ERROR
+    Then the command fails with ROUTER_REASON_UNHANDLED_HANDLER_ERROR
 
   @counter
   @C-0697
   Scenario: An unknown command is reported before any rebuild
     Given a new counter
     When an unhandled command is dispatched
-    Then the command fails with UNKNOWN_COMMAND_TYPE
+    Then the command fails with ROUTER_REASON_UNKNOWN_COMMAND_TYPE
     And the refusal is INTERNAL naming the type URL "type.googleapis.com/test.counter.Reserve"
 
   @counter
@@ -59,7 +59,7 @@ Feature: Counter aggregate dispatch
   Scenario: A persisted event the fold cannot fold fails the command as a handler bug
     Given a counter whose history holds a corrupt event
     When the operator increases the counter by 1
-    Then the command fails with FOLD_FAILED
+    Then the command fails with ROUTER_REASON_FOLD_FAILED
 
   @counter
   @C-0699

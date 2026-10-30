@@ -92,7 +92,7 @@ option ruby_package = "Angzarr";
 //     inferred from the handlers it defines. So the generator cannot check
 //     that every refusal has a path; one with none (a pass-through
 //     CommandRefused whose command type the source has no handler for) is
-//     caught at RUN time: answered NO_REFUSAL_HANDLER (decision 14.37:
+//     caught at RUN time: answered ROUTER_REASON_NO_REFUSAL_HANDLER (decision 14.37:
 //     its own key, metadata command_type), dead-lettered and alerted.
 // Mechanics, the same in both modes:
 //   - The coordinator builds or takes the fact and addresses it (decision
@@ -108,9 +108,9 @@ option ruby_package = "Angzarr";
 //     refusal fact in the domestic (source) stream. A translated fact
 //     carries its payload only: one that sets its cover, Handling or any
 //     identity field, has no page, or whose page is not a Fact is a policy
-//     bug, and the coordinator refuses it (REFUSAL_FACT_ADDRESSED,
-//     REFUSAL_FACT_IDENTIFIED, REFUSAL_FACT_NO_PAGE,
-//     REFUSAL_FACT_NOT_A_FACT), dead-lettered and alerted.
+//     bug, and the coordinator refuses it (COORDINATOR_REASON_REFUSAL_FACT_ADDRESSED,
+//     COORDINATOR_REASON_REFUSAL_FACT_IDENTIFIED, COORDINATOR_REASON_REFUSAL_FACT_NO_PAGE,
+//     COORDINATOR_REASON_REFUSAL_FACT_NOT_A_FACT), dead-lettered and alerted.
 //   - Distributed: the coordinator calls OnRefused when the outbox relay
 //     receives the refusal, and writes the fact as a new outbox entry in
 //     the same transaction that clears the command's entry. A crash before
@@ -216,17 +216,17 @@ message PolicyResponse {
   // and stamps nothing; the policy's coordinator does, per command:
   //   - destination: its cover's domain must be the policy's one
   //     destination (ComponentDescriptor.output_domain); otherwise
-  //     POLICY_COMMAND_OUTSIDE_DESTINATION (metadata expected_domain,
+  //     COORDINATOR_REASON_POLICY_COMMAND_OUTSIDE_DESTINATION (metadata expected_domain,
   //     actual_domain);
   //   - edition: unset, or the trigger's; unset is stamped with the
   //     trigger's (a policy stays in its trigger's edition), and any other
-  //     is POLICY_COMMAND_OUTSIDE_EDITION (expected_edition,
+  //     is COORDINATOR_REASON_POLICY_COMMAND_OUTSIDE_EDITION (expected_edition,
   //     actual_edition);
   //   - root: named (cover.root), for every target, an aggregate's or a
   //     process manager's alike: nothing fills one in; otherwise
-  //     POLICY_COMMAND_NO_ROOT (domain, command_type);
+  //     COORDINATOR_REASON_POLICY_COMMAND_NO_ROOT (domain, command_type);
   //   - correlation: unset or exactly the trigger's; another is
-  //     POLICY_COMMAND_OTHER_CORRELATION (domain, command_type);
+  //     COORDINATOR_REASON_POLICY_COMMAND_OTHER_CORRELATION (domain, command_type);
   //   - no Handling (expected_sequence or conflict_resolution), no
   //     command_id or causation_id that differs from the stamp, no Fact
   //     and no fact_origin: a policy's business code emits Commands only,

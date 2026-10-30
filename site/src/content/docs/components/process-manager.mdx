@@ -117,7 +117,7 @@ A command or fact addressed to a PM names its instance: its cover is the PM's do
 
 ### Which inputs start an instance
 
-A PM declares which of its command and fact types are **starting** inputs (`starts` on the `(command)` entry). An input for a correlation the PM has no instance for starts one only if its type is a starting input. Any other such fact is skipped, silently: nothing is recorded, dead-lettered or alerted, and the sender is answered `APPLIED` with no events. Any other such command is refused (`FAILED_PRECONDITION`, `PM_NO_INSTANCE`), recording nothing. Declare as starting every input that can arrive first: inputs from different domains arrive in no guaranteed order.
+A PM declares which of its command and fact types are **starting** inputs (`starts` on the `(command)` entry). An input for a correlation the PM has no instance for starts one only if its type is a starting input. Any other such fact is skipped, silently: nothing is recorded, dead-lettered or alerted, and the sender is answered `APPLIED` with no events. Any other such command is refused (`FAILED_PRECONDITION`, `COORDINATOR_REASON_PM_NO_INSTANCE`), recording nothing. Declare as starting every input that can arrive first: inputs from different domains arrive in no guaranteed order.
 
 ---
 

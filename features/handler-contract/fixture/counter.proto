@@ -48,7 +48,7 @@ message IncreaseBy {
   uint32 n = 1;
 }
 
-// FailHard returns a plain (unclassified) error -> UNHANDLED_HANDLER_ERROR. It
+// FailHard returns a plain (unclassified) error -> ROUTER_REASON_UNHANDLED_HANDLER_ERROR. It
 // declares no emits, so the generated handler returns the raw EventBook escape
 // hatch.
 message FailHard {

@@ -350,7 +350,7 @@ extend google.protobuf.MessageOptions {
 //   5. the client library answers the events with window and mine
 //      (CommandHandlerResponse.conflict). The coordinator keeps the events
 //      iff the two are disjoint (no overlap); otherwise the command fails as
-//      stale (ABORTED, CONFLICT_OVERLAP, metadata window_units and
+//      stale (ABORTED, COORDINATOR_REASON_CONFLICT_OVERLAP, metadata window_units and
 //      command_units), as STRICT would, and nothing is persisted. An empty
 //      window or an empty mine is always disjoint.
 // The resolver uses the CURRENT markers, from the descriptors of the code
@@ -499,7 +499,7 @@ extend google.protobuf.FieldOptions {
 // cannot check refusal coverage against what a policy sends; a refusal with
 // no path (a pass-through CommandRefused whose command type the source has
 // no handler for) is caught at RUN time: the source answers
-// NO_REFUSAL_HANDLER (decision 14.37), and the fact is dead-lettered and alerted. What the
+// ROUTER_REASON_NO_REFUSAL_HANDLER (decision 14.37), and the fact is dead-lettered and alerted. What the
 // generator still checks: the refuses diagnostics above, and that a
 // command selected for translate has its callback.
 // endregion

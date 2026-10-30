@@ -100,7 +100,7 @@ Feature: Policy refusals - a refused command becomes one fact for the policy's o
     And "BuyIn" defines no on_refused_HoldFunds handler
     And wallet "p-1" has too little available to hold 500
     When "BuyIn" records BuyInStarted for 500 from wallet "p-1"
-    Then the CommandRefused fact is refused NO_REFUSAL_HANDLER, naming command_type HoldFunds, dead-lettered and alerted at run time
+    Then the CommandRefused fact is refused ROUTER_REASON_NO_REFUSAL_HANDLER, naming command_type HoldFunds, dead-lettered and alerted at run time
     And nothing is recorded in "buy-in" or "wallet"
 
   @policy_refusal
@@ -177,9 +177,9 @@ Feature: Policy refusals - a refused command becomes one fact for the policy's o
     And nothing is recorded in "buy-in"
 
     Examples:
-      | fault                              | reason                  |
-      | sets its own cover                 | REFUSAL_FACT_ADDRESSED  |
-      | sets its own handling              | REFUSAL_FACT_ADDRESSED  |
-      | has no page                        | REFUSAL_FACT_NO_PAGE    |
-      | has a Command page                 | REFUSAL_FACT_NOT_A_FACT |
-      | sets its own command_id            | REFUSAL_FACT_IDENTIFIED |
+      | fault                   | reason                                     |
+      | sets its own cover      | COORDINATOR_REASON_REFUSAL_FACT_ADDRESSED  |
+      | sets its own handling   | COORDINATOR_REASON_REFUSAL_FACT_ADDRESSED  |
+      | has no page             | COORDINATOR_REASON_REFUSAL_FACT_NO_PAGE    |
+      | has a Command page      | COORDINATOR_REASON_REFUSAL_FACT_NOT_A_FACT |
+      | sets its own command_id | COORDINATOR_REASON_REFUSAL_FACT_IDENTIFIED |

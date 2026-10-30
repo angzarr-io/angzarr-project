@@ -79,7 +79,7 @@ Feature: Upcasting - readers and handlers only ever see current shapes
   Scenario: A type that upcasts to something no handler claims is refused naming both types
     Given the "order" upcaster sidecar upcasts AddLine to AddLineItem, which business code does not handle
     When a client sends AddLine "apple" to order "order-1"
-    Then the client is refused INTERNAL with reason UNKNOWN_COMMAND_TYPE, which is also its status message
+    Then the client is refused INTERNAL with reason ROUTER_REASON_UNKNOWN_COMMAND_TYPE, which is also its status message
     And the refusal's error info carries type_url "/orders.v1.AddLine"
     And the refusal's error info carries upcast_type_url "/orders.v1.AddLineItem"
     And nothing is recorded on order "order-1"
@@ -88,7 +88,7 @@ Feature: Upcasting - readers and handlers only ever see current shapes
   @C-0540
   Scenario: A type with no handler and no upcaster is refused naming the type as sent
     When a client sends RemoveEverything "apple" to order "order-1"
-    Then the client is refused INTERNAL with reason UNKNOWN_COMMAND_TYPE, which is also its status message
+    Then the client is refused INTERNAL with reason ROUTER_REASON_UNKNOWN_COMMAND_TYPE, which is also its status message
     And the refusal's error info carries type_url "/orders.v1.RemoveEverything"
     And the refusal's error info carries upcast_type_url "/orders.v1.RemoveEverything"
     And nothing is recorded on order "order-1"

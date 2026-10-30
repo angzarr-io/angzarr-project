@@ -3,10 +3,10 @@ Feature: Who a policy's command addresses, and the correlation it carries
   managers (decision 14.36, as amended). Every command or fact a policy
   sends, to any target, carries its trigger's correlation_id unchanged:
   correlation traces the causal chain, and a command carrying another is a
-  policy bug (POLICY_COMMAND_OTHER_CORRELATION). A policy names its
+  policy bug (COORDINATOR_REASON_POLICY_COMMAND_OTHER_CORRELATION). A policy names its
   command's root for EVERY target, aggregate or process manager alike:
   nothing fills one in, the router never knows the target's kind, and a
-  command with no root is a policy bug (POLICY_COMMAND_NO_ROOT). The
+  command with no root is a policy bug (COORDINATOR_REASON_POLICY_COMMAND_NO_ROOT). The
   policy's coordinator makes every one of these checks, per triggering
   page, on the commands the router returns unchecked (decision 14.42), and
   refuses a command for any domain but the descriptor's output domain.
@@ -38,7 +38,7 @@ Feature: Who a policy's command addresses, and the correlation it carries
   Scenario Outline: A policy's command naming no root is a policy bug, whatever its target
     Given a policy "<policy>" translating from "order" to "<domain>" that sends <command> with no root on OrderPlaced
     When an OrderPlaced event with correlation "0192a6b0-0000-7000-8000-000000000041" is recorded for order "order-1"
-    Then the <command> command is refused INTERNAL with reason POLICY_COMMAND_NO_ROOT, naming domain "<domain>" and command type <command>
+    Then the <command> command is refused INTERNAL with reason COORDINATOR_REASON_POLICY_COMMAND_NO_ROOT, naming domain "<domain>" and command type <command>
     And it is dead-lettered and an alert is raised
     And no root is filled in for it, and nothing is appended to any "<domain>" stream
 
@@ -84,7 +84,7 @@ Feature: Who a policy's command addresses, and the correlation it carries
   Scenario Outline: A policy's command carrying another correlation is a policy bug, whatever its target
     Given a policy "<policy>" translating from "order" to "<domain>" that sends <command> to "<domain>" "0192a6b0-0000-7000-8000-0000000000bb" with correlation_id "0192a6b0-0000-7000-8000-000000000099" on OrderPlaced
     When an OrderPlaced event with correlation "0192a6b0-0000-7000-8000-000000000047" is recorded for order "order-1"
-    Then the <command> command is refused INTERNAL with reason POLICY_COMMAND_OTHER_CORRELATION
+    Then the <command> command is refused INTERNAL with reason COORDINATOR_REASON_POLICY_COMMAND_OTHER_CORRELATION
     And it is dead-lettered and an alert is raised
     And nothing is appended to stream "<domain>" root "0192a6b0-0000-7000-8000-0000000000bb"
 
@@ -101,6 +101,6 @@ Feature: Who a policy's command addresses, and the correlation it carries
     Given a policy "OrderToInventory" translating from "order" to "inventory", whose descriptor names output domain "inventory"
     And its business code answers an OrderPlaced event with a ReserveStock command for "inventory" "inv-7" and a ShipOrder command for "shipping"
     When an OrderPlaced event with correlation "0192a6b0-0000-7000-8000-000000000048" is recorded for order "order-1"
-    Then the policy's answer is refused INTERNAL with reason POLICY_COMMAND_OUTSIDE_DESTINATION, naming expected_domain "inventory" and actual_domain "shipping"
+    Then the policy's answer is refused INTERNAL with reason COORDINATOR_REASON_POLICY_COMMAND_OUTSIDE_DESTINATION, naming expected_domain "inventory" and actual_domain "shipping"
     And neither command is delivered
     And the OrderPlaced trigger is dead-lettered and an alert is raised

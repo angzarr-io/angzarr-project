@@ -73,14 +73,14 @@ Feature: Component discovery - the coordinator asks the business process what it
     And an alert is raised
 
     Examples:
-      | fault                                                       | reason                      |
-      | has an empty rules version                                  | MISSING_RULES_VERSION       |
-      | is an AGGREGATE with no state                               | MISSING_STATE_TYPE          |
-      | is a PROJECTOR with a state                                 | STATE_ON_STATELESS_KIND     |
-      | is an AGGREGATE listing starting types                      | STARTING_TYPES_ON_NON_PM    |
-      | is a POLICY with no output domain                           | POLICY_NO_OUTPUT_DOMAIN     |
-      | is a POLICY with two input domains                          | POLICY_INPUT_COUNT          |
-      | is a PROCESS_MANAGER with an output domain                  | OUTPUT_DOMAIN_ON_NON_POLICY |
+      | fault                                      | reason                                         |
+      | has an empty rules version                 | COORDINATOR_REASON_MISSING_RULES_VERSION       |
+      | is an AGGREGATE with no state              | COORDINATOR_REASON_MISSING_STATE_TYPE          |
+      | is a PROJECTOR with a state                | COORDINATOR_REASON_STATE_ON_STATELESS_KIND     |
+      | is an AGGREGATE listing starting types     | COORDINATOR_REASON_STARTING_TYPES_ON_NON_PM    |
+      | is a POLICY with no output domain          | COORDINATOR_REASON_POLICY_NO_OUTPUT_DOMAIN     |
+      | is a POLICY with two input domains         | COORDINATOR_REASON_POLICY_INPUT_COUNT          |
+      | is a PROCESS_MANAGER with an output domain | COORDINATOR_REASON_OUTPUT_DOMAIN_ON_NON_POLICY |
 
   @discovery
   @C-0566
