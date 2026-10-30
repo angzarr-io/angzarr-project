@@ -21,7 +21,9 @@ service CommandHandlerService {
   //
   // By the time Handle is called the coordinator has already run pipeline
   // steps 1-4 (types.proto, Handling): validated the command, assigned its
-  // command_id and correlation_id, deduplicated it, and resolved its
+  // command_id and correlation_id, deduplicated it, admitted it (a refusal
+  // fact's stream, a process manager's start rule; decision 14.42), and
+  // resolved its
   // Handling (checked or stamped the expected sequence and resolved the
   // conflict resolution), so decide always sees a concrete sequence. Which
   // coordinator RPC the caller used (the command mode) is not passed on.
@@ -30,6 +32,8 @@ service CommandHandlerService {
   // component's upcaster sidecar (decision 14.39; see upcaster.proto) and
   // dropped the pages the snapshot covers (decision 14.40), so the library
   // sees only current shapes, the starting state and the pages after it.
+  // Every delivery is well formed (the coordinator builds it): the client
+  // library guards no envelope (decision 14.42).
   //
   // In the client library, in order:
   //   1. reflective dispatch: the body arm picks the pipeline (Command ->
@@ -44,7 +48,11 @@ service CommandHandlerService {
   //      upcaster.proto). A failing fact handler is a bug,
   //      not a business rejection: the fact is dead-lettered (and alerted)
   //      and the sender answered PARKED, never a rejection.
-  //   2. AGGREGATE_HANDLES and COMMUTATIVE are resolved (the nonce; see
+  //   2. under AGGREGATE_HANDLES the library reports the nonce the handler
+  //      resolved with, and under COMMUTATIVE it computes the window's and
+  //      the command's conflict units (CommandHandlerResponse.conflict).
+  //      It never discards the handler's events for a conflict: the
+  //      coordinator judges the report (decision 14.42; see
   //      ConflictResolution).
   // The state the handler sees is the starting state (events.snapshot.state,
   // when present) decoded, with every delivered page folded in order; the
@@ -88,6 +96,12 @@ service CommandHandlerService {
 
 // What the business logic answers for one command.
 message CommandHandlerResponse {
+  // Under AGGREGATE_HANDLES and COMMUTATIVE, what the coordinator judges the
+  // command's conflicts by (decision 14.42); unset under STRICT. A stale
+  // command whose report fails the judgement is refused ABORTED, its
+  // events discarded and nothing persisted. Field 4, not 3: bytes of the
+  // deleted snapshot_refused (3, a bool) never decode into it.
+  ConflictReport conflict = 4;
   // The events (payloads only) and, always, the post-command state in
   // events.snapshot.state; see Handle.
   EventBook events = 1;
@@ -107,6 +121,26 @@ message CommandHandlerResponse {
   // The business logic only reports it: what it means for snapshot
   // compatibility is the coordinator's rule (see Snapshot in types.proto).
   string rules_version = 2;
+}
+
+// The client library's report of a stale command's conflicts (decision
+// 14.42; ConflictResolution in types.proto, the conflict_units region in
+// options.proto).
+message ConflictReport {
+  // AGGREGATE_HANDLES: the nonce the handler passed to resolve_conflicts,
+  // empty when it never called it. The coordinator accepts the events only
+  // if it equals ContextualCommand.conflict_nonce; otherwise ABORTED,
+  // CONFLICT_UNRESOLVED.
+  bytes resolved_nonce = 1;
+  // COMMUTATIVE: changed(state at expected_sequence, head), the units the
+  // window changed, as unit paths.
+  repeated string window_units = 2;
+  // COMMUTATIVE: changed(head, head with the command's events folded in),
+  // the units the command changed. The coordinator accepts the events only
+  // if window_units and command_units do not overlap (options.proto,
+  // Overlap); otherwise ABORTED, CONFLICT_OVERLAP, metadata window_units and
+  // command_units.
+  repeated string command_units = 3;
 }
 
 // region command_modes

@@ -293,11 +293,14 @@ message Cover {
 //
 // Safety default (the nonce). Under AGGREGATE_HANDLES the handler cannot
 // silently ignore the window: the coordinator delivers a nonce with the
-// command (ContextualCommand.conflict_nonce), and the client library demands
-// that the handler call resolve_conflicts(...) with that value before it
-// returns. A handler that returns without doing so (or passes another value)
-// fails the command as stale (ABORTED), exactly as STRICT would have. This
-// is enforced locally, in the client library, with no gRPC round trip.
+// command (ContextualCommand.conflict_nonce), and the handler must call
+// resolve_conflicts(...) with that value before it returns. The client
+// library reports the value the handler resolved with
+// (CommandHandlerResponse.conflict.resolved_nonce; empty when it never
+// called it), and the coordinator compares it with the nonce it minted. A
+// handler that returns without doing so (or passes another value) fails the
+// command as stale (ABORTED, CONFLICT_UNRESOLVED), exactly as STRICT would
+// have, and nothing is persisted (decision 14.42).
 // (Axon's ConflictResolver likewise fails a command whose handler never
 // examined the conflicting events.)
 //
@@ -305,7 +308,7 @@ message Cover {
 // business code writes no conflict logic. The window and the nonce are
 // delivered exactly as under AGGREGATE_HANDLES, and the same snapshot rule
 // applies (the delivered snapshot is at or below expected_sequence-1, so
-// the window arrives as pages). The library, not the handler, then compares
+// the window arrives as pages). The library, not the handler, then computes
 // CONFLICT UNITS (the conflict_units region of options.proto, which defines
 // them field kind by field kind):
 //   window = changed(state at expected_sequence, state at the head)
@@ -314,14 +317,16 @@ message Cover {
 //   mine   = changed(head, head with the command's events folded in)
 // changed() is generated from the state message's (state) and (conflict)
 // markers, the current ones of the code running decide.
-// Disjoint (no overlap, as options.proto defines it): the library
-// acknowledges the nonce itself (resolve_conflicts) and the command's
-// events are kept. Overlapping: the command fails as stale (ABORTED), as
-// under STRICT. Unmarked fields conflict with everything, so an unmarked
-// change can only make COMMUTATIVE stricter. Everything happens locally in
-// the client library: there is no Replay RPC and no coordinator-side diff;
-// to the coordinator COMMUTATIVE is delivered exactly like
-// AGGREGATE_HANDLES.
+// and answers window and mine with the events
+// (CommandHandlerResponse.conflict). The coordinator judges them (decision
+// 14.42). Disjoint (no overlap, as options.proto defines it): the command's
+// events are kept. Overlapping: the command fails as stale (ABORTED,
+// CONFLICT_OVERLAP), as under STRICT, and nothing is persisted. Unmarked
+// fields conflict with everything, so an unmarked change can only make
+// COMMUTATIVE stricter. The states are computed in the client library: there
+// is no Replay RPC and the coordinator never reads a state; it compares two
+// sets of unit paths. To the coordinator COMMUTATIVE is delivered exactly
+// like AGGREGATE_HANDLES.
 //
 // COMMUTATIVE is a justified divergence from established frameworks (none
 // of Axon, Marten, Eventuous, KurrentDB or NServiceBus ships automatic
@@ -340,7 +345,7 @@ message Cover {
 // framework RPC for conflict resolution.
 enum ConflictResolution {
   CONFLICT_RESOLUTION_UNSPECIFIED = 0; // Not specified: the configured default applies (COMMUTATIVE if the state supports it, else STRICT)
-  CONFLICT_RESOLUTION_COMMUTATIVE = 1; // The client library accepts iff the window and the command change disjoint conflict units (options.proto)
+  CONFLICT_RESOLUTION_COMMUTATIVE = 1; // Accepted iff the window and the command change disjoint conflict units (options.proto): the client library reports them, the coordinator judges
   CONFLICT_RESOLUTION_STRICT = 2; // Reject on sequence mismatch (optimistic concurrency)
   CONFLICT_RESOLUTION_AGGREGATE_HANDLES = 3; // decide receives the window and applies its own conflict rule
 }
@@ -660,7 +665,19 @@ message FactOrigin {
 // carries a diagnostic code and its args: an untyped rejection's reason is
 // its own code; a handler bug's reason is UNHANDLED_HANDLER_ERROR, with the
 // handler's own code and args as its cause (flattened as below; a panic's
-// cause is HANDLER_PANICKED), and what escaped stays in the handler's log. A catalog keys a typed refusal by
+// cause is HANDLER_PANICKED), and what escaped stays in the handler's log.
+// A handler that fails with the language's unclassified error has no cause.
+// In a language with only exceptions (Python), the client library exports a
+// named unclassified exception for that: raising it is a bug with no
+// cause, and any other exception is a panic, cause HANDLER_PANICKED
+// (decision 14.42; C-0669).
+//
+// The reason-key catalog. Every framework key, the component that answers
+// it (the router or the coordinator), the gRPC status it travels with and
+// its arg names are listed once, in angzarr-project's catalog/reasons.toml;
+// each language's constants are generated from it (decision 14.42). Which
+// class a status is (decision 14.37's four classes) is the coordinator's to
+// decide, never the router's. A catalog keys a typed refusal by
 // its fully-qualified type name with each "." replaced by "-" (a Fluent id
 // has no dots).
 //
@@ -689,11 +706,11 @@ message Diagnostic {
 
 // region refusal_facts
 // The standard refusal fact (decision 14.31; PolicyService in policy.proto,
-// Refusals). The POLICY builds it: in PASS-THROUGH mode, the default chosen
-// by angzarr-cli, the policy's generated code answers it from
-// PolicyService.OnRefused when the policy's command is refused, addressed to
-// the exact stream of the policy's triggering event (domain, root and
-// edition). The source domain handles it by a generated dispatch on the
+// Refusals). The policy's COORDINATOR builds it (decision 14.42): in
+// PASS-THROUGH mode, the default chosen by angzarr-cli, the policy's
+// business process answers PolicyService.OnRefused with no translation, and
+// the coordinator builds this fact, addressed to the exact stream of the
+// policy's triggering event (domain, root and edition). The source domain handles it by a generated dispatch on the
 // refused command's type, on_refused_<Command>(refusal, state) -> events,
 // inferred from the handlers it defines; with none for that type it
 // answers NO_REFUSAL_HANDLER (metadata command_type; decision 14.37), and the fact is dead-lettered and alerted. Its
@@ -1038,8 +1055,9 @@ message Handling {
   // AGGREGATE_HANDLES or COMMUTATIVE, in which case the events since
   // expected_sequence are delivered with the command and a conflict rule is
   // applied: under AGGREGATE_HANDLES decide receives them and applies its
-  // own; under COMMUTATIVE decide runs on the head and the client library
-  // compares conflict units (see ConflictResolution). If absent, the
+  // own; under COMMUTATIVE decide runs on the head, the client library
+  // computes the conflict units and the coordinator compares them (see
+  // ConflictResolution). If absent, the
   // framework stamps the head it decides against, before business code.
   //
   // Either way, the check or the stamp happens in the framework before the
@@ -1267,21 +1285,23 @@ message ContextualCommand {
   // The conflict nonce. Set when, and only when, the resolved
   // conflict_resolution is AGGREGATE_HANDLES or COMMUTATIVE (including an
   // empty window, so the handler path is uniform); empty under STRICT.
-  // Under COMMUTATIVE the client library's own resolver acknowledges it
-  // (see ConflictResolution); the handler never sees it. An opaque value
-  // minted by the coordinator per delivery, never persisted and never
-  // returned.
+  // Under COMMUTATIVE the client library's own resolver reports the unit
+  // sets instead (see ConflictResolution); the handler never sees it. An opaque value
+  // minted by the coordinator per delivery and never persisted. It comes
+  // back only as the value a handler resolved with
+  // (CommandHandlerResponse.conflict.resolved_nonce).
   //
-  // The client library passes it to the handler as a parameter, and demands
-  // that the handler call resolve_conflicts(window, nonce) with exactly this
+  // The client library passes it to the handler as a parameter, and the
+  // handler must call resolve_conflicts(window, nonce) with exactly this
   // value before returning: that call is the handler's declaration that it
-  // examined the window. If the handler returns without it, or with another
-  // value, the library discards the handler's output and fails the command
-  // as stale (ABORTED, as STRICT would), logging the handler bug loudly.
-  // Enforcement is local to the client library: no gRPC round trip, and the
-  // coordinator does not check it. A value minted per delivery (rather than
-  // expected_sequence itself) means a handler cannot satisfy the check
-  // without receiving the parameter.
+  // examined the window. The library reports the value the handler passed
+  // (none if it never called it) with the handler's events, and the
+  // COORDINATOR judges it (decision 14.42): without it, or with another
+  // value, the coordinator discards the output and fails the command as
+  // stale (ABORTED, CONFLICT_UNRESOLVED, as STRICT would), persisting
+  // nothing. A value minted per delivery (rather than expected_sequence
+  // itself) means a handler cannot satisfy the check without receiving the
+  // parameter.
   bytes conflict_nonce = 3;
 }
 
@@ -1511,6 +1531,21 @@ enum ComponentKind {
 // The coordinator pulls it from the business process
 // (ComponentService.Describe in component.proto); holding it is what makes
 // the component registered.
+//
+// Generated, then validated (decision 14.42). angzarr-cli generates the
+// whole descriptor at build time from the component's protos (its
+// (component) declaration, its (command) and (event) entries and its
+// (state) message), with rules_version the build's baked-in version. The
+// business process answers Describe with it unchanged; neither business
+// code nor the client library's router builds or checks it. The
+// COORDINATOR validates it and refuses (see ComponentService, Refusal) a
+// descriptor that has: an empty rules_version (MISSING_RULES_VERSION);
+// starting_types on a kind other than PROCESS_MANAGER
+// (STARTING_TYPES_ON_NON_PM); no state on an AGGREGATE or PROCESS_MANAGER
+// (MISSING_STATE_TYPE), or a state on a POLICY or PROJECTOR
+// (STATE_ON_STATELESS_KIND); for a POLICY, other than exactly one input or
+// no output_domain (POLICY_DOMAINS_INVALID); an output_domain on any other
+// kind (OUTPUT_DOMAIN_ON_NON_POLICY).
 message ComponentDescriptor {
   string name = 1;
   ComponentKind kind = 5;
@@ -1528,8 +1563,8 @@ message ComponentDescriptor {
   string rules_version = 4;
   // The component's event-sourced state: set for AGGREGATE and
   // PROCESS_MANAGER, unset for POLICY and PROJECTOR. Generated from the state
-  // message's descriptor by the codegen (the client library fills it when
-  // answering Describe; business code never writes it by hand).
+  // message's descriptor by angzarr-cli (business code never writes it by
+  // hand).
   StateDescriptor state = 6;
   // PROCESS_MANAGER only: the fully-qualified type NAMES (no type URL
   // prefix: "examples.v1.OpenTable", never "/examples.v1.OpenTable") of the
@@ -1543,7 +1578,15 @@ message ComponentDescriptor {
   // process_manager.proto, Starting an instance). Empty for every other
   // kind: a descriptor of another kind that sets it is refused, as one
   // with an empty rules_version is (see ComponentService, Refusal).
+  // Generated by angzarr-cli (decision 14.42).
   repeated string starting_types = 7;
+  // POLICY only: the one domain its commands go to
+  // (ComponentOptions.output_domain, options.proto; decision 14.24),
+  // generated by angzarr-cli. The policy's coordinator refuses a command
+  // for any other domain (PolicyResponse in policy.proto; decision 14.42).
+  // Required for a POLICY; set on any other kind, the descriptor is
+  // refused (see above).
+  string output_domain = 8;
 }
 
 // A component's state message, as the domain-blind coordinator needs it:

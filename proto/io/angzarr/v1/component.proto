@@ -24,9 +24,11 @@ option ruby_package = "Angzarr";
 //
 // Every business process serves ComponentService beside its kind service
 // (CommandHandlerService for an aggregate or a process manager, PolicyService or
-// ProjectorService). It never serves UpcasterService. The
-// client library answers Describe from the component's generated
-// descriptor; business code never implements it.
+// ProjectorService). It never serves UpcasterService. It
+// answers Describe with the descriptor angzarr-cli generated at build time,
+// unchanged; business code never implements it, and the router never
+// builds or checks it. The coordinator validates it (see
+// ComponentDescriptor in types.proto; decision 14.42).
 //
 // The coordinator PULLS the descriptor: it already dials the business
 // process for every delivery, and it calls Describe over that same channel.
@@ -48,11 +50,11 @@ option ruby_package = "Angzarr";
 //     answered UNAVAILABLE (retryable; see the status codes in
 //     command_handler.proto), and queued and reaction deliveries stay
 //     queued.
-//   - Refusal: a descriptor with an empty rules_version (see
-//     ComponentDescriptor), or one that lists starting types
-//     (ComponentDescriptor.starting_types, fully-qualified type names) and
-//     is not a PROCESS_MANAGER,
-//     is refused. The
+//   - Refusal: a descriptor that fails the coordinator's validation (see
+//     ComponentDescriptor: an empty rules_version, starting types
+//     (fully-qualified type names) on a kind other than PROCESS_MANAGER, a state where its kind has none or
+//     none where it must, a POLICY without one input and an output domain,
+//     an output domain on any other kind) is refused. The
 //     coordinator does not hold it, delivers nothing, logs an error naming
 //     the business process and the component, and raises an alert. It
 //     answers the business process nothing (the coordinator is the

@@ -1,11 +1,16 @@
-Feature: Handling a delivered command - versions, unknown types and conflicts
-  What the client library does around business code when the coordinator
-  delivers a command or a fact: it reports the business binary's version,
-  picks the handler, and settles a stale command's conflicts before its
-  events are kept. It never upcasts: the coordinator has already brought
-  every payload and event up to date through the component's upcaster
-  sidecar (decision 14.39; coordinator-contract/upcasting.feature), and
-  has dropped the pages the delivered snapshot covers (decision 14.40).
+Feature: Handling a delivered command - versions, unknown types and conflict reports
+  What the client library's router does around business code when the
+  coordinator delivers a command or a fact: it reports the business
+  binary's version, picks the handler, folds the state it is given, and
+  reports a stale command's conflicts for the coordinator to judge. It never
+  upcasts: the coordinator has already brought every payload and event up
+  to date through the component's upcaster sidecar (decision 14.39;
+  coordinator-contract/upcasting.feature), and has dropped the pages the
+  delivered snapshot covers (decision 14.40). It never admits, never
+  guards an envelope, never checks a descriptor and never judges a
+  conflict: those are the coordinator's (decision 14.42). With this tier's
+  other features it is the router's complete contract, run against every
+  router (the Rust one and the Python one).
 
   The business binary's version is fixed when it is built. The library
   gives it when the coordinator asks the process to describe its
@@ -40,28 +45,12 @@ Feature: Handling a delivered command - versions, unknown types and conflicts
     Then the answer reports rules version "2.0.1"
 
   @rules_version
-  @C-0535
-  Scenario: Describing the process announces the same build version
-    When the coordinator asks the "order" business binary to describe its component
-    Then the "order" aggregate's description carries rules version "1.4.2+build.7"
-    And the "order" aggregate's description carries the order state type
-
-  @rules_version
   @C-0536
   Scenario: A delivered snapshot is used whatever version recorded it
     Given a delivered snapshot of the order state recorded under rules version "0.9.0"
     When AddItem "apple" is handled over that snapshot
     Then business code decides on the snapshot's state
     And the command is accepted
-
-  @describe
-  @C-0565
-  Scenario: Describing a process gives its one component
-    When the coordinator asks the "order" business binary to describe its component
-    Then the answer describes one component:
-      | name  | kind      | rules version | state type            |
-      | order | AGGREGATE | 1.4.2+build.7 | /orders.v1.OrderState |
-    And business code is not invoked
 
   @describe
   @C-0580
@@ -105,15 +94,6 @@ Feature: Handling a delivered command - versions, unknown types and conflicts
       | and writes a FulfillmentStarted event     |
       | without writing a process event           |
 
-  @policy
-  @C-0583
-  Scenario: A policy's command for a domain other than its one destination is refused before it answers
-    Given an "OrderFulfillment" policy translating "order" events into "inventory" commands
-    And its business code answers an OrderPlaced event with a ReserveStock command for "inventory" and a ShipOrder command for "shipping"
-    When the OrderPlaced event is handled
-    Then the policy's answer fails with INTERNAL status
-    And the answer carries no commands
-
   # ===========================================================================
   # Unknown types
   # ===========================================================================
@@ -138,60 +118,66 @@ Feature: Handling a delivered command - versions, unknown types and conflicts
     Then business code saw expected sequence 2 under STRICT
     And business code saw no conflict window and no nonce
 
+  # The coordinator judges the report (decision 14.42;
+  # coordinator-contract/conflict_resolution.feature, C-0683). The router
+  # answers business code's events whatever it reports.
+
   @conflict_nonce
   @C-0542
-  Scenario: Under AGGREGATE_HANDLES business code that settles the window with the delivered nonce is accepted
+  Scenario: Under AGGREGATE_HANDLES the answer reports the nonce business code settled with
     Given business code settles conflicts with the nonce it was given
     When AddItem "apple" is handled AGGREGATE_HANDLES at expected sequence 1 over ItemAdded "pear", ItemAdded "plum" and ItemAdded "fig" with nonce "n-1"
     Then business code saw the window at sequences 1 and 2
-    And the command is accepted
+    And the answer reports resolved nonce "n-1"
+    And the answer carries business code's events
 
   @conflict_nonce
   @C-0543
-  Scenario: Under AGGREGATE_HANDLES business code that ignores the window fails as stale
+  Scenario: Under AGGREGATE_HANDLES business code that ignores the window is reported as settling nothing
     Given business code does not settle conflicts
     When AddItem "apple" is handled AGGREGATE_HANDLES at expected sequence 0 over ItemAdded "pear" with nonce "n-1"
-    Then the command fails as ABORTED
-    And business code's events are discarded
+    Then the answer reports no resolved nonce
+    And the answer carries business code's events
 
   @conflict_nonce
   @C-0544
-  Scenario: Under AGGREGATE_HANDLES a made-up nonce fails as stale
+  Scenario: Under AGGREGATE_HANDLES a made-up nonce is reported as it was passed
     Given business code settles conflicts with nonce "made-up"
     When AddItem "apple" is handled AGGREGATE_HANDLES at expected sequence 0 over ItemAdded "pear" with nonce "n-1"
-    Then the command fails as ABORTED
-    And business code's events are discarded
+    Then the answer reports resolved nonce "made-up"
 
   @conflict_nonce
   @C-0545
-  Scenario: Under AGGREGATE_HANDLES an empty window still has to be settled
+  Scenario: Under AGGREGATE_HANDLES an empty window is reported like any other
     Given business code does not settle conflicts
     When AddItem "apple" is handled AGGREGATE_HANDLES at expected sequence 1 over ItemAdded "pear" with nonce "n-1"
-    Then the command fails as ABORTED
+    Then the answer reports no resolved nonce
 
   # ===========================================================================
-  # COMMUTATIVE: the library settles the window itself
+  # COMMUTATIVE: the router reports the conflict units, the coordinator
+  # judges them (decision 14.42; coordinator-contract C-0684)
   # ===========================================================================
 
   @commutative
   @C-0546
-  Scenario: A stale command that changes other conflict units than the window is kept
+  Scenario: The answer reports the units the window changed and the units the command changed
     When AddItem "apple" is handled COMMUTATIVE at expected sequence 0 over ItemAdded "pear" and ItemAdded "pear" with nonce "n-1"
-    Then the command is accepted
+    Then the answer reports window units "items[pear]" and command units "items[apple]"
+    And the answer carries business code's events
     And business code saw no conflict window and no nonce
 
   @commutative
   @C-0547
-  Scenario: A stale command that changes a conflict unit the window changed fails as stale
+  Scenario: A command changing a unit the window changed is reported, not refused
     When AddItem "pear" is handled COMMUTATIVE at expected sequence 1 over ItemAdded "apple" and ItemAdded "pear" with nonce "n-1"
-    Then the command fails as ABORTED
-    And business code's events are discarded
+    Then the answer reports window units "items[pear]" and command units "items[pear]"
+    And the answer carries business code's events
 
   @commutative
   @C-0548
   Scenario: Only events from the expected sequence on count as the window
     When AddItem "pear" is handled COMMUTATIVE at expected sequence 1 over ItemAdded "pear" and ItemAdded "apple" with nonce "n-1"
-    Then the command is accepted
+    Then the answer reports window units "items[apple]" and command units "items[pear]"
 
   @commutative
   @C-0549
@@ -201,10 +187,9 @@ Feature: Handling a delivered command - versions, unknown types and conflicts
 
   @commutative
   @C-0550
-  Scenario: A change to an unmarked field conflicts with every change
+  Scenario: A change to an unmarked field is reported as the wildcard unit
     When AddItem "apple" is handled COMMUTATIVE at expected sequence 0 over OrderNoteAdded "fragile" with nonce "n-1"
-    Then the command fails as ABORTED
-    And business code's events are discarded
+    Then the answer reports window units "*notes" and command units "items[apple]"
 
   # ===========================================================================
   # Errors are a key and an argument map, never English (decision 14.37)
@@ -231,6 +216,9 @@ Feature: Handling a delivered command - versions, unknown types and conflicts
   @error_keys
   @C-0669
   Scenario Outline: A handler bug is answered with a code, never the text of what escaped
+    # Decision 14.42: in a language with only exceptions (Python), the
+    # client library exports a named unclassified exception; raising it is
+    # "an unclassified error" below, and any other exception is "panics".
     Given business code for AddItem <fails>
     When AddItem "apple" is handled over no prior events
     Then the command is refused INTERNAL with reason UNHANDLED_HANDLER_ERROR, which is also its status message
@@ -239,7 +227,7 @@ Feature: Handling a delivered command - versions, unknown types and conflicts
 
     Examples:
       | fails                                                          | cause                      | text                |
-      | returns an unclassified error whose text is "connection reset" | no cause                   | connection reset    |
+      | fails with an unclassified error whose text is "connection reset" | no cause                | connection reset    |
       | panics with "index out of bounds"                              | cause "HANDLER_PANICKED"   | index out of bounds |
 
   @error_keys
@@ -299,19 +287,65 @@ Feature: Handling a delivered command - versions, unknown types and conflicts
       | a fact of type "/orders.v1.Unheard" arrives                                       | INTERNAL         | NO_FACT_HANDLER                    | type_url "/orders.v1.Unheard"                    |
       | a CommandRefused for RemoveEverything arrives with no on_refused_RemoveEverything | INTERNAL         | NO_REFUSAL_HANDLER                 | command_type "/orders.v1.RemoveEverything"        |
       | a policy is dispatched to the business process hosting the "order" aggregate      | UNIMPLEMENTED    | NO_COMPONENT_OF_KIND               | no other metadata                                 |
-      | a policy consuming "order" is given a book of domain "inventory"                  | UNIMPLEMENTED    | POLICY_SOURCE_OUTSIDE_INPUT_DOMAIN | domain "inventory" and expected_domain "order"    |
       | the router is built with two components                                           | INTERNAL         | DUPLICATE_COMPONENT                | component "order" and component_kind "AGGREGATE"  |
-      | a policy's OnRefused answer holds no fact                                         | INTERNAL         | REFUSAL_FACT_MISSING               | no other metadata                                 |
-      | a policy's refusal fact sets its own cover or handling                            | INTERNAL         | REFUSAL_FACT_ADDRESSED             | no other metadata                                 |
-      | a policy's refusal fact has no page                                               | INTERNAL         | REFUSAL_FACT_NO_PAGE               | no other metadata                                 |
-      | a policy's refusal fact's page is a Command                                       | INTERNAL         | REFUSAL_FACT_NOT_A_FACT            | no other metadata                                 |
-      | a policy's refusal fact sets its own command_id                                   | INTERNAL         | REFUSAL_FACT_IDENTIFIED            | no other metadata                                 |
-      | a refusal to address names no refused command                                     | INTERNAL         | REFUSAL_WITHOUT_REFUSED_COMMAND    | no other metadata                                 |
-      | a refusal to address names a refused command with no command_id                   | INTERNAL         | REFUSED_COMMAND_WITHOUT_ID         | no other metadata                                 |
-      | a refusal to address names no triggering stream                                   | INTERNAL         | REFUSAL_WITHOUT_TRIGGER_STREAM     | no other metadata                                 |
-      | a policy is given a Refusal with no command                                       | INTERNAL         | REFUSAL_WITHOUT_COMMAND            | no other metadata                                 |
-      | a policy is given a Refusal with no event                                         | INTERNAL         | REFUSAL_WITHOUT_EVENT              | no other metadata                                 |
-      | the host gives the router bytes that are no ContextualCommand                     | INTERNAL         | ANY_DECODE_FAILED                  | message_type "io.angzarr.v1.ContextualCommand"    |
+      | a CommandRefused fact arrives whose payload does not decode                       | INTERNAL         | ANY_DECODE_FAILED                  | message_type "io.angzarr.v1.CommandRefused"       |
+      | a COMMUTATIVE command reaches a state with no resolver                            | INTERNAL         | CONFLICT_RESOLUTION_UNSUPPORTED    | no other metadata                                 |
+
+  # ===========================================================================
+  # Folding what it is given (decision 14.40)
+  # ===========================================================================
+
+  @folding
+  @C-0688
+  Scenario: Every delivered page is folded onto the starting state, whatever the snapshot's sequence
+    # The coordinator drops the pages a snapshot covers; the router has no
+    # covered-page guard of its own (owner, 2026-10-29).
+    Given a delivered snapshot at sequence 5 of the order state with item "pear"
+    And the delivery's pages are ItemAdded "plum" at sequence 5 and ItemAdded "fig" at sequence 6
+    When AddItem "apple" is handled over that delivery
+    Then business code saw items "pear", "plum" and "fig" in its state
+
+  # ===========================================================================
+  # Policies: the router translates, the coordinator checks (decision 14.42)
+  # ===========================================================================
+
+  @policy
+  @C-0689
+  Scenario: A policy's commands come back grouped by the page that triggered them
+    Given an "OrderFulfillment" policy translating "order" events into "inventory" commands
+    And its business code answers each OrderPlaced event with one ReserveStock command
+    When a book holding OrderPlaced at sequence 3, an OrderNoteAdded at sequence 4 and OrderPlaced at sequence 5 is handled
+    Then the answer holds two reactions, in page order:
+      | trigger sequence | commands          |
+      | 3                | one ReserveStock  |
+      | 5                | one ReserveStock  |
+    And no reaction names sequence 4
+
+  @policy
+  @C-0690
+  Scenario: A policy's commands are answered as business code returned them, checked and stamped by nothing
+    Given an "OrderFulfillment" policy translating "order" events into "inventory" commands
+    And its business code answers an OrderPlaced event with a ShipOrder command for "shipping" that names no root, no edition and another correlation
+    When the OrderPlaced event is handled
+    Then the answer's one reaction carries that ShipOrder command unchanged
+    And the answer is not refused
+
+  @policy @policy_refusal
+  @C-0691
+  Scenario: A policy with a translating callback answers the refusal with the domestic fact's payload alone
+    Given an "OrderFulfillment" policy whose ReserveStock refusals are translated by a callback returning the "order" fact StockUnavailable
+    When the policy is given the refusal of a ReserveStock it sent
+    Then the callback is called with that refusal
+    And the answer's fact page carries StockUnavailable as its only content
+    And the answer's fact sets no cover, no handling and no identity
+
+  @policy @policy_refusal
+  @C-0692
+  Scenario: A policy with no translating callback answers that it has no translation
+    Given an "OrderFulfillment" policy with no callback for ReserveStock refusals
+    When the policy is given the refusal of a ReserveStock it sent
+    Then the answer carries no fact
+    And business code is not invoked
 
   # ===========================================================================
   # When the input was accepted (decision 14.37)

@@ -7,9 +7,12 @@ Feature: Conflict resolution - how the coordinator treats a stale command
     runs; the caller re-reads and re-issues.
   - AGGREGATE_HANDLES: business code receives the events the command did
     not see (the window) with a nonce, and applies its own conflict rule.
-  - COMMUTATIVE: delivered exactly like AGGREGATE_HANDLES; the client
-    library compares conflict units itself (handler-contract,
-    handling.feature).
+    The router reports the nonce business code resolved with, and the
+    coordinator keeps the events only if it is the one delivered.
+  - COMMUTATIVE: delivered exactly like AGGREGATE_HANDLES; the router
+    reports the conflict units the window and the command changed
+    (handler-contract, handling.feature), and the coordinator keeps the
+    events only if they do not overlap (decision 14.42).
 
   Which resolutions a stream supports comes from its registered state. Every
   state supports STRICT and AGGREGATE_HANDLES; COMMUTATIVE only where the
@@ -135,9 +138,41 @@ Feature: Conflict resolution - how the coordinator treats a stale command
     Then business code is invoked twice
     And the two deliveries carry different conflict nonces
 
+  @aggregate_handles
+  @C-0683
+  Scenario Outline: AggregateHandles - the coordinator judges the nonce the router reports
+    Given an AddItem command with conflict resolution AGGREGATE_HANDLES targeting sequence 1
+    And the coordinator delivers it with conflict nonce "n-1"
+    And the business process answers an ItemAdded event, reporting <reported>
+    When the coordinator processes the command
+    Then <outcome>
+
+    Examples:
+      | reported                  | outcome                                                                          |
+      | resolved nonce "n-1"      | an ItemAdded event is persisted at sequence 3                                    |
+      | no resolved nonce         | the command fails ABORTED with reason CONFLICT_UNRESOLVED and nothing is persisted |
+      | resolved nonce "made-up"  | the command fails ABORTED with reason CONFLICT_UNRESOLVED and nothing is persisted |
+
   # ===========================================================================
   # COMMUTATIVE - delivered like AGGREGATE_HANDLES
   # ===========================================================================
+
+  @commutative
+  @C-0684
+  Scenario Outline: Commutative - the coordinator judges the conflict units the router reports
+    Given an AddItem command with conflict resolution COMMUTATIVE targeting sequence 1
+    And the business process answers an ItemAdded event, reporting window units <window> and command units <mine>
+    When the coordinator processes the command
+    Then <outcome>
+
+    Examples:
+      | window            | mine                       | outcome                                                                                                      |
+      | "items[pear]"     | "items[apple]"             | an ItemAdded event is persisted at sequence 3                                                                |
+      | "items[pear]"     | "items[pear]"              | the command fails ABORTED with reason CONFLICT_OVERLAP, window_units "items[pear]" and command_units "items[pear]", and nothing is persisted |
+      | "items[42]"       | "items[42].weight"         | the command fails ABORTED with reason CONFLICT_OVERLAP and nothing is persisted                              |
+      | "items[4]"        | "items[42]"                | an ItemAdded event is persisted at sequence 3                                                                |
+      | "*notes"          | "items[apple]"             | the command fails ABORTED with reason CONFLICT_OVERLAP and nothing is persisted                              |
+      | none              | "items[apple]"             | an ItemAdded event is persisted at sequence 3                                                                |
 
   @commutative
   @C-0149

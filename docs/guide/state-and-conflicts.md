@@ -48,7 +48,7 @@ angzarr has three answers (`ConflictResolution`):
 |---|---|---|
 | `STRICT` | refused `ABORTED` before business code; the caller re-reads and retries | nobody |
 | `AGGREGATE_HANDLES` | `decide` receives the window and must call `resolve_conflicts(window, nonce)` | you, in `decide` |
-| `COMMUTATIVE` | the client library compares what the window changed with what the command changes; disjoint means accepted, overlapping means `ABORTED` | nobody: you declare conflict units in proto |
+| `COMMUTATIVE` | the client library computes what the window changed and what the command changes, and the coordinator compares them; disjoint means accepted, overlapping means `ABORTED` | nobody: you declare conflict units in proto |
 
 **COMMUTATIVE is the default** for any state that declares conflict units,
 and STRICT is the default otherwise. Configuration or `Handling` can pick
@@ -221,16 +221,22 @@ states. Two sets **overlap** when one contains a wildcard and the other is
 non-empty, or when a path in one equals, or is a `.`/`[`-bounded prefix of,
 a path in the other.
 
-When a stale command arrives under COMMUTATIVE, the client library:
+When a stale command arrives under COMMUTATIVE, the client library and the
+coordinator share the work (decision 14.42). The client library:
 
 1. folds the state to `expected_sequence` (*expected*) and folds the window
    on top of it (*head*);
 2. computes `window = changed(expected, head)`;
 3. **runs `decide` on head**, never on expected;
-4. computes `mine = changed(head, head + the command's events)`;
-5. if `window` and `mine` are disjoint, keeps the events (acknowledging the
-   conflict nonce for you). Otherwise the command fails `ABORTED`, exactly
-   as under STRICT.
+4. computes `mine = changed(head, head + the command's events)`, and
+   answers the events with `window` and `mine`.
+
+The coordinator then keeps the events if `window` and `mine` are disjoint.
+Otherwise the command fails `ABORTED` (`CONFLICT_OVERLAP`), exactly as under
+STRICT, and nothing is persisted. Under AGGREGATE_HANDLES the client library
+likewise reports the nonce your `decide` passed to `resolve_conflicts`, and
+the coordinator refuses the command (`CONFLICT_UNRESOLVED`) unless it is the
+one delivered.
 
 Step 3 is the important one. **Every invariant that `decide` checks is
 checked against the current state**, including everything the window

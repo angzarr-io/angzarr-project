@@ -6,9 +6,10 @@ Client-surface cucumber, run by every `client-*-lang` repo.
 
 Dispatch behaviour — routing by type, state rebuild, command/fact/
 rejection/compensation/undo dispatch, policy and process-manager handling —
-is specified **only** by angzarr-router's conformance suite
-([`angzarr-router/conformance`](https://github.com/angzarr-io/angzarr-router/tree/main/conformance)).
-Every client repo's CI must run that suite against its router binding.
+is specified **only** by the handler-contract tier
+([`../handler-contract/`](../handler-contract/), decision 14.42), the
+router's complete contract. Every router's CI (angzarr-router's, and
+client-python's native router's) runs it.
 This tier never restates dispatch behaviour; a scenario that would is added
 to the conformance suite instead. The `Handle` contract the conformance
 suite binds by ID (rules version, unknown types, the conflict nonce,

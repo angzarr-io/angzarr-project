@@ -2,7 +2,17 @@
 
 ## Status
 
-Accepted. Proven across Rust, Go, and Python by the bootstrap units (S1
+**Superseded by decision 14.42 (2026-10-29).** router-ffi and its
+`abi.proto` are retired. Each language gets a native router, the Rust router
+being the reference, and the router is slimmed to dispatch: admission,
+descriptors, error classification, policy output checks, refusal
+addressing, envelope guards and conflict judgement move to the coordinator,
+upcasting (14.39) and snapshot handling (14.40) with them. The handler-contract
+tier (`features/handler-contract/`) is every router's complete contract, run
+in CI for each one. That answers this ADR's drift concern by contract, not by
+sharing one binary. The record below is kept as written.
+
+Previously: accepted. Proven across Rust, Go, and Python by the bootstrap units (S1
 projector, S2 saga); process-manager (S3) and the ABI freeze review remain.
 This is the architecture of record for client-side dispatch going forward.
 

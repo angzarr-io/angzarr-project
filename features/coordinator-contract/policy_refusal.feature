@@ -2,14 +2,16 @@ Feature: Policy refusals - a refused command becomes one fact for the policy's o
   A policy's target, an aggregate or a process manager alike, refuses a
   policy's command the way it refuses any command, optionally with a typed
   refusal object of its own domain, and records nothing. The policy then
-  builds one unrefusable refusal fact for the exact stream of its
-  triggering event (decision 2.2, as amended by 14.31). By default its
-  generated code passes the standard CommandRefused { command, refusal,
-  trigger } through, the typed refusal object packed, and the source's
-  on_refused_<Command> handles it; where angzarr-cli selects translate,
-  the policy's callback turns Refusal { event, command, response } into a
-  domestic fact, so the source need not unpack a foreign object. The refusal fact's id is the refused command's id. Both
-  calls go through the outbox.
+  yields one unrefusable refusal fact for the exact stream of its
+  triggering event (decision 2.2, as amended by 14.31 and 14.42). The
+  coordinator calls the policy's OnRefused. By default the policy has no
+  translation, and the COORDINATOR builds the standard CommandRefused {
+  command, refusal, trigger }, the typed refusal object packed, which the
+  source's on_refused_<Command> handles; where angzarr-cli selects
+  translate, the policy's callback turns Refusal { event, command, response
+  } into a domestic fact, so the source need not unpack a foreign object.
+  Either way the coordinator addresses the fact and stamps its identity:
+  the refused command's id. Both calls go through the outbox.
 
   Background:
     Given a "wallet" aggregate that refuses HoldFunds with FAILED_PRECONDITION reason INSUFFICIENT_AVAILABLE_FUNDS and the refusal object InsufficientFunds when funds are short
@@ -24,7 +26,8 @@ Feature: Policy refusals - a refused command becomes one fact for the policy's o
     And wallet "p-1" has too little available to hold 500
     When "BuyIn" records BuyInStarted for 500 from wallet "p-1" under correlation "0192a6b0-0000-7000-8000-000000000020"
     Then wallet "p-1" refuses HoldFunds and records nothing
-    And the policy, not the coordinator, builds a CommandRefused fact carrying only the HoldFunds sent, the InsufficientFunds refusal object packed and the BuyInStarted event's EventRef
+    And "BuyInToWallet"'s OnRefused answers no translation
+    And the coordinator builds a CommandRefused fact carrying only the HoldFunds sent, the InsufficientFunds refusal object packed and the BuyInStarted event's EventRef
     And it is delivered to "buy-in" root "0192a6b0-0000-7000-8000-000000000020"
     And "BuyIn"'s on_refused_HoldFunds handler unpacks InsufficientFunds and records its own events for it
 
@@ -160,3 +163,23 @@ Feature: Policy refusals - a refused command becomes one fact for the policy's o
     When "BuyIn" records BuyInStarted for 500 from wallet "p-1"
     Then "BuyInToWallet"'s callback is called with a refusal response whose diagnostic has code ACCOUNT_CLOSED and arg wallet "p-1"
     And the refusal response carries no refusal object and no text
+
+  @policy_refusal
+  @C-0685
+  Scenario Outline: A translated fact that is more than a payload is refused as a policy bug
+    # The business process answers a translated fact's payload alone; the
+    # coordinator addresses and identifies it (decision 14.42).
+    Given "BuyInToWallet" was generated with HoldFunds in translate mode, its callback returning the "buy-in" fact HoldFundsDeclined
+    And "BuyInToWallet"'s OnRefused answers a fact that <fault>
+    And wallet "p-1" has too little available to hold 500
+    When "BuyIn" records BuyInStarted for 500 from wallet "p-1"
+    Then the fact is refused INTERNAL with reason <reason>, dead-lettered and alerted
+    And nothing is recorded in "buy-in"
+
+    Examples:
+      | fault                              | reason                  |
+      | sets its own cover                 | REFUSAL_FACT_ADDRESSED  |
+      | sets its own handling              | REFUSAL_FACT_ADDRESSED  |
+      | has no page                        | REFUSAL_FACT_NO_PAGE    |
+      | has a Command page                 | REFUSAL_FACT_NOT_A_FACT |
+      | sets its own command_id            | REFUSAL_FACT_IDENTIFIED |

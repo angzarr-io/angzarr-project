@@ -598,6 +598,7 @@ fn component_descriptor_carries_its_state_descriptor() {
         state: Some(state),
         rules_version: "1.4.2+build.7".into(),
         starting_types: vec![],
+        output_domain: String::new(),
     };
     let decoded = round_trip(&original);
     assert_eq!(decoded, original);
@@ -740,6 +741,31 @@ fn a_process_manager_descriptor_lists_its_starting_facts() {
         ..Default::default()
     };
     assert_eq!(descriptor.encode_to_vec(), [0x3a, 2, b'/', b'a']);
+}
+
+#[test]
+fn a_policy_descriptor_carries_its_output_domain_as_field_8() {
+    // Decision 14.42: the policy's coordinator checks every command against
+    // the descriptor's one output domain.
+    let original = ComponentDescriptor {
+        name: "order-to-inventory".into(),
+        kind: ComponentKind::Policy as i32,
+        inputs: vec![Target {
+            domain: "order".into(),
+        }],
+        rules_version: "1.0.0".into(),
+        output_domain: "inventory".into(),
+        ..Default::default()
+    };
+    let decoded = round_trip(&original);
+    assert_eq!(decoded, original);
+    assert_eq!(decoded.output_domain, "inventory");
+    // output_domain is ComponentDescriptor's field 8: 8 << 3 | 2 = 0x42.
+    let descriptor = ComponentDescriptor {
+        output_domain: "i".into(),
+        ..Default::default()
+    };
+    assert_eq!(descriptor.encode_to_vec(), [0x42, 1, b'i']);
 }
 
 #[test]

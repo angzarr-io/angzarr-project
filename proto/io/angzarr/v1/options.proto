@@ -64,8 +64,9 @@ option ruby_package = "Angzarr";
 // several destinations is a process manager, whose events the policies for
 // (the PM's domain, each destination) translate. A policy declaring no
 // output_domain fails generation; at run time a policy command addressed to
-// any other domain is refused by the client library before it answers (see
-// PolicyResponse in policy.proto).
+// any other domain is refused by the policy's coordinator, against
+// ComponentDescriptor.output_domain (see PolicyResponse in policy.proto;
+// decision 14.42).
 //
 // There are no compensation declarations. A refusal in a choreographed flow
 // is a rejection plus a fact: the target refuses a policy's command and
@@ -221,8 +222,9 @@ extend google.protobuf.MessageOptions {
 //
 // a pure function over two values of the state message, plus the state's
 // StateDescriptor for its ComponentDescriptor (ComponentService.Describe).
-// The client library's COMMUTATIVE resolver calls changed(); business code
-// never does. annals generates the
+// The client library's COMMUTATIVE resolver calls changed() and reports the
+// unit sets; the coordinator judges their overlap (decision 14.42).
+// Business code never calls it. annals generates the
 // same function from the same markers, and a shared golden fixture suite
 // holds every implementation to identical output. The developer guide,
 // docs/guide/state-and-conflicts.md, explains all of this with examples.
@@ -337,17 +339,20 @@ extend google.protobuf.MessageOptions {
 // whole-message unit, by deep equality): coarser, so still sound. Every
 // implementation uses the same bound, so paths agree.
 //
-// The resolver (client library; see ConflictResolution in types.proto):
+// The resolver (the client library computes, the coordinator judges;
+// decision 14.42; see ConflictResolution in types.proto):
 //   1. expected = state folded to Handling.expected_sequence;
 //      head = expected with the window's events folded in.
 //   2. window = changed(expected, head).
 //   3. decide runs on head (never on expected), so every invariant decide
 //      checks is checked against the window's effects.
 //   4. mine = changed(head, head with the command's events folded in).
-//   5. window and mine disjoint (no overlap): the library acknowledges the
-//      nonce itself and the events are kept. Otherwise the command fails as
-//      stale (ABORTED), as STRICT would. An empty window or an empty mine is
-//      always disjoint.
+//   5. the client library answers the events with window and mine
+//      (CommandHandlerResponse.conflict). The coordinator keeps the events
+//      iff the two are disjoint (no overlap); otherwise the command fails as
+//      stale (ABORTED, CONFLICT_OVERLAP, metadata window_units and
+//      command_units), as STRICT would, and nothing is persisted. An empty
+//      window or an empty mine is always disjoint.
 // The resolver uses the CURRENT markers, from the descriptors of the code
 // that runs decide; markers are never stored with events, so a marker change
 // affects resolutions from its deployment on, never history.
@@ -456,10 +461,11 @@ extend google.protobuf.FieldOptions {
 // command's own domain, fails generation.
 //
 // The policy's side. When a policy's command is refused, the policy's
-// coordinator calls PolicyService.OnRefused, and the policy's generated code
-// delivers ONE fact of the refusal to the policy's own source domain, by one
-// of two paths:
-//   - PASS-THROUGH (the default): the generated code builds the standard
+// coordinator calls PolicyService.OnRefused, and ONE fact of the refusal is
+// delivered to the policy's own source domain, by one of two paths
+// (decision 14.42):
+//   - PASS-THROUGH (the default): the generated code has no callback and
+//     answers "no translation"; the coordinator builds the standard
 //     CommandRefused { command, refusal (the typed refusal object, as an
 //     Any), trigger } and sends it. The source domain
 //     handles it by a generated dispatch on the refused command's type,

@@ -152,6 +152,8 @@ Reactions always run asynchronously.
 
 > **Amended by 14.31 (pass 14):** the side channel stays deleted, but a refusal is no longer a domain event of the refusing side. A saga's target (an aggregate or a process manager) refuses the saga's command with a business rejection, optionally carrying a typed refusal object of its own domain (one of the command's `refuses` types), and records nothing. The refusal goes back to the saga, which builds one unrefusable refusal fact for the exact stream of its triggering event: by default its generated code passes through the standard `CommandRefused { command, refusal, trigger }`, the typed object packed as an `Any`, which the source handles in its `on_refused_<Command>(refusal, state)`; or, where angzarr-cli selects translate at code generation, the saga's callback reads `Refusal { event, command, response }` and returns a domestic fact, which is why translate exists: a source that does not want to unpack a foreign object, or import foreign protos, gets a domestic fact instead. Either way the fact's id is the refused command's id, the source decides what the refusal means and records its own events, and both calls go through the outbox (the fact written in the transaction that clears the command's entry), retried and deduplicated by that one id. Process managers take the replies to their steps as commands from sagas, and the refusals of their own steps as these facts.
 
+> **Amended by 14.42 (pass 14):** the coordinator, not the policy's generated code, builds the pass-through `CommandRefused` and addresses every refusal fact. The router runs only a translate callback, or answers that it has none.
+
 **2.2 The compensation and notification channel is deleted.** In its place,
 process managers handle replies, and refusals are domain events.
 - Why: a refusal is a business fact and belongs in a stream. A side channel
@@ -1557,6 +1559,8 @@ no snapshot and every page from sequence 0. Settles the open question in
 
 > **Amended by 14.19 (pass 14):** `Describe` returns one `ComponentDescriptor` and `ComponentDescriptors` is deleted; the "one process may host several components" rationale below no longer holds. The pull direction stands.
 
+> **Amended by 14.42 (pass 14):** angzarr-cli generates the descriptor at build time, from the protos. The business process answers `Describe` with it unchanged, and the coordinator validates it (output domain included). The router holds no descriptor logic.
+
 **14.10 The coordinator pulls the descriptors.** Every business process
 serves `ComponentService.Describe(DescribeRequest) returns
 (ComponentDescriptors)` (new `component.proto`; `ComponentDescriptors {
@@ -1756,6 +1760,8 @@ order, `RecordRoundResult` then `AwardLoyaltyPoints`. Owner ruling, 2026-10-20.
 
 > **Amended by 14.31 (pass 14):** a process manager sends no commands; `output_domains` (6) is deleted and `output_domain` is SAGA only.
 
+> **Amended by 14.42 (pass 14):** the policy's coordinator refuses a command for any domain but `ComponentDescriptor.output_domain`, not the client library. The descriptor now carries the output domain.
+
 **14.24 A saga has exactly one source and one destination domain.**
 Amends 14.23. A saga is a translator between two domains:
 `ComponentOptions.input_domain` is its one source and `output_domain` its
@@ -1882,6 +1888,8 @@ correlation is a 16-byte `UUID` since 9.1. Owner ruling, 2026-10-27.
 > **Amended by 14.36 (pass 14, as amended):** "The root is the correlation" below is a convention only: a policy always names a PM command's root, keeping its trigger's correlation; a set `correlation_id` other than the cover's root is no longer malformed, so the start rule is the only rule a PM's coordinator adds to an aggregate's.
 
 > **Amended by 14.37 (pass 14):** `RefusalResponse` is `oneof reason { refusal (1) | diagnostic (3) }`; its `message` (2) is deleted, unreserved: no text crosses. A pass-through refusal with no path is answered `NO_REFUSAL_HANDLER`, not `NO_FACT_HANDLER`.
+
+> **Amended by 14.42 (pass 14):** the coordinator owns admission: deduplication, the refusal fact's stream check and the start rule. The router's `admit` is deleted. The coordinator also builds and addresses every refusal fact; the router answers only a translate callback's fact, or none.
 
 **14.31 A process manager is a domain.** Owner rulings of 2026-10-27
 (ruling 7 of the angzarr/annals common plan) and 2026-10-28 (rulings 7 and
@@ -2496,6 +2504,8 @@ order across streams.
 - Cost: an edition's streams cannot be forked at one store-wide moment;
   a consistent cross-stream snapshot is not offered.
 
+> **Amended by 14.42 (pass 14):** the policy's coordinator checks every command's root, correlation and edition (and stamps the edition), not the client library. The checks are per triggering page, from `PolicyResponse.reactions`.
+
 **14.36 A policy may name a process manager's root; a fork is where it
 says.** Owner rulings, 2026-10-28. Amends 14.30, 14.31 and 14.32.
 - **Correlation traces the causal chain.** A policy sends commands to
@@ -2620,6 +2630,8 @@ says.** Owner rulings, 2026-10-28. Amends 14.30, 14.31 and 14.32.
 >   two ways to say what the policy can write directly.
 
 > **Amended by 14.39 (pass 14):** `DUPLICATE_UPCASTER_CHAIN` is retired, because the router holds no upcaster chain. So is `DUPLICATE_COMMAND_HANDLER`, whose only condition was an old type that is also a current type. From the router, `UNKNOWN_COMMAND_TYPE` and `NO_FACT_HANDLER` carry `type_url` only, the type the router was given. The coordinator answers the caller with `type_url` as sent and `upcast_type_url`.
+
+> **Amended by 14.42 (pass 14):** the reason keys, their owner, status and arg names live in `catalog/reasons.toml` and are generated per language. Classification by status is the coordinator's. Many router keys retire or move to the coordinator (14.42 lists them). A language with only exceptions marks a bug with no cause by a named unclassified error.
 
 **14.37 Errors carry a key and an argument map, never rendered English;
 the input's acceptance time is delivered.** Owner rulings, 2026-10-28.
@@ -3003,7 +3015,7 @@ never sees an old shape.** Owner ruling, 2026-10-29 (plan
 - **Retired with the router's chain:** `DUPLICATE_UPCASTER_CHAIN`, and the
   build-time check that refused an old type that is also a current command
   type (`DUPLICATE_COMMAND_HANDLER`). Nothing holds both sets now.
-- **Drafter's choices, for the owner to confirm.**
+- **Drafter's choices, confirmed by the owner (2026-10-29):**
   - No sidecar configured: nothing is upcast.
   - A sidecar configured but unreachable or failing: the coordinator
     delivers nothing that needs upcasting, and reports `NOT_SERVING`
@@ -3014,6 +3026,10 @@ never sees an old shape.** Owner ruling, 2026-10-29 (plan
     `kind = "upcaster"`, naming the domain it upcasts. A registered Rust
     upcaster counts as that domain's sidecar.
   - The wire stays unchanged, an input's payload riding in an `EventPage`.
+  - The build-time check for an old type that is also a current type is
+    dropped, not moved.
+  - No admit RPC for a remote process manager: the coordinator applies the
+    start rule itself (14.42; 14.41 for the embedded host).
 - **Text changed with it:** the comments of `upcaster.proto`,
   `command_handler.proto`, `component.proto`, `types.proto`, `query.proto`
   and `process_manager.proto`, and the wallet example's comment.
@@ -3056,6 +3072,10 @@ is given.** Owner ruling, 2026-10-29. Amends 14.1 and 14.12, and the
   domain's storage policy, and stamps `sequence` and `rules_version`. The
   router never decides.
 - **Wire: none.** On a delivery, `EventBook.snapshot` is the starting state.
+- **Confirmed by the owner (2026-10-29):** the router has no covered-page
+  guard ("snapshots are coordinator work"); one state codec, with no
+  snapshot vocabulary, decodes the starting state and encodes the state
+  the router returns; `EventBook.snapshot` keeps its name.
 - Why: the coordinator already chooses the snapshot and reads the store, so
   dropping covered pages where it reads leaves one place that knows what a
   snapshot covers. It also shrinks the router toward one per language, as
@@ -3134,6 +3154,182 @@ projector.
   would need the child again. Two more child kinds to supervise, and a
   projector's retries delay the call that committed. Every embedded config
   renames its tables.
+
+**14.42 The router keeps dispatch; everything else is the
+coordinator's.** Owner rulings, 2026-10-29 (plan `router-call-model`,
+latest rulings). Amends 2.2 (as amended by 14.31), 14.10, 14.24, 14.31,
+14.36 and 14.37, and supersedes ADR 0001. It follows 14.39 (upcasting) and
+14.40 (snapshots) toward a router small enough to write natively in each
+language.
+- **A router per language.** Python gets a native router, and the Rust
+  router stays as the reference. router-ffi and its `abi.proto` are
+  retired, and so is the plan for a generated C ABI. The handler-contract
+  tier (`features/handler-contract/`, with its fixtures in `fixture/`) is
+  the router's COMPLETE contract, and CI runs it against every router.
+  angzarr-router's own conformance features are ported into it (C-0693 to
+  C-0714), without the envelope guards that are no longer the router's.
+- **What the router does, and nothing else.**
+  - It routes by type URL, refusing a type it does not handle:
+    `UNKNOWN_COMMAND_TYPE`, `NO_FACT_HANDLER`, or `NO_REFUSAL_HANDLER` for
+    a `CommandRefused` with no `on_refused_<Command>`.
+  - It folds the starting state and every page it is given (14.40).
+  - It runs decide or ingest, and answers the events, the state and the
+    rules version.
+  - It reports a stale command's conflicts (below).
+  - It runs a policy's handlers once per page and answers their commands
+    grouped by triggering page.
+  - It runs a policy's translating callback, or answers that it has none.
+  - It runs a projector.
+  - It turns whatever escapes business code into a key and its args.
+- **Admission.** The router's `admit` is deleted, and there is no admit
+  RPC. The coordinator owns all three of admit's jobs:
+  - deduplication (pipeline step 3, as before);
+  - the refusal fact's stream check (`REFUSAL_FACT_WRONG_STREAM`, input
+    validation);
+  - a process manager's start rule (`PM_NO_INSTANCE`, or a silent skip for
+    a fact), judged against `ComponentDescriptor.starting_types` by the
+    type name after upcasting (14.39).
+
+  14.41 applies this in angzarr-embedded's host.
+- **Descriptor.** angzarr-cli generates the whole `ComponentDescriptor` at
+  build time from the protos, with the build's baked-in version as its
+  `rules_version`. The business process answers `Describe` with it
+  unchanged, and the router holds no descriptor logic. The coordinator
+  validates it and refuses, as a readiness failure:
+  - an empty version (`MISSING_RULES_VERSION`);
+  - starting types on a kind that is not a process manager
+    (`STARTING_TYPES_ON_NON_PM`);
+  - an aggregate or process manager with no state (`MISSING_STATE_TYPE`);
+  - a policy or projector with a state (`STATE_ON_STATELESS_KIND`);
+  - a policy without exactly one input and an output domain
+    (`POLICY_DOMAINS_INVALID`);
+  - an output domain on any other kind (`OUTPUT_DOMAIN_ON_NON_POLICY`).
+
+  **Wire:** `ComponentDescriptor.output_domain` (8), for a policy only.
+- **Error catalog.** `catalog/reasons.toml` in angzarr-project lists every
+  framework reason key once: who answers it (the router or the
+  coordinator), its gRPC status, and its arg names. Each language's
+  constants are generated from it, and the catalog lists the retired keys
+  so they are never reused. `scripts/check_reasons.py`, part of
+  `just contracts`, checks its shape and that no feature or proto names a
+  retired key. Classification by status (14.37's four classes) is the
+  coordinator's: the router answers a status and a key and never
+  classifies.
+- **Policy outputs.** The router answers each handled page's commands as
+  business code returned them. The new message is
+  `PolicyResponse.reactions` (2), each a `PolicyReaction {
+  trigger_sequence, commands }`, in page order. The policy's coordinator
+  checks every command against four rules, and one failure refuses the
+  whole answer as a policy bug: nothing is delivered, and the trigger is
+  dead-lettered and alerted. The rules:
+  - **Destination:** the cover's domain is the descriptor's output domain
+    (`POLICY_COMMAND_OUTSIDE_DESTINATION`).
+  - **Edition:** unset, or the trigger's. An unset edition is stamped with
+    the trigger's (`POLICY_COMMAND_OUTSIDE_EDITION`).
+  - **Root:** named (`POLICY_COMMAND_NO_ROOT`).
+  - **Correlation:** unset, or the trigger's
+    (`POLICY_COMMAND_OTHER_CORRELATION`).
+
+  A command's index within its reaction is the index its derived id is
+  built from. **Wire:** `PolicyResponse.commands` (1) is deleted,
+  unreserved (policy 6.6), and `reactions` (2) and `PolicyReaction` are
+  added. Grouping by trigger is what tells the coordinator each command's
+  causation, so it can check and stamp per trigger.
+- **Refusals.** For `OnRefused`, the router runs the translating callback
+  for the refused command's type and answers a fact page holding only the
+  callback's payload. With no callback it answers an empty
+  `OnRefusedResponse`: no translation. The coordinator then:
+  - builds the pass-through `CommandRefused` itself, when there is no
+    translation;
+  - addresses every refusal fact and stamps its identity, as
+    `address_refusal_fact` did;
+  - refuses, as a policy bug, a translated fact that is more than a
+    payload (`REFUSAL_FACT_ADDRESSED`, `REFUSAL_FACT_NO_PAGE`,
+    `REFUSAL_FACT_NOT_A_FACT`, `REFUSAL_FACT_IDENTIFIED`; C-0685).
+
+  **Wire:** none (an unset `OnRefusedResponse.fact` now means no
+  translation).
+- **Envelope guards.** The coordinator builds every delivery well formed,
+  and its input validation covers what a client sends. The router guards
+  no envelope.
+- **Conflicts.** The router no longer discards a stale command's events.
+  It reports, and the coordinator judges:
+  - **AGGREGATE_HANDLES:** the router reports the nonce the handler passed
+    to `resolve_conflicts`, empty if it never called it. The coordinator
+    accepts the events only if that is the nonce it delivered
+    (`CONFLICT_UNRESOLVED`, ABORTED).
+  - **COMMUTATIVE:** the router reports `window = changed(expected, head)`
+    and `mine = changed(head, head + events)`. The coordinator applies
+    options.proto's Overlap rule (`CONFLICT_OVERLAP`, ABORTED, metadata
+    `window_units` and `command_units`).
+
+  Either way a failed judgement persists nothing. The router keeps
+  `CONFLICT_RESOLUTION_UNSUPPORTED` for a COMMUTATIVE delivery to a state
+  with no resolver. **Wire:** `CommandHandlerResponse.conflict` (4), a
+  `ConflictReport { resolved_nonce, window_units, command_units }`. It is
+  field 4, not 3, because the deleted `snapshot_refused` (3, a bool) must
+  never decode into it.
+- **Panics (C-0669).** In a language with only exceptions (Python), the
+  client library exports a named unclassified exception. Raising it is a
+  bug with no cause (`UNHANDLED_HANDLER_ERROR`). Any other exception is a
+  panic: `UNHANDLED_HANDLER_ERROR` with cause `HANDLER_PANICKED`. Rust is
+  unchanged: an unclassified error has no cause, and a panic is
+  `HANDLER_PANICKED`.
+- **Retired keys** (listed in the catalog):
+  - `MISSING_COMMAND_BOOK`, `MISSING_COMMAND_PAGE`,
+    `MISSING_COMMAND_PAYLOAD`, `MISSING_EVENT_BOOK_COVER`,
+    `EMPTY_POLICY_SOURCE` and `POLICY_SOURCE_OUTSIDE_INPUT_DOMAIN`: the
+    envelope guards.
+  - `REFUSAL_FACT_MISSING`: an empty answer now means no translation.
+  - `REFUSAL_WITHOUT_COMMAND`, `REFUSAL_WITHOUT_EVENT`,
+    `REFUSAL_WITHOUT_REFUSED_COMMAND`, `REFUSED_COMMAND_WITHOUT_ID` and
+    `REFUSAL_WITHOUT_TRIGGER_STREAM`: the coordinator builds the `Refusal`
+    from its own outbox entry.
+  - `HOST_STATUS_UNDECODABLE` and `NULL_ABI_POINTER`: router-ffi is gone.
+  - `ANY_DECODE_FAILED` for a `ContextualCommand`'s bytes: the key stays
+    for payloads.
+- **Moved to the coordinator's or the CLI's tier:**
+  - C-0583 to `policy_addressing.feature`.
+  - C-0535 and C-0565 to `codegen/descriptor.feature`.
+  - The judgement halves of C-0543, C-0544, C-0545, C-0547 and C-0550 to
+    new C-0683 and C-0684 in `conflict_resolution.feature`. The router
+    scenarios now assert the report.
+  - The refusal-fact rows of C-0670 to new C-0685 in
+    `policy_refusal.feature`.
+  - C-0613 now has the coordinator building the pass-through fact.
+- **New:**
+  - Router: C-0688 (every page given is folded), C-0689 (reactions by
+    triggering page), C-0690 (commands answered unchecked), C-0691 (a
+    translated fact's payload alone) and C-0692 (no translation).
+  - Coordinator: C-0687 (descriptor validation).
+  - CLI: C-0715 and C-0716 (the output domain in the generated
+    descriptor).
+- **Drafter's choices, for the owner to confirm:**
+  - the catalog's form, a TOML file, and its `READINESS` pseudo-status;
+  - the new keys' names: `STATE_ON_STATELESS_KIND`,
+    `POLICY_DOMAINS_INVALID` and `OUTPUT_DOMAIN_ON_NON_POLICY`;
+  - one reaction per handled page, none for an unhandled one;
+  - keeping `UNKNOWN_COMMAND_TYPE` in the router. The generated descriptor
+    could list the handled types for the coordinator to check, but it
+    does not.
+- Why: the owner wants a native Python router of about 0.9k lines. Every
+  rule moved here is generic, with no business code in it, so it belongs
+  where it can be written once, in the coordinator. The router keeps only
+  what must call business code. The handler-contract tier then holds a
+  second router to the first by behaviour, not by sharing a binary.
+- Cost:
+  - Three wire changes: one breaking (`PolicyResponse`) and two additive.
+  - Each coordinator (core and the angzarr-embedded kernel) takes on
+    admission, descriptor validation, policy checks, refusal building and
+    conflict judgement.
+  - A stale command's events cross the wire even when the coordinator will
+    discard them.
+  - A router bug in a report (a wrong unit set) is no longer caught where
+    the units are computed.
+- Aligns with: Axon, where the framework, not the handler, owns command
+  routing guards, deduplication and saga association. The handler-contract
+  tier plays the part of a TCK (a technology compatibility kit), as the
+  Reactive Streams TCK does for its implementations.
 
 ## Corrections
 

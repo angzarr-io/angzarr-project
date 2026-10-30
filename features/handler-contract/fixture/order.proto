@@ -1,0 +1,94 @@
+syntax = "proto3";
+
+package orders.v1;
+
+// The handler-contract tier's order vocabulary
+// (angzarr-project features/handler-contract/handling.feature,
+// C-0533..C-0550). Plain messages: the harness builds the order aggregate
+// and the Fulfillment process manager by hand.
+
+// Commands. RemoveEverything is not handled. AddItemV1, AddLine and
+// AddLineItem (and the fact ItemDeliveredV1 below) are the old shapes the
+// coordinator tier's upcasting scenarios use (coordinator-contract
+// upcasting.feature, C-0537 to C-0540); the router never sees them
+// (decision 14.39).
+message AddItem {
+  string item = 1;
+}
+message AddItemV1 {
+  string item = 1;
+}
+message AddLine {
+  string item = 1;
+}
+message AddLineItem {
+  string item = 1;
+}
+message RemoveEverything {
+  string item = 1;
+}
+
+// Events.
+message ItemAdded {
+  string item = 1;
+}
+message OrderNoteAdded {
+  string note = 1;
+}
+message OrderPlaced {}
+
+// Acknowledge is a command business code answers with no events.
+message Acknowledge {
+  string item = 1;
+}
+
+// The Fulfillment process manager's starting command (a process manager is
+// a domain, decision 14.31; a policy from "order" sends it).
+message StartFulfillment {}
+
+// The Fulfillment process manager's event: it started fulfilling.
+message FulfillmentStarted {}
+
+// Facts. ItemDeliveredV1 is ItemDelivered's old name.
+message ItemDelivered {
+  string item = 1;
+}
+message ItemDeliveredV1 {
+  string item = 1;
+}
+
+// The order state: a quantity per item (one conflict unit per item, items[<item>]),
+// a shipping address (its own unit) and free-form notes (unmarked: a change
+// conflicts with everything, reported as the wildcard *notes).
+message OrderState {
+  map<string, uint32> items = 1;
+  string shipping_address = 2;
+  string notes = 3;
+  // The items delivered (the ItemDelivered facts recorded), in order.
+  repeated string delivered = 4;
+}
+
+// A typed refusal of AddItem (one of its refuses types): the item is out
+// of stock (decision 14.37, C-0668).
+message ItemOutOfStock {
+  string item = 1;
+  uint32 on_hand = 2;
+}
+
+// The OrderFulfillment policy's command for "inventory" (C-0689 to
+// C-0692), and a command for another domain (C-0690).
+message ReserveStock {
+  string item = 1;
+}
+message ShipOrder {}
+
+// The "order" fact a translating callback returns for a refused
+// ReserveStock (C-0691).
+message StockUnavailable {
+  string item = 1;
+}
+
+// The Fulfillment process manager's state.
+message FulfillmentState {
+  uint32 placed = 1;
+}

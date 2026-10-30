@@ -6,7 +6,11 @@ Feature: Who a policy's command addresses, and the correlation it carries
   policy bug (POLICY_COMMAND_OTHER_CORRELATION). A policy names its
   command's root for EVERY target, aggregate or process manager alike:
   nothing fills one in, the router never knows the target's kind, and a
-  command with no root is a policy bug (POLICY_COMMAND_NO_ROOT). Setting a
+  command with no root is a policy bug (POLICY_COMMAND_NO_ROOT). The
+  policy's coordinator makes every one of these checks, per triggering
+  page, on the commands the router returns unchecked (decision 14.42), and
+  refuses a command for any domain but the descriptor's output domain.
+  Setting a
   process manager's root to the trigger's correlation is a convention a
   policy may follow by writing it. The correlation ids below are UUIDs, as
   in every scenario (decision 14.18).
@@ -88,3 +92,15 @@ Feature: Who a policy's command addresses, and the correlation it carries
       | policy             | domain      | command          |
       | OrderToInventory   | inventory   | ReserveStock     |
       | OrderToFulfillment | fulfillment | StartFulfillment |
+
+  # Moved from handler-contract (decision 14.42): the coordinator, not the
+  # router, refuses a command outside the policy's one destination.
+  @policy_addressing
+  @C-0583
+  Scenario: A policy's command for a domain other than its one destination is refused by its coordinator
+    Given a policy "OrderToInventory" translating from "order" to "inventory", whose descriptor names output domain "inventory"
+    And its business code answers an OrderPlaced event with a ReserveStock command for "inventory" "inv-7" and a ShipOrder command for "shipping"
+    When an OrderPlaced event with correlation "0192a6b0-0000-7000-8000-000000000048" is recorded for order "order-1"
+    Then the policy's answer is refused INTERNAL with reason POLICY_COMMAND_OUTSIDE_DESTINATION, naming expected_domain "inventory" and actual_domain "shipping"
+    And neither command is delivered
+    And the OrderPlaced trigger is dead-lettered and an alert is raised

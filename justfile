@@ -117,7 +117,11 @@ check-gherkin *dirs="features parity":
         "pip install --quiet --disable-pip-version-check --root-user-action=ignore gherkin-official=={{GHERKIN_VERSION}} && python scripts/check_gherkin_parse.py {{dirs}}"
 
 # Required contract gates (proto-breaking is optional and run by hand)
-contracts: proto-lint test-check-feature-ids check-feature-ids check-gherkin check-rules
+contracts: proto-lint test-check-feature-ids check-feature-ids check-gherkin check-rules check-reasons
+
+# The reason-key catalog's shape, and no retired key named in features or protos
+check-reasons:
+    python3 scripts/check_reasons.py catalog/reasons.toml features proto
 
 # Unit tests for the scenario-ID checker
 test-check-feature-ids:

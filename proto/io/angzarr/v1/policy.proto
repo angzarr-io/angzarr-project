@@ -44,24 +44,24 @@ option ruby_package = "Angzarr";
 // a business-specific TYPED refusal object of its own domain (one of the
 // command's CommandOptions.refuses types, options.proto; e.g.
 // InsufficientFunds { available, requested }) or a diagnostic code and its
-// args, never text (decision 14.37), and it records NOTHING. The refusal then comes back to the POLICY, which
-// builds the one unrefusable fact of it for its OWN source: the exact
-// stream of its triggering event. In the owner's words: "the base
-// CommandRefused fact is created by the policy. It will have an Any type to
-// pack the foreign refusal object into. The
-// foreign refusal object is business-specific code. The refusal object is
-// passed back to the policy by the command-refused return type."
+// args, never text (decision 14.37), and it records NOTHING. The refusal
+// then yields the one unrefusable fact of it for the policy's OWN source:
+// the exact stream of its triggering event. The policy's coordinator builds
+// and addresses that fact (decision 14.42); the policy's business process
+// only translates, when it has a callback for the refused command.
 //   - The policy's coordinator calls PolicyService.OnRefused with a Refusal
 //     { event, command, response }: the triggering event, the command as
 //     sent, and the target's RefusalResponse { refusal | diagnostic },
 //     whose refusal is the typed refusal object as an Any (types.proto).
-//     It does so in BOTH modes, because the policy, not the coordinator,
-//     builds the fact.
-//   - PASS-THROUGH (the default): the policy's generated code, with no user
-//     code, answers the standard CommandRefused { command, refusal (the
-//     typed refusal object, still packed), trigger (the triggering
-//     event's EventRef) } (types.proto, the refusal_facts region), and
-//     nothing else, addressed to the stream of the triggering event. The source
+//     It calls it in both modes, because only the policy's business process
+//     knows whether it translates that command.
+//   - PASS-THROUGH (the default): the business process has no callback for
+//     the refused command's type and answers an EMPTY OnRefusedResponse
+//     ("no translation"). The coordinator then builds the standard
+//     CommandRefused { command, refusal (the typed refusal object, still
+//     packed), trigger (the triggering event's EventRef) } (types.proto,
+//     the refusal_facts region), addressed to the stream of the triggering
+//     event. The source
 //     domain's command handler has a generated dispatch by the refused
 //     (foreign) command's type,
 //       on_refused_<Command>(refusal, state) -> events,
@@ -71,7 +71,8 @@ option ruby_package = "Angzarr";
 //   - TRANSLATE: the policy's own callback,
 //       on_refused_<Command>(Refusal { event, command, response })
 //         -> <a fact type of the source domain>,
-//     reads the typed refusal object and returns a DOMESTIC fact, so the
+//     reads the typed refusal object and returns a DOMESTIC fact, which the
+//     business process answers as the fact's payload alone, so the
 //     source never refers to the foreign protos (the policy already does).
 //     This is WHY translate exists: CommandRefused carries only the
 //     foreign object, so a domain that does not want to unpack it, or
@@ -94,7 +95,8 @@ option ruby_package = "Angzarr";
 //     caught at RUN time: answered NO_REFUSAL_HANDLER (decision 14.37:
 //     its own key, metadata command_type), dead-lettered and alerted.
 // Mechanics, the same in both modes:
-//   - The fact's identity is the REFUSED COMMAND'S: its command_id is the
+//   - The coordinator builds or takes the fact and addresses it (decision
+//     14.42). The fact's identity is the REFUSED COMMAND'S: its command_id is the
 //     refused command's command_id (no prefix, no derivation), and the
 //     coordinator stamps causation_id (the refused command's, the
 //     triggering event), the trigger's correlation_id, and
@@ -103,10 +105,12 @@ option ruby_package = "Angzarr";
 //     and edition). One id
 //     therefore appears in two streams by design: never applied in the
 //     foreign (target) stream, which recorded nothing, and recorded as the
-//     refusal fact in the domestic (source) stream. The policy leaves these
-//     unset, its cover included; a fact for any other stream than the
-//     trigger's (domain, root or edition), or one that sets Handling, is a
-//     policy bug, and every coordinator refuses such a fact.
+//     refusal fact in the domestic (source) stream. A translated fact
+//     carries its payload only: one that sets its cover, Handling or any
+//     identity field, has no page, or whose page is not a Fact is a policy
+//     bug, and the coordinator refuses it (REFUSAL_FACT_ADDRESSED,
+//     REFUSAL_FACT_IDENTIFIED, REFUSAL_FACT_NO_PAGE,
+//     REFUSAL_FACT_NOT_A_FACT), dead-lettered and alerted.
 //   - Distributed: the coordinator calls OnRefused when the outbox relay
 //     receives the refusal, and writes the fact as a new outbox entry in
 //     the same transaction that clears the command's entry. A crash before
@@ -139,23 +143,24 @@ service PolicyService {
   // aggregate's or a process manager's).
   rpc Handle(EventBook) returns (PolicyResponse);
 
-  // One refusal of the policy's command (Refusals, above): answer the fact
-  // for the policy's own source domain. Called by the policy's coordinator
-  // only, for every business rejection of one of its commands, in both
-  // modes: the policy's generated code builds the pass-through
-  // CommandRefused, packing the typed refusal object, or calls the user's
-  // translating callback. Needed in both modes because the policy, not the
-  // coordinator, builds the fact (the owner's ruling). An error status,
-  // or a fact the coordinator refuses as malformed, is a policy bug
-  // (dead-lettered and alerted).
+  // One refusal of the policy's command (Refusals, above): the translated
+  // fact, or no translation. Called by the policy's coordinator only, for
+  // every business rejection of one of its commands. The business process
+  // runs the translating callback for the refused command's type and
+  // answers its fact (payload only), or answers an empty response when it
+  // has none; the coordinator then builds the pass-through CommandRefused
+  // (decision 14.42). An error status, or a fact the coordinator refuses as
+  // malformed, is a policy bug (dead-lettered and alerted).
   rpc OnRefused(Refusal) returns (OnRefusedResponse);
 }
 
 // PolicyCoordinatorService: orchestrates policy execution.
-// Stamps each emitted command's identity: causation_id (the triggering
-// event's EventRef), command_id (UUIDv5 of the trigger, the policy's
-// registered name and the command's index in the output; derived_ids
-// region) and correlation_id (the trigger's). Records them in the
+// Checks every emitted command (see PolicyResponse; decision 14.42), stamps
+// its edition when unset, and stamps its identity: causation_id (the
+// triggering event's EventRef: the page its PolicyReaction names),
+// command_id (UUIDv5 of the trigger, the policy's registered name and the
+// command's index within its reaction; derived_ids region) and
+// correlation_id (the trigger's). Records them in the
 // transient outbox (see PolicyResponse), delivers them through the
 // destination's coordinator (CommandHandlerCoordinatorService) as a
 // framework component, and retries retryable failures. On a business
@@ -205,32 +210,43 @@ service PolicyCoordinatorService {
 // transaction that clears its refused command's entry (PolicyService,
 // Refusals), and dispatched and retried the same way.
 message PolicyResponse {
-  // Commands for the one destination domain (an aggregate's or a process
-  // manager's), each carrying NO Handling: handling is left unset (or
-  // empty). A command that sets any Handling field (expected_sequence or
-  // conflict_resolution) is a policy bug, refused loudly: dead-lettered and
-  // alerted, never delivered, never silently stripped (see Handling).
-  // command_id, causation_id and correlation_id are likewise left unset for
-  // the coordinator to stamp; a value that differs from the stamp is
-  // refused the same way, as is a Fact or a fact_origin (a policy's business
-  // code never emits a Fact; its refusal facts come from OnRefused;
-  // PolicyService, Refusals). Every command carries its trigger's
-  // correlation_id unchanged, whatever its target: one carrying another is
-  // a policy bug, refused INTERNAL with google.rpc.ErrorInfo reason
-  // POLICY_COMMAND_OTHER_CORRELATION. Every command names its root
-  // (cover.root), for every target, an aggregate's or a process manager's
-  // alike: nothing fills in a root, and the router never knows the
-  // target's kind. One with no root is a policy bug, refused INTERNAL with
-  // reason POLICY_COMMAND_NO_ROOT (metadata domain and command_type).
-  // Both are dead-lettered and alerted, never delivered (decision 14.36,
-  // as amended). A command whose cover names a
-  // domain other than the policy's one destination
-  // (ComponentOptions.output_domain) is a policy bug refused by the client
-  // library before it answers: PolicyService.Handle fails INTERNAL with no
-  // commands, and the coordinator dead-letters the trigger and alerts, as
-  // for any terminal failure of a reaction. Delivery mode comes from the
-  // policy's configuration, never from the command.
-  repeated CommandBook commands = 1;
+  // One reaction per source page whose event type the policy handles, in
+  // page order: the commands business code returned for that page, as it
+  // returned them (decision 14.42). The business process checks nothing
+  // and stamps nothing; the policy's coordinator does, per command:
+  //   - destination: its cover's domain must be the policy's one
+  //     destination (ComponentDescriptor.output_domain); otherwise
+  //     POLICY_COMMAND_OUTSIDE_DESTINATION (metadata expected_domain,
+  //     actual_domain);
+  //   - edition: unset, or the trigger's; unset is stamped with the
+  //     trigger's (a policy stays in its trigger's edition), and any other
+  //     is POLICY_COMMAND_OUTSIDE_EDITION (expected_edition,
+  //     actual_edition);
+  //   - root: named (cover.root), for every target, an aggregate's or a
+  //     process manager's alike: nothing fills one in; otherwise
+  //     POLICY_COMMAND_NO_ROOT (domain, command_type);
+  //   - correlation: unset or exactly the trigger's; another is
+  //     POLICY_COMMAND_OTHER_CORRELATION (domain, command_type);
+  //   - no Handling (expected_sequence or conflict_resolution), no
+  //     command_id or causation_id that differs from the stamp, no Fact
+  //     and no fact_origin: a policy's business code emits Commands only,
+  //     and its refusal facts come from OnRefused (PolicyService, Refusals).
+  // Any failed check is a policy bug: the whole answer is refused INTERNAL,
+  // nothing is delivered, and the trigger is dead-lettered and alerted
+  // (decisions 14.24, 14.36). Delivery mode comes from the policy's
+  // configuration, never from the command.
+  repeated PolicyReaction reactions = 2;
+}
+
+// What a policy's business code returned for one source page.
+message PolicyReaction {
+  // The sequence of the triggering page in the source book (its
+  // EventPage.sequence): the event the commands react to, which the
+  // coordinator stamps as each command's causation_id.
+  uint64 trigger_sequence = 1;
+  // The commands, in the order business code returned them; their index
+  // here is the index in the reaction's output (derived_ids region).
+  repeated CommandBook commands = 2;
 }
 
 // The input to PolicyService.OnRefused, and the one argument of a
@@ -249,11 +265,13 @@ message Refusal {
   RefusalResponse response = 3;
 }
 
-// OnRefused's answer: the refusal fact for the policy's own source domain.
+// OnRefused's answer: the translated fact, or no translation.
 message OnRefusedResponse {
-  // A CommandBook whose page body is a Fact (a CommandRefused in
-  // pass-through mode, the domestic fact in translate mode): payloads
-  // only, its cover left empty; the coordinator addresses it to the
-  // trigger's stream and stamps its identity (PolicyService, Refusals).
+  // Translate: a CommandBook whose page body is a Fact holding only the
+  // domestic fact's payload, its cover, Handling and identity left empty;
+  // the coordinator addresses it to the trigger's stream and stamps its
+  // identity (PolicyService, Refusals). Unset: no translation; the
+  // coordinator builds the pass-through CommandRefused itself (decision
+  // 14.42).
   CommandBook fact = 1;
 }

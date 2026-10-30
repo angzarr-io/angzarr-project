@@ -272,6 +272,13 @@ event onwards, every removal reserves its number and name (see
     chain. **Snapshots are the coordinator's** (14.40): it loads one,
     drops the pages it covers and decides when to write one; the router
     folds the starting state and the pages it is given.
+  - **The router keeps dispatch** (14.42): admission, the generated
+    descriptor's validation, error classification, a policy's output
+    checks (from `PolicyResponse.reactions`), refusal-fact building and
+    addressing, envelope guards and conflict judgement (from
+    `CommandHandlerResponse.conflict`) are the coordinator's; the reason
+    keys live in `catalog/reasons.toml`; router-ffi is retired and Python
+    gets a native router, both held to the handler-contract tier.
 
 ### Worked example: hatpick's `ListState`
 
