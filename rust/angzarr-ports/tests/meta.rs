@@ -103,6 +103,8 @@ enum Bug {
     PurgeIgnoresTheHead,
     /// A purge refused for a stale head removes the positions anyway.
     RefusedPurgeTakesPositions,
+    /// A purge refused for a stale head removes the snapshot anyway.
+    RefusedPurgeTakesSnapshot,
     /// A purge of an edition stream is guarded by main's head.
     PurgeGuardsByMain,
     // ---- editions' forks (every store)
@@ -710,6 +712,32 @@ impl Purge for Broken {
                 }
                 return Err(refused);
             }
+            Err(refused @ StoreError::Conflict { actual, .. })
+                if self.is(Bug::RefusedPurgeTakesSnapshot) =>
+            {
+                // Purge at the head found, then put back all but the
+                // snapshot: the events and the positions.
+                let pages = self.inner.read(stream, 0, None).await?.pages;
+                let puts = self.shared.positions.lock().unwrap().clone();
+                let mut kept = Vec::new();
+                for (handler, s) in puts.iter().filter(|(_, s)| s.get() == stream) {
+                    let key = PositionKey {
+                        handler,
+                        stream: s.get(),
+                    };
+                    kept.push((handler.clone(), self.inner.position(key).await?));
+                }
+                self.inner.purge(stream, actual).await?;
+                self.inner.write(Write::append(stream, 0, &pages)).await?;
+                for (handler, next) in kept {
+                    let key = PositionKey {
+                        handler: &handler,
+                        stream,
+                    };
+                    self.inner.write(Write::positions(&[(key, next)])).await?;
+                }
+                return Err(refused);
+            }
             deleted => deleted?,
         };
         if let (Bug::PurgeKeepsSnapshot, Some(s)) = (self.bug, snapshot) {
@@ -1188,6 +1216,7 @@ fn the_purge_head_checks_catch_an_unguarded_purge() {
         broken,
         PurgeIgnoresTheHead,
         RefusedPurgeTakesPositions,
+        RefusedPurgeTakesSnapshot,
     );
     catches!(
         a_purge_of_an_absent_stream_is_at_zero,
