@@ -319,7 +319,10 @@ message Cover {
 // COORDINATOR_REASON_EXPECTED_SEQUENCE_AHEAD (args expected, head), when
 // it is loaded (pipeline step 4, see Handling), before business code;
 // business code is not invoked and nothing is persisted. Business, fatal
-// (decision 14.37): never retried. A head only moves forward, so a
+// (decision 14.37): never retried; a HandleAsync command so refused is
+// dead-lettered with the key as its reason, and alerted. Deduplication
+// (step 3) comes first, so a command the stream already holds is answered
+// DUPLICATE, never the key. A head only moves forward, so a
 // command is never found ahead at its write. Every rule below concerns a
 // sequence at or behind the head (decision 14.47).
 //
@@ -1049,8 +1052,12 @@ message Projection {
 // twice). Loading first, a commit after the load is either seen by the
 // lookup or fails this delivery's append on its expected head.
 // Deduplication comes before the sequence check, so a retry of an applied
-// command whose expected_sequence is now stale is answered DUPLICATE, never
-// ABORTED. An append that loses an optimistic race re-runs from step 3
+// command is answered DUPLICATE whatever its expected_sequence: one now
+// stale is never ABORTED, and one ahead of the head never INVALID_ARGUMENT
+// COORDINATOR_REASON_EXPECTED_SEQUENCE_AHEAD (decision 14.47).
+// A HandleAsync command refused at step 4 or 5 by a business, fatal key
+// has no caller to answer: it is dead-lettered with that key and its args
+// as AngzarrDeadLetter.reason, and alerted (decision 14.47). An append that loses an optimistic race re-runs from step 3
 // (a STRICT command with a provided expected_sequence then fails at step
 // 4), at most to a cap: the race re-run cap for a stamped command, the
 // retry cap for an AGGREGATE_HANDLES or COMMUTATIVE re-delivery. At the
@@ -1576,7 +1583,10 @@ message AngzarrDeadLetter {
   // where there is one (a CommandRefused fact's refusal). A command or
   // fact the coordinator gave up on at the retry cap or the race re-run
   // cap is code COORDINATOR_REASON_RETRY_CAP_EXHAUSTED with args attempts
-  // and cap, as answered to a waiting caller (decision 14.46).
+  // and cap, as answered to a waiting caller (decision 14.46). An
+  // asynchronous command (HandleAsync) refused by a business, fatal key,
+  // COORDINATOR_REASON_EXPECTED_SEQUENCE_AHEAD among them, records that
+  // key and its args (decision 14.47).
   Diagnostic reason = 16;
   oneof rejection_details {
     SequenceMismatchDetails sequence_mismatch = 12; // Sequence conflict details

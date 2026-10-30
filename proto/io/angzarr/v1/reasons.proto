@@ -233,7 +233,11 @@ enum CoordinatorReason {
   // step 4, before business code): business code is not invoked and
   // nothing is persisted. A head only moves forward, so it is never found
   // at the write. Business, fatal (decision 14.37): never retried; a
-  // direct caller fixes the command. Reaction commands never carry an
+  // direct caller fixes the command, and a HandleAsync command, with no
+  // caller to answer, is dead-lettered with this key and its args as its
+  // AngzarrDeadLetter.reason, and alerted. Deduplication comes first, so a
+  // command the stream already holds is answered DUPLICATE, never this.
+  // Reaction commands never carry an
   // expected sequence, so they are never answered this. An expected
   // sequence behind the head is COORDINATOR_REASON_EXPECTED_SEQUENCE_STALE
   // under STRICT. (Decision 14.47.)

@@ -3651,10 +3651,21 @@ resolution.** Owner ruling, 2026-10-30. Amends 14.45; follows 14.37 and
   the head (expects 7, head at 3) names a state the stream never held.
   There is nothing to resolve and no window to deliver, so STRICT,
   AGGREGATE_HANDLES and COMMUTATIVE alike refuse it with the key when it
-  is loaded (pipeline step 4, after deduplication: the check needs the
-  head), before business code: business code is not invoked and nothing
-  is persisted (C-0727). A head only moves forward, so a command is never
-  found ahead at its write.
+  is loaded (pipeline step 4, before business code): business code is
+  not invoked and nothing is persisted (C-0727). A head only moves
+  forward, so a command is never found ahead at its write.
+- **Deduplication first.** The check needs the head, so it runs after the
+  load and after deduplication (pipeline steps 3 and 4): a command whose
+  command_id the stream already holds is answered DUPLICATE with its
+  stored events whatever its expected sequence, ahead included, and is
+  never answered the key (C-0728). A retry of an applied command is
+  answered as its first delivery was, as for a stale one (14.45).
+- **An asynchronous command.** `HandleAsync` validates before enqueueing
+  (step 1), and the check needs the head, so an ahead command is accepted
+  there and refused when it is processed, with no caller to answer. A
+  `HandleAsync` command refused by any business, fatal key, this one
+  included, is dead-lettered with that key and its args as its
+  `AngzarrDeadLetter.reason`, and alerted, never retried (C-0729).
 - **The stale key narrows.** `COORDINATOR_REASON_EXPECTED_SEQUENCE_STALE`
   now means only "behind the head", under STRICT (14.45). C-0162, which
   answered a STRICT command ahead of the stream ABORTED, is retired, and
@@ -3662,7 +3673,8 @@ resolution.** Owner ruling, 2026-10-30. Amends 14.45; follows 14.37 and
 - The proto prose agrees: `reasons.proto`'s value comments (both keys),
   `types.proto`'s `ConflictResolution` region, `Handling.expected_sequence`
   and the pipeline, and `command_handler.proto`'s status codes and
-  `Handle`; `conflict_resolution.feature` adds C-0727. angzarr-proto's
+  `Handle` and `HandleAsync`, and `AngzarrDeadLetter.reason`;
+  `conflict_resolution.feature` adds C-0727 to C-0729. angzarr-proto's
   `tests/reasons.rs` pins the key.
 - Why: the ruling. Ahead is not contention: re-reading cannot make it
   succeed, so ABORTED ("re-read and re-decide") sent a caller into a loop,
@@ -3671,6 +3683,11 @@ resolution.** Owner ruling, 2026-10-30. Amends 14.45; follows 14.37 and
 - Cost: every coordinator compares the expected sequence with the head in
   both directions and answers a second key; a caller that sent an ahead
   sequence and treated ABORTED as retryable now gets a final refusal.
+- **Amendment, 2026-10-30.** Owner confirmations: deduplication runs
+  before the ahead check, so a retry of an applied command answers
+  DUPLICATE whatever its expected sequence (C-0728); and a `HandleAsync`
+  command refused by any business, fatal key, this one included, is
+  dead-lettered with that key as its reason and alerted (C-0729).
 
 ## Corrections
 

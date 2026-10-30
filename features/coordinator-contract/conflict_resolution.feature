@@ -44,7 +44,10 @@ Feature: Conflict resolution - how the coordinator treats a stale command
 
   Retired with decision 14.47: C-0162, which answered a STRICT command
   ahead of the stream ABORTED; C-0727 now refuses it, under every
-  resolution, as malformed.
+  resolution, as malformed. Deduplication comes first, so a retry of an
+  applied command answers DUPLICATE whatever its expected sequence
+  (C-0728); an asynchronous command refused ahead is dead-lettered with
+  the key as its reason and alerted (C-0729).
 
   Background:
     Given an "order" aggregate whose registered state supports COMMUTATIVE
@@ -134,6 +137,44 @@ Feature: Conflict resolution - how the coordinator treats a stale command
       | AGGREGATE_HANDLES | 7        |
       | COMMUTATIVE       | 4        |
       | COMMUTATIVE       | 7        |
+
+  @conflict_resolution
+  @C-0728
+  Scenario Outline: A retry of an applied command answers DUPLICATE even with an expected sequence ahead
+    # Decision 14.47: deduplication (pipeline step 3) runs before the ahead
+    # check (step 4), so the retry is answered as its first delivery was.
+    Given an AddItem command with command_id "0192f3a4-5b6c-7d8e-9f01-23456789ac28" was applied, its ItemAdded event persisted at sequence 3
+    And a retry of that AddItem command, with the same command_id, conflict resolution <resolution> targeting sequence 9
+    When the coordinator processes the command
+    Then the caller is answered DUPLICATE with the ItemAdded event at sequence 3
+    And business code is not invoked
+    And no events are persisted
+    And the command is never answered COORDINATOR_REASON_EXPECTED_SEQUENCE_AHEAD
+
+    Examples:
+      | resolution        |
+      | STRICT            |
+      | AGGREGATE_HANDLES |
+      | COMMUTATIVE       |
+
+  @conflict_resolution
+  @C-0729
+  Scenario Outline: An asynchronous command ahead of the stream is dead-lettered with the key and alerted
+    # Decision 14.47: HandleAsync validates before enqueueing, and the
+    # ahead check needs the head, so the refusal comes when the command is
+    # processed, with no caller to answer.
+    When an AddItem command with conflict resolution <resolution> targeting sequence 7 is sent asynchronously
+    Then HandleAsync answers OK
+    And business code is not invoked
+    And no events are persisted
+    And the command is dead-lettered with reason COORDINATOR_REASON_EXPECTED_SEQUENCE_AHEAD, expected "7" and head "3", and an alert is raised
+    And the command is not retried
+
+    Examples:
+      | resolution        |
+      | STRICT            |
+      | AGGREGATE_HANDLES |
+      | COMMUTATIVE       |
 
   # ===========================================================================
   # AGGREGATE_HANDLES - business code owns the conflict rule

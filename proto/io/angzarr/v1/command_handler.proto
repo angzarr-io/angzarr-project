@@ -197,7 +197,9 @@ message ConflictReport {
 //               COORDINATOR_REASON_EXPECTED_SEQUENCE_AHEAD, decision
 //               14.47). Final: never retried; a refused policy
 //               command reaches the policy's OnRefused (policy.proto,
-//               Refusals).
+//               Refusals); a refused HandleAsync command, with no caller
+//               to answer, is dead-lettered with its key and args as
+//               AngzarrDeadLetter.reason, and alerted.
 //   Business, immediate return: ABORTED, "re-read and re-decide": the
 //               framework's conflicts (an expected_sequence behind the
 //               head under STRICT,
@@ -251,6 +253,9 @@ message ConflictReport {
 // is malformed, refused at load before business code, INVALID_ARGUMENT
 // COORDINATOR_REASON_EXPECTED_SEQUENCE_AHEAD (args expected, head), and
 // nothing is persisted (types.proto, ConflictResolution; decision 14.47).
+// Deduplication comes first: a command whose command_id the stream already
+// holds is answered DUPLICATE whatever its expected_sequence, ahead or
+// behind, and never this key or the ahead one.
 // Under AGGREGATE_HANDLES and COMMUTATIVE a moved stream is never answered
 // this key: the window is delivered and the resolution's own rule decides
 // (an unresolved window is COORDINATOR_REASON_CONFLICT_UNRESOLVED, a
@@ -321,10 +326,14 @@ service CommandHandlerCoordinatorService {
   // itself retry the call should supply the command_id, as for Handle.
   //
   // Validation happens before enqueueing: a malformed command (see Handling)
-  // is refused here, never enqueued. A rejection happens later, with no
-  // caller to answer: like a reaction command's, a retryable bug is retried
-  // up to its cap, and any other failure is dead-lettered (status codes,
-  // above). A caller that needs the outcome
+  // is refused here, never enqueued. An expected_sequence ahead of the head
+  // needs the head, so it is found only when the command is processed. A
+  // rejection happens later, with no caller to answer: like a reaction
+  // command's, a retryable bug is retried up to its cap, and any other
+  // failure is dead-lettered and alerted (status codes, above); a business,
+  // fatal refusal (COORDINATOR_REASON_EXPECTED_SEQUENCE_AHEAD among them)
+  // records its key and args as AngzarrDeadLetter.reason (decision 14.47).
+  // A caller that needs the outcome
   // uses Handle, or follows the command's correlation_id
   // (EventStreamFilter).
   rpc HandleAsync(CommandBook) returns (google.protobuf.Empty) {
