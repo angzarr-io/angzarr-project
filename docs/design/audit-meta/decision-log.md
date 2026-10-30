@@ -3065,78 +3065,75 @@ is given.** Owner ruling, 2026-10-29. Amends 14.1 and 14.12, and the
 - Aligns with: snapshots as caches the event store's reader applies
   (Marten, Eventuous), with the handler folding only events.
 
-**14.41 (PROPOSAL, for the owner) angzarr-embedded's host applies a
-remote process manager's start rule, and carries policy and projector
-children.** Drafted 2026-10-29 for the owner's rulings of that date (plan
-`router-call-model`): the host also carries PolicyService and
-ProjectorService children; and, superseding the first ruling's admit RPC,
-admit leaves the router and is coordinator work (14.39: the coordinator
-upcasts inputs before dispatch and judges a process manager's start rule
-against `ComponentDescriptor.starting_types`). There is no admit RPC.
-Nothing below is ruled yet.
-- **The bug.** angzarr-embedded-host's `RemoteCommandHandler` does not
-  override angzarr-router's `CommandHandler::admit`, so it gets the default
-  `admit_rules(arrival, None)`: validation and deduplication, but no start
-  rule. A remote process manager's non-starting input with no instance
-  reaches the child, which starts an instance it should not
-  (process_manager.proto, Starting an instance).
-- **The host applies it (14.39, applied to the embedded host).** For a
-  child whose descriptor is a PROCESS_MANAGER, the remote handler's admit
-  is `admit_rules(arrival, Some(starts))`, `starts` matching the arrival's
-  payload against the descriptor's `starting_types`; for an aggregate,
-  `admit_rules(arrival, None)` as now. The arrival's payload is the one the
-  kernel upcast through the domain's sidecar (14.39) before admitting.
+**14.41 angzarr-embedded's host applies a remote process manager's start
+rule, and carries policy and projector children.** Owner rulings,
+2026-10-29 (plan `router-call-model`, and the review of the red tests on
+angzarr-embedded `feat/host-admit-policies`). Applies 14.39 to the
+embedded host; amends 14.31's start rule text and 14.37's classes for a
+projector.
+- **The bug.** angzarr-embedded-host's `RemoteCommandHandler` did not
+  override angzarr-router's `CommandHandler::admit`, so it got the
+  default `admit_rules(arrival, None)`: validation and deduplication, but
+  no start rule. A remote process manager's non-starting input with no
+  instance reached the child, which started an instance it should not.
+- **The host applies the start rule; there is no admit RPC.** Admit is
+  coordinator work (14.39). For a child whose descriptor is a
+  PROCESS_MANAGER, the remote handler's admit is `admit_rules(arrival,
+  Some(starts))`, `starts` matching the arrival's payload against the
+  descriptor's `starting_types`; for an aggregate it is `admit_rules(arrival,
+  None)`. The payload is the one the coordinator upcast before admitting.
   Nothing in the router's admit needs the child: validation reads the
   arrival's cover and causation, deduplication the events recorded under
   the input's id, the start rule the stream's existence, the body arm and
-  the type; editions are the runtime's. **Wire: none.**
-- **Starting types match by type name (proposed).** component.proto calls
-  `starting_types` "type URLs", but angzarr-router's `DomainDispatch`
-  advertises bare fully-qualified names (`test.pm.v1.Open`), and a payload
-  arrives under angzarr's `/` prefix. The coordinator compares the type
-  NAME (the part after the last `/`) of each. Either the comment says
-  "fully-qualified type names", as the router emits them, or the router
-  emits URLs; the drafter proposes the former, since the comparison is by
-  name either way.
-- **Policy and projector children in angzarr-embedded (proposed shape).**
-  A `[[domain]]` table gains `kind`, the service its child serves:
-  `"domain"` (the default; an aggregate or a process manager,
+  the type; editions are the runtime's. The first ruling's admit RPC is
+  withdrawn. Wire: none.
+- **`starting_types` lists type names.** Fully-qualified names with no
+  type URL prefix (`examples.v1.OpenTable`), as angzarr-router's
+  `DomainDispatch` advertises them; the coordinator matches the name an
+  input's type URL ends in. Text: `ComponentDescriptor.starting_types`
+  (`types.proto`), `component.proto`'s refusal rule, and
+  `process_manager.proto`'s start rule. No field changes.
+- **`[[component]]`, with `kind`.** angzarr-embedded's config table
+  `[[domain]]` is renamed `[[component]]` (a policy is not a domain). Its
+  `kind` is `"domain"` (the default; an aggregate or a process manager,
   `CommandHandlerService`, which of the two its descriptor says),
-  `"policy"` (`PolicyService`), `"projector"` (`ProjectorService`), and
-  14.39's `"upcaster"`. The host launches, handshakes, describes and
-  supervises every kind alike, and refuses at start a child whose
+  `"policy"` (`PolicyService`), `"projector"` (`ProjectorService`) or
+  `"upcaster"` (14.39's sidecar). The host launches, handshakes, describes
+  and supervises every kind alike, and refuses at start a child whose
   descriptor's kind disagrees with its `kind`. A policy's source and a
   projector's are the descriptor's one input (`ComponentDescriptor.inputs`).
-  The host hands back a policy to the kernel as a policy and a projector as
-  a projector, never as a domain. Whether the table should be renamed
-  `[[component]]` (a policy is not a domain) is left to the owner.
-- **A remote policy (proposed).** The kernel runs it as any policy of its
-  source: `PolicyService.Handle` with the one triggering event's book, its
-  commands stamped and checked by the kernel as an in-process policy's
-  are; a business refusal of one of them goes to `PolicyService.OnRefused`
-  with the `Refusal` (event, command, response with its typed refusal),
-  and the fact it answers is addressed to the trigger's stream. The child's
-  client library checks its own commands (no root, other correlation,
-  wrong destination) before answering, as policy.proto says.
-- **A remote projector's failures follow 14.37's four classes
-  (proposed).** Business, fatal (a business status): the call fails after
-  the commit, not retried, not dead-lettered. Business, immediate return
-  (ABORTED): the runtime is the caller, so it re-runs the projection under
-  the capped backoff, as for a policy step. Bug, fatal (INTERNAL, UNKNOWN,
-  DATA_LOSS): not retried, dead-lettered and alerted, the call failing
-  after the commit. Bug, retryable (UNAVAILABLE, DEADLINE_EXCEEDED,
-  RESOURCE_EXHAUSTED and the rest): retried under the capped backoff, then
-  dead-lettered. The events stay committed in every case.
+- **A policy as the router sees it.** angzarr-router gains
+  `PolicyComponent`, beside `CommandHandler` and `ProjectorHandler`
+  (`name`, `input_domain`, `dispatch`, `dispatch_refusal`,
+  `component_descriptor`), which `PolicyDispatch` implements; a remote
+  policy implements it over `PolicyService`. The kernel runs either as any
+  policy of its source: `Handle` with the one triggering event's book, its
+  commands stamped and checked as an in-process policy's are; a business
+  refusal of one goes to `OnRefused` with the `Refusal`, and the fact it
+  answers is addressed to the trigger's stream.
+- **A projector's failures follow 14.37's four classes.** A fatal bug
+  (INTERNAL, UNKNOWN, DATA_LOSS) is dead-lettered and alerted at once, not
+  retried. A retryable bug (UNAVAILABLE, DEADLINE_EXCEEDED,
+  RESOURCE_EXHAUSTED and every status outside the other classes) is retried
+  under the capped backoff, then dead-lettered. ABORTED is re-run under the
+  same backoff, the runtime being the caller. A projector has no business
+  refusal: it records what happened and refuses nothing (`ProjectorService`
+  declares no refusals, and the events it is handed are committed), so a
+  business status from a projector is its bug, dead-lettered as a fatal
+  one. In every case the events stay committed, and the call that committed
+  them fails after the commit, naming the projector.
 - Red tests: angzarr-embedded `feat/host-admit-policies`,
-  `crates/angzarr-embedded-host/src/components.test.rs`.
+  `crates/angzarr-embedded-host/src/components.test.rs`; angzarr-router
+  `feat/policy-component`, `router.test.rs`.
 - Why: the start rule is decided by the type, and after 14.39 the type the
-  host holds is current, so no round trip to the child is needed. FUTURE.md's first PyTorch spike is
-  a policy, and a Python projector is as natural; the host carrying only
-  domains forces them in-process, in Rust.
-- Cost: the host must hold the descriptor's starting types and match them
-  by name; a start rule that ever needed more than the type (the state,
-  say) would need the child again. Two more child kinds to
-  supervise, and a projector's retries delay the call that committed.
+  host holds is current, so no round trip to the child is needed.
+  FUTURE.md's first PyTorch spike is a policy, and a Python projector is as
+  natural; a host carrying only domains forced them in-process, in Rust.
+- Cost: the host holds the descriptor's starting types and matches them by
+  name; a start rule that ever needed more than the type (the state, say)
+  would need the child again. Two more child kinds to supervise, and a
+  projector's retries delay the call that committed. Every embedded config
+  renames its tables.
 
 ## Corrections
 

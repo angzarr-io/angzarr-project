@@ -50,7 +50,8 @@ option ruby_package = "Angzarr";
 //     queued.
 //   - Refusal: a descriptor with an empty rules_version (see
 //     ComponentDescriptor), or one that lists starting types
-//     (ComponentDescriptor.starting_types) and is not a PROCESS_MANAGER,
+//     (ComponentDescriptor.starting_types, fully-qualified type names) and
+//     is not a PROCESS_MANAGER,
 //     is refused. The
 //     coordinator does not hold it, delivers nothing, logs an error naming
 //     the business process and the component, and raises an alert. It

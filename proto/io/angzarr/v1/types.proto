@@ -1531,9 +1531,12 @@ message ComponentDescriptor {
   // message's descriptor by the codegen (the client library fills it when
   // answering Describe; business code never writes it by hand).
   StateDescriptor state = 6;
-  // PROCESS_MANAGER only: the type URLs of the command and fact types
-  // that are the PM's STARTING inputs, generated from its (command)
-  // entries with starts set (options.proto). An input for a correlation
+  // PROCESS_MANAGER only: the fully-qualified type NAMES (no type URL
+  // prefix: "examples.v1.OpenTable", never "/examples.v1.OpenTable") of the
+  // command and fact types that are the PM's STARTING inputs, generated
+  // from its (command) entries with starts set (options.proto). The
+  // coordinator matches an input by the name its type URL ends in, after
+  // upcasting (decision 14.41). An input for a correlation
   // with no PM instance is delivered only if its type is listed here;
   // otherwise the coordinator skips a fact silently and refuses a command
   // (ruling B1, adapted; decision 14.31; see
