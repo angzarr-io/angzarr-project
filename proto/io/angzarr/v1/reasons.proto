@@ -15,15 +15,15 @@ option ruby_package = "Angzarr";
 //                      language (parity/client/hosting.feature)
 //   CoordinatorReason  core's coordinator and the angzarr-embedded kernel
 //
-// The key on the wire is the VALUE'S NAME, bare: the gRPC status message,
-// the google.rpc.ErrorInfo reason and Diagnostic.code are
-// "DUPLICATE_COMPONENT", never a number and never an enum-prefixed name
-// (so buf's ENUM_VALUE_PREFIX is excepted in buf.yaml). The numbers are
-// bookkeeping only: no message carries these enums as a field, nothing
-// encodes a key by its number, and renumbering one breaks nothing on the
-// wire. Each *_UNSPECIFIED value exists because proto3 demands a zero; it
-// is never answered. A value name is unique across the package (protobuf's
-// enum scoping), so no key can be live in two enums.
+// The key on the wire is the VALUE'S FULL NAME, its enum's prefix
+// included: the gRPC status message, the google.rpc.ErrorInfo reason and
+// Diagnostic.code are "ROUTER_REASON_DUPLICATE_COMPONENT", never a number.
+// The prefix is buf's standard ENUM_VALUE_PREFIX rule, kept with no
+// exception, so the key also names its owner. The numbers are bookkeeping
+// only: no message carries these enums as a field, nothing encodes a key by
+// its number, and renumbering one breaks nothing on the wire. Each
+// *_UNSPECIFIED value exists because proto3 demands a zero; it is never
+// answered.
 //
 // Each value's comment gives the gRPC status it travels with and the names
 // of its args (the ErrorInfo metadata keys and Diagnostic.args names).
@@ -35,8 +35,12 @@ option ruby_package = "Angzarr";
 // key comes from a Fluent catalog keyed by it, never from this file.
 //
 // A retired key is never answered again and never reused for another
-// meaning. Each enum reserves every retired name, so protoc refuses a value
-// that would bring one back in any of them. Unlike a removed field (policy
+// meaning. Each enum reserves every retired key under its own prefix
+// (RouterReason reserves ROUTER_REASON_MISSING_COMMAND_BOOK), so protoc
+// refuses a value that would bring one back in any of them. The retired
+// keys were answered bare, before the prefix, and prose may still name
+// them so; `just check-reason-names` refuses either form in the
+// features, the protos and the site docs. Unlike a removed field (policy
 // 6.6, buf.yaml), a retired key is reserved from the moment it retires: the
 // reservation guards a meaning, not stored bytes.
 
@@ -45,48 +49,63 @@ enum RouterReason {
   ROUTER_REASON_UNSPECIFIED = 0;
   // INTERNAL, or the retryable status a handler picks (C-0678). Args:
   // cause.
-  UNHANDLED_HANDLER_ERROR = 1;
-  // INTERNAL. No args. Travels only as UNHANDLED_HANDLER_ERROR's cause.
-  HANDLER_PANICKED = 2;
+  ROUTER_REASON_UNHANDLED_HANDLER_ERROR = 1;
+  // INTERNAL. No args. Travels only as ROUTER_REASON_UNHANDLED_HANDLER_ERROR's cause.
+  ROUTER_REASON_HANDLER_PANICKED = 2;
   // FAILED_PRECONDITION. Args: refusal_type.
-  COMMAND_REFUSED = 3;
+  ROUTER_REASON_COMMAND_REFUSED = 3;
   // INTERNAL. Args: sequence, type_url, first_sequence, last_sequence,
   // state_type_url, cause.
-  FOLD_FAILED = 4;
+  ROUTER_REASON_FOLD_FAILED = 4;
   // INTERNAL. Args: sequence, type_url, first_sequence, last_sequence,
   // state_type_url, cause.
-  FOLD_FAILED_EMITTED = 5;
+  ROUTER_REASON_FOLD_FAILED_EMITTED = 5;
   // DATA_LOSS. Args: type_url.
-  PERSISTED_EVENT_CORRUPT = 6;
+  ROUTER_REASON_PERSISTED_EVENT_CORRUPT = 6;
   // INTERNAL. Args: message_type, ext_err_txt.
-  ANY_DECODE_FAILED = 7;
+  ROUTER_REASON_ANY_DECODE_FAILED = 7;
   // INTERNAL. Args: type_url, upcast_type_url. The router sends type_url
   // only; the coordinator relays it with upcast_type_url (14.39).
-  UNKNOWN_COMMAND_TYPE = 8;
+  ROUTER_REASON_UNKNOWN_COMMAND_TYPE = 8;
   // INTERNAL. Args: type_url, upcast_type_url. Relayed as
-  // UNKNOWN_COMMAND_TYPE is.
-  NO_FACT_HANDLER = 9;
+  // ROUTER_REASON_UNKNOWN_COMMAND_TYPE is.
+  ROUTER_REASON_NO_FACT_HANDLER = 9;
   // INTERNAL. Args: command_type.
-  NO_REFUSAL_HANDLER = 10;
+  ROUTER_REASON_NO_REFUSAL_HANDLER = 10;
   // INTERNAL. No args.
-  CONFLICT_RESOLUTION_UNSUPPORTED = 11;
+  ROUTER_REASON_CONFLICT_RESOLUTION_UNSUPPORTED = 11;
   // UNIMPLEMENTED. No args.
-  NO_COMPONENT_OF_KIND = 12;
+  ROUTER_REASON_NO_COMPONENT_OF_KIND = 12;
   // INTERNAL. No args.
-  NO_HANDLERS_REGISTERED = 13;
+  ROUTER_REASON_NO_HANDLERS_REGISTERED = 13;
   // INTERNAL. Args: component, component_kind.
-  DUPLICATE_COMPONENT = 14;
+  ROUTER_REASON_DUPLICATE_COMPONENT = 14;
 
   // Retired by 14.37.
-  reserved "MALFORMED_REFUSAL_FACT", "DUPLICATE_REGISTRATION", "NO_HANDLER_REGISTERED";
+  reserved
+    "ROUTER_REASON_MALFORMED_REFUSAL_FACT",
+    "ROUTER_REASON_DUPLICATE_REGISTRATION",
+    "ROUTER_REASON_NO_HANDLER_REGISTERED";
   // Retired by 14.39.
-  reserved "DUPLICATE_UPCASTER_CHAIN", "DUPLICATE_COMMAND_HANDLER";
+  reserved
+    "ROUTER_REASON_DUPLICATE_UPCASTER_CHAIN",
+    "ROUTER_REASON_DUPLICATE_COMMAND_HANDLER";
   // Retired by 14.42.
-  reserved "MISSING_COMMAND_BOOK", "MISSING_COMMAND_PAGE", "MISSING_COMMAND_PAYLOAD";
-  reserved "MISSING_EVENT_BOOK_COVER", "EMPTY_POLICY_SOURCE", "POLICY_SOURCE_OUTSIDE_INPUT_DOMAIN";
-  reserved "REFUSAL_FACT_MISSING", "REFUSAL_WITHOUT_COMMAND", "REFUSAL_WITHOUT_EVENT";
-  reserved "REFUSAL_WITHOUT_REFUSED_COMMAND", "REFUSED_COMMAND_WITHOUT_ID", "REFUSAL_WITHOUT_TRIGGER_STREAM";
-  reserved "HOST_STATUS_UNDECODABLE", "NULL_ABI_POINTER";
+  reserved
+    "ROUTER_REASON_MISSING_COMMAND_BOOK",
+    "ROUTER_REASON_MISSING_COMMAND_PAGE",
+    "ROUTER_REASON_MISSING_COMMAND_PAYLOAD",
+    "ROUTER_REASON_MISSING_EVENT_BOOK_COVER",
+    "ROUTER_REASON_EMPTY_POLICY_SOURCE",
+    "ROUTER_REASON_POLICY_SOURCE_OUTSIDE_INPUT_DOMAIN",
+    "ROUTER_REASON_REFUSAL_FACT_MISSING",
+    "ROUTER_REASON_REFUSAL_WITHOUT_COMMAND",
+    "ROUTER_REASON_REFUSAL_WITHOUT_EVENT",
+    "ROUTER_REASON_REFUSAL_WITHOUT_REFUSED_COMMAND",
+    "ROUTER_REASON_REFUSED_COMMAND_WITHOUT_ID",
+    "ROUTER_REASON_REFUSAL_WITHOUT_TRIGGER_STREAM",
+    "ROUTER_REASON_HOST_STATUS_UNDECODABLE",
+    "ROUTER_REASON_NULL_ABI_POINTER";
 }
 
 // Keys the client library's component host answers. Each is a refusal to
@@ -95,72 +114,102 @@ enum HostReason {
   HOST_REASON_UNSPECIFIED = 0;
   // INTERNAL. Args: component. An upcaster is its own sidecar (14.39),
   // never hosted beside a component.
-  UPCASTER_WITH_COMPONENT = 1;
+  HOST_REASON_UPCASTER_WITH_COMPONENT = 1;
   // INTERNAL. No args. A host with no component registered (C-0504).
-  NO_COMPONENTS_REGISTERED = 2;
+  HOST_REASON_NO_COMPONENTS_REGISTERED = 2;
 
   // Retired by 14.37.
-  reserved "MALFORMED_REFUSAL_FACT", "DUPLICATE_REGISTRATION", "NO_HANDLER_REGISTERED";
+  reserved
+    "HOST_REASON_MALFORMED_REFUSAL_FACT",
+    "HOST_REASON_DUPLICATE_REGISTRATION",
+    "HOST_REASON_NO_HANDLER_REGISTERED";
   // Retired by 14.39.
-  reserved "DUPLICATE_UPCASTER_CHAIN", "DUPLICATE_COMMAND_HANDLER";
+  reserved
+    "HOST_REASON_DUPLICATE_UPCASTER_CHAIN",
+    "HOST_REASON_DUPLICATE_COMMAND_HANDLER";
   // Retired by 14.42.
-  reserved "MISSING_COMMAND_BOOK", "MISSING_COMMAND_PAGE", "MISSING_COMMAND_PAYLOAD";
-  reserved "MISSING_EVENT_BOOK_COVER", "EMPTY_POLICY_SOURCE", "POLICY_SOURCE_OUTSIDE_INPUT_DOMAIN";
-  reserved "REFUSAL_FACT_MISSING", "REFUSAL_WITHOUT_COMMAND", "REFUSAL_WITHOUT_EVENT";
-  reserved "REFUSAL_WITHOUT_REFUSED_COMMAND", "REFUSED_COMMAND_WITHOUT_ID", "REFUSAL_WITHOUT_TRIGGER_STREAM";
-  reserved "HOST_STATUS_UNDECODABLE", "NULL_ABI_POINTER";
+  reserved
+    "HOST_REASON_MISSING_COMMAND_BOOK",
+    "HOST_REASON_MISSING_COMMAND_PAGE",
+    "HOST_REASON_MISSING_COMMAND_PAYLOAD",
+    "HOST_REASON_MISSING_EVENT_BOOK_COVER",
+    "HOST_REASON_EMPTY_POLICY_SOURCE",
+    "HOST_REASON_POLICY_SOURCE_OUTSIDE_INPUT_DOMAIN",
+    "HOST_REASON_REFUSAL_FACT_MISSING",
+    "HOST_REASON_REFUSAL_WITHOUT_COMMAND",
+    "HOST_REASON_REFUSAL_WITHOUT_EVENT",
+    "HOST_REASON_REFUSAL_WITHOUT_REFUSED_COMMAND",
+    "HOST_REASON_REFUSED_COMMAND_WITHOUT_ID",
+    "HOST_REASON_REFUSAL_WITHOUT_TRIGGER_STREAM",
+    "HOST_REASON_HOST_STATUS_UNDECODABLE",
+    "HOST_REASON_NULL_ABI_POINTER";
 }
 
 // Keys core's coordinator and the angzarr-embedded kernel answer.
 enum CoordinatorReason {
   COORDINATOR_REASON_UNSPECIFIED = 0;
   // ABORTED. No args.
-  CONFLICT_UNRESOLVED = 1;
+  COORDINATOR_REASON_CONFLICT_UNRESOLVED = 1;
   // ABORTED. Args: window_units, command_units.
-  CONFLICT_OVERLAP = 2;
+  COORDINATOR_REASON_CONFLICT_OVERLAP = 2;
   // FAILED_PRECONDITION. Args: type_url.
-  PM_NO_INSTANCE = 3;
+  COORDINATOR_REASON_PM_NO_INSTANCE = 3;
   // INTERNAL. Args: domain.
-  REFUSAL_FACT_WRONG_STREAM = 4;
+  COORDINATOR_REASON_REFUSAL_FACT_WRONG_STREAM = 4;
   // INTERNAL. Args: expected_domain, actual_domain.
-  POLICY_COMMAND_OUTSIDE_DESTINATION = 5;
+  COORDINATOR_REASON_POLICY_COMMAND_OUTSIDE_DESTINATION = 5;
   // INTERNAL. Args: expected_edition, actual_edition.
-  POLICY_COMMAND_OUTSIDE_EDITION = 6;
+  COORDINATOR_REASON_POLICY_COMMAND_OUTSIDE_EDITION = 6;
   // INTERNAL. Args: domain, command_type.
-  POLICY_COMMAND_NO_ROOT = 7;
+  COORDINATOR_REASON_POLICY_COMMAND_NO_ROOT = 7;
   // INTERNAL. Args: domain, command_type.
-  POLICY_COMMAND_OTHER_CORRELATION = 8;
+  COORDINATOR_REASON_POLICY_COMMAND_OTHER_CORRELATION = 8;
   // INTERNAL. No args.
-  REFUSAL_FACT_ADDRESSED = 9;
+  COORDINATOR_REASON_REFUSAL_FACT_ADDRESSED = 9;
   // INTERNAL. No args.
-  REFUSAL_FACT_NO_PAGE = 10;
+  COORDINATOR_REASON_REFUSAL_FACT_NO_PAGE = 10;
   // INTERNAL. No args.
-  REFUSAL_FACT_NOT_A_FACT = 11;
+  COORDINATOR_REASON_REFUSAL_FACT_NOT_A_FACT = 11;
   // INTERNAL. No args.
-  REFUSAL_FACT_IDENTIFIED = 12;
+  COORDINATOR_REASON_REFUSAL_FACT_IDENTIFIED = 12;
   // Readiness. Args: component.
-  MISSING_RULES_VERSION = 13;
+  COORDINATOR_REASON_MISSING_RULES_VERSION = 13;
   // Readiness. Args: component, component_kind.
-  MISSING_STATE_TYPE = 14;
+  COORDINATOR_REASON_MISSING_STATE_TYPE = 14;
   // Readiness. Args: component, component_kind.
-  STARTING_TYPES_ON_NON_PM = 15;
+  COORDINATOR_REASON_STARTING_TYPES_ON_NON_PM = 15;
   // Readiness. Args: component, component_kind.
-  STATE_ON_STATELESS_KIND = 16;
+  COORDINATOR_REASON_STATE_ON_STATELESS_KIND = 16;
   // Readiness. Args: component, input_count.
-  POLICY_INPUT_COUNT = 17;
+  COORDINATOR_REASON_POLICY_INPUT_COUNT = 17;
   // Readiness. Args: component.
-  POLICY_NO_OUTPUT_DOMAIN = 18;
+  COORDINATOR_REASON_POLICY_NO_OUTPUT_DOMAIN = 18;
   // Readiness. Args: component, component_kind.
-  OUTPUT_DOMAIN_ON_NON_POLICY = 19;
+  COORDINATOR_REASON_OUTPUT_DOMAIN_ON_NON_POLICY = 19;
 
   // Retired by 14.37.
-  reserved "MALFORMED_REFUSAL_FACT", "DUPLICATE_REGISTRATION", "NO_HANDLER_REGISTERED";
+  reserved
+    "COORDINATOR_REASON_MALFORMED_REFUSAL_FACT",
+    "COORDINATOR_REASON_DUPLICATE_REGISTRATION",
+    "COORDINATOR_REASON_NO_HANDLER_REGISTERED";
   // Retired by 14.39.
-  reserved "DUPLICATE_UPCASTER_CHAIN", "DUPLICATE_COMMAND_HANDLER";
+  reserved
+    "COORDINATOR_REASON_DUPLICATE_UPCASTER_CHAIN",
+    "COORDINATOR_REASON_DUPLICATE_COMMAND_HANDLER";
   // Retired by 14.42.
-  reserved "MISSING_COMMAND_BOOK", "MISSING_COMMAND_PAGE", "MISSING_COMMAND_PAYLOAD";
-  reserved "MISSING_EVENT_BOOK_COVER", "EMPTY_POLICY_SOURCE", "POLICY_SOURCE_OUTSIDE_INPUT_DOMAIN";
-  reserved "REFUSAL_FACT_MISSING", "REFUSAL_WITHOUT_COMMAND", "REFUSAL_WITHOUT_EVENT";
-  reserved "REFUSAL_WITHOUT_REFUSED_COMMAND", "REFUSED_COMMAND_WITHOUT_ID", "REFUSAL_WITHOUT_TRIGGER_STREAM";
-  reserved "HOST_STATUS_UNDECODABLE", "NULL_ABI_POINTER";
+  reserved
+    "COORDINATOR_REASON_MISSING_COMMAND_BOOK",
+    "COORDINATOR_REASON_MISSING_COMMAND_PAGE",
+    "COORDINATOR_REASON_MISSING_COMMAND_PAYLOAD",
+    "COORDINATOR_REASON_MISSING_EVENT_BOOK_COVER",
+    "COORDINATOR_REASON_EMPTY_POLICY_SOURCE",
+    "COORDINATOR_REASON_POLICY_SOURCE_OUTSIDE_INPUT_DOMAIN",
+    "COORDINATOR_REASON_REFUSAL_FACT_MISSING",
+    "COORDINATOR_REASON_REFUSAL_WITHOUT_COMMAND",
+    "COORDINATOR_REASON_REFUSAL_WITHOUT_EVENT",
+    "COORDINATOR_REASON_REFUSAL_WITHOUT_REFUSED_COMMAND",
+    "COORDINATOR_REASON_REFUSED_COMMAND_WITHOUT_ID",
+    "COORDINATOR_REASON_REFUSAL_WITHOUT_TRIGGER_STREAM",
+    "COORDINATOR_REASON_HOST_STATUS_UNDECODABLE",
+    "COORDINATOR_REASON_NULL_ABI_POINTER";
 }

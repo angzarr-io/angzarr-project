@@ -9,10 +9,14 @@ lint:
     - RPC_REQUEST_RESPONSE_UNIQUE
     - RPC_REQUEST_STANDARD_NAME
     - RPC_RESPONSE_STANDARD_NAME
-    - ENUM_VALUE_PREFIX
-    - ENUM_ZERO_VALUE_SUFFIX
     - SERVICE_SUFFIX
     - IMPORT_USED
+  # The blackjack example's Suit values (CLUBS, ...) are the example's own,
+  # mirrored in its language repos; every framework enum, reasons.proto's
+  # included, follows buf's enum naming with no exception (decision 14.44).
+  ignore_only:
+    ENUM_VALUE_PREFIX:
+      - io/angzarr/examples/v1/cards.proto
 # Breaking checks report wire + JSON incompatibility. Nothing is gated on
 # them yet (backlog GAP-3).
 #

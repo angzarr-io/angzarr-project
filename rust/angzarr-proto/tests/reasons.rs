@@ -1,6 +1,7 @@
 //! The framework's reason keys are the enums of `reasons.proto` (decision
-//! 14.44): a key travels as its value's bare name, and every enum reserves
-//! every retired key, so none is answered or reused again.
+//! 14.44): a key travels as its value's full name, its enum's prefix
+//! included, and every enum reserves every retired key under its prefix,
+//! so none is answered or reused again.
 
 use std::collections::BTreeSet;
 use std::path::Path;
@@ -10,7 +11,8 @@ use angzarr_proto::v1::{CoordinatorReason, HostReason, RouterReason};
 use prost::Message;
 use prost_types::FileDescriptorSet;
 
-/// The keys decisions 14.37, 14.39 and 14.42 retired.
+/// The keys decisions 14.37, 14.39 and 14.42 retired, as they were
+/// answered: bare, before the prefix.
 const RETIRED: &[&str] = &[
     // 14.37
     "MALFORMED_REFUSAL_FACT",
@@ -56,27 +58,27 @@ fn coordinator() -> Vec<&'static str> {
 }
 
 #[test]
-fn a_key_travels_as_its_bare_name() {
+fn a_key_travels_as_its_full_name() {
     assert_eq!(
         RouterReason::DuplicateComponent.as_str_name(),
-        "DUPLICATE_COMPONENT"
+        "ROUTER_REASON_DUPLICATE_COMPONENT"
     );
     assert_eq!(
         HostReason::NoComponentsRegistered.as_str_name(),
-        "NO_COMPONENTS_REGISTERED"
+        "HOST_REASON_NO_COMPONENTS_REGISTERED"
     );
     assert_eq!(
         CoordinatorReason::ConflictOverlap.as_str_name(),
-        "CONFLICT_OVERLAP"
+        "COORDINATOR_REASON_CONFLICT_OVERLAP"
     );
     assert_eq!(
-        RouterReason::from_str_name("UNKNOWN_COMMAND_TYPE"),
+        RouterReason::from_str_name("ROUTER_REASON_UNKNOWN_COMMAND_TYPE"),
         Some(RouterReason::UnknownCommandType)
     );
 }
 
 #[test]
-fn no_key_carries_its_enums_prefix() {
+fn every_key_carries_its_enums_prefix() {
     for (prefix, keys) in [
         ("ROUTER_REASON_", router()),
         ("HOST_REASON_", host()),
@@ -84,7 +86,8 @@ fn no_key_carries_its_enums_prefix() {
     ] {
         assert!(!keys.is_empty(), "{prefix}: no keys");
         for key in keys {
-            assert!(!key.starts_with(prefix), "{key}");
+            let rest = key.strip_prefix(prefix);
+            assert!(rest.is_some_and(|r| !r.is_empty()), "{key}");
             assert!(
                 key.chars()
                     .all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == '_'),
@@ -98,10 +101,13 @@ fn no_key_carries_its_enums_prefix() {
 fn the_owners_keys_are_these() {
     assert_eq!(
         host(),
-        ["UPCASTER_WITH_COMPONENT", "NO_COMPONENTS_REGISTERED"]
+        [
+            "HOST_REASON_UPCASTER_WITH_COMPONENT",
+            "HOST_REASON_NO_COMPONENTS_REGISTERED"
+        ]
     );
-    assert!(router().contains(&"DUPLICATE_COMPONENT"));
-    assert!(coordinator().contains(&"PM_NO_INSTANCE"));
+    assert!(router().contains(&"ROUTER_REASON_DUPLICATE_COMPONENT"));
+    assert!(coordinator().contains(&"COORDINATOR_REASON_PM_NO_INSTANCE"));
     let all: Vec<_> = [router(), host(), coordinator()].concat();
     let distinct: BTreeSet<_> = all.iter().collect();
     assert_eq!(all.len(), distinct.len(), "a key in two enums");
@@ -127,14 +133,19 @@ fn descriptor() -> FileDescriptorSet {
 fn every_enum_reserves_every_retired_key() {
     let set = descriptor();
     let file = &set.file[0];
-    let retired: BTreeSet<&str> = RETIRED.iter().copied().collect();
     let enums: BTreeSet<&str> = file.enum_type.iter().map(|e| e.name()).collect();
     assert_eq!(
         enums,
         ["CoordinatorReason", "HostReason", "RouterReason"].into()
     );
     for e in &file.enum_type {
-        let reserved: BTreeSet<&str> = e.reserved_name.iter().map(String::as_str).collect();
+        let prefix = match e.name() {
+            "RouterReason" => "ROUTER_REASON_",
+            "HostReason" => "HOST_REASON_",
+            _ => "COORDINATOR_REASON_",
+        };
+        let retired: BTreeSet<String> = RETIRED.iter().map(|k| format!("{prefix}{k}")).collect();
+        let reserved: BTreeSet<String> = e.reserved_name.iter().cloned().collect();
         assert_eq!(reserved, retired, "{}", e.name());
         assert!(
             e.reserved_range.is_empty(),
@@ -142,7 +153,8 @@ fn every_enum_reserves_every_retired_key() {
             e.name()
         );
         for v in &e.value {
-            assert!(!retired.contains(v.name()), "{} is retired", v.name());
+            let bare = v.name().strip_prefix(prefix).unwrap_or(v.name());
+            assert!(!RETIRED.contains(&bare), "{} is retired", v.name());
         }
     }
 }

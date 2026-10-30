@@ -30,7 +30,7 @@ fn text_field(number: u8, text: &str) -> Vec<u8> {
 
 fn no_root() -> Diagnostic {
     Diagnostic {
-        code: "POLICY_COMMAND_NO_ROOT".into(),
+        code: "COORDINATOR_REASON_POLICY_COMMAND_NO_ROOT".into(),
         args: [
             ("domain".to_string(), "inventory".to_string()),
             ("command_type".to_string(), "ReserveStock".to_string()),
