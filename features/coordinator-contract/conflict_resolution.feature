@@ -3,8 +3,9 @@ Feature: Conflict resolution - how the coordinator treats a stale command
   sequence). When the stream has moved on since, the command is stale, and
   its conflict resolution decides what happens. Three resolutions exist:
 
-  - STRICT: a stale command is rejected as ABORTED before business code
-    runs; the caller re-reads and re-issues.
+  - STRICT: a stale command is rejected as ABORTED, with reason
+    COORDINATOR_REASON_EXPECTED_SEQUENCE_STALE, before business code runs;
+    the caller re-reads and re-issues.
   - AGGREGATE_HANDLES: business code receives the events the command did
     not see (the window) with a nonce, and applies its own conflict rule.
     The router reports the nonce business code resolved with, and the
@@ -19,8 +20,13 @@ Feature: Conflict resolution - how the coordinator treats a stale command
   state declares conflict units. With no resolution given, the default is
   COMMUTATIVE where supported and STRICT otherwise.
 
-  A command without an expected sequence is decided against the head, so it
-  is never stale. Reaction commands (from policies; a process manager sends
+  The stream may also move between a command's load and its write, when
+  another write to the same stream lands first (decision 14.45; ordering is
+  per stream, so no other stream's writes matter). A command with an
+  expected sequence then fails ABORTED with reason
+  COORDINATOR_REASON_EXPECTED_SEQUENCE_STALE, under every resolution. A
+  command without one is decided against the head, so it is never stale:
+  the coordinator re-runs it on the new head. Reaction commands (from policies; a process manager sends
   none, decision 14.31) never carry an expected sequence or a resolution.
 
   Background:
@@ -88,6 +94,19 @@ Feature: Conflict resolution - how the coordinator treats a stale command
     When the coordinator processes the command
     Then the command fails with ABORTED status
     And no events are persisted
+
+  @strict
+  @C-0717
+  Scenario Outline: Strict - a stale command names its expected sequence and the head
+    Given an AddItem command with conflict resolution STRICT targeting sequence <expected>
+    When the coordinator processes the command
+    Then the command fails ABORTED with reason COORDINATOR_REASON_EXPECTED_SEQUENCE_STALE, expected "<expected>" and actual "3", and nothing is persisted
+    And business code is not invoked
+
+    Examples:
+      | expected |
+      | 1        |
+      | 5        |
 
   # ===========================================================================
   # AGGREGATE_HANDLES - business code owns the conflict rule
@@ -195,6 +214,44 @@ Feature: Conflict resolution - how the coordinator treats a stale command
       | STRICT            | rejected with ABORTED before business code                |
       | AGGREGATE_HANDLES | delivered to business code with the window and a nonce    |
       | COMMUTATIVE       | delivered to business code with the window and a nonce    |
+
+  # ===========================================================================
+  # A same-stream race at the write (decision 14.45)
+  # ===========================================================================
+
+  @write_race
+  @C-0718
+  Scenario Outline: A command with an expected sequence that loses a race at its write is stale
+    Given an AddItem command with conflict resolution <resolution> targeting sequence 3
+    And another write to the "order" stream lands at sequence 3 after the command is loaded and before it is written
+    When the coordinator processes the command
+    Then the command fails ABORTED with reason COORDINATOR_REASON_EXPECTED_SEQUENCE_STALE, expected "3" and actual "4", and nothing is persisted
+    And the coordinator does not re-run the command
+
+    Examples:
+      | resolution        |
+      | STRICT            |
+      | AGGREGATE_HANDLES |
+      | COMMUTATIVE       |
+
+  @write_race
+  @C-0719
+  Scenario: A command without an expected sequence that loses a race at its write is re-run on the new head
+    Given an AddItem command with no expected sequence and no conflict resolution
+    And another write to the "order" stream lands at sequence 3 after the command is loaded and before it is written
+    When the coordinator processes the command
+    Then business code is invoked twice, the second time against the head at sequence 4
+    And the command succeeds
+    And an ItemAdded event is persisted at sequence 4
+
+  @write_race
+  @C-0720
+  Scenario: A write to another stream does not make a command stale
+    Given an AddItem command with conflict resolution STRICT targeting sequence 3
+    And another write lands on a different "order" root's stream after the command is loaded and before it is written
+    When the coordinator processes the command
+    Then the command succeeds
+    And an ItemAdded event is persisted at sequence 3
 
   # ===========================================================================
   # Reaction commands: never stale

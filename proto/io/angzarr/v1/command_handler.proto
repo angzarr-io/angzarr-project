@@ -197,9 +197,10 @@ message ConflictReport {
 //               Refusals).
 //   Business, immediate return: ABORTED, "re-read and re-decide": the
 //               framework's conflicts (a stale or mismatched
-//               expected_sequence, a COMMUTATIVE overlap, an unresolved
-//               conflict window), or a handler's own choice under its own
-//               key. Returned at once to an outside caller, who re-reads
+//               expected_sequence,
+//               COORDINATOR_REASON_EXPECTED_SEQUENCE_STALE; a COMMUTATIVE
+//               overlap; an unresolved conflict window), or a handler's
+//               own choice under its own key. Returned at once to an outside caller, who re-reads
 //               and decides again; for a policy step the runtime is the
 //               caller, reloading and re-running the step under the capped
 //               backoff below, then dead-lettering it and alerting. Never a
@@ -221,11 +222,15 @@ message ConflictReport {
 // resending; ABORTED means re-read and re-decide. A policy step that
 // reaches the cap, or fails as a fatal bug, moves or keeps the policy's
 // position as its bug setting says (on_policy_bug).
-// ABORTED under STRICT is a failed test-and-set. Re-reading and re-issuing
-// is the caller's: the framework re-runs ABORTED only for commands whose
-// expected_sequence it stamped. A queued command with a caller-provided
-// expected_sequence that is ABORTED is dead-lettered with
-// SequenceMismatchDetails, since resending it verbatim cannot succeed.
+// ABORTED COORDINATOR_REASON_EXPECTED_SEQUENCE_STALE is a failed
+// test-and-set: the command's caller-provided expected_sequence is not the
+// stream's head, found at load under STRICT or at the write under any
+// resolution (decision 14.45). Re-reading and re-issuing is the caller's:
+// the coordinator re-runs on the new head only a command whose
+// expected_sequence it stamped, and such a command is never answered this
+// key. A queued command with a caller-provided expected_sequence that is
+// ABORTED is dead-lettered with SequenceMismatchDetails, since resending it
+// verbatim cannot succeed.
 //
 // Reaction commands and refusal facts (policy output) are delivered by
 // framework components through these same RPCs; the delivering component's
@@ -258,7 +263,8 @@ service CommandHandlerCoordinatorService {
   // outcome.delivery PARKED and no events ("accepted, parked"; it is
   // dead-lettered). outcome.projections and outcome.projector_failures are
   // always empty. Rejected: a gRPC error status, and nothing is written (a
-  // stale sequence under STRICT is ABORTED; see the status codes above).
+  // stale expected sequence is ABORTED,
+  // COORDINATOR_REASON_EXPECTED_SEQUENCE_STALE; see the status codes above).
   rpc Handle(CommandBook) returns (CommandResponse) {
     option (google.api.http) = {
       post: "/v1/ch/{cover.domain}/commands"

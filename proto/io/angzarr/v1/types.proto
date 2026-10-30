@@ -277,14 +277,24 @@ message Cover {
 //
 // The strategy matters only for commands whose sender provided
 // expected_sequence. A command without one is stamped by the framework with
-// the head it decides against, so it can never be stale.
+// the head it decides against, so it can never be stale: if another write
+// to the same stream lands between its load and its write, the coordinator
+// re-runs it on the new head (optimistic concurrency, per stream only;
+// decision 14.45).
+//
+// A command whose sender provided expected_sequence is never re-run. If
+// another write to the same stream lands between its load and its write,
+// under any resolution, it fails ABORTED with
+// COORDINATOR_REASON_EXPECTED_SEQUENCE_STALE (args expected, actual) and
+// nothing is persisted (decision 14.45).
 //
 // The concurrency window is the run of events the command did not see:
 // sequences handling.expected_sequence .. head-1 (see ContextualCommand).
 //
-// STRICT: any mismatch rejects with ABORTED (a failed test-and-set: the
-// caller re-reads and re-issues), before business code runs. STRICT runs in
-// the coordinator.
+// STRICT: any mismatch rejects with ABORTED,
+// COORDINATOR_REASON_EXPECTED_SEQUENCE_STALE (args expected, actual; a
+// failed test-and-set: the caller re-reads and re-issues), before business
+// code runs. STRICT runs in the coordinator.
 // AGGREGATE_HANDLES: no coordinator check; decide receives the events since
 // the expected sequence (the window) with the command and applies its own
 // conflict rule. The window is always delivered as pages: the snapshot
@@ -1052,8 +1062,10 @@ message Handling {
   // The stream state the command was issued against: the expected
   // next_sequence of the target stream.
   //
-  // If provided, the command is rejected before business code unless the
-  // stream is at expected_sequence, or the resolved conflict resolution is
+  // If provided, the command is rejected before business code (ABORTED,
+  // COORDINATOR_REASON_EXPECTED_SEQUENCE_STALE, args expected and actual)
+  // unless the stream is at expected_sequence, or the resolved conflict
+  // resolution is
   // AGGREGATE_HANDLES or COMMUTATIVE, in which case the events since
   // expected_sequence are delivered with the command and a conflict rule is
   // applied: under AGGREGATE_HANDLES decide receives them and applies its
@@ -1065,6 +1077,13 @@ message Handling {
   // Either way, the check or the stamp happens in the framework before the
   // command reaches business code (pipeline step 4), so decide always sees
   // a concrete sequence.
+  //
+  // At the write the stream may have moved again: another write to the same
+  // stream landed after the load. A provided expected_sequence then fails
+  // the command ABORTED, COORDINATOR_REASON_EXPECTED_SEQUENCE_STALE, under
+  // any resolution; a stamped one is re-run by the coordinator on the new
+  // head (decision 14.45). Ordering is per stream: no other stream's writes
+  // matter.
   optional uint64 expected_sequence = 1;
   // What to do with a stale expected_sequence (see ConflictResolution).
   // Unspecified: the configured default.

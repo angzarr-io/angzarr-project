@@ -187,6 +187,17 @@ enum CoordinatorReason {
   COORDINATOR_REASON_POLICY_NO_OUTPUT_DOMAIN = 18;
   // Readiness. Args: component, component_kind.
   COORDINATOR_REASON_OUTPUT_DOMAIN_ON_NON_POLICY = 19;
+  // ABORTED. Args: expected, actual. The command set
+  // CommandBook.handling.expected_sequence (`expected`) and the stream's
+  // head, its next_sequence (`actual`), differs: found when the command is
+  // loaded (under STRICT, before business code runs), or at its write, when
+  // another write to the same stream landed first (under any resolution).
+  // Nothing is persisted. A command without an expected sequence that loses
+  // such a race is never answered this: the coordinator re-runs it on the
+  // new head. Business, immediate return (decision 14.37): a direct caller
+  // re-reads and decides; a policy step is re-run under the retry cap.
+  // (Decision 14.45.)
+  COORDINATOR_REASON_EXPECTED_SEQUENCE_STALE = 20;
 
   // Retired by 14.37.
   reserved

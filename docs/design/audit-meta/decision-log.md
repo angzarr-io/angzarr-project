@@ -3494,6 +3494,43 @@ standard names.** Owner rulings, 2026-10-30. Amends 14.37 and 14.42.
   Google's own reasons (`google.api.ErrorReason`), whose value names, used
   as `ErrorInfo.reason`, carry no prefix.
 
+**14.45 A stale expected sequence has its own key; a stamped command that
+loses a race is re-run.** Owner ruling, 2026-10-30. Follows 14.35, 14.37,
+14.42 and 14.44.
+- **The key.** `CoordinatorReason` gains
+  `COORDINATOR_REASON_EXPECTED_SEQUENCE_STALE`: ABORTED, args `expected`
+  (the command's `CommandBook.handling.expected_sequence`) and `actual` (the
+  stream's head, its `next_sequence`). Its class is business, immediate
+  return (14.37): a direct client gets ABORTED and decides; a policy step is
+  re-run under the retry cap. Until now a stale command under STRICT was
+  ABORTED with no key at all.
+- **What it means.** The command set an expected sequence and the stream's
+  head differs, however that is found:
+  - early, when the command is loaded: the stream has already moved. Only
+    STRICT refuses here; AGGREGATE_HANDLES and COMMUTATIVE deliver the
+    window, as before (C-0717).
+  - at the write, by losing a same-stream race: another write to the stream
+    landed between the command's load and its append. This holds under
+    every resolution: a command whose sender named the head it decided
+    against is never re-run by the coordinator (C-0718).
+- **Without an expected sequence, a lost race is retried.** The
+  coordinator stamps such a command with the head it loads, and if another
+  write to the same stream lands before its append, it re-runs the command
+  on the new head; the command is never answered this key (C-0719). That
+  is optimistic concurrency, per stream only (14.35): a write to another
+  stream is never a conflict (C-0720).
+- The proto prose agrees: `types.proto`'s `ConflictResolution` region and
+  `Handling.expected_sequence`, and `command_handler.proto`'s status codes
+  and `Handle`, name the key; `features/coordinator-contract/conflict_resolution.feature`
+  carries C-0717 to C-0720.
+- Why: the ruling. A stale sequence was the one framework conflict without
+  a key, so a caller could not tell it from a handler's own ABORTED; and
+  the prose said a stamped command "can never be stale" without saying what
+  happens when it loses a race at the write.
+- Cost: every coordinator (core's and angzarr-embedded's) answers the key
+  and re-runs a stamped command that loses a race; a re-run invokes
+  business code again, so a handler sees the same command twice.
+
 ## Corrections
 
 Facts the earlier passes or the design note got wrong:
