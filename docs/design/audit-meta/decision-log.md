@@ -3749,6 +3749,23 @@ Follows 14.37, 14.45, 14.46 and 14.47.
   its `meta.EditionDeleted` as the one page (`meta/events.proto` imports
   `types.proto`, so the meta message cannot be named here). Replay
   attempts the removal again.
+- **Every dead letter is keyed: the policy's remaining reaction checks
+  get keys.** A policy's reaction that fails the identity or Fact checks
+  (`PolicyResponse.reactions`) dead-lettered its trigger with no key. No
+  existing key matched exactly (the `COORDINATOR_REASON_REFUSAL_FACT_*`
+  keys are for the facts `OnRefused` answers, not reactions), so three
+  are added, each INTERNAL and a fatal bug, mapped to
+  `ProcessingFailedDetails`:
+  `COORDINATOR_REASON_POLICY_COMMAND_OTHER_IDENTITY` (args `domain`,
+  `command_type`, `field`): a command_id or causation_id other than the
+  stamp, `field` naming which;
+  `COORDINATOR_REASON_POLICY_COMMAND_IS_FACT` (args `domain`,
+  `command_type`, the Fact's payload type): a reaction that is a Fact;
+  `COORDINATOR_REASON_POLICY_COMMAND_FACT_ORIGIN` (args `domain`,
+  `command_type`): a reaction Command carrying `fact_origin`, refused by
+  the policy's coordinator or, reaching its destination, dead-lettered
+  there as a reactor bug, as `..._WITH_HANDLING` is. C-0734 and C-0735
+  pin them.
 - **A retryable bug at its cap records its own key**, as last answered,
   never `COORDINATOR_REASON_RETRY_CAP_EXHAUSTED`, which stays the key for
   write races only (14.46); the `AngzarrDeadLetter.reason` comment and the
@@ -3765,9 +3782,10 @@ Follows 14.37, 14.45, 14.46 and 14.47.
 - `dead_letter_queue.feature` adds C-0730 (an asynchronous command ahead),
   C-0731 (an asynchronous STRICT command behind), C-0732 (a retry cap,
   stamped and AGGREGATE_HANDLES) and C-0733 (a typed refusal's object
-  kept); C-0552 and C-0641 pin their new keys. angzarr-proto's
-  `tests/diagnostics.rs` pins the variants' numbers (13 kept, 17, 18) and
-  `tests/reasons.rs` the two keys.
+  kept); C-0552 and C-0641 pin their new keys, and
+  `policy_addressing.feature`'s C-0734 and C-0735 the three reaction
+  keys. angzarr-proto's `tests/diagnostics.rs` pins the variants' numbers
+  (13 kept, 17, 18) and `tests/reasons.rs` the five keys.
 - Why: the rulings. The feature promised exactly one variant without
   saying which, so two coordinators could dead-letter the same refusal
   differently, and the admin API's `RejectionType` filter would split them.
@@ -3778,7 +3796,9 @@ Follows 14.37, 14.45, 14.46 and 14.47.
   processing variant is renamed; the reactor-bug command and the failed
   edition removal get keys (and the removal a payload arm); a retryable
   bug at its cap records its own key; the compensation text is removed
-  and C-0448 retired.
+  and C-0448 retired. Then the rule "every dead letter is keyed": the
+  policy's identity, Fact and fact-origin checks on its reactions get
+  their three keys.
 
 ## Corrections
 

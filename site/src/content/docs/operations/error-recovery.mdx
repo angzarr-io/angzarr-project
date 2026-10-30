@@ -191,6 +191,9 @@ A target that refuses a saga's command (a business rejection, optionally with a 
 | Any other terminal failure | The command is dead-lettered and alerted: a bug |
 | A policy's command names no root, whatever its target | Refused `INTERNAL`, `COORDINATOR_REASON_POLICY_COMMAND_NO_ROOT` (with `domain` and `command_type`); dead-lettered and alerted, never delivered |
 | A policy's command carries a correlation other than its trigger's | Refused `INTERNAL`, `COORDINATOR_REASON_POLICY_COMMAND_OTHER_CORRELATION`; dead-lettered and alerted, never delivered |
+| A policy's command sets a `command_id` or `causation_id` other than the one its coordinator stamps | Refused `INTERNAL`, `COORDINATOR_REASON_POLICY_COMMAND_OTHER_IDENTITY` (with `domain`, `command_type` and `field`); dead-lettered and alerted, never delivered |
+| A policy's reaction is a Fact | Refused `INTERNAL`, `COORDINATOR_REASON_POLICY_COMMAND_IS_FACT`; dead-lettered and alerted, never delivered |
+| A policy's command carries a `fact_origin` | Refused `INTERNAL`, `COORDINATOR_REASON_POLICY_COMMAND_FACT_ORIGIN`; dead-lettered and alerted, never delivered |
 
 ## Process Manager Failures
 

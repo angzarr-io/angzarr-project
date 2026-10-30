@@ -230,9 +230,15 @@ message PolicyResponse {
   //   - no Handling (expected_sequence or conflict_resolution); otherwise
   //     COORDINATOR_REASON_POLICY_COMMAND_WITH_HANDLING (domain,
   //     command_type);
-  //   - no command_id or causation_id that differs from the stamp, no Fact
-  //     and no fact_origin: a policy's business code emits Commands only,
-  //     and its refusal facts come from OnRefused (PolicyService, Refusals).
+  //   - identity: no command_id or causation_id that differs from the
+  //     stamp; otherwise COORDINATOR_REASON_POLICY_COMMAND_OTHER_IDENTITY
+  //     (domain, command_type, field);
+  //   - a Command: a policy's business code emits Commands only, and its
+  //     refusal facts come from OnRefused (PolicyService, Refusals); a Fact
+  //     is COORDINATOR_REASON_POLICY_COMMAND_IS_FACT (domain, command_type),
+  //     and a Command carrying fact_origin
+  //     COORDINATOR_REASON_POLICY_COMMAND_FACT_ORIGIN (domain,
+  //     command_type).
   // Any failed check is a policy bug: the whole answer is refused INTERNAL,
   // nothing is delivered, and the trigger is dead-lettered and alerted
   // (decisions 14.24, 14.36). Delivery mode comes from the policy's

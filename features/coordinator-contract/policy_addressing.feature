@@ -104,3 +104,31 @@ Feature: Who a policy's command addresses, and the correlation it carries
     Then the policy's answer is refused INTERNAL with reason COORDINATOR_REASON_POLICY_COMMAND_OUTSIDE_DESTINATION, naming expected_domain "inventory" and actual_domain "shipping"
     And neither command is delivered
     And the OrderPlaced trigger is dead-lettered and an alert is raised
+
+  # Decision 14.48, amended: every dead letter is keyed, so the identity
+  # and Fact checks on a policy's reactions carry keys of their own.
+  @policy_addressing
+  @C-0734
+  Scenario Outline: A policy's reaction that sets its own identity, is a Fact, or carries a fact origin is a policy bug
+    Given a policy "OrderToInventory" translating from "order" to "inventory" whose business code answers an OrderPlaced event with a ReserveStock <reaction> for "inventory" "inv-7" that <fault>
+    When an OrderPlaced event with correlation "0192a6b0-0000-7000-8000-000000000049" is recorded for order "order-1"
+    Then the policy's answer is refused INTERNAL with reason <reason>, naming domain "inventory" and command type ReserveStock<field>
+    And nothing is delivered and nothing is appended to stream "inventory" root "inv-7"
+    And the OrderPlaced trigger is dead-lettered with reason <reason> as rejected_events, and an alert is raised
+    And the dead letter's processing_failed details have failure code <reason>, retry_count 0 and is_transient false
+
+    Examples:
+      | reaction | fault                                        | reason                                           | field                     |
+      | command  | sets a command_id other than the stamped one | COORDINATOR_REASON_POLICY_COMMAND_OTHER_IDENTITY | , with field command_id   |
+      | command  | sets a causation_id other than the trigger's | COORDINATOR_REASON_POLICY_COMMAND_OTHER_IDENTITY | , with field causation_id |
+      | fact     | has a fact_origin                            | COORDINATOR_REASON_POLICY_COMMAND_IS_FACT        |                           |
+      | command  | carries a fact_origin                        | COORDINATOR_REASON_POLICY_COMMAND_FACT_ORIGIN    |                           |
+
+  @policy_addressing
+  @C-0735
+  Scenario: A reaction command carrying a fact origin that reaches its destination is dead-lettered there as a reactor bug
+    Given a policy-emitted ReserveStock command for "inventory" "inv-7" that carries a fact_origin
+    When the "inventory" coordinator processes the command
+    Then the command is not delivered to business code
+    And the command is dead-lettered with reason COORDINATOR_REASON_POLICY_COMMAND_FACT_ORIGIN, domain "inventory" and command_type "ReserveStock", as rejected_command, and an alert is raised
+    And no events are persisted

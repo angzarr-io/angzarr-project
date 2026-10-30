@@ -1098,7 +1098,8 @@ message Projection {
 // entry_points region in command_handler.proto). A reaction command has no
 // caller to answer, so it is dead-lettered as a reactor bug (and alerted),
 // never delivered; one that carries Handling, with reason
-// COORDINATOR_REASON_POLICY_COMMAND_WITH_HANDLING.
+// COORDINATOR_REASON_POLICY_COMMAND_WITH_HANDLING, and one that carries
+// fact_origin, with reason COORDINATOR_REASON_POLICY_COMMAND_FACT_ORIGIN.
 //
 // Reaction commands (emitted by policies; a process manager emits none) carry
 // NO Handling at all: expected_sequence and conflict_resolution are both
@@ -1663,9 +1664,13 @@ message AngzarrDeadLetter {
   //     COORDINATOR_REASON_POLICY_COMMAND_OUTSIDE_DESTINATION,
   //     COORDINATOR_REASON_POLICY_COMMAND_OUTSIDE_EDITION,
   //     COORDINATOR_REASON_POLICY_COMMAND_NO_ROOT,
-  //     COORDINATOR_REASON_POLICY_COMMAND_OTHER_CORRELATION and
-  //     COORDINATOR_REASON_POLICY_COMMAND_WITH_HANDLING (also a reaction
-  //     command refused at its destination, as rejected_command):
+  //     COORDINATOR_REASON_POLICY_COMMAND_OTHER_CORRELATION,
+  //     COORDINATOR_REASON_POLICY_COMMAND_OTHER_IDENTITY,
+  //     COORDINATOR_REASON_POLICY_COMMAND_IS_FACT,
+  //     COORDINATOR_REASON_POLICY_COMMAND_FACT_ORIGIN and
+  //     COORDINATOR_REASON_POLICY_COMMAND_WITH_HANDLING (the last two
+  //     also on a reaction command refused at its destination, as
+  //     rejected_command):
   //     retry_count 0, is_transient false, stack_trace when captured.
   //   - COORDINATOR_REASON_EDITION_REMOVAL_FAILED, with the
   //     failed_edition_removal payload: retry_count the attempts made,

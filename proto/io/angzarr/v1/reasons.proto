@@ -261,6 +261,31 @@ enum CoordinatorReason {
   // were tried, `cause` the store's failure. Never answered to a caller:
   // DeleteEdition has already answered. (Decision 14.48, amended.)
   COORDINATOR_REASON_EDITION_REMOVAL_FAILED = 24;
+  // INTERNAL. Args: domain, command_type, field. A reaction command (a
+  // policy's) that sets its own command_id or causation_id (`field`, the
+  // field's name) to a value other than the one its coordinator stamps
+  // (types.proto, the command_identity region): refused by the policy's
+  // coordinator (PolicyResponse.reactions), its trigger dead-lettered with
+  // this key as its AngzarrDeadLetter.reason, and alerted. Never
+  // delivered. (Decision 14.48, amended.)
+  COORDINATOR_REASON_POLICY_COMMAND_OTHER_IDENTITY = 25;
+  // INTERNAL. Args: domain, command_type (the Fact's payload type). A
+  // policy's reaction that is a Fact (CommandPage.body = Fact): a policy's
+  // business code emits Commands only, and its refusal facts come from
+  // OnRefused (policy.proto, PolicyService, Refusals). Refused by the
+  // policy's coordinator (PolicyResponse.reactions), its trigger
+  // dead-lettered with this key as its AngzarrDeadLetter.reason, and
+  // alerted. Never delivered. (Decision 14.48, amended.)
+  COORDINATOR_REASON_POLICY_COMMAND_IS_FACT = 26;
+  // INTERNAL. Args: domain, command_type. A reaction command (a policy's)
+  // that carries fact_origin, which only a Fact carries (types.proto, the
+  // command_identity region): refused by the policy's coordinator
+  // (PolicyResponse.reactions), its trigger dead-lettered, or, if one
+  // reaches its destination, refused there before business code and
+  // dead-lettered as a reactor bug, with this key as its
+  // AngzarrDeadLetter.reason, and alerted. Never delivered. (Decision
+  // 14.48, amended.)
+  COORDINATOR_REASON_POLICY_COMMAND_FACT_ORIGIN = 27;
 
   // Retired by 14.37.
   reserved
