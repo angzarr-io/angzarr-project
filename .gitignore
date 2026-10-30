@@ -33,3 +33,6 @@ __pycache__/
 
 # Sibling repos cloned by `just vendor`
 vendor/
+
+# `just push-check`: the pushed commit's throwaway tree and its log
+/target/
