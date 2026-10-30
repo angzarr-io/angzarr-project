@@ -282,16 +282,21 @@ message Cover {
 // re-runs it on the new head (optimistic concurrency, per stream only;
 // decision 14.45).
 //
-// A command whose sender provided expected_sequence is never re-run.
 // COORDINATOR_REASON_EXPECTED_SEQUENCE_STALE is STRICT's alone: under
 // STRICT, a stream that has moved, found at load or because another write
 // to the same stream lands between the command's load and its write, fails
-// the command ABORTED with that key (args expected, actual) and nothing is
-// persisted. Under AGGREGATE_HANDLES and COMMUTATIVE a moved stream is
-// never answered that key: each applies its own rule, below (decision
-// 14.45, amended). What AGGREGATE_HANDLES and COMMUTATIVE do when another
-// write to the same stream lands after the window is delivered and before
-// the command's write is not yet decided.
+// the command ABORTED with that key (args expected, actual), nothing is
+// persisted, and the command is never re-run. Under AGGREGATE_HANDLES and
+// COMMUTATIVE a moved stream is never answered that key: each applies its
+// own rule, below. If another write to the same stream lands after the
+// window is delivered and before the command's write (a race lost at the
+// write), the coordinator re-delivers the widened window (expected_sequence
+// .. the new head-1, with a fresh nonce) and the resolution's rule decides
+// again on it: AGGREGATE_HANDLES's nonce, COMMUTATIVE's unit overlap.
+// Re-deliveries are capped by the retry cap (the status codes in
+// command_handler.proto); a command that reaches the cap is dead-lettered
+// and alerted, as any exhausted retry is, and nothing is persisted
+// (decision 14.45).
 //
 // The concurrency window is the run of events the command did not see:
 // sequences handling.expected_sequence .. head-1 (see ContextualCommand).
@@ -1090,11 +1095,12 @@ message Handling {
   // stream landed after the load. Under STRICT a provided expected_sequence
   // then fails the command ABORTED,
   // COORDINATOR_REASON_EXPECTED_SEQUENCE_STALE; a stamped one is re-run by
-  // the coordinator on the new head (decision 14.45). Under
-  // AGGREGATE_HANDLES and COMMUTATIVE a provided expected_sequence is never
-  // answered that key; what they do when the stream moves after the window
-  // is delivered is not yet decided (decision 14.45, amended). Ordering is
-  // per stream: no other stream's writes matter.
+  // the coordinator on the new head. Under AGGREGATE_HANDLES and
+  // COMMUTATIVE a provided expected_sequence is never answered that key:
+  // the coordinator re-delivers the widened window and the resolution's
+  // rule decides again, under the retry cap (see ConflictResolution;
+  // decision 14.45). Ordering is per stream: no other stream's writes
+  // matter.
   optional uint64 expected_sequence = 1;
   // What to do with a stale expected_sequence (see ConflictResolution).
   // Unspecified: the configured default.

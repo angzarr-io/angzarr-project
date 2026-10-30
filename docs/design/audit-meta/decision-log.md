@@ -3500,9 +3500,9 @@ standard names.** Owner rulings, 2026-10-30. Amends 14.37 and 14.42.
   one refused (C-0579 in `parity/client/hosting.feature`). Its value
   comment in `reasons.proto` says so.
 
-**14.45 A stale expected sequence has its own key; a stamped command that
-loses a race is re-run.** Owner ruling, 2026-10-30. Follows 14.35, 14.37,
-14.42 and 14.44.
+**14.45 A stale expected sequence is STRICT's key; a command that loses
+a race at its write is re-run or re-delivered.** Owner ruling, 2026-10-30,
+amended twice the same day (below). Follows 14.35, 14.37, 14.42 and 14.44.
 - **The key.** `CoordinatorReason` gains
   `COORDINATOR_REASON_EXPECTED_SEQUENCE_STALE`: ABORTED, args `expected`
   (the command's `CommandBook.handling.expected_sequence`) and `actual` (the
@@ -3510,48 +3510,48 @@ loses a race is re-run.** Owner ruling, 2026-10-30. Follows 14.35, 14.37,
   return (14.37): a direct client gets ABORTED and decides; a policy step is
   re-run under the retry cap. Until now a stale command under STRICT was
   ABORTED with no key at all.
-- **What it means.** The command set an expected sequence and the stream's
-  head differs, however that is found:
-  - early, when the command is loaded: the stream has already moved. Only
-    STRICT refuses here; AGGREGATE_HANDLES and COMMUTATIVE deliver the
-    window, as before (C-0717).
-  - at the write, by losing a same-stream race: another write to the stream
-    landed between the command's load and its append. This holds under
-    every resolution: a command whose sender named the head it decided
-    against is never re-run by the coordinator (C-0718).
+- **STRICT alone answers it.** A STRICT command whose expected sequence is
+  not the head gets the key, however that is found: at load, before
+  business code (C-0717), or at the write, by losing a same-stream race to
+  another write that lands between its load and its append (C-0718). A
+  command whose sender named the head it decided against is never re-run
+  under STRICT.
+- **AGGREGATE_HANDLES and COMMUTATIVE follow their own rules.** A moved
+  stream is never answered the key: the window is delivered and the
+  resolution's rule decides (the nonce, `COORDINATOR_REASON_CONFLICT_UNRESOLVED`;
+  unit overlap, `COORDINATOR_REASON_CONFLICT_OVERLAP`; 14.42; C-0721). If
+  another write to the same stream lands after the window is delivered and
+  before the command's append, the coordinator re-delivers the widened
+  window (expected sequence to the new head, a fresh nonce) and the rule
+  decides again on it (C-0722, C-0723). Re-deliveries are capped by 14.37's
+  retry cap; at the cap the command is dead-lettered and alerted, as any
+  exhausted retry is, and nothing is persisted (C-0724).
 - **Without an expected sequence, a lost race is retried.** The
   coordinator stamps such a command with the head it loads, and if another
   write to the same stream lands before its append, it re-runs the command
-  on the new head; the command is never answered this key (C-0719). That
+  on the new head; the command is never answered the key (C-0719). That
   is optimistic concurrency, per stream only (14.35): a write to another
   stream is never a conflict (C-0720).
-- The proto prose agrees: `types.proto`'s `ConflictResolution` region and
-  `Handling.expected_sequence`, and `command_handler.proto`'s status codes
-  and `Handle`, name the key; `features/coordinator-contract/conflict_resolution.feature`
-  carries C-0717 to C-0720.
+- The proto prose agrees: `reasons.proto`'s value comment, `types.proto`'s
+  `ConflictResolution` region and `Handling.expected_sequence`, and
+  `command_handler.proto`'s status codes and `Handle`;
+  `features/coordinator-contract/conflict_resolution.feature` carries
+  C-0717 to C-0724.
 - Why: the ruling. A stale sequence was the one framework conflict without
   a key, so a caller could not tell it from a handler's own ABORTED; and
   the prose said a stamped command "can never be stale" without saying what
   happens when it loses a race at the write.
-- Cost: every coordinator (core's and angzarr-embedded's) answers the key
-  and re-runs a stamped command that loses a race; a re-run invokes
-  business code again, so a handler sees the same command twice.
-- **Amended, 2026-10-30 (owner correction).** The owner's words: "strict
-  only on expected seq"; "aggregate handles and commutative should follow
-  their rules". `COORDINATOR_REASON_EXPECTED_SEQUENCE_STALE` is STRICT's
-  alone, at load (C-0717) and at the write (C-0718, now STRICT-only). Under
-  AGGREGATE_HANDLES and COMMUTATIVE a command with an expected sequence
-  whose stream moved is never answered the key: the window is delivered
-  and the resolution's own rule decides (the nonce, 14.42:
-  `COORDINATOR_REASON_CONFLICT_UNRESOLVED`; unit overlap, 14.42:
-  `COORDINATOR_REASON_CONFLICT_OVERLAP`; C-0721). A command without an
-  expected sequence that loses a same-stream race is still re-run on the
-  new head (C-0719). Open: what AGGREGATE_HANDLES and COMMUTATIVE do when
-  another write to the same stream lands after the window is delivered and
-  before the command's write; their rules judge only the window delivered
-  at load, so no scenario asserts it until the owner rules.
-  `reasons.proto`, `types.proto`, `command_handler.proto` and
-  `conflict_resolution.feature` say so.
+- Cost: every coordinator (core's and angzarr-embedded's) answers the key,
+  re-runs a stamped command and re-delivers an AGGREGATE_HANDLES or
+  COMMUTATIVE one that loses a race; either invokes business code again,
+  so a handler sees the same command more than once.
+- **Amendments, 2026-10-30.** (1) Owner correction, "strict only on
+  expected seq"; "aggregate handles and commutative should follow their
+  rules": the key, first given at the write under every resolution, became
+  STRICT's alone (C-0718 narrowed to STRICT; C-0721 added). (2) Owner
+  ruling: a race lost at the write under AGGREGATE_HANDLES or COMMUTATIVE
+  re-delivers the widened window under the retry cap, closing what (1)
+  left open (C-0722 to C-0724).
 
 ## Corrections
 

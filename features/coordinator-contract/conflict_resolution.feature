@@ -25,10 +25,12 @@ Feature: Conflict resolution - how the coordinator treats a stale command
   per stream, so no other stream's writes matter). Under STRICT a command
   with an expected sequence then fails ABORTED with reason
   COORDINATOR_REASON_EXPECTED_SEQUENCE_STALE; that key is STRICT's alone
-  (decision 14.45, amended). Under AGGREGATE_HANDLES and COMMUTATIVE a
-  moved stream is never answered that key: the resolution's own rule
-  decides. What they do when the stream moves after the window is delivered
-  and before the write is not yet decided, so no scenario here says. A
+  (decision 14.45). Under AGGREGATE_HANDLES and COMMUTATIVE a moved stream
+  is never answered that key: the resolution's own rule decides. If the
+  stream moves after the window is delivered and before the write, the
+  coordinator re-delivers the widened window, with a fresh nonce, and the
+  rule decides again on it; re-deliveries stop at the retry cap, where the
+  command is dead-lettered and alerted like any exhausted retry. A
   command without one is decided against the head, so it is never stale:
   the coordinator re-runs it on the new head. Reaction commands (from policies; a process manager sends
   none, decision 14.31) never carry an expected sequence or a resolution.
@@ -247,6 +249,59 @@ Feature: Conflict resolution - how the coordinator treats a stale command
     When the coordinator processes the command
     Then the command fails ABORTED with reason COORDINATOR_REASON_EXPECTED_SEQUENCE_STALE, expected "3" and actual "4", and nothing is persisted
     And the coordinator does not re-run the command
+
+  @write_race @aggregate_handles
+  @C-0722
+  Scenario Outline: AggregateHandles - a race lost at the write re-delivers the widened window, and the nonce decides on it
+    Given an AddItem command with conflict resolution AGGREGATE_HANDLES targeting sequence 1
+    And the business process answers the first delivery with an ItemAdded event, reporting the conflict nonce it was delivered as its resolved nonce
+    And another write to the "order" stream lands at sequence 3 after the window is delivered and before the command is written
+    And the business process answers the second delivery with an ItemAdded event, reporting <reported>
+    When the coordinator processes the command
+    Then business code is invoked twice, the second time with the events at sequences 1 to 3 as the window and a fresh conflict nonce
+    And <outcome>
+    And the command is never answered COORDINATOR_REASON_EXPECTED_SEQUENCE_STALE
+
+    Examples:
+      | reported                                                          | outcome                                                                                                          |
+      | the conflict nonce of the second delivery as its resolved nonce   | the command succeeds and an ItemAdded event is persisted at sequence 4                                           |
+      | the conflict nonce of the first delivery as its resolved nonce    | the command fails ABORTED with reason COORDINATOR_REASON_CONFLICT_UNRESOLVED and the command persists nothing    |
+      | no resolved nonce                                                 | the command fails ABORTED with reason COORDINATOR_REASON_CONFLICT_UNRESOLVED and the command persists nothing    |
+
+  @write_race @commutative
+  @C-0723
+  Scenario Outline: Commutative - a race lost at the write re-delivers the widened window, and unit overlap decides on it
+    Given an AddItem command with conflict resolution COMMUTATIVE targeting sequence 1
+    And the business process answers the first delivery with an ItemAdded event, reporting window units "items[pear]" and command units "items[apple]"
+    And another write to the "order" stream lands at sequence 3 after the window is delivered and before the command is written
+    And the business process answers the second delivery with an ItemAdded event, reporting window units <window> and command units "items[apple]"
+    When the coordinator processes the command
+    Then business code is invoked twice, the second time with the events at sequences 1 to 3 as the window and a fresh conflict nonce
+    And <outcome>
+    And the command is never answered COORDINATOR_REASON_EXPECTED_SEQUENCE_STALE
+
+    Examples:
+      | window                        | outcome                                                                                                       |
+      | "items[pear]", "items[kiwi]"  | the command succeeds and an ItemAdded event is persisted at sequence 4                                        |
+      | "items[pear]", "items[apple]" | the command fails ABORTED with reason COORDINATOR_REASON_CONFLICT_OVERLAP and the command persists nothing    |
+
+  @write_race
+  @C-0724
+  Scenario Outline: A race lost at every write until the retry cap dead-letters the command
+    Given the retry cap is reached after 3 deliveries
+    And an AddItem command with conflict resolution <resolution> targeting sequence 1
+    And the business process answers every delivery with an ItemAdded event, reporting <accepted>
+    And another write to the "order" stream lands after each delivery's window is delivered and before the command is written
+    When the coordinator processes the command
+    Then business code is invoked 3 times, each time with a wider window and a fresh conflict nonce
+    And the command is dead-lettered and an alert is raised
+    And the command persists nothing
+    And the command is never answered COORDINATOR_REASON_EXPECTED_SEQUENCE_STALE
+
+    Examples:
+      | resolution        | accepted                                                              |
+      | AGGREGATE_HANDLES | the conflict nonce it was delivered as its resolved nonce             |
+      | COMMUTATIVE       | window units "items[pear]" and command units "items[apple]"           |
 
   @write_race
   @C-0719

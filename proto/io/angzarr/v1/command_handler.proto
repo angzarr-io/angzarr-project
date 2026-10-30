@@ -228,8 +228,12 @@ message ConflictReport {
 // Under AGGREGATE_HANDLES and COMMUTATIVE a moved stream is never answered
 // this key: the window is delivered and the resolution's own rule decides
 // (an unresolved window is COORDINATOR_REASON_CONFLICT_UNRESOLVED, a
-// COMMUTATIVE overlap COORDINATOR_REASON_CONFLICT_OVERLAP; types.proto,
-// ConflictResolution). Re-reading and re-issuing is the caller's:
+// COMMUTATIVE overlap COORDINATOR_REASON_CONFLICT_OVERLAP); if another
+// write to the same stream lands after the window is delivered and before
+// the command's write, the coordinator re-delivers the widened window and
+// that rule decides again, under the retry cap above, past which the
+// command is dead-lettered and alerted (types.proto, ConflictResolution;
+// decision 14.45). Under STRICT re-reading and re-issuing is the caller's:
 // the coordinator re-runs on the new head only a command whose
 // expected_sequence it stamped, and such a command is never answered this
 // key. A queued command with a caller-provided expected_sequence that is
