@@ -1114,7 +1114,7 @@ where
             .unwrap();
         store.write_snapshot(s, &snapshot(1, "v1")).await.unwrap();
     }
-    assert_eq!(store.purge(purged).await, Ok(2), "its two events");
+    assert_eq!(store.purge(purged, 2).await, Ok(2), "its two events");
     assert_gone(&store, purged, "purged").await;
     assert_eq!(store.covers("account").await, Ok(covers(&[kept])));
     assert_eq!(
@@ -1123,9 +1123,9 @@ where
         "another stream untouched"
     );
     assert_eq!(store.read_snapshot(kept).await, Ok(Some(snapshot(1, "v1"))));
-    assert_eq!(store.purge(purged).await, Ok(0), "nothing left to purge");
+    assert_eq!(store.purge(purged, 0).await, Ok(0), "nothing left to purge");
     assert_eq!(
-        store.purge(main_stream("account", 3)).await,
+        store.purge(main_stream("account", 3), 0).await,
         Ok(0),
         "no stream"
     );
@@ -1143,7 +1143,7 @@ where
     put(&store, key("a", s), 1).await.unwrap();
     put(&store, key("b", s), 1).await.unwrap();
     put(&store, key("a", kept), 4).await.unwrap();
-    store.purge(s).await.unwrap();
+    store.purge(s, 1).await.unwrap();
     assert_eq!(store.position(key("a", s)).await, Ok(0));
     assert_eq!(store.position(key("b", s)).await, Ok(0));
     assert_eq!(
@@ -1159,7 +1159,7 @@ where
 {
     let s = main_stream("account", 1);
     store.write_snapshot(s, &snapshot(4, "v1")).await.unwrap();
-    assert_eq!(store.purge(s).await, Ok(0));
+    assert_eq!(store.purge(s, 0).await, Ok(0));
     assert_eq!(store.read_snapshot(s).await, Ok(None));
 }
 
@@ -1171,7 +1171,7 @@ where
     append(&store, s, 0, &[page(0, 1), page(1, 1)])
         .await
         .unwrap();
-    store.purge(s).await.unwrap();
+    store.purge(s, 2).await.unwrap();
     assert_eq!(
         append(&store, s, 2, &[page(2, 2)]).await,
         Err(conflict(s, 2, 0)),
@@ -1186,6 +1186,210 @@ where
         store.find_command(s, command(1)).await,
         Ok(vec![]),
         "old ids forgotten"
+    );
+}
+
+// ------------------------------------------- purge's expected head (14.43)
+
+/// `s` whole as `purge_fixture` wrote it: nothing a refused purge touched.
+async fn assert_unpurged<S: Store>(store: &S, s: StreamRef<'_>, what: &str) {
+    let slice = store.read(s, 0, None).await.unwrap();
+    assert_eq!(
+        (slice.next_sequence, slice.pages),
+        (2, vec![page(0, 1), page(1, 2)]),
+        "{what}: its events"
+    );
+    assert_eq!(
+        store.read_snapshot(s).await,
+        Ok(Some(snapshot(1, "v1"))),
+        "{what}: its snapshot"
+    );
+    assert_eq!(
+        store.find_command(s, command(2)).await,
+        Ok(vec![page(1, 2)]),
+        "{what}: its command ids"
+    );
+    assert_eq!(
+        store.position(key("a", s)).await,
+        Ok(2),
+        "{what}: a position on it"
+    );
+    let listed = store.covers(s.domain).await.unwrap();
+    assert!(listed.contains(&s.to_cover()), "{what}: covers {listed:?}");
+}
+
+/// `s` with two events, a snapshot and a handler's position on it.
+async fn purge_fixture<S: Store>(store: &S, s: StreamRef<'_>) {
+    append(store, s, 0, &[page(0, 1), page(1, 2)])
+        .await
+        .unwrap();
+    store.write_snapshot(s, &snapshot(1, "v1")).await.unwrap();
+    put(store, key("a", s), 2).await.unwrap();
+}
+
+/// 14.43: a purge at the head its caller read removes the stream whole.
+pub async fn a_purge_at_the_streams_head_removes_it<S>(store: S)
+where
+    S: Store + Purge,
+{
+    let s = main_stream("account", 1);
+    purge_fixture(&store, s).await;
+    let read = store.read(s, 0, None).await.unwrap().next_sequence;
+    assert_eq!(store.purge(s, read).await, Ok(2), "at the head it read");
+    assert_gone(&store, s, "purged at its head").await;
+    assert_eq!(store.position(key("a", s)).await, Ok(0), "its position");
+}
+
+/// 14.43: a purge at any head but the stream's is refused as a conflict
+/// (re-read, decide again), and removes nothing. The race it closes: a
+/// prune read the stream, then an event landed on it (the task re-created
+/// under its id), then the prune's purge.
+pub async fn a_purge_at_a_stale_head_is_a_conflict_and_removes_nothing<S>(store: S)
+where
+    S: Store + Purge,
+{
+    let s = main_stream("account", 1);
+    purge_fixture(&store, s).await;
+    assert_eq!(
+        store.purge(s, 1).await,
+        Err(conflict(s, 1, 2)),
+        "below the head"
+    );
+    assert_unpurged(&store, s, "after a purge below the head").await;
+    assert_eq!(
+        store.purge(s, 3).await,
+        Err(conflict(s, 3, 2)),
+        "above the head"
+    );
+    assert_unpurged(&store, s, "after a purge above the head").await;
+    assert_eq!(
+        store.purge(s, 0).await,
+        Err(conflict(s, 0, 2)),
+        "at 0, as if absent"
+    );
+    assert_unpurged(&store, s, "after a purge at 0").await;
+
+    let read = store.read(s, 0, None).await.unwrap().next_sequence;
+    append(&store, s, 2, &[page(2, 3)]).await.unwrap();
+    assert_eq!(
+        store.purge(s, read).await,
+        Err(conflict(s, 2, 3)),
+        "an event landed after the purger read"
+    );
+    assert_eq!(
+        store.read(s, 0, None).await.unwrap().pages,
+        [page(0, 1), page(1, 2), page(2, 3)],
+        "the late event kept with the rest"
+    );
+    assert_eq!(store.position(key("a", s)).await, Ok(2), "its position");
+}
+
+/// 14.43: an absent stream is at 0. A purge at 0 removes what it still
+/// holds and answers 0; one at more is a conflict, which is how the second
+/// of two racing purges of one read learns the first got there.
+pub async fn a_purge_of_an_absent_stream_is_at_zero<S>(store: S)
+where
+    S: Store + Purge,
+{
+    let absent = main_stream("account", 9);
+    assert_eq!(store.purge(absent, 0).await, Ok(0), "never written");
+    assert_eq!(
+        store.purge(absent, 2).await,
+        Err(conflict(absent, 2, 0)),
+        "never written, a head expected"
+    );
+
+    let s = main_stream("account", 1);
+    purge_fixture(&store, s).await;
+    let first = store.read(s, 0, None).await.unwrap().next_sequence;
+    let second = store.read(s, 0, None).await.unwrap().next_sequence;
+    assert_eq!(store.purge(s, first).await, Ok(2), "the first purger");
+    assert_eq!(
+        store.purge(s, second).await,
+        Err(conflict(s, 2, 0)),
+        "the second, racing on the same read"
+    );
+    assert_eq!(store.purge(s, 0).await, Ok(0), "re-read: nothing left");
+    assert_gone(&store, s, "purged once").await;
+}
+
+/// 14.43: the positions on a stream go with it only when its purge lands; a
+/// refused purge leaves every handler where it was.
+pub async fn a_purge_removes_positions_only_when_it_lands<S>(store: S)
+where
+    S: Store + Purge,
+{
+    let s = main_stream("account", 1);
+    let kept = main_stream("account", 2);
+    purge_fixture(&store, s).await;
+    put(&store, key("b", s), 1).await.unwrap();
+    put(&store, key("a", kept), 4).await.unwrap();
+    assert_eq!(store.purge(s, 1).await, Err(conflict(s, 1, 2)));
+    assert_eq!(
+        (
+            store.position(key("a", s)).await,
+            store.position(key("b", s)).await
+        ),
+        (Ok(2), Ok(1)),
+        "a refused purge keeps them"
+    );
+    assert_eq!(store.purge(s, 2).await, Ok(2));
+    assert_eq!(
+        (
+            store.position(key("a", s)).await,
+            store.position(key("b", s)).await
+        ),
+        (Ok(0), Ok(0)),
+        "a purge that lands removes them"
+    );
+    assert_eq!(
+        store.position(key("a", kept)).await,
+        Ok(4),
+        "another stream's kept"
+    );
+}
+
+/// 14.43, editions: an edition stream's purge is guarded by its head as
+/// read (main's events below its fork, then its own), not main's head nor
+/// its own row count. It removes only the stream's own rows; main is
+/// untouched, and the stream reads as main's again.
+pub async fn a_purge_of_a_forked_stream_is_guarded_by_its_head_as_read<S>(store: S)
+where
+    S: Store + Purge,
+{
+    let main = main_stream("account", 1);
+    let e = edition_stream("account", 1, "what-if");
+    append(&store, main, 0, &[page(0, 1), page(1, 1)])
+        .await
+        .unwrap();
+    assert_eq!(fork(&store, e).await, 2, "at main's head");
+    append(&store, e, 3, &[page(3, 5)]).await.unwrap();
+    append(&store, main, 2, &[page(2, 3)]).await.unwrap();
+    assert_eq!(
+        store.purge(e, 3).await,
+        Err(conflict(e, 3, 4)),
+        "main's head"
+    );
+    assert_eq!(
+        store.purge(e, 2).await,
+        Err(conflict(e, 2, 4)),
+        "its own row count"
+    );
+    assert_eq!(
+        store.read(e, 0, None).await.unwrap().next_sequence,
+        4,
+        "refused: the fork kept"
+    );
+    assert_eq!(store.purge(e, 4).await, Ok(2), "its own two rows");
+    assert_eq!(
+        store.read(main, 0, None).await.unwrap().pages,
+        [page(0, 1), page(1, 1), page(2, 3)],
+        "main untouched"
+    );
+    assert_eq!(
+        store.read(e, 0, None).await.unwrap().pages,
+        [page(0, 1), page(1, 1), page(2, 3)],
+        "reads as main's again"
     );
 }
 
@@ -1699,7 +1903,7 @@ where
     let mut reads = reader.begin_read().await.unwrap();
     let listed = reads.covers("account").await.unwrap();
     assert_eq!(listed, covers(&[purged, kept]));
-    assert_eq!(writer.purge(purged).await, Ok(2));
+    assert_eq!(writer.purge(purged, 2).await, Ok(2));
     let slice = reads.read(purged, 0, None).await.unwrap();
     assert_eq!(slice.pages, [page(0, 1), page(1, 2)], "whole, as it began");
     assert_eq!(reads.covers("account").await, Ok(listed), "listed still");
@@ -1754,7 +1958,7 @@ pub async fn a_read_unit_keeps_the_head_and_snapshot_of_a_stream_purged_after_it
         .unwrap();
     writer.write_snapshot(s, &snapshot(1, "v1")).await.unwrap();
     let mut reads = reader.begin_read().await.unwrap();
-    assert_eq!(writer.purge(s).await, Ok(2));
+    assert_eq!(writer.purge(s, 2).await, Ok(2));
     let head = reads.head(s).await.unwrap();
     assert_eq!(
         (head.next_sequence, head.last_recorded_at),
@@ -2214,6 +2418,11 @@ macro_rules! store_contract {
             a_purge_deletes_the_streams_positions,
             a_purge_deletes_a_snapshot_with_no_events,
             a_purged_stream_starts_again_from_nothing,
+            a_purge_at_the_streams_head_removes_it,
+            a_purge_at_a_stale_head_is_a_conflict_and_removes_nothing,
+            a_purge_of_an_absent_stream_is_at_zero,
+            a_purge_removes_positions_only_when_it_lands,
+            a_purge_of_a_forked_stream_is_guarded_by_its_head_as_read,
         );
     };
     (editions, $(#[$t:meta])+, $f:expr) => {

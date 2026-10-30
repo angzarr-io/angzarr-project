@@ -99,6 +99,12 @@ enum Bug {
     PurgeKeepsPositions,
     /// A purge deletes nothing, and says it did.
     PurgeIsANoOp,
+    /// A purge ignores the head it expects: a stale one still deletes.
+    PurgeIgnoresTheHead,
+    /// A purge refused for a stale head removes the positions anyway.
+    RefusedPurgeTakesPositions,
+    /// A purge of an edition stream is guarded by main's head.
+    PurgeGuardsByMain,
     // ---- editions' forks (every store)
     /// An unforked edition stream reads empty, not as main's.
     UnforkedReadsEmpty,
@@ -660,10 +666,21 @@ impl PositionStore for Broken {
 }
 
 impl Purge for Broken {
-    async fn purge(&self, stream: StreamRef<'_>) -> Result<u64, StoreError> {
+    async fn purge(&self, stream: StreamRef<'_>, expected: u64) -> Result<u64, StoreError> {
         if self.is(Bug::PurgeIsANoOp) {
             return Ok(self.inner.head(stream).await?.next_sequence);
         }
+        let expected = match self.bug {
+            Bug::PurgeIgnoresTheHead => self.inner.head(stream).await?.next_sequence,
+            Bug::PurgeGuardsByMain if stream.edition.is_some() => {
+                let mains = self.inner.head(main_of(stream)).await?.next_sequence;
+                if expected != mains {
+                    return Err(StoreError::conflict(stream, expected, mains));
+                }
+                self.inner.head(stream).await?.next_sequence
+            }
+            _ => expected,
+        };
         let snapshot = self.inner.read_snapshot(stream).await?;
         let kept: Vec<(String, u64)> = if self.is(Bug::PurgeKeepsPositions) {
             let puts = self.shared.positions.lock().unwrap().clone();
@@ -679,7 +696,22 @@ impl Purge for Broken {
         } else {
             Vec::new()
         };
-        let deleted = self.inner.purge(stream).await?;
+        let deleted = match self.inner.purge(stream, expected).await {
+            Err(refused @ StoreError::Conflict { .. })
+                if self.is(Bug::RefusedPurgeTakesPositions) =>
+            {
+                let puts = self.shared.positions.lock().unwrap().clone();
+                for (handler, s) in puts.iter().filter(|(_, s)| s.get() == stream) {
+                    let key = PositionKey {
+                        handler,
+                        stream: s.get(),
+                    };
+                    self.inner.write(Write::positions(&[(key, 0)])).await?;
+                }
+                return Err(refused);
+            }
+            deleted => deleted?,
+        };
         if let (Bug::PurgeKeepsSnapshot, Some(s)) = (self.bug, snapshot) {
             self.inner.write_snapshot(stream, &s).await?;
         }
@@ -749,7 +781,8 @@ impl Editions for Broken {
             self.inner.write_snapshot(stream, &kept).await?;
         }
         if self.is(Bug::RemoveTakesMain) {
-            self.inner.purge(main_of(stream)).await?;
+            let mains = self.inner.head(main_of(stream)).await?.next_sequence;
+            self.inner.purge(main_of(stream), mains).await?;
         }
         if self.is(Bug::RemoveSpreads) {
             for (other, _) in others {
@@ -1142,6 +1175,42 @@ fn the_purge_checks_catch_what_a_purge_leaves() {
 }
 
 #[test]
+fn the_purge_head_checks_catch_an_unguarded_purge() {
+    catches!(
+        a_purge_at_the_streams_head_removes_it,
+        broken,
+        PurgeIsANoOp,
+        PurgeKeepsSnapshot,
+        PurgeKeepsPositions,
+    );
+    catches!(
+        a_purge_at_a_stale_head_is_a_conflict_and_removes_nothing,
+        broken,
+        PurgeIgnoresTheHead,
+        RefusedPurgeTakesPositions,
+    );
+    catches!(
+        a_purge_of_an_absent_stream_is_at_zero,
+        broken,
+        PurgeIgnoresTheHead,
+        PurgeIsANoOp,
+    );
+    catches!(
+        a_purge_removes_positions_only_when_it_lands,
+        broken,
+        RefusedPurgeTakesPositions,
+        PurgeKeepsPositions,
+        PurgeIgnoresTheHead,
+    );
+    catches!(
+        a_purge_of_a_forked_stream_is_guarded_by_its_head_as_read,
+        broken,
+        PurgeGuardsByMain,
+        PurgeIgnoresTheHead,
+    );
+}
+
+#[test]
 fn the_read_unit_head_and_snapshot_checks_catch_a_live_unit() {
     catches!(
         a_read_unit_heads_and_snapshots_as_it_began,
@@ -1395,6 +1464,11 @@ fn an_honest_broken_store_passes_every_check() {
         a_purge_deletes_the_streams_positions,
         a_purge_deletes_a_snapshot_with_no_events,
         a_purged_stream_starts_again_from_nothing,
+        a_purge_at_the_streams_head_removes_it,
+        a_purge_at_a_stale_head_is_a_conflict_and_removes_nothing,
+        a_purge_of_an_absent_stream_is_at_zero,
+        a_purge_removes_positions_only_when_it_lands,
+        a_purge_of_a_forked_stream_is_guarded_by_its_head_as_read,
         list_editions_derives_each_edition_from_its_fork_events,
         an_edition_deletion_is_recorded_like_any_event,
         a_deleted_stream_is_removed_with_every_row_of_it,

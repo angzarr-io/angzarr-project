@@ -442,7 +442,10 @@ impl PositionStore for MemoryStore {
 }
 
 impl Purge for MemoryStore {
-    async fn purge(&self, stream: StreamRef<'_>) -> Result<u64, StoreError> {
+    /// NOT IMPLEMENTED YET (proposal 14.43, red): `expected` is ignored,
+    /// so a stale purge still deletes.
+    async fn purge(&self, stream: StreamRef<'_>, expected: u64) -> Result<u64, StoreError> {
+        let _unguarded = expected;
         let mut guard = self.lock();
         let data = Arc::make_mut(&mut guard);
         let deleted = data.remove(&key(stream));

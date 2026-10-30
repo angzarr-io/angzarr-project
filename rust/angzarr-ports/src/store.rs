@@ -202,10 +202,27 @@ impl<T: EventStore + SnapshotStore + PositionStore + ?Sized> Store for T {}
 
 /// Opt-in: delete a stream, its snapshot, its command ids and every
 /// handler's position on it. It restarts at 0. Its own call.
+///
+/// **Guarded by the head the caller read** (proposal 14.43). A purge is a
+/// decision made on a read: the stream is deleted only if it is still at
+/// `expected`, its head as [`EventStore::read`] gives it (the same length a
+/// [`Write`]'s `expected` is checked against). Otherwise it is refused
+/// [`StoreError::Conflict`], `actual` the head it found, and NOTHING is
+/// removed: not its events, snapshot, command ids or positions. A conflict
+/// is retried as a write's is: re-read, decide again.
+/// - An absent stream is at 0: a purge at 0 removes whatever it still
+///   holds (a snapshot, positions) and answers 0; a purge at more is a
+///   conflict (a racing purge got there first).
+/// - An edition stream's head is its head as read (main's events below its
+///   fork, then its own); a purge removes only its own rows, never main's,
+///   and it reads as main's again.
+///
+/// Answers how many events it removed.
 pub trait Purge: MaybeSend + MaybeSync {
     fn purge(
         &self,
         stream: StreamRef<'_>,
+        expected: u64,
     ) -> impl Future<Output = Result<u64, StoreError>> + MaybeSend;
 }
 
