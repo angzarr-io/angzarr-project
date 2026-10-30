@@ -280,7 +280,8 @@ message Cover {
 // the head it decides against, so it can never be stale: if another write
 // to the same stream lands between its load and its write, the coordinator
 // re-runs it on the new head (optimistic concurrency, per stream only;
-// decision 14.45).
+// decision 14.45). Re-runs are capped by the race re-run cap (the status
+// codes in command_handler.proto; decision 14.46).
 //
 // COORDINATOR_REASON_EXPECTED_SEQUENCE_STALE is STRICT's alone: under
 // STRICT, a stream that has moved, found at load or because another write
@@ -294,9 +295,13 @@ message Cover {
 // .. the new head-1, with a fresh nonce) and the resolution's rule decides
 // again on it: AGGREGATE_HANDLES's nonce, COMMUTATIVE's unit overlap.
 // Re-deliveries are capped by the retry cap (the status codes in
-// command_handler.proto); a command that reaches the cap is dead-lettered
-// and alerted, as any exhausted retry is, and nothing is persisted
-// (decision 14.45).
+// command_handler.proto; decision 14.45).
+//
+// A command that reaches either cap is dead-lettered and alerted, as any
+// exhausted retry is, and nothing is persisted; a caller waiting on Handle
+// or HandleSync is answered INTERNAL,
+// COORDINATOR_REASON_RETRY_CAP_EXHAUSTED (args attempts, cap; decision
+// 14.46).
 //
 // The concurrency window is the run of events the command did not see:
 // sequences handling.expected_sequence .. head-1 (see ContextualCommand).
@@ -1027,7 +1032,13 @@ message Projection {
 // lookup or fails this delivery's append on its expected head.
 // Deduplication comes before the sequence check, so a retry of an applied
 // command whose expected_sequence is now stale is answered DUPLICATE, never
-// ABORTED. An append that loses an optimistic race re-runs from step 3.
+// ABORTED. An append that loses an optimistic race re-runs from step 3
+// (a STRICT command with a provided expected_sequence then fails at step
+// 4), at most to a cap: the race re-run cap for a stamped command, the
+// retry cap for an AGGREGATE_HANDLES or COMMUTATIVE re-delivery. At the
+// cap the command is dead-lettered and alerted, and a waiting caller is
+// answered INTERNAL, COORDINATOR_REASON_RETRY_CAP_EXHAUSTED (decision
+// 14.46).
 //
 // Violations are refused loudly, never silently ignored. Each of these is
 // malformed, refused at step 1, before deduplication or business code:
@@ -1095,11 +1106,13 @@ message Handling {
   // stream landed after the load. Under STRICT a provided expected_sequence
   // then fails the command ABORTED,
   // COORDINATOR_REASON_EXPECTED_SEQUENCE_STALE; a stamped one is re-run by
-  // the coordinator on the new head. Under AGGREGATE_HANDLES and
-  // COMMUTATIVE a provided expected_sequence is never answered that key:
-  // the coordinator re-delivers the widened window and the resolution's
-  // rule decides again, under the retry cap (see ConflictResolution;
-  // decision 14.45). Ordering is per stream: no other stream's writes
+  // the coordinator on the new head, under the race re-run cap. Under
+  // AGGREGATE_HANDLES and COMMUTATIVE a provided expected_sequence is never
+  // answered that key: the coordinator re-delivers the widened window and
+  // the resolution's rule decides again, under the retry cap. At either
+  // cap the command is dead-lettered and alerted, and a waiting caller is
+  // answered INTERNAL, COORDINATOR_REASON_RETRY_CAP_EXHAUSTED (see
+  // ConflictResolution; decisions 14.45 and 14.46). Ordering is per stream: no other stream's writes
   // matter.
   optional uint64 expected_sequence = 1;
   // What to do with a stale expected_sequence (see ConflictResolution).

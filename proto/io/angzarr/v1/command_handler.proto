@@ -222,6 +222,18 @@ message ConflictReport {
 // resending; ABORTED means re-read and re-decide. A policy step that
 // reaches the cap, or fails as a fatal bug, moves or keeps the policy's
 // position as its bug setting says (on_policy_bug).
+// Two caps bound the coordinator's own retries of a command that loses a
+// race at its write to another write to the same stream, and both are
+// configuration, like the retry cap above: the retry cap bounds an
+// AGGREGATE_HANDLES or COMMUTATIVE command's re-deliveries, and the race
+// re-run cap, a count of runs (the first included, default 10), bounds a
+// stamped command's re-runs on the new head. At either cap the command is
+// dead-lettered and alerted, nothing is persisted, and a caller waiting
+// on Handle or HandleSync is answered INTERNAL
+// COORDINATOR_REASON_RETRY_CAP_EXHAUSTED (args attempts, cap): the retries
+// are spent and the dead letter holds the command, so no caller retries it
+// again (decision 14.46). HandleAsync has no caller to answer; its command
+// is only dead-lettered and alerted.
 // ABORTED COORDINATOR_REASON_EXPECTED_SEQUENCE_STALE is STRICT's failed
 // test-and-set: the command's caller-provided expected_sequence is not the
 // stream's head, found at load or at the write (decision 14.45, amended).
@@ -231,12 +243,11 @@ message ConflictReport {
 // COMMUTATIVE overlap COORDINATOR_REASON_CONFLICT_OVERLAP); if another
 // write to the same stream lands after the window is delivered and before
 // the command's write, the coordinator re-delivers the widened window and
-// that rule decides again, under the retry cap above, past which the
-// command is dead-lettered and alerted (types.proto, ConflictResolution;
-// decision 14.45). Under STRICT re-reading and re-issuing is the caller's:
+// that rule decides again, under the retry cap (types.proto,
+// ConflictResolution; decision 14.45). Under STRICT re-reading and re-issuing is the caller's:
 // the coordinator re-runs on the new head only a command whose
-// expected_sequence it stamped, and such a command is never answered this
-// key. A queued command with a caller-provided expected_sequence that is
+// expected_sequence it stamped, under the race re-run cap, and such a
+// command is never answered this key. A queued command with a caller-provided expected_sequence that is
 // ABORTED is dead-lettered with SequenceMismatchDetails, since resending it
 // verbatim cannot succeed.
 //
@@ -272,7 +283,10 @@ service CommandHandlerCoordinatorService {
   // dead-lettered). outcome.projections and outcome.projector_failures are
   // always empty. Rejected: a gRPC error status, and nothing is written (a
   // stale expected sequence under STRICT is ABORTED,
-  // COORDINATOR_REASON_EXPECTED_SEQUENCE_STALE; see the status codes above).
+  // COORDINATOR_REASON_EXPECTED_SEQUENCE_STALE; a command that lost a race
+  // at every write until a cap is INTERNAL,
+  // COORDINATOR_REASON_RETRY_CAP_EXHAUSTED, and dead-lettered; see the
+  // status codes above).
   rpc Handle(CommandBook) returns (CommandResponse) {
     option (google.api.http) = {
       post: "/v1/ch/{cover.domain}/commands"

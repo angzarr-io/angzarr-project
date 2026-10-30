@@ -3525,11 +3525,13 @@ amended twice the same day (below). Follows 14.35, 14.37, 14.42 and 14.44.
   window (expected sequence to the new head, a fresh nonce) and the rule
   decides again on it (C-0722, C-0723). Re-deliveries are capped by 14.37's
   retry cap; at the cap the command is dead-lettered and alerted, as any
-  exhausted retry is, and nothing is persisted (C-0724).
+  exhausted retry is, nothing is persisted, and a waiting caller is
+  answered `COORDINATOR_REASON_RETRY_CAP_EXHAUSTED` (14.46; C-0724).
 - **Without an expected sequence, a lost race is retried.** The
   coordinator stamps such a command with the head it loads, and if another
   write to the same stream lands before its append, it re-runs the command
-  on the new head; the command is never answered the key (C-0719). That
+  on the new head, under the race re-run cap (14.46); the command is never
+  answered the key (C-0719). That
   is optimistic concurrency, per stream only (14.35): a write to another
   stream is never a conflict (C-0720).
 - The proto prose agrees: `reasons.proto`'s value comment, `types.proto`'s
@@ -3551,7 +3553,65 @@ amended twice the same day (below). Follows 14.35, 14.37, 14.42 and 14.44.
   STRICT's alone (C-0718 narrowed to STRICT; C-0721 added). (2) Owner
   ruling: a race lost at the write under AGGREGATE_HANDLES or COMMUTATIVE
   re-delivers the widened window under the retry cap, closing what (1)
-  left open (C-0722 to C-0724).
+  left open (C-0722 to C-0724). (3) 14.46: the caller's key at the cap,
+  and the race re-run cap for a stamped re-run.
+
+**14.46 A caller waiting at a retry cap gets its own key; a stamped re-run
+has its own cap.** Owner rulings, 2026-10-30. Follows 14.37 and 14.45.
+- **The key.** `CoordinatorReason` gains
+  `COORDINATOR_REASON_RETRY_CAP_EXHAUSTED`: INTERNAL, args `attempts` (how
+  many times business code ran) and `cap` (the configured limit reached:
+  a count, or a total time where a cap is configured as one). The
+  coordinator answers it to a caller waiting on `Handle` or `HandleSync`
+  (a client, or a policy coordinator delivering a reaction command in
+  DECISION or SIMPLE mode) when it gave up on that command at a cap: the
+  command is dead-lettered and alerted and nothing is persisted. No
+  `cause`: every path that answers it ends in a lost write race, which
+  carries no key.
+- **Where a caller is waiting.** The coordinator's own retries of a command
+  in flight, both bounded by a write race: an AGGREGATE_HANDLES or
+  COMMUTATIVE re-delivery of the widened window, at 14.37's retry cap
+  (C-0724), and a stamped command's re-run on the new head, at the race
+  re-run cap (C-0725). 14.37's other retries have no caller waiting: a
+  retryable bug is retried by a framework retry loop (reaction delivery,
+  the transient outbox, asynchronous commands, projector retries) that is
+  itself the caller, and an ABORTED policy step is re-run by its runtime;
+  both dead-letter as before and answer no one. `HandleAsync` has no
+  caller to answer either.
+- **Why INTERNAL.** 14.37's status decides the class, and the class decides
+  what the caller does next. At the cap the retries are spent and the dead
+  letter holds the command; 14.37 says a cap ends in a dead letter and an
+  alert, a policy step's position then following `on_policy_bug`. Bug,
+  fatal (INTERNAL) is the one class whose caller does exactly that: never
+  retries, never reaches OnRefused, and a policy step follows
+  `on_policy_bug`. ABORTED was the other candidate (the cause is
+  contention: "re-read and re-decide"), but 14.37 defines ABORTED as
+  returned "at once ... no retry, no dead letter", and a policy runtime
+  answered ABORTED re-runs the step, re-sending a command already
+  dead-lettered. A retryable status (RESOURCE_EXHAUSTED) has the same
+  flaw. A business status would reach OnRefused, which no framework
+  failure does.
+- **The race re-run cap.** A command without an expected sequence that
+  loses a same-stream race is re-run on the new head (14.45, C-0719) at
+  most to the race re-run cap, separate from 14.37's retry cap: a count of
+  runs of business code, the first included. It is coordinator
+  configuration, like the retry cap (`command_handler.proto`, status
+  codes). Proposed default 10, for the owner to confirm: a re-run happens
+  only when another write lands in the gap between a load and its append,
+  so ten losses in a row mean a stream too hot for more re-runs to win, and
+  each re-run invokes business code again; 10 is the client library's
+  default retry attempts (C-0127). At the cap the command is dead-lettered
+  and alerted, nothing is persisted, and a waiting caller is answered the
+  key (C-0725).
+- The proto prose agrees: `reasons.proto`'s value comment,
+  `command_handler.proto`'s status codes and `Handle`, `types.proto`'s
+  `ConflictResolution` region, `Handling.expected_sequence` and the
+  pipeline's race line; `conflict_resolution.feature` pins the key in
+  C-0724 and adds C-0725.
+- Why: the rulings. A caller waiting at a cap had no answer, and a stamped
+  re-run had no bound.
+- Cost: every coordinator counts re-runs per command and answers the key;
+  one more setting to configure.
 
 ## Corrections
 

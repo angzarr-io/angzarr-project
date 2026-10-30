@@ -199,10 +199,24 @@ enum CoordinatorReason {
   // this: those resolutions apply their own rules (types.proto,
   // ConflictResolution). A command without an expected sequence that loses
   // such a race is never answered this either: the coordinator re-runs it
-  // on the new head. Business, immediate return (decision 14.37): a direct caller
-  // re-reads and decides; a policy step is re-run under the retry cap.
-  // (Decision 14.45, amended.)
+  // on the new head, under the race re-run cap. Business, immediate return
+  // (decision 14.37): a direct caller re-reads and decides; a policy step
+  // is re-run under the retry cap. (Decision 14.45.)
   COORDINATOR_REASON_EXPECTED_SEQUENCE_STALE = 20;
+  // INTERNAL. Args: attempts, cap. The coordinator gave up on a command
+  // its caller is waiting for (Handle, HandleSync): every run lost a race
+  // at the write to another write to the same stream, until a cap. A
+  // stamped command (no expected sequence) re-run on the new head stops at
+  // the race re-run cap; an AGGREGATE_HANDLES or COMMUTATIVE command
+  // re-delivered its widened window stops at the retry cap.
+  // `attempts` is how many times business code ran, `cap` the configured
+  // limit reached. The command is dead-lettered and alerted, and nothing
+  // is persisted. INTERNAL, a fatal bug's status (decision 14.37): the
+  // retries are spent and the dead letter holds the command, so no caller
+  // retries it again, and a policy step that sent it follows on_policy_bug,
+  // as at any cap. A lost race carries no key, so there is no cause.
+  // (Decision 14.46.)
+  COORDINATOR_REASON_RETRY_CAP_EXHAUSTED = 21;
 
   // Retired by 14.37.
   reserved

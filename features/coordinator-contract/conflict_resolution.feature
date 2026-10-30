@@ -29,10 +29,12 @@ Feature: Conflict resolution - how the coordinator treats a stale command
   is never answered that key: the resolution's own rule decides. If the
   stream moves after the window is delivered and before the write, the
   coordinator re-delivers the widened window, with a fresh nonce, and the
-  rule decides again on it; re-deliveries stop at the retry cap, where the
-  command is dead-lettered and alerted like any exhausted retry. A
+  rule decides again on it; re-deliveries stop at the retry cap. A
   command without one is decided against the head, so it is never stale:
-  the coordinator re-runs it on the new head. Reaction commands (from policies; a process manager sends
+  the coordinator re-runs it on the new head, up to the race re-run cap.
+  At either cap the command is dead-lettered and alerted like any exhausted
+  retry, and a caller waiting for it is answered INTERNAL with reason
+  COORDINATOR_REASON_RETRY_CAP_EXHAUSTED (decision 14.46). Reaction commands (from policies; a process manager sends
   none, decision 14.31) never carry an expected sequence or a resolution.
 
   Background:
@@ -289,13 +291,14 @@ Feature: Conflict resolution - how the coordinator treats a stale command
   @C-0724
   Scenario Outline: A race lost at every write until the retry cap dead-letters the command
     Given the retry cap is reached after 3 deliveries
-    And an AddItem command with conflict resolution <resolution> targeting sequence 1
+    And an AddItem command with conflict resolution <resolution> targeting sequence 1, sent through Handle by a caller waiting for the answer
     And the business process answers every delivery with an ItemAdded event, reporting <accepted>
     And another write to the "order" stream lands after each delivery's window is delivered and before the command is written
     When the coordinator processes the command
     Then business code is invoked 3 times, each time with a wider window and a fresh conflict nonce
     And the command is dead-lettered and an alert is raised
     And the command persists nothing
+    And the caller is answered INTERNAL with reason COORDINATOR_REASON_RETRY_CAP_EXHAUSTED, attempts "3" and cap "3"
     And the command is never answered COORDINATOR_REASON_EXPECTED_SEQUENCE_STALE
 
     Examples:
@@ -312,6 +315,23 @@ Feature: Conflict resolution - how the coordinator treats a stale command
     Then business code is invoked twice, the second time against the head at sequence 4
     And the command succeeds
     And an ItemAdded event is persisted at sequence 4
+
+  @write_race
+  @C-0725
+  Scenario: A command without an expected sequence that loses a race at every write stops at the race re-run cap
+    # Decision 14.46: the race re-run cap is its own, separate from the
+    # retry cap, so the retry cap here is set higher and never reached.
+    Given the race re-run cap is reached after 3 runs
+    And the retry cap is reached after 5 deliveries
+    And an AddItem command with no expected sequence and no conflict resolution, sent through Handle by a caller waiting for the answer
+    And the business process answers every run with an ItemAdded event
+    And another write to the "order" stream lands after each run's load and before the command is written
+    When the coordinator processes the command
+    Then business code is invoked 3 times, each time against a newer head
+    And the command is dead-lettered and an alert is raised
+    And the command persists nothing
+    And the caller is answered INTERNAL with reason COORDINATOR_REASON_RETRY_CAP_EXHAUSTED, attempts "3" and cap "3"
+    And the command is never answered COORDINATOR_REASON_EXPECTED_SEQUENCE_STALE
 
   @write_race
   @C-0720
