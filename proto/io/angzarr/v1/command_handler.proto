@@ -227,13 +227,20 @@ message ConflictReport {
 // configuration, like the retry cap above: the retry cap bounds an
 // AGGREGATE_HANDLES or COMMUTATIVE command's re-deliveries, and the race
 // re-run cap, a count of runs (the first included, default 10), bounds a
-// stamped command's re-runs on the new head. At either cap the command is
-// dead-lettered and alerted, nothing is persisted, and a caller waiting
-// on Handle or HandleSync is answered INTERNAL
-// COORDINATOR_REASON_RETRY_CAP_EXHAUSTED (args attempts, cap): the retries
-// are spent and the dead letter holds the command, so no caller retries it
-// again (decision 14.46). HandleAsync has no caller to answer; its command
-// is only dead-lettered and alerted.
+// stamped command's re-runs on the new head; between runs the coordinator
+// waits with the exponential backoff and jitter above, never re-running at
+// once. At either cap the command is dead-lettered and alerted, nothing is
+// persisted, and a caller waiting on Handle or HandleSync is answered
+// INTERNAL COORDINATOR_REASON_RETRY_CAP_EXHAUSTED (args attempts, cap):
+// the retries are spent and the dead letter holds the command, so no
+// caller retries it again (decision 14.46). HandleAsync has no caller to
+// answer; its command is only dead-lettered and alerted. A fact is always
+// stamped, so a lost race re-runs it under the race re-run cap too, but a
+// fact is never refused: at the cap it is dead-lettered and alerted,
+// nothing is persisted, and its sender is answered "accepted, parked" (OK,
+// outcome.delivery PARKED, no events), never the key. Either way the dead
+// letter's reason (AngzarrDeadLetter.reason) is
+// COORDINATOR_REASON_RETRY_CAP_EXHAUSTED with the same args.
 // ABORTED COORDINATOR_REASON_EXPECTED_SEQUENCE_STALE is STRICT's failed
 // test-and-set: the command's caller-provided expected_sequence is not the
 // stream's head, found at load or at the write (decision 14.45, amended).
@@ -278,7 +285,8 @@ service CommandHandlerCoordinatorService {
   // outcome.delivery APPLIED. A command whose command_id the addressed
   // stream already holds is not handed to business code again; the response
   // carries those events, re-read from the stream, with outcome.delivery
-  // DUPLICATE. A fact whose ingest handler fails is answered OK with
+  // DUPLICATE. A fact whose ingest handler fails, or that lost a race at
+  // every write until the race re-run cap, is answered OK with
   // outcome.delivery PARKED and no events ("accepted, parked"; it is
   // dead-lettered). outcome.projections and outcome.projector_failures are
   // always empty. Rejected: a gRPC error status, and nothing is written (a

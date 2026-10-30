@@ -3594,24 +3594,45 @@ has its own cap.** Owner rulings, 2026-10-30. Follows 14.37 and 14.45.
 - **The race re-run cap.** A command without an expected sequence that
   loses a same-stream race is re-run on the new head (14.45, C-0719) at
   most to the race re-run cap, separate from 14.37's retry cap: a count of
-  runs of business code, the first included. It is coordinator
+  runs of business code, the first included, default 10. It is coordinator
   configuration, like the retry cap (`command_handler.proto`, status
-  codes). Proposed default 10, for the owner to confirm: a re-run happens
-  only when another write lands in the gap between a load and its append,
-  so ten losses in a row mean a stream too hot for more re-runs to win, and
-  each re-run invokes business code again; 10 is the client library's
-  default retry attempts (C-0127). At the cap the command is dead-lettered
-  and alerted, nothing is persisted, and a waiting caller is answered the
-  key (C-0725).
+  codes). Re-runs are not immediate: between runs the coordinator waits
+  with 14.37's exponential backoff and jitter (the same scale and jitter
+  factor as the retry cap's), so racing writers spread out instead of
+  colliding again. Why 10: a re-run happens only when another write lands
+  in the gap between a load and its append, so ten losses in a row mean a
+  stream too hot for more re-runs to win, and each re-run invokes business
+  code again; 10 is the client library's default retry attempts (C-0127).
+  At the cap the command is dead-lettered and alerted, nothing is
+  persisted, and a waiting caller is answered the key (C-0725).
+- **A fact at the cap is parked.** A fact (a timeout, a webhook) is always
+  stamped with the head (`types.proto`, Fact), so a lost race re-runs it
+  under the race re-run cap like any stamped command. Facts are never
+  refused, so a fact that reaches the cap is never answered the key: it
+  is dead-lettered and alerted, nothing is persisted, and its sender is
+  answered "accepted, parked" (OK, `Outcome.delivery` PARKED, no events),
+  as for a fact whose ingest handler fails (C-0726). The key is the
+  answer to a command alone.
+- **The dead letter's reason.** A command or fact dead-lettered at either
+  cap records `COORDINATOR_REASON_RETRY_CAP_EXHAUSTED`, with the same
+  args (`attempts`, `cap`), as its `AngzarrDeadLetter.reason`, whether or
+  not a caller was waiting.
 - The proto prose agrees: `reasons.proto`'s value comment,
   `command_handler.proto`'s status codes and `Handle`, `types.proto`'s
-  `ConflictResolution` region, `Handling.expected_sequence` and the
-  pipeline's race line; `conflict_resolution.feature` pins the key in
-  C-0724 and adds C-0725.
+  `ConflictResolution` region, `Handling.expected_sequence`, the
+  pipeline's race line and `AngzarrDeadLetter.reason`;
+  `conflict_resolution.feature` pins the key in C-0724 and adds C-0725
+  and C-0726.
 - Why: the rulings. A caller waiting at a cap had no answer, and a stamped
   re-run had no bound.
-- Cost: every coordinator counts re-runs per command and answers the key;
-  one more setting to configure.
+- Cost: every coordinator counts re-runs per command, backs off between
+  them, and answers the key (a fact, PARKED); one more setting to
+  configure.
+- **Amendment, 2026-10-30.** Owner rulings: the race re-run cap's default
+  is 10 (no longer proposed) and its re-runs back off with jitter; a fact
+  at the cap is parked, never answered the key (C-0726); and, the
+  coordinator deciding for consistency, a dead letter at either cap
+  records the key as its reason.
 
 ## Corrections
 

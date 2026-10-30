@@ -280,7 +280,8 @@ message Cover {
 // the head it decides against, so it can never be stale: if another write
 // to the same stream lands between its load and its write, the coordinator
 // re-runs it on the new head (optimistic concurrency, per stream only;
-// decision 14.45). Re-runs are capped by the race re-run cap (the status
+// decision 14.45). Re-runs are capped by the race re-run cap (default 10
+// runs), with exponential backoff and jitter between them (the status
 // codes in command_handler.proto; decision 14.46).
 //
 // COORDINATOR_REASON_EXPECTED_SEQUENCE_STALE is STRICT's alone: under
@@ -301,7 +302,10 @@ message Cover {
 // exhausted retry is, and nothing is persisted; a caller waiting on Handle
 // or HandleSync is answered INTERNAL,
 // COORDINATOR_REASON_RETRY_CAP_EXHAUSTED (args attempts, cap; decision
-// 14.46).
+// 14.46). A fact (always stamped) that reaches the race re-run cap is
+// dead-lettered and alerted too, but never refused: its sender is answered
+// "accepted, parked" (see Fact). Either dead letter's reason is
+// COORDINATOR_REASON_RETRY_CAP_EXHAUSTED with the same args.
 //
 // The concurrency window is the run of events the command did not see:
 // sequences handling.expected_sequence .. head-1 (see ContextualCommand).
@@ -1037,8 +1041,8 @@ message Projection {
 // 4), at most to a cap: the race re-run cap for a stamped command, the
 // retry cap for an AGGREGATE_HANDLES or COMMUTATIVE re-delivery. At the
 // cap the command is dead-lettered and alerted, and a waiting caller is
-// answered INTERNAL, COORDINATOR_REASON_RETRY_CAP_EXHAUSTED (decision
-// 14.46).
+// answered INTERNAL, COORDINATOR_REASON_RETRY_CAP_EXHAUSTED (a fact,
+// PARKED; decision 14.46).
 //
 // Violations are refused loudly, never silently ignored. Each of these is
 // malformed, refused at step 1, before deduplication or business code:
@@ -1213,7 +1217,11 @@ message Command {
 // never a rejection. The framework deduplicates on the command_id derived
 // from CommandPage.fact_origin.external_id, per addressed stream, before
 // the handler runs; a parked fact wrote nothing, so its redelivery runs
-// ingest again.
+// ingest again. A fact that loses a race at its write to another write to
+// the same stream is re-run on the new head under the race re-run cap, and
+// one that reaches the cap is parked the same way (dead-lettered with
+// reason COORDINATOR_REASON_RETRY_CAP_EXHAUSTED, alerted, answered OK
+// PARKED; decision 14.46).
 //
 // A Fact is never checked against a sequence and never conflict-resolved:
 // the coordinator always stamps the head. A book whose Fact sets any
@@ -1286,7 +1294,8 @@ message ProjectorFailure {
 //              command_id: business code did not run, and the events are
 //              those, re-read from the stream.
 //   PARKED     a Fact whose ingest handler failed (a process manager's
-//              fact handler included): it was accepted
+//              fact handler included), or that lost a race at every
+//              write until the race re-run cap: it was accepted
 //              and dead-lettered for an operator, with no events. Such a
 //              failure is a bug, never a rejection, so the sender is
 //              answered OK and must not treat it as a refusal.
@@ -1297,7 +1306,7 @@ enum DeliveryOutcome {
   DELIVERY_OUTCOME_UNSPECIFIED = 0; // Not reported
   DELIVERY_OUTCOME_APPLIED = 1; // Business code ran for this delivery; the events are new
   DELIVERY_OUTCOME_DUPLICATE = 2; // The stream already held this command_id's events; they are re-read
-  DELIVERY_OUTCOME_PARKED = 3; // Fact accepted but its handler failed; dead-lettered, no events
+  DELIVERY_OUTCOME_PARKED = 3; // Fact accepted but its handler failed or it reached the race re-run cap; dead-lettered, no events
 }
 // endregion
 
@@ -1540,7 +1549,10 @@ message AngzarrDeadLetter {
   // Why it was dead-lettered: a key and its args, never text (decision
   // 14.37). A typed business rejection is code ROUTER_REASON_COMMAND_REFUSED with arg
   // refusal_type, as on the wire; the object itself rides in the payload
-  // where there is one (a CommandRefused fact's refusal).
+  // where there is one (a CommandRefused fact's refusal). A command or
+  // fact the coordinator gave up on at the retry cap or the race re-run
+  // cap is code COORDINATOR_REASON_RETRY_CAP_EXHAUSTED with args attempts
+  // and cap, as answered to a waiting caller (decision 14.46).
   Diagnostic reason = 16;
   oneof rejection_details {
     SequenceMismatchDetails sequence_mismatch = 12; // Sequence conflict details

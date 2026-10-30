@@ -32,9 +32,11 @@ Feature: Conflict resolution - how the coordinator treats a stale command
   rule decides again on it; re-deliveries stop at the retry cap. A
   command without one is decided against the head, so it is never stale:
   the coordinator re-runs it on the new head, up to the race re-run cap.
-  At either cap the command is dead-lettered and alerted like any exhausted
-  retry, and a caller waiting for it is answered INTERNAL with reason
-  COORDINATOR_REASON_RETRY_CAP_EXHAUSTED (decision 14.46). Reaction commands (from policies; a process manager sends
+  Re-runs back off with jitter between them. At either cap the command is
+  dead-lettered and alerted like any exhausted retry, with reason
+  COORDINATOR_REASON_RETRY_CAP_EXHAUSTED, and a caller waiting for it is
+  answered INTERNAL with that reason; a fact, never refused, is answered
+  PARKED instead (decision 14.46). Reaction commands (from policies; a process manager sends
   none, decision 14.31) never carry an expected sequence or a resolution.
 
   Background:
@@ -296,7 +298,7 @@ Feature: Conflict resolution - how the coordinator treats a stale command
     And another write to the "order" stream lands after each delivery's window is delivered and before the command is written
     When the coordinator processes the command
     Then business code is invoked 3 times, each time with a wider window and a fresh conflict nonce
-    And the command is dead-lettered and an alert is raised
+    And the command is dead-lettered with reason COORDINATOR_REASON_RETRY_CAP_EXHAUSTED, attempts "3" and cap "3", and an alert is raised
     And the command persists nothing
     And the caller is answered INTERNAL with reason COORDINATOR_REASON_RETRY_CAP_EXHAUSTED, attempts "3" and cap "3"
     And the command is never answered COORDINATOR_REASON_EXPECTED_SEQUENCE_STALE
@@ -328,10 +330,28 @@ Feature: Conflict resolution - how the coordinator treats a stale command
     And another write to the "order" stream lands after each run's load and before the command is written
     When the coordinator processes the command
     Then business code is invoked 3 times, each time against a newer head
-    And the command is dead-lettered and an alert is raised
+    And the command is dead-lettered with reason COORDINATOR_REASON_RETRY_CAP_EXHAUSTED, attempts "3" and cap "3", and an alert is raised
     And the command persists nothing
     And the caller is answered INTERNAL with reason COORDINATOR_REASON_RETRY_CAP_EXHAUSTED, attempts "3" and cap "3"
     And the command is never answered COORDINATOR_REASON_EXPECTED_SEQUENCE_STALE
+
+  @write_race @fact
+  @C-0726
+  Scenario: A fact that loses a race at every write until the race re-run cap is parked, never refused
+    # Decision 14.46: facts are never refused, so at the cap the sender is
+    # answered PARKED, never COORDINATOR_REASON_RETRY_CAP_EXHAUSTED; the key
+    # is the dead letter's reason.
+    Given the race re-run cap is reached after 3 runs
+    And the order aggregate declares fact ShipmentDispatched
+    And a ShipmentDispatched fact for the "order" stream, sent through Handle by a client waiting for the answer
+    And the ingest handler answers every run with a ShipmentDispatched event
+    And another write to the "order" stream lands after each run's load and before the fact is written
+    When the coordinator processes the fact
+    Then the ingest handler is invoked 3 times, each time against a newer head
+    And the fact is dead-lettered with reason COORDINATOR_REASON_RETRY_CAP_EXHAUSTED, attempts "3" and cap "3", and an alert is raised
+    And the fact persists nothing
+    And the client is answered OK with delivery PARKED and no events
+    And the client is never answered COORDINATOR_REASON_RETRY_CAP_EXHAUSTED
 
   @write_race
   @C-0720
