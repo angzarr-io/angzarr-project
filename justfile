@@ -147,6 +147,99 @@ check-reason-names:
 test-check-feature-ids:
     python3 -m unittest scripts/test_check_feature_ids.py
 
+# Every test the repository has: the scenario-ID checker's unit tests and
+# rust/angzarr-ports' suite (its `test`: needs protoc). What `push-check` runs.
+test: test-check-feature-ids
+    just --justfile '{{justfile_directory()}}/rust/angzarr-ports/justfile' test
+
+# The branches red tests never reach: the remote's default branch, and these
+# (bash globs): the dated spec drafts that land on it whole.
+PROTECTED_BRANCHES := "spec/*-draft"
+
+# lefthook's pre-push step, given the remote's name and git's pushed refs on
+# stdin: every test (`just test`), in each pushed commit's tree checked out
+# alone (target/push-tree), so an unpushed edit cannot pass or fail it. No
+# mutation: no git hook runs it. The range reported runs from the merge base
+# of the commit pushed and the remote's current tip of that ref (a
+# fast-forward's base is that tip); for a new ref, or a tip not fetched here,
+# the merge base with the remote's default branch (<remote>/HEAD, else main).
+# A deleted ref passes at once. The log is target/logs/push-tests.log.
+#
+# Red tests are allowed on a branch and kept out of the protected ones (the
+# default branch and PROTECTED_BRANCHES): pushed to another branch, failing
+# tests pass with a warning that the branch cannot merge until they pass;
+# pushed to a protected branch they are refused. `lefthook` is what
+# lefthook.yml passes to stop lefthook skipping it, and is ignored. To check
+# a push to main by hand without pushing:
+#
+#     echo "refs/heads/B $(git rev-parse HEAD) refs/heads/main 0" | just push-check origin
+[positional-arguments]
+push-check remote *lefthook:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    top='{{justfile_directory()}}'
+    remote=$1
+    default=$(git -C "$top" symbolic-ref --quiet --short "refs/remotes/$remote/HEAD" 2>/dev/null) && default=${default#"$remote"/} || default=main
+    read -ra protected <<< "$default {{PROTECTED_BRANCHES}}"
+    tree="$top/target/push-tree"
+    mkdir -p "$top/target/logs"
+    log="$top/target/logs/push-tests.log"
+    exec 9> "$top/target/.push-tree.lock"
+    flock 9
+    # git exports repository-locating variables (GIT_DIR, ...) into a hook;
+    # with them, a git -C the push tree would act on this checkout instead,
+    # and so would git run by a test there.
+    unset $(git rev-parse --local-env-vars)
+    pushed=0
+    while read -r local_ref local_sha remote_ref remote_sha; do
+        [ -n "${local_sha:-}" ] || continue
+        [ "${local_sha//0/}" = "" ] && continue  # a deletion
+        pushed=1
+        target=${remote_ref#refs/heads/}
+        guarded=
+        for pattern in "${protected[@]}"; do
+            [[ $remote_ref == refs/heads/$pattern ]] && guarded=1
+        done
+        base=
+        if [ -n "${remote_sha//0/}" ] && git -C "$top" cat-file -e "$remote_sha^{commit}" 2>/dev/null; then
+            base=$(git -C "$top" merge-base "$remote_sha" "$local_sha") || base=
+        fi
+        if [ -z "$base" ]; then
+            for ref in "refs/remotes/$remote/$default" "refs/heads/$default"; do
+                if git -C "$top" rev-parse --verify --quiet "$ref^{commit}" > /dev/null; then
+                    base=$(git -C "$top" merge-base "$ref" "$local_sha") && break
+                fi
+            done
+        fi
+        if [ -z "$base" ]; then
+            echo "FAIL push-check: $local_ref shares no history with $remote's tip or with $default" >&2
+            exit 1
+        fi
+        range="$(git -C "$top" rev-parse --short "$base")..$(git -C "$top" rev-parse --short "$local_sha") to $remote/$target"
+        # The pushed commit's tree, alone, no hook run for it. Its Rust builds
+        # go to rust/angzarr-ports/target/push here, kept across pushes.
+        if ! git -C "$tree" rev-parse --git-dir > /dev/null 2>&1; then
+            rm -rf "$tree"
+            git -C "$top" worktree prune
+            git -c core.hooksPath=/dev/null -C "$top" worktree add --quiet --detach --no-checkout "$tree" "$local_sha"
+        fi
+        git -c core.hooksPath=/dev/null -C "$tree" checkout --quiet --detach --force "$local_sha"
+        git -C "$tree" clean -fdq
+        rc=0
+        (cd "$tree" && CARGO_TARGET_DIR="$top/rust/angzarr-ports/target/push" just --justfile "$tree/justfile" test) > "$log" 2>&1 9>&- || rc=$?
+        if [ "$rc" -ne 0 ]; then
+            if [ -z "$guarded" ]; then
+                echo "RED  push-check: $range: the tests fail (target/logs/push-tests.log); allowed off ${protected[*]}, which $target cannot merge into until they pass"
+                continue
+            fi
+            echo "FAIL push-check: $range: the tests fail, and $target takes no red tests (full log: target/logs/push-tests.log)" >&2
+            grep -E '^(test .* FAILED|failures:|FAIL:|ERROR:|error(\[|:))' "$log" | head -20 >&2 || true
+            exit 1
+        fi
+        echo "ok   push-check ($range): tests pass"
+    done
+    [ "$pushed" = 1 ] || echo "ok   push-check (no commit pushed: nothing to test)"
+
 # By hand (no git hook runs mutation), given the remote's name and git's
 # pre-push refs on stdin; for the current branch against origin:
 #
