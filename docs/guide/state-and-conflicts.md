@@ -18,8 +18,8 @@ disagreement.
 **Status.** This describes the pass 13 protos (decision log entries 12.7,
 12.8, 12.11 and 13.4, in `docs/design/audit-meta/decision-log.md`). The generators described below (`angzarr_build::compile` and
 `protoc-gen-angzarr`) are specified but not yet built (backlog CR-1). The
-options compile today, and `rust/angzarr-proto` reads them back from
-descriptors in its tests.
+options compile today, and the `angzarr-proto` crate (angzarr-core's
+`crates/angzarr-proto`) reads them back from descriptors in its tests.
 
 ## Contents
 

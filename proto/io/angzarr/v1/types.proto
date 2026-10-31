@@ -56,9 +56,9 @@ option ruby_package = "Angzarr";
 // canonical text form (36 characters, lowercase hex, hyphenated 8-4-4-4-12,
 // RFC 9562) happens only at display and input boundaries (logs, consoles,
 // CLI arguments, URLs a human types), through per-language helpers (Rust:
-// the angzarr-proto crate's Display and FromStr; the other client libraries:
-// backlog UU-1). Input helpers accept the hyphenated form in either case and
-// output helpers always write lowercase.
+// angzarr-core's angzarr-proto crate, its Display and FromStr; the other
+// client libraries: backlog UU-1). Input helpers accept the hyphenated
+// form in either case and output helpers always write lowercase.
 //
 // Protobuf JSON (and so REST transcoding) renders the bytes as base64, e.g.
 // {"value": "1HQbGlLNQ8+t0T27lhVRCw=="}. That is accepted: storage cost wins
