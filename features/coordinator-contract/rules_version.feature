@@ -280,6 +280,15 @@ Feature: Rules version - recording who decided, and choosing snapshots
       | by a policy                 | 1.5.0+build.9 | the command is dead-lettered and an alert is raised |
 
   @rules_version
+  @C-0748
+  Scenario: An answer reporting another version is refused under its key
+    # Decision 14.56: a bug, fatal; an asynchronous or reaction delivery is
+    # dead-lettered with the same key as its reason (14.48).
+    When business code answers an AddItem command sent awaiting the decision with an ItemAdded event, reporting rules version "1.5.0+build.9"
+    Then no events are persisted
+    And the caller is answered INTERNAL with reason COORDINATOR_REASON_RULES_VERSION_MISMATCH, component "order", registered "1.4.2+build.7" and reported "1.5.0+build.9"
+
+  @rules_version
   @C-0559
   Scenario: A process manager answer reporting another version is refused
     Given a process manager "Fulfillment" registered with rules version "2.0.1"

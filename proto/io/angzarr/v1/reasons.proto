@@ -436,6 +436,15 @@ enum CoordinatorReason {
   // variant, with this key as its failure, and alerted (C-0447).
   // (Decision 14.51.)
   COORDINATOR_REASON_PAYLOAD_UNAVAILABLE = 36;
+  // INTERNAL. Args: component, registered, reported. A
+  // CommandHandlerResponse whose rules_version (`reported`, an empty one
+  // included) is not the version the component registered (`registered`:
+  // its ComponentDescriptor.rules_version). Bug, fatal (decision 14.37):
+  // refused and nothing persisted; a caller of Handle or HandleSync is
+  // answered it, an asynchronous or reaction delivery dead-lettered with
+  // it as its AngzarrDeadLetter.reason and alerted (command_handler.proto,
+  // Handle; C-0558, C-0559, C-0748). (Decision 14.56.)
+  COORDINATOR_REASON_RULES_VERSION_MISMATCH = 37;
 
   // Retired by 14.37.
   reserved

@@ -90,7 +90,8 @@ service CommandHandlerService {
   // handler bug: the coordinator refuses it and persists nothing. A caller
   // of Handle or HandleSync is answered INTERNAL; an asynchronous or
   // reaction delivery is dead-lettered and alerted. It is never treated as
-  // a business rejection.
+  // a business rejection. The version's refusal is keyed
+  // COORDINATOR_REASON_RULES_VERSION_MISMATCH (decision 14.56).
   rpc Handle(ContextualCommand) returns (CommandHandlerResponse);
 }
 

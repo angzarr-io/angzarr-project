@@ -4146,6 +4146,26 @@ kept its events in angzarr-embedded's SQLite store since 2026-10-31.
 - Cost: every client library's host and descriptor builder refuse one
   more case under one more key.
 
+**14.56 A response of another rules version is refused under a key.**
+Owner ruling, 2026-10-31. Follows 14.37 and 14.51.
+- **The rule.** `command_handler.proto` already has the coordinator
+  refuse a CommandHandlerResponse whose `rules_version` differs from the
+  version registered for its component, and persist nothing. The refusal
+  now carries a key.
+- **`COORDINATOR_REASON_RULES_VERSION_MISMATCH`**: INTERNAL, bug, fatal;
+  args `component`, `registered` (the descriptor's `rules_version`) and
+  `reported` (the response's, an empty one included). A caller of Handle
+  or HandleSync is answered it; an asynchronous or reaction delivery is
+  dead-lettered with it as its reason (14.48) and alerted.
+- C-0748 in `rules_version.feature` asserts the status, key and args;
+  C-0558 and C-0559 keep the refusal's consequences.
+  `scripts/check_reason_keys.py` pins the key. The proto prose agrees:
+  `reasons.proto`'s value comment and `command_handler.proto`'s Handle.
+- Why: the ruling. The refusal was answered as a bare INTERNAL, which
+  tells neither an operator nor a catalog what failed.
+- Cost: every coordinator answers one more key; angzarr-embedded is
+  re-keyed to it later.
+
 ## Corrections
 
 Facts the earlier passes or the design note got wrong:
