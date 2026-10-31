@@ -3638,6 +3638,7 @@ has its own cap.** Owner rulings, 2026-10-30. Follows 14.37 and 14.45.
   at the cap is parked, never answered the key (C-0726); and, the
   coordinator deciding for consistency, a dead letter at either cap
   records the key as its reason.
+- **Amendment, 2026-10-30 (cap 0).** A race re-run cap of 0 is the opt-out for a consumer that owns its retries: a lost race is never re-run, and never parked or dead-lettered by the coordinator, whatever the retry cap says; it goes back to its caller at once as the store's retryable conflict, and a policy step's position holds at its trigger, moving past only after a dead letter (14.37), so the next catch-up runs it again (C-0740 command, C-0741 fact, C-0742 policy step).
 
 **14.47 An expected sequence ahead of the head is malformed, under every
 resolution.** Owner ruling, 2026-10-30. Amends 14.45; follows 14.37 and

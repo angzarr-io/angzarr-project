@@ -39,7 +39,11 @@ Feature: Conflict resolution - how the coordinator treats a stale command
   dead-lettered and alerted like any exhausted retry, with reason
   COORDINATOR_REASON_RETRY_CAP_EXHAUSTED, and a caller waiting for it is
   answered INTERNAL with that reason; a fact, never refused, is answered
-  PARKED instead (decision 14.46). Reaction commands (from policies; a process manager sends
+  PARKED instead (decision 14.46). A race re-run cap of 0 opts out, for a
+  consumer that owns its retries: a lost race is never re-run, parked or
+  dead-lettered by the coordinator, but goes back to its caller as the
+  store's retryable conflict, and a policy step's position holds at its
+  trigger (C-0740 to C-0742). Reaction commands (from policies; a process manager sends
   none, decision 14.31) never carry an expected sequence or a resolution.
 
   Retired with decision 14.47: C-0162, which answered a STRICT command
@@ -410,6 +414,57 @@ Feature: Conflict resolution - how the coordinator treats a stale command
     And the fact persists nothing
     And the client is answered OK with delivery PARKED and no events
     And the client is never answered COORDINATOR_REASON_RETRY_CAP_EXHAUSTED
+
+  @write_race
+  @C-0740
+  Scenario: With a race re-run cap of 0, a command that loses a race at its write goes back to its caller as the store's conflict
+    # Decision 14.46, amended: a cap of 0 is the opt-out for a caller that
+    # owns its retries; the retry cap, set here, does not re-run a race.
+    Given the race re-run cap is 0
+    And the retry cap is reached after 3 deliveries
+    And an AddItem command with no expected sequence and no conflict resolution, sent through Handle by a caller waiting for the answer
+    And another write to the "order" stream lands at sequence 3 after the command is loaded and before it is written
+    When the coordinator processes the command
+    Then business code is invoked once
+    And the command persists nothing
+    And nothing is dead-lettered and no alert is raised
+    And the caller is answered the store's write conflict, retryable, with no wait before it
+    And the caller is never answered COORDINATOR_REASON_RETRY_CAP_EXHAUSTED
+
+  @write_race @fact
+  @C-0741
+  Scenario: With a race re-run cap of 0, a fact that loses a race at its write goes back to its sender as the store's conflict, never parked
+    # Decision 14.46, amended: the opt-out holds for a fact too; the
+    # coordinator parks only a fact it gave up on at a cap.
+    Given the race re-run cap is 0
+    And the order aggregate declares fact ShipmentDispatched
+    And a ShipmentDispatched fact for the "order" stream, sent through Handle by a client waiting for the answer
+    And the ingest handler answers with a ShipmentDispatched event
+    And another write to the "order" stream lands at sequence 3 after the fact is loaded and before it is written
+    When the coordinator processes the fact
+    Then the ingest handler is invoked once
+    And the fact persists nothing
+    And nothing is dead-lettered and no alert is raised
+    And the client is answered the store's write conflict, retryable, with no wait before it
+    And the client is never answered OK with delivery PARKED
+
+  @write_race @reaction
+  @C-0742
+  Scenario: With a race re-run cap of 0, a policy step that loses a race at its write holds the policy's position at its trigger
+    # Decision 14.46, amended, with 14.37: a step's position moves past its
+    # trigger only after the step is dead-lettered, and at a cap of 0 the
+    # coordinator dead-letters nothing, whatever the retry cap says.
+    Given the race re-run cap is 0
+    And the retry cap is reached after 3 deliveries
+    And a policy that reacts to an event at sequence 1 of a "bell" stream with an AddItem command for the "order" stream, with no expected sequence and no conflict resolution
+    And another write to the "order" stream lands at sequence 3 after the step's command is loaded and before it is written
+    When the policy runs on the event
+    Then business code is invoked once
+    And the step persists nothing
+    And nothing is dead-lettered and no alert is raised
+    And the step fails with the store's write conflict, retryable, with no wait before it
+    And the policy's position on the "bell" stream stays at the triggering event, never moved past it
+    And the policy's next catch-up runs the step again
 
   @write_race
   @C-0720
