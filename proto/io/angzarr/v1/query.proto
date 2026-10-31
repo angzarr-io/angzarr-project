@@ -18,7 +18,9 @@ option ruby_package = "Angzarr";
 // CommandHandlerCoordinatorService. An aggregate (or process manager)
 // coordinator serves it for its own component's domain. It may also run
 // standalone, as a read-only query server for downstream readers with no
-// component behind it; such a server serves no command RPCs.
+// component behind it; such a server serves no command RPCs: a command or
+// fact sent to it is answered UNIMPLEMENTED
+// COORDINATOR_REASON_COMMANDS_NOT_SERVED (arg domain; decision 14.51).
 //
 // Snapshots. A coordinator judges a snapshot against its own registration
 // (see Snapshot in types.proto). A standalone query server holds no

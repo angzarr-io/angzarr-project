@@ -16,8 +16,10 @@ Feature: Dead letter queue routing
   - queued commands refused with a typed refusal (command_refused details)
   - policy / PM / projector handler failures once retries are exhausted
     (processing_failed details)
-  - claim-check payloads that cannot be retrieved
-    (payload_retrieval_failed details)
+  - claim-check payloads that cannot be retrieved, at the retry cap
+    (payload_retrieval_failed details, COORDINATOR_REASON_PAYLOAD_UNAVAILABLE)
+  - inputs whose event store keeps failing, at the retry cap
+    (processing_failed details, COORDINATOR_REASON_STORE_UNAVAILABLE)
 
   Compensation is no longer part of the contract (RM-2), so its sources are
   gone: C-0448 (a compensation handler's RevocationResponse sending the
@@ -47,6 +49,24 @@ Feature: Dead letter queue routing
     And the dead letter carries the rejected command
     And the dead letter's reason has code COORDINATOR_REASON_HANDLER_UNAVAILABLE, arg domain "order" and arg cause
     And the dead letter's processing_failed details have failure code COORDINATOR_REASON_HANDLER_UNAVAILABLE, retry_count 2 and is_transient true
+    And the dead letter carries no other rejection_details variant
+    And an alert is raised
+    And no events are persisted
+
+  @C-0744
+  Scenario: A command whose event store keeps failing is dead-lettered at the retry cap with the store key
+    # Decision 14.51: a retryable failure carries a key, so the dead letter
+    # at the cap records it, as last answered, never
+    # COORDINATOR_REASON_RETRY_CAP_EXHAUSTED (14.48, amended).
+    Given an "order" aggregate "order-1" at next_sequence 3
+    And the retry cap is reached after 3 attempts
+    And the "order" event store fails every write, its connection dropped
+    When an AddItem command with no expected sequence is sent asynchronously and the coordinator processes it
+    Then the coordinator attempts the command 3 times, backing off between attempts
+    And a dead letter is published to "angzarr.dlq.order"
+    And the dead letter carries the rejected command
+    And the dead letter's reason has code COORDINATOR_REASON_STORE_UNAVAILABLE and arg cause
+    And the dead letter's processing_failed details have failure code COORDINATOR_REASON_STORE_UNAVAILABLE, retry_count 2 and is_transient true
     And the dead letter carries no other rejection_details variant
     And an alert is raised
     And no events are persisted
@@ -94,12 +114,19 @@ Feature: Dead letter queue routing
     And the dead letter's processing_failed details have is_transient false and retry_count 0
 
   @C-0447
-  Scenario: An unretrievable claim-check payload is dead-lettered
-    Given an OrderCreated event for "order-1" whose payload is a PayloadReference to "s3://payloads/abc.bin"
+  Scenario: An unretrievable claim-check payload is dead-lettered at the retry cap with the payload key
+    # Decision 14.51: a retryable failure carries a key, so the dead letter
+    # at the cap records it.
+    Given the retry cap is reached after 3 attempts
+    And an OrderCreated event for "order-1" whose payload is a PayloadReference to "s3://payloads/abc.bin"
     And the payload store cannot return "s3://payloads/abc.bin"
     When the event is delivered to the policy "OrderFulfillment"
-    Then a dead letter is published to "angzarr.dlq.order"
-    And the dead letter's payload_retrieval_failed details have storage_type S3 and uri "s3://payloads/abc.bin"
+    Then the coordinator attempts the retrieval 3 times, backing off between attempts
+    And a dead letter is published to "angzarr.dlq.order"
+    And the dead letter's reason has code COORDINATOR_REASON_PAYLOAD_UNAVAILABLE, arg uri "s3://payloads/abc.bin" and arg cause
+    And the dead letter's payload_retrieval_failed details have storage_type S3, uri "s3://payloads/abc.bin" and failure code COORDINATOR_REASON_PAYLOAD_UNAVAILABLE
+    And the dead letter carries no other rejection_details variant
+    And an alert is raised
 
   @C-0449
   Scenario: A dead letter is not published when processing succeeds

@@ -159,6 +159,19 @@ class CheckReasonKeysTest(unittest.TestCase):
             with self.subTest(key=key):
                 self.assertIn(key, crk.PINNED)
 
+    def test_decision_14_51_pins_its_retryable_keys(self) -> None:
+        # Every retryable failure carries a key, for when the retry fails.
+        for key in (
+            "COORDINATOR_REASON_STORE_CONFLICT",
+            "COORDINATOR_REASON_STORE_UNAVAILABLE",
+            "COORDINATOR_REASON_UPCASTER_UNAVAILABLE",
+            "COORDINATOR_REASON_COMPONENT_NOT_REGISTERED",
+            "COORDINATOR_REASON_COMMANDS_NOT_SERVED",
+            "COORDINATOR_REASON_PAYLOAD_UNAVAILABLE",
+        ):
+            with self.subTest(key=key):
+                self.assertIn(key, crk.PINNED)
+
     def test_the_good_descriptor_is_not_mutated(self) -> None:
         d = _good()
         before = copy.deepcopy(d)

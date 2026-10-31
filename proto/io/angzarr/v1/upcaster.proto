@@ -71,7 +71,9 @@ option ruby_package = "Angzarr";
 // Failure. A sidecar that is configured but unreachable stalls what needs
 // it: the coordinator delivers nothing it would have to upcast and
 // reports NOT_SERVING; a synchronous caller and a query are answered
-// UNAVAILABLE (retryable); queued and reaction deliveries stay queued. A
+// UNAVAILABLE COORDINATOR_REASON_UPCASTER_UNAVAILABLE (retryable; args
+// domain, cause; decision 14.51); queued and reaction deliveries stay
+// queued. A
 // rule that fails (an error status from Upcast) is a handler bug.
 service UpcasterService {
   // Transform events to current version

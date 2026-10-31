@@ -51,9 +51,10 @@ option ruby_package = "Angzarr";
 //   - No descriptor, no delivery: the coordinator delivers nothing to its
 //     component while it holds no descriptor (no command, fact, trigger or
 //     event). Until it holds one, deliveries wait: a synchronous caller is
-//     answered UNAVAILABLE (retryable; see the status codes in
-//     command_handler.proto), and queued and reaction deliveries stay
-//     queued.
+//     answered UNAVAILABLE COORDINATOR_REASON_COMPONENT_NOT_REGISTERED
+//     (retryable, arg domain; see the status codes in
+//     command_handler.proto; decision 14.51), and queued and reaction
+//     deliveries stay queued.
 //   - Refusal: a descriptor that fails the coordinator's validation (see
 //     ComponentDescriptor: an empty rules_version, starting types
 //     (fully-qualified type names) on a kind other than PROCESS_MANAGER, a state where its kind has none or

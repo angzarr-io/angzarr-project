@@ -42,7 +42,8 @@ Feature: Conflict resolution - how the coordinator treats a stale command
   PARKED instead (decision 14.46). A race re-run cap of 0 opts out, for a
   consumer that owns its retries: a lost race is never re-run, parked or
   dead-lettered by the coordinator, but goes back to its caller as the
-  store's retryable conflict, and a policy step's position holds at its
+  store's retryable conflict, UNAVAILABLE COORDINATOR_REASON_STORE_CONFLICT
+  (decision 14.51), and a policy step's position holds at its
   trigger (C-0740 to C-0742). Reaction commands (from policies; a process manager sends
   none, decision 14.31) never carry an expected sequence or a resolution.
 
@@ -417,9 +418,11 @@ Feature: Conflict resolution - how the coordinator treats a stale command
 
   @write_race
   @C-0740
-  Scenario: With a race re-run cap of 0, a command that loses a race at its write goes back to its caller as the store's conflict
+  Scenario: With a race re-run cap of 0, a command that loses a race at its write goes back to its caller as the store's conflict, keyed
     # Decision 14.46, amended: a cap of 0 is the opt-out for a caller that
     # owns its retries; the retry cap, set here, does not re-run a race.
+    # Decision 14.51: the conflict is retryable, so it carries its key, for
+    # the caller to report if its own retries are spent.
     Given the race re-run cap is 0
     And the retry cap is reached after 3 deliveries
     And an AddItem command with no expected sequence and no conflict resolution, sent through Handle by a caller waiting for the answer
@@ -428,7 +431,7 @@ Feature: Conflict resolution - how the coordinator treats a stale command
     Then business code is invoked once
     And the command persists nothing
     And nothing is dead-lettered and no alert is raised
-    And the caller is answered the store's write conflict, retryable, with no wait before it
+    And the caller is answered UNAVAILABLE with reason COORDINATOR_REASON_STORE_CONFLICT, expected "3" and actual "4", with no wait before it
     And the caller is never answered COORDINATOR_REASON_RETRY_CAP_EXHAUSTED
 
   @write_race @fact
@@ -445,7 +448,7 @@ Feature: Conflict resolution - how the coordinator treats a stale command
     Then the ingest handler is invoked once
     And the fact persists nothing
     And nothing is dead-lettered and no alert is raised
-    And the client is answered the store's write conflict, retryable, with no wait before it
+    And the client is answered UNAVAILABLE with reason COORDINATOR_REASON_STORE_CONFLICT, expected "3" and actual "4", with no wait before it
     And the client is never answered OK with delivery PARKED
 
   @write_race @reaction
@@ -463,7 +466,7 @@ Feature: Conflict resolution - how the coordinator treats a stale command
     Then business code is invoked once
     And the step persists nothing
     And nothing is dead-lettered and no alert is raised
-    And the step fails with the store's write conflict, retryable, with no wait before it
+    And the step fails UNAVAILABLE with reason COORDINATOR_REASON_STORE_CONFLICT, expected "3" and actual "4", with no wait before it
     And the policy's position on the "payment" stream stays at the PaymentReceived event, never moved past it
     And the policy's next catch-up runs the step again
 

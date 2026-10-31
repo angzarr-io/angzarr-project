@@ -34,6 +34,13 @@ option ruby_package = "Angzarr";
 // classes) is the coordinator's to decide, not listed here. English for a
 // key comes from a Fluent catalog keyed by it, never from this file.
 //
+// A retryable failure carries a key too (decision 14.51): every failure a
+// coordinator retries, or hands back for its caller to retry, is answered
+// under a key of its own, so that when the retries are spent, whoever
+// gives up (the coordinator, as the dead letter's reason, or a caller
+// that owns its retries, as its last answer) reports the key, never a
+// bare status.
+//
 // A retired key is never answered again and never reused for another
 // meaning. Each enum reserves every retired key under its own prefix
 // (RouterReason reserves ROUTER_REASON_MISSING_COMMAND_BOOK), so protoc
@@ -248,7 +255,8 @@ enum CoordinatorReason {
   // last answered (decision 14.48, amended). A race re-run cap of 0 never
   // reaches this key: a lost race then goes back to its caller as the
   // store's write conflict (command_handler.proto, the status codes;
-  // decision 14.46, amended).
+  // decision 14.46, amended), COORDINATOR_REASON_STORE_CONFLICT (decision
+  // 14.51).
   COORDINATOR_REASON_RETRY_CAP_EXHAUSTED = 21;
   // INVALID_ARGUMENT. Args: expected, head. Every resolution (STRICT,
   // AGGREGATE_HANDLES, COMMUTATIVE). The command set
@@ -353,6 +361,73 @@ enum CoordinatorReason {
   // coordinator that does not follow chains never answers it. (Decision
   // 14.49.)
   COORDINATOR_REASON_CHAIN_TOO_DEEP = 30;
+  // UNAVAILABLE. Args: expected, actual. A race re-run cap of 0 (decision
+  // 14.46, amended): a stamped command or fact (no expected sequence, so
+  // the coordinator stamped the head it loaded, `expected`) lost a race at
+  // its write to another write to the same stream, now at `actual`, and
+  // the coordinator, opted out of re-running it, hands it back at once,
+  // with no wait. Nothing is persisted. Bug, retryable (decision 14.37):
+  // UNAVAILABLE means resend, and a resend is safe, since nothing was
+  // written; the consumer that owns its retries resends, and if its own
+  // retries are spent, this key is what it reports. The coordinator never
+  // dead-letters, parks or alerts on it: a fact is answered this, never
+  // PARKED, and a policy step that fails with it holds its position at
+  // its trigger, so the next catch-up runs it again (C-0740 to C-0742).
+  // Never answered at a race re-run cap above 0, where a lost race is
+  // re-run and, at the cap, COORDINATOR_REASON_RETRY_CAP_EXHAUSTED; never
+  // a STRICT command's, whose lost race is
+  // COORDINATOR_REASON_EXPECTED_SEQUENCE_STALE. (Decision 14.51.)
+  COORDINATOR_REASON_STORE_CONFLICT = 31;
+  // UNAVAILABLE. Args: cause. The coordinator's event store failed to
+  // answer (I/O, a timeout, a dropped connection, a busy or locked
+  // database: `cause`, the store's failure, a third-party driver's text as
+  // `cause.ext_err_txt`); a write may or may not have landed. Bug,
+  // retryable (decision 14.37): resent under the retry cap with backoff
+  // and jitter, safe because a resend starts at deduplication (a write
+  // that landed after all is answered DUPLICATE). At the cap the input is
+  // dead-lettered with this key and its args, as last answered, as its
+  // AngzarrDeadLetter.reason (processing_failed, is_transient true), and
+  // alerted; a waiting caller is answered this key. A write that lost a
+  // race is never this: the store was sure (COORDINATOR_REASON_STORE_CONFLICT
+  // at a race re-run cap of 0, a re-run otherwise). (Decision 14.51.)
+  COORDINATOR_REASON_STORE_UNAVAILABLE = 32;
+  // UNAVAILABLE. Args: domain, cause. The upcaster sidecar `domain`'s
+  // coordinator upcasts through (decision 14.39) is configured but could
+  // not be reached, or answered under a retryable status (`cause`): the
+  // coordinator delivers nothing it would have to upcast and reports
+  // NOT_SERVING (upcaster.proto, Failure). A waiting caller and a query
+  // are answered this key, to resend; queued and reaction deliveries stay
+  // queued until the sidecar is back, so it is never a dead letter's
+  // reason. A rule that fails (an error status from Upcast) is a handler
+  // bug, never this. (Decision 14.51.)
+  COORDINATOR_REASON_UPCASTER_UNAVAILABLE = 33;
+  // UNAVAILABLE. Args: domain. The coordinator holds no descriptor of
+  // `domain`'s component (component.proto, Registration): it has not yet
+  // been described, or its Describe failed or was refused, so the
+  // coordinator delivers nothing to it. A waiting caller is answered this
+  // key, to resend; queued and reaction deliveries stay queued until the
+  // component is registered, so it is never a dead letter's reason. A
+  // business process that is described and then cannot be reached is
+  // COORDINATOR_REASON_HANDLER_UNAVAILABLE. (Decision 14.51.)
+  COORDINATOR_REASON_COMPONENT_NOT_REGISTERED = 34;
+  // UNIMPLEMENTED. Args: domain. A command or fact sent to a standalone
+  // query server for `domain`'s event store, which has no component
+  // behind it and takes no commands (query_server.feature, C-0588). Bug,
+  // retryable (decision 14.37): a misroute or a stale deployment, which
+  // the caller's resend to the right address, or a corrected deployment,
+  // can clear. Never a dead letter's reason: a query server queues
+  // nothing. (Decision 14.51.)
+  COORDINATOR_REASON_COMMANDS_NOT_SERVED = 35;
+  // UNAVAILABLE. Args: uri, cause. A claim-checked payload
+  // (PayloadReference, at `uri`) the coordinator could not retrieve from
+  // its payload store (`cause`, the store's failure, a third-party
+  // library's text as `cause.ext_err_txt`). Bug, retryable (decision
+  // 14.37): retried under the retry cap with backoff and jitter; at the cap
+  // dead-lettered with this key and its args as its
+  // AngzarrDeadLetter.reason, payload_retrieval_failed its details
+  // variant, with this key as its failure, and alerted (C-0447).
+  // (Decision 14.51.)
+  COORDINATOR_REASON_PAYLOAD_UNAVAILABLE = 36;
 
   // Retired by 14.37.
   reserved

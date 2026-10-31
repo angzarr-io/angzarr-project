@@ -220,7 +220,10 @@ message ConflictReport {
 //               Retried, on by default, with exponential backoff and jitter
 //               up to a cap (the scale, the jitter factor and the cap are
 //               configuration), then dead-lettered and alerted; never a
-//               policy's OnRefused.
+//               policy's OnRefused. Every retryable failure carries a key
+//               (reasons.proto; decision 14.51), so whoever gives up when
+//               the retries are spent reports it: the dead letter's
+//               reason, or a caller's last answer.
 // The retryable statuses are not interchangeable: UNAVAILABLE means resend;
 // DEADLINE_EXCEEDED means resend only if the call is idempotent (a command
 // is, by its command_id); RESOURCE_EXHAUSTED means wait longer before
@@ -251,9 +254,11 @@ message ConflictReport {
 // a race at its write is never re-run, and the coordinator neither parks
 // nor dead-letters it nor raises an alert, whatever the retry cap says.
 // It goes back to its caller at once, with no wait, as the store's write
-// conflict, retryable: never COORDINATOR_REASON_RETRY_CAP_EXHAUSTED, and a
+// conflict, retryable: UNAVAILABLE COORDINATOR_REASON_STORE_CONFLICT (args
+// expected, the head it was stamped with, and actual, the stream's head;
+// decision 14.51), never COORDINATOR_REASON_RETRY_CAP_EXHAUSTED, and a
 // fact never PARKED (C-0740, C-0741). A policy step that loses such a race
-// fails with that conflict and nothing is persisted; its position holds at
+// fails with that key and nothing is persisted; its position holds at
 // its trigger, since a step's position moves past its trigger only after
 // the step is dead-lettered (decision 14.37), so the policy's next
 // catch-up runs the step again (C-0742).

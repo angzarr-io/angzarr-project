@@ -286,9 +286,10 @@ message Cover {
 // codes in command_handler.proto; decision 14.46). A race re-run cap of 0
 // opts out, for a consumer that owns its retries: the lost race is never
 // re-run, parked or dead-lettered, and goes back to its caller at once as
-// the store's write conflict, retryable; a policy step's position holds at
-// its trigger (command_handler.proto, the status codes; decision 14.46,
-// amended).
+// the store's write conflict, retryable, UNAVAILABLE
+// COORDINATOR_REASON_STORE_CONFLICT (args expected, actual; decision
+// 14.51); a policy step's position holds at its trigger
+// (command_handler.proto, the status codes; decision 14.46, amended).
 //
 // COORDINATOR_REASON_EXPECTED_SEQUENCE_STALE is STRICT's alone: under
 // STRICT, a stream that has moved, found at load or because another write
@@ -1686,14 +1687,22 @@ message AngzarrDeadLetter {
   //     failure was judged.
   //   - A retryable bug, or a policy step's ABORTED re-run, at its cap
   //     (ROUTER_REASON_NO_COMPONENT_OF_KIND,
-  //     COORDINATOR_REASON_HANDLER_UNAVAILABLE, a handler's retryable
+  //     COORDINATOR_REASON_HANDLER_UNAVAILABLE,
+  //     COORDINATOR_REASON_STORE_UNAVAILABLE, a handler's retryable
   //     bug), its reason the bug's own key as last answered: retry_count
   //     the retries after the first attempt, is_transient true.
   // payload_retrieval_failed: a claim-checked payload (PayloadReference)
-  // that cannot be retrieved.
+  // that cannot be retrieved, at the retry cap:
+  //   - COORDINATOR_REASON_PAYLOAD_UNAVAILABLE, args uri and cause, its
+  //     failure the same Diagnostic as reason (decision 14.51).
   // Never a dead letter's reason: the readiness keys, the HostReason keys,
   // ROUTER_REASON_NO_HANDLERS_REGISTERED, ROUTER_REASON_DUPLICATE_COMPONENT
-  // and ROUTER_REASON_HANDLER_PANICKED (only ever a cause).
+  // and ROUTER_REASON_HANDLER_PANICKED (only ever a cause); and the
+  // retryable keys the coordinator only answers, never dead-letters:
+  // COORDINATOR_REASON_STORE_CONFLICT (a race re-run cap of 0),
+  // COORDINATOR_REASON_UPCASTER_UNAVAILABLE and
+  // COORDINATOR_REASON_COMPONENT_NOT_REGISTERED (queued work waits) and
+  // COORDINATOR_REASON_COMMANDS_NOT_SERVED (decision 14.51).
   oneof rejection_details {
     SequenceMismatchDetails sequence_mismatch = 12; // Sequence conflict details
     ProcessingFailedDetails processing_failed = 13; // Handler or coordinator failure details

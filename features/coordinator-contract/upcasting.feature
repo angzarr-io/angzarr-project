@@ -102,13 +102,14 @@ Feature: Upcasting - readers and handlers only ever see current shapes
     Then the coordinator starts an instance
     And business code is handed a StartFulfillment
 
-  # Drafter's choice, for the owner to confirm (decision 14.39).
+  # Drafter's choice, for the owner to confirm (decision 14.39). The key:
+  # decision 14.51, a retryable failure carries one.
   @upcasting @sidecar_down
   @C-0681
   Scenario: A sidecar that is down stalls what needs it
     Given the "order" upcaster sidecar is configured but unreachable
     When a client sends AddItem "apple" to order "order-1" and waits for the answer
-    Then the client is answered UNAVAILABLE
+    Then the client is answered UNAVAILABLE with reason COORDINATOR_REASON_UPCASTER_UNAVAILABLE, arg domain "order" and arg cause
     And the "order" coordinator reports NOT_SERVING
     And nothing is recorded on order "order-1"
     And business code is not invoked

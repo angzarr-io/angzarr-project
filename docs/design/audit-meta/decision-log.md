@@ -3666,6 +3666,10 @@ has its own cap.** Owner rulings, 2026-10-30. Follows 14.37 and 14.45.
   `types.proto`'s `ConflictResolution` region and `reasons.proto`'s
   `COORDINATOR_REASON_RETRY_CAP_EXHAUSTED`. C-0742's policy uses the
   coordinator tier's generic vocabulary (`"payment"` to `"order"`).
+- **Amendment, 2026-10-31 (cap 0, keyed).** The store's conflict a lost
+  race goes back as at a cap of 0 is UNAVAILABLE
+  `COORDINATOR_REASON_STORE_CONFLICT`, args `expected` and `actual`
+  (14.51).
 
 **14.47 An expected sequence ahead of the head is malformed, under every
 resolution.** Owner ruling, 2026-10-30. Amends 14.45; follows 14.37 and
@@ -3959,6 +3963,74 @@ overnight generator and app-generation rulings). Follows 14.31, 14.37 and
   the intended class.
 - Cost: configs without `kind`, or with keys the host does not know, stop
   loading; generators read three new options.
+
+**14.51 A retryable failure carries a key, for when the retry fails.**
+Owner rulings, 2026-10-31 (morning). Follows 14.37, 14.46 (cap 0), 14.48
+and 14.49. In the owner's words: "retryables need to carry a spec key in
+the event that the retry fails."
+- **The rule.** Every failure a coordinator retries, or hands back for its
+  caller to retry (14.37's bug, retryable class: UNAVAILABLE,
+  DEADLINE_EXCEEDED, RESOURCE_EXHAUSTED, UNIMPLEMENTED and every other
+  status outside the other three classes), is answered under a reason key
+  of its own. When the retries are spent, whoever gives up reports that
+  key: the coordinator as the dead letter's reason (14.48, amended: as
+  last answered), a caller that owns its retries as its final answer.
+  Never a bare status. `reasons.proto`'s header and
+  `command_handler.proto`'s status codes say so.
+- **`COORDINATOR_REASON_STORE_CONFLICT`**: UNAVAILABLE, bug, retryable;
+  args `expected` (the head the coordinator stamped) and `actual` (the
+  stream's head). The answer for a stamped command or fact that loses a
+  same-stream race at its write under a race re-run cap of 0 (14.46,
+  amended): handed back at once, with no wait, never re-run, parked,
+  dead-lettered or alerted; a policy step's position holds at its trigger.
+  UNAVAILABLE (resend) because nothing was written and a resend, starting
+  at deduplication, is safe; not ABORTED, which 14.37 keeps for "re-read
+  and re-decide" answers a caller decides on, while here the coordinator
+  re-reads for the caller on the resend. Never answered at a cap above 0
+  (there, a re-run, then `COORDINATOR_REASON_RETRY_CAP_EXHAUSTED`), and
+  never under STRICT (`COORDINATOR_REASON_EXPECTED_SEQUENCE_STALE`).
+  C-0740 to C-0742 assert the status, key and args (step rule 18).
+- **The audit.** Every retryable path the spec describes, and the key it
+  carries:
+
+  | Path | Status | Key | At the cap |
+  |---|---|---|---|
+  | a handler's retryable bug (C-0678) | the status it picks | `ROUTER_REASON_UNHANDLED_HANDLER_ERROR`, its key the `cause` | dead-lettered with it (14.48) |
+  | a misrouted dispatch (a policy to an aggregate's process) | UNIMPLEMENTED | `ROUTER_REASON_NO_COMPONENT_OF_KIND` | dead-lettered with it |
+  | a business process that cannot be reached | UNAVAILABLE | `COORDINATOR_REASON_HANDLER_UNAVAILABLE` (14.49) | dead-lettered with it (C-0738) |
+  | a policy step answered ABORTED | ABORTED | the conflict's own key | dead-lettered with it (14.48) |
+  | a lost race at cap 0 | UNAVAILABLE | **new** `COORDINATOR_REASON_STORE_CONFLICT` | never: the caller retries (C-0740 to C-0742) |
+  | the event store fails to answer | UNAVAILABLE | **new** `COORDINATOR_REASON_STORE_UNAVAILABLE` (`cause`) | dead-lettered with it (C-0744) |
+  | an upcaster sidecar down (14.39) | UNAVAILABLE | **new** `COORDINATOR_REASON_UPCASTER_UNAVAILABLE` (`domain`, `cause`) | never: queued work waits (C-0681) |
+  | no descriptor held | UNAVAILABLE | **new** `COORDINATOR_REASON_COMPONENT_NOT_REGISTERED` (`domain`) | never: queued work waits (C-0562) |
+  | a command sent to a standalone query server | UNIMPLEMENTED | **new** `COORDINATOR_REASON_COMMANDS_NOT_SERVED` (`domain`) | never: nothing is queued (C-0588) |
+  | a claim-checked payload that cannot be retrieved | UNAVAILABLE | **new** `COORDINATOR_REASON_PAYLOAD_UNAVAILABLE` (`uri`, `cause`) | dead-lettered with it, `payload_retrieval_failed` (C-0447) |
+  | a projector's retryable failure (C-0677) | the projector's | its own code (`ProjectorFailure.diagnostic`) | as the projector's failure |
+
+  The race re-runs above a cap of 0 already end in
+  `COORDINATOR_REASON_RETRY_CAP_EXHAUSTED` (14.46). A coordinator that
+  cannot reach its upcaster, or holds no descriptor, was answering a bare
+  UNAVAILABLE, and a store's own failure and an unretrievable payload had
+  no key at all: the dead letter at the cap had nothing to record.
+- **Drafter's choices, for the owner to confirm:** the store's failure
+  and the payload's are keyed by the coordinator, the store's or payload
+  store's own code and args its `cause` (angzarr-ports'
+  `StoreError::Unavailable` cause, `annals-store-sql-io` and the like), so
+  the key is the same whatever the adapter; the query server's misroute is
+  UNIMPLEMENTED, as before, and keyed rather than moved to a business
+  status.
+- The proto prose agrees: `reasons.proto`'s header and six value comments
+  (and `COORDINATOR_REASON_RETRY_CAP_EXHAUSTED`'s), `command_handler.proto`'s
+  status codes, `types.proto`'s `ConflictResolution` region and the
+  `rejection_details` mapping, `upcaster.proto`'s Failure,
+  `component.proto`'s Registration and `query.proto`'s header. Scenarios
+  C-0740 to C-0742, C-0681, C-0562, C-0588 and C-0447 assert the keys;
+  `dead_letter_queue.feature` adds C-0744; `scripts/check_reason_keys.py`
+  pins the six keys.
+- Why: the ruling. A retry that fails leaves its giver-up holding only a
+  status, which tells neither an operator nor a catalog what failed.
+- Cost: every coordinator answers six more keys; a consumer that owns its
+  retries (a race re-run cap of 0) reports the key it was handed.
 
 ## Corrections
 

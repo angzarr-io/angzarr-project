@@ -27,6 +27,7 @@ Feature: Component discovery - the coordinator asks the business process what it
   @discovery
   @C-0562
   Scenario Outline: Nothing reaches the component before the coordinator holds its description
+    # Decision 14.51: the waiting caller's UNAVAILABLE carries its key.
     Given a coordinator whose request to describe the "order" business binary has not yet been answered
     When <work> arrives for the "order" aggregate
     Then business code is not invoked
@@ -34,10 +35,10 @@ Feature: Component discovery - the coordinator asks the business process what it
 
     Examples:
       | work                                | consequence                                               |
-      | a command from a caller who waits   | the caller is answered with UNAVAILABLE status            |
-      | a fact from a caller who waits      | the caller is answered with UNAVAILABLE status            |
-      | a command sent without waiting      | the command stays queued until the aggregate is registered |
-      | a policy's command                    | the command stays queued until the aggregate is registered |
+      | a command from a caller who waits   | the caller is answered UNAVAILABLE with reason COORDINATOR_REASON_COMPONENT_NOT_REGISTERED and arg domain "order" |
+      | a fact from a caller who waits      | the caller is answered UNAVAILABLE with reason COORDINATOR_REASON_COMPONENT_NOT_REGISTERED and arg domain "order" |
+      | a command sent without waiting      | the command stays queued until the aggregate is registered                                                        |
+      | a policy's command                  | the command stays queued until the aggregate is registered                                                        |
 
   @discovery
   @C-0563
