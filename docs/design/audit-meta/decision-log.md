@@ -3960,7 +3960,7 @@ overnight generator and app-generation rulings). Follows 14.31, 14.37 and
   FAILED_PRECONDITION (the refusals region of options.proto). Nothing in
   the markup carries a code's class yet; until a ruling, the client
   library reports FAILED_PRECONDITION and table.proto's comments record
-  the intended class.
+  the intended class. (Settled by 14.52: a per-value status option.)
 - Cost: configs without `kind`, or with keys the host does not know, stop
   loading; generators read three new options.
 
@@ -4031,6 +4031,52 @@ the event that the retry fails."
   status, which tells neither an operator nor a catalog what failed.
 - Cost: every coordinator answers six more keys; a consumer that owns its
   retries (a race re-run cap of 0) reports the key it was handed.
+
+**14.52 A refusal code's status is marked on its Reason value.** Owner
+ruling, 2026-10-31 (morning). Settles 14.50's Open point; follows 14.37.
+- **The option.** `options.proto` adds
+  `extend google.protobuf.EnumValueOptions { RefusalStatus refusal_status
+  = 50108; }` and the enum `RefusalStatus`, holding the six business
+  statuses of 14.37 and nothing else: `REFUSAL_STATUS_INVALID_ARGUMENT`
+  (3), `_NOT_FOUND` (5), `_ALREADY_EXISTS` (6), `_PERMISSION_DENIED` (7),
+  `_FAILED_PRECONDITION` (9), `_OUT_OF_RANGE` (11), and
+  `REFUSAL_STATUS_UNSPECIFIED` (0), which means FAILED_PRECONDITION, the
+  default. A typed refusal's code is refused under its value's status, its
+  ErrorInfo.reason the value's name without the prefix (14.50); the
+  generated refusal and the public helper a hand-written handler uses
+  read the same option. Generation fails on the option anywhere but a
+  non-zero value of the nested `Reason` of a message some command's
+  `refuses` names (C-0746).
+- **Why this shape.**
+  - On `EnumValueOptions`, a scalar: the status is a property of one
+    code, so it sits on that code's value, beside its comment; a
+    command-level or message-level table would repeat every code's name
+    and could drift from the enum.
+  - A closed enum, not `google.rpc.Code`: only a business status may be
+    marked, since a refusal reaches the issuing policy's OnRefused, which a
+    bug (INTERNAL) or a retryable status (UNAVAILABLE, ABORTED) never may.
+    With `google.rpc.Code` every generator would need a rule refusing the
+    other eleven codes; here they cannot be written. It also keeps
+    `google/rpc/code.proto` out of `options.proto`'s imports.
+  - Numbered as `google.rpc.Code`: the status is the value's number, so
+    a generator converts by a cast, with no table to keep in step.
+  - A scalar, not an options message: one fact to carry; a message can
+    replace it later only by a new extension number, which is acceptable
+    for a speculative need.
+- **The table.** table.proto marks its five INVALID_ARGUMENT codes, as
+  examples-rust reported them before the generated table (`rejection.rs`'s
+  `status()`, examples-rust ec88f59): `REASON_INVALID_TABLE_CONFIG`,
+  `REASON_SEAT_OUT_OF_RANGE`, `REASON_BUY_IN_OUT_OF_RANGE`,
+  `REASON_BET_OUT_OF_RANGE`, `REASON_BET_NOT_EVEN`; the other thirteen
+  stay FAILED_PRECONDITION, unmarked.
+- The proto prose agrees: `options.proto`'s new `refusal_status` region
+  and its refusals region; table.proto's header and `TableRefused`.
+  `component_options.feature` adds C-0745 and C-0746.
+- Why: the ruling. A refusal message carried codes of two statuses with
+  nothing in the markup to tell them apart, so the generated table
+  reported every code FAILED_PRECONDITION.
+- Cost: every generator reads one more option; a client library's typed
+  refusal takes its status from the code rather than a constant.
 
 ## Corrections
 

@@ -164,6 +164,39 @@ Feature: Component declarations - lint warnings and errors
     Then the HoldFunds handler returns either its events or an InsufficientFunds refusal
     And the client library packs the InsufficientFunds returned into the rejection as an Any
 
+  @C-0745
+  Scenario Outline: A refusal code's status option sets the status it is refused with
+    # Decision 14.52: the status is a property of each code, marked on its
+    # Reason value; unset is FAILED_PRECONDITION.
+    Given an aggregate "TableState" owning domain "table" with command "table.PlaceBet"
+    And a command "table.PlaceBet" for "TableState" whose (command).refuses lists "table.TableRefused"
+    And "table.TableRefused" has a nested Reason enum whose value <value> <marked>
+    When the handler interfaces are generated
+    And the PlaceBet handler refuses with "table.TableRefused" reason <value>
+    Then the command is refused <status> with reason <code>
+
+    Examples:
+      | value                | marked                                                   | status              | code         |
+      | REASON_BET_NOT_EVEN  | is marked (refusal_status) REFUSAL_STATUS_INVALID_ARGUMENT | INVALID_ARGUMENT    | BET_NOT_EVEN |
+      | REASON_ALREADY_BET   | carries no (refusal_status)                              | FAILED_PRECONDITION | ALREADY_BET  |
+
+  @C-0746
+  Scenario Outline: A status option outside a refusal's Reason fails generation
+    # Decision 14.52: the option marks a refusal code, so it belongs only on
+    # a non-zero value of the nested Reason of a message some command's
+    # refuses names.
+    Given an aggregate "TableState" owning domain "table" with command "table.PlaceBet"
+    And a command "table.PlaceBet" for "TableState" whose (command).refuses lists "table.TableRefused"
+    And <where> is marked (refusal_status) REFUSAL_STATUS_INVALID_ARGUMENT
+    When the protos are linted
+    Then lint reports an error naming <named> and its (refusal_status)
+    And lint exits with a non-zero status
+
+    Examples:
+      | where                                                                  | named                                     |
+      | the value SUIT_HEARTS of enum "table.Suit", no refusal's Reason        | "table.Suit.SUIT_HEARTS"                  |
+      | the zero value REASON_UNSPECIFIED of "table.TableRefused"'s Reason     | "table.TableRefused.REASON_UNSPECIFIED"   |
+
   @C-0626
   Scenario: A refuses type from another domain fails generation
     Given an aggregate "WalletState" owning domain "wallet" with command "wallet.HoldFunds"

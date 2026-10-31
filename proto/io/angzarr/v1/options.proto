@@ -503,12 +503,57 @@ extend google.protobuf.FieldOptions {
 }
 // endregion
 
+// region refusal_status
+// The status a refusal code is refused with (decision 14.52). A typed
+// refusal with a nested Reason enum (the refusals region, below) is a
+// business rejection, fatal (decision 14.37); which of the six business
+// statuses it travels as is a property of each code, so it is marked on
+// the Reason value:
+//   message TableRefused {
+//     enum Reason {
+//       REASON_UNSPECIFIED = 0;
+//       REASON_SEAT_TAKEN = 4;                    // FAILED_PRECONDITION
+//       REASON_BET_NOT_EVEN = 17
+//         [(io.angzarr.v1.refusal_status) = REFUSAL_STATUS_INVALID_ARGUMENT];
+//     }
+//     ...
+//   }
+// Unset (REFUSAL_STATUS_UNSPECIFIED) is FAILED_PRECONDITION, the default
+// for a business rejection. The generated refusal is refused under the
+// marked status, and a hand-written handler's helper reads the same
+// option, so the two agree. Generation fails when the option is set on a
+// value of any enum other than the nested Reason of a message some
+// command's refuses names, or on that Reason's zero value.
+//
+// RefusalStatus holds the business statuses only, so a bug's or a
+// retryable status (INTERNAL, UNAVAILABLE, ABORTED, ...) cannot be marked:
+// a refusal reaches the issuing policy's OnRefused, which those never
+// may. Each value's number is its google.rpc.Code number, so the status
+// on the wire is the value's number, read without a table.
+enum RefusalStatus {
+  // FAILED_PRECONDITION: the default, what unset means.
+  REFUSAL_STATUS_UNSPECIFIED = 0;
+  REFUSAL_STATUS_INVALID_ARGUMENT = 3;
+  REFUSAL_STATUS_NOT_FOUND = 5;
+  REFUSAL_STATUS_ALREADY_EXISTS = 6;
+  REFUSAL_STATUS_PERMISSION_DENIED = 7;
+  REFUSAL_STATUS_FAILED_PRECONDITION = 9;
+  REFUSAL_STATUS_OUT_OF_RANGE = 11;
+}
+
+extend google.protobuf.EnumValueOptions {
+  // On a refusal Reason's value: the status its code is refused with.
+  RefusalStatus refusal_status = 50108;
+}
+// endregion
+
 // region refusals
 // Refusals (decision 14.31, amending 2.2; plan ruling 7, "REFUSAL
 // WIRING"; PolicyService in policy.proto, Refusals).
 //
 // The refusing side. A command handler refuses with a business rejection
-// (FAILED_PRECONDITION) carrying either a diagnostic code and its args
+// (FAILED_PRECONDITION, or the status a Reason value marks: the
+// refusal_status region) carrying either a diagnostic code and its args
 // (never text; decision 14.37) or a TYPED refusal object of its own domain, named by the command's annotation,
 // exactly as emits names its events (the owner's ruling, for
 // consistency):
@@ -543,7 +588,9 @@ extend google.protobuf.FieldOptions {
 //     ...
 //   }
 // named in each refusing command's refuses. The ErrorInfo.reason on the
-// wire is the value's name without the enum's prefix (`ALREADY_BET`). The
+// wire is the value's name without the enum's prefix (`ALREADY_BET`), and
+// its status the value's (io.angzarr.v1.refusal_status), FAILED_PRECONDITION
+// unset (the refusal_status region; decision 14.52). The
 // generated refusal's diagnostic key is the generator's, from the
 // refusal's full name and the reason, and its args are the message's set
 // fields (the reason among them); a public helper of the client library
