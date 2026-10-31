@@ -36,15 +36,18 @@ option ruby_package = "Angzarr";
 // Three independent domain roles, never overloaded:
 //   domain            — the stream the component OWNS (writes its events to)
 //   input_domain      — a domain it SUBSCRIBES to (consumes events from)
+//   input_domains     — a PROJECTOR's source domains, when it reads several
 //   output_domain     — the domain it SENDS COMMANDS to
 //
 // Per kind (generation fails on a violation):
-//   kind             domain     input_domain               output_domain
-//   AGGREGATE        required   empty                      empty
-//   PROCESS_MANAGER  required   empty                      empty
-//   POLICY             forbidden  required                   required (its one
-//                                                          destination)
-//   PROJECTOR        forbidden  optional (per-event dom.)  empty
+//   kind             domain     input_domain / input_domains          output_domain
+//   AGGREGATE        required   both empty                            empty
+//   PROCESS_MANAGER  required   both empty                            empty
+//   POLICY           forbidden  input_domain required;                required (its one
+//                               input_domains empty                   destination)
+//   PROJECTOR        forbidden  one of the two, or neither            empty
+//                               (then each (event).domain names the
+//                               source)
 // An aggregate owns its domain's stream and subscribes to nothing. A
 // process manager is a domain too (decision 14.31): it owns its own
 // workflow stream (domain), subscribes to nothing, takes commands (most
@@ -83,17 +86,19 @@ message ComponentOptions {
   ComponentKind kind = 1;
   // Domain this component subscribes to: the policy's single source domain, or
   // a projector's input filter when all of its handlers share one domain
-  // (otherwise each (event).domain names the source). Subscriptions only —
-  // never the component's own domain. Empty for aggregates and process
-  // managers, which subscribe to nothing.
+  // (a projector reading several domains lists them in input_domains
+  // instead; otherwise each (event).domain names the source). Subscriptions
+  // only — never the component's own domain. Empty for aggregates and
+  // process managers, which subscribe to nothing.
   string input_domain = 2;
   // Domain this component issues commands to: a policy's one
   // destination (required for POLICY). Must be empty for every other kind: a
   // process manager sends no commands (decision 14.31).
   string output_domain = 3;
-  // Generated handler/dispatch base name. Optional; defaults to the anchor
-  // message name (e.g. a "CounterState" anchor named "Counter" emits
-  // CounterHandler / NewCounterDispatch).
+  // Generated handler/dispatch base name: a CODE identifier. Optional;
+  // defaults to the anchor message name (e.g. a "CounterState" anchor named
+  // "Counter" emits CounterHandler / NewCounterDispatch). Not the
+  // component's name in an application: that is component_name.
   string name = 4;
   // Domain of the event stream this component owns: the aggregate's domain,
   // or the process manager's own workflow domain (its events are persisted
@@ -103,6 +108,37 @@ message ComponentOptions {
   // angzarr.io/domain label and a process manager's angzarr.io/pm label
   // carry this value.
   string domain = 7;
+  // PROJECTOR only: the source domains this projector subscribes to, one
+  // projector over several domains (decision 14.50). One handler serves
+  // them all: the generated projector dispatches each event by its type
+  // and receives its source domain with it. Every (event) entry naming
+  // this projector sets a domain, and that domain must be one of these
+  // (generation fails otherwise). Setting input_domains and input_domain
+  // together fails generation; input_domain alone means the one-entry
+  // list; neither means the sources are the domains its (event) entries
+  // name. A domain listed twice, or listed with no (event) entry naming
+  // it, fails generation. Set on any other kind, generation fails (a
+  // policy has exactly one source, input_domain).
+  repeated string input_domains = 8;
+  // The component's NAME in an application (decision 14.50): what the
+  // host config's [[component]] entry, the generated registration and
+  // hand-written code call it, all through the one public helper that
+  // computes it from these options. Optional; when empty it defaults by
+  // kind:
+  //   AGGREGATE        its domain                          "table"
+  //   PROCESS_MANAGER  "pmg-" + its domain                 "pmg-buy-in"
+  //   POLICY           "policy-" + input_domain + "-"      "policy-table-player"
+  //                    + output_domain (unique: one policy
+  //                    per pair)
+  //   PROJECTOR        "projector-" + the anchor message   "projector-ledger-projection"
+  //                    name in kebab case
+  // Kebab case: a "-" before each capital that follows a lower-case letter
+  // or a digit, or that is followed by a lower-case letter and follows a
+  // capital, then all lower-case ("HTTPServerView" -> "http-server-view").
+  // A name is lower-case ASCII letters, digits and "-", starting with a
+  // letter; anything else fails generation. Two components of one
+  // application with one name is a lint (`angzarr lint app`).
+  string component_name = 9;
 }
 
 // Marks a message as a COMMAND or FACT payload (CommandOptions.fact says
@@ -140,8 +176,10 @@ message CommandOptions {
   // handler may refuse with: messages of the command's own domain (e.g.
   // InsufficientFunds { available, requested }), business-specific, never
   // events. The parallel of emits, in the same form (decision 14.31, the
-  // owner's ruling). When set, the generated handler returns its typed
-  // events or one of these typed refusals; when empty, it may refuse with a
+  // owner's ruling). A command may name several (decision 14.50), e.g. a
+  // domain-wide refusal with a Reason enum beside a command's own. When
+  // set, the generated handler returns its typed events or one of these
+  // typed refusals; when empty, it may refuse with a
   // raw refusal payload (google.protobuf.Any), or with a message only.
   // Either way the client library packs the chosen refusal object (the
   // concrete message, e.g. InsufficientFunds) into the rejection's status
@@ -163,6 +201,32 @@ message CommandOptions {
   // fact fails generation; starts applies to both (a process manager may
   // start from a command or from a fact); emits applies to both.
   bool fact = 5;
+  // How many events one handling of this input emits, of its emits types
+  // (decision 14.50). Unset is EMITS_CARDINALITY_ONE. The generated
+  // handler's return type follows it in each language; see
+  // EmitsCardinality. Applies to commands and facts alike. Set with no
+  // emits (raw payloads), only MANY is accepted (the raw form is already a
+  // list); ONE or OPTIONAL there fails generation.
+  EmitsCardinality emits_cardinality = 6;
+}
+
+// The emits cardinality of a command or fact (CommandOptions.emits_cardinality).
+enum EmitsCardinality {
+  // Unset: EMITS_CARDINALITY_ONE.
+  EMITS_CARDINALITY_UNSPECIFIED = 0;
+  // Exactly one event of each emits type, in the listed order: one event
+  // for one type, a fixed tuple for several (e.g. CreateTable's
+  // TableCreated + ShoeShuffled). The default.
+  EMITS_CARDINALITY_ONE = 1;
+  // That, or nothing: a handling may emit no events (e.g. a repeated
+  // ConfirmSeat already applied). Generated as an optional value (Rust
+  // Option, Python None).
+  EMITS_CARDINALITY_OPTIONAL = 2;
+  // Any number of events, each of one of the emits types, in any order,
+  // none included (e.g. Hit: CardDealt, then TurnStarted or DealerPlayed +
+  // RoundSettled). Generated as a sequence of the emits types' choice (the
+  // event enum).
+  EMITS_CARDINALITY_MANY = 3;
 }
 
 // Marks a message as an EVENT consumed by ONE component. The extension is
@@ -173,7 +237,11 @@ message CommandOptions {
 // domain's (decision 14.31). For a POLICY / PROJECTOR it generates a reaction
 // handler. The component's kind selects which.
 message EventConsumer {
-  // The anchor message of the component that consumes this event.
+  // The anchor message of the component that consumes this event. A
+  // component outside the descriptor set being generated is a REFERENCE,
+  // not an error (decision 14.50): the generator skips the entry, so one
+  // domain's protos generate alone; `angzarr lint app` reports a consumer
+  // an application lists but does not have.
   string component = 1;
   // Source domain: the policy / projector input filter. Unset for an
   // aggregate's or a process manager's own applied events; set on a PM's
@@ -458,7 +526,28 @@ extend google.protobuf.FieldOptions {
 // hands it on as RefusalResponse.refusal (types.proto). The refusing
 // domain records nothing. Generator diagnostics, mirroring emits': a
 // refuses type that does not resolve, or that is not a message of the
-// command's own domain, fails generation.
+// command's own domain, fails generation. A command may name several
+// refuses types (decision 14.50).
+//
+// Rejection codes as a typed refusal (decision 14.50). A domain whose
+// commands refuse with codes declares them as one typed refusal message
+// with a nested Reason enum and one field per argument the codes carry:
+//   message TableRefused {
+//     enum Reason {
+//       REASON_UNSPECIFIED = 0;
+//       REASON_ALREADY_BET = 1;
+//       ...
+//     }
+//     Reason reason = 1;
+//     optional int32 seat = 2;   // the args, set only where the code names one
+//     ...
+//   }
+// named in each refusing command's refuses. The ErrorInfo.reason on the
+// wire is the value's name without the enum's prefix (`ALREADY_BET`). The
+// generated refusal's diagnostic key is the generator's, from the
+// refusal's full name and the reason, and its args are the message's set
+// fields (the reason among them); a public helper of the client library
+// reproduces the key, so hand-written code refuses identically.
 //
 // The policy's side. When a policy's command is refused, the policy's
 // coordinator calls PolicyService.OnRefused, and ONE fact of the refusal is
