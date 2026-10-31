@@ -4100,6 +4100,28 @@ C-0714 asserted (ported from angzarr-router's conformance features, 14.42).
   edited when a domain is added. client-python drops `WILDCARD_DOMAIN` and
   the `"*"` path of `ProjectorDispatch` and `describe()`.
 
+**14.54 `buf breaking` gates the spec.** Owner ruling, 2026-10-31
+(architecture review, Q6). The trigger 6.6 (D6) and backlog GAP-3 named,
+"the first production event any store keeps", has fired: taskloom has
+kept its events in angzarr-embedded's SQLite store since 2026-10-31.
+- **The gate.** `just proto-breaking` (buf.yaml's `WIRE_JSON` rules)
+  compares the protos against their merge base with the spec draft (the
+  justfile's `DRAFT_BRANCH`), so a branch answers only for what it
+  changed. It runs in `just contracts`, the Contracts workflow, and the
+  pre-push hook (`push-check`), for each pushed commit: refused on a
+  protected branch (the default and the dated drafts), a warning on any
+  other, the rule red tests follow.
+- **From now on** a removed field, enum value or message reserves its
+  number and name in the same change (6.6), and an incompatible change is
+  a new message version plus an upcaster (14.39), never an edit in place.
+  Stored data is no longer wiped across schema changes.
+- Nothing is reserved by this entry: nothing was removed between the first
+  stored event and the gate.
+- Why: the ruling. Stored events must keep decoding; a wire break found
+  at review is found too late.
+- Cost: every proto change is held to compatibility; the gate needs the
+  draft fetched, and docker, as proto-lint does. GAP-3 is closed.
+
 ## Corrections
 
 Facts the earlier passes or the design note got wrong:

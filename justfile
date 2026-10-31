@@ -71,8 +71,13 @@ check-rules:
 
 BUF_IMAGE := "bufbuild/buf:1.47.2"
 
-# Branch/ref the optional proto-breaking check compares against.
-BREAKING_AGAINST := env_var_or_default("BREAKING_AGAINST", "origin/main")
+# The spec draft every wire change lands on, and the line `proto-breaking`
+# guards: bump it with the draft.
+DRAFT_BRANCH := "spec/20261019-draft"
+
+# A ref to compare against instead of the merge base with the draft (a
+# manual check against some other line); empty in every gate.
+BREAKING_AGAINST := env_var_or_default("BREAKING_AGAINST", "")
 
 # Lint the protos under proto/ with the repo's buf.yaml
 proto-lint:
@@ -86,20 +91,41 @@ proto-lint:
         -v "$root:$root:ro" -w "$root/proto" {{BUF_IMAGE}} -c \
         'files=$(buf ls-files 2>&1) && [ -n "$files" ] || { echo "proto-lint: buf sees no .proto files under $PWD: $files" >&2; exit 1; }; buf lint'
 
-# Optional manual check (not part of `contracts` or CI): report wire/JSON
-# breakage against BREAKING_AGAINST via buf's git input. Stored data is wiped
-# across schema changes during active development, so breakage is allowed.
-proto-breaking:
+# Wire and JSON compatibility (decision 14.54; buf.yaml's WIRE_JSON rules):
+# the protos at `ref` (a commit; empty means the working tree) against the
+# merge base of that commit (HEAD for the working tree) with `base` (the
+# draft), so a branch is held only to what it changed, never to what the
+# draft gained after it forked. A removed field, value or message needs a
+# `reserved` statement; an incompatible change needs a new message
+# version and an upcaster. Run by `contracts`, CI and the pre-push hook.
+proto-breaking ref="" base=("origin/" + DRAFT_BRANCH):
     #!/usr/bin/env bash
     set -euo pipefail
     root="$(git rev-parse --show-toplevel)"
     # The common git dir is the real repository even from a linked
     # worktree; mount it at the same path so buf's git input resolves.
     gitdir="$(git rev-parse --path-format=absolute --git-common-dir)"
+    ref='{{ref}}'
+    against='{{BREAKING_AGAINST}}'
+    if [ -z "$against" ]; then
+        if ! git rev-parse --verify --quiet '{{base}}^{commit}' > /dev/null; then
+            echo "proto-breaking: no {{base}} here to compare against (git fetch it)" >&2
+            exit 1
+        fi
+        against=$(git merge-base "${ref:-HEAD}" '{{base}}')
+    else
+        against=$(git rev-parse --verify "$against^{commit}")
+    fi
+    if [ -n "$ref" ]; then
+        input="$gitdir#ref=$(git rev-parse --verify "$ref^{commit}"),subdir=proto"
+    else
+        input=proto
+    fi
     docker run --rm -e BUF_CACHE_DIR=/tmp/buf-cache \
         -e GIT_CONFIG_COUNT=1 -e GIT_CONFIG_KEY_0=safe.directory -e GIT_CONFIG_VALUE_0="*" \
         -v "$root:$root:ro" -v "$gitdir:$gitdir:ro" -w "$root" {{BUF_IMAGE}} \
-        breaking proto --against "$gitdir#ref={{BREAKING_AGAINST}},subdir=proto"
+        breaking "$input" --against "$gitdir#ref=$against,subdir=proto"
+    echo "ok   proto-breaking (${ref:-the working tree} against $(git rev-parse --short "$against"))"
 
 # Every scenario carries exactly one unique @<TIER>-NNNN tag
 check-feature-ids *dirs="features/client features/coordinator-contract features/handler-contract features/codegen parity features/example/blackjack features/example/blackjack-framework features/example/blackjack-acceptance":
@@ -116,8 +142,8 @@ check-gherkin *dirs="features parity":
     docker run --rm -v "$root:$root:ro" -w "$root" {{GHERKIN_IMAGE}} sh -c \
         "pip install --quiet --disable-pip-version-check --root-user-action=ignore gherkin-official=={{GHERKIN_VERSION}} && python scripts/check_gherkin_parse.py {{dirs}}"
 
-# Required contract gates (proto-breaking is optional and run by hand)
-contracts: proto-lint test-check-feature-ids check-feature-ids check-gherkin check-rules check-reason-names test-check-reason-keys check-reason-keys
+# Required contract gates
+contracts: proto-lint proto-breaking test-check-feature-ids check-feature-ids check-gherkin check-rules check-reason-names test-check-reason-keys check-reason-keys
 
 # The features, the protos and the site docs (the generated Proto API page
 # aside) name no retired reason key, bare or prefixed, and no live key
@@ -180,7 +206,10 @@ PROTECTED_BRANCHES := "spec/*-draft"
 # of the commit pushed and the remote's current tip of that ref (a
 # fast-forward's base is that tip); for a new ref, or a tip not fetched here,
 # the merge base with the remote's default branch (<remote>/HEAD, else main).
-# A deleted ref passes at once. The log is target/logs/push-tests.log.
+# A deleted ref passes at once. The log is target/logs/push-tests.log. Each
+# pushed commit is also held to `proto-breaking` against its merge base with
+# the remote's draft (DRAFT_BRANCH), under the same red-on-a-branch rule; its
+# log is target/logs/push-breaking.log.
 #
 # Red tests are allowed on a branch and kept out of the protected ones (the
 # default branch and PROTECTED_BRANCHES): pushed to another branch, failing
@@ -201,6 +230,7 @@ push-check remote *lefthook:
     tree="$top/target/push-tree"
     mkdir -p "$top/target/logs"
     log="$top/target/logs/push-tests.log"
+    blog="$top/target/logs/push-breaking.log"
     exec 9> "$top/target/.push-tree.lock"
     flock 9
     # git exports repository-locating variables (GIT_DIR, ...) into a hook;
@@ -253,5 +283,20 @@ push-check remote *lefthook:
             exit 1
         fi
         echo "ok   push-check ($range): tests pass"
+        # Wire compatibility (decision 14.54): the pushed commit's protos
+        # against its merge base with the remote's draft, held to the same
+        # rule as the tests.
+        brc=0
+        (cd "$top" && just --justfile "$top/justfile" proto-breaking "$local_sha" "$remote/{{DRAFT_BRANCH}}") > "$blog" 2>&1 9>&- || brc=$?
+        if [ "$brc" -ne 0 ]; then
+            if [ -z "$guarded" ]; then
+                echo "RED  push-check: $range: buf breaking fails (target/logs/push-breaking.log); allowed off ${protected[*]}, which $target cannot merge into until it passes"
+                continue
+            fi
+            echo "FAIL push-check: $range: buf breaking fails, and $target takes no wire break (full log: target/logs/push-breaking.log)" >&2
+            tail -20 "$blog" >&2 || true
+            exit 1
+        fi
+        echo "ok   push-check ($range): buf breaking passes"
     done
     [ "$pushed" = 1 ] || echo "ok   push-check (no commit pushed: nothing to test)"

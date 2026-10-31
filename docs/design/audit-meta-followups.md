@@ -9,11 +9,11 @@ Open. The `feat/audit-meta` passes (1–14) changed **only** the protos under
 code consequence is recorded in the backlog, which is the part that must not
 be lost.
 
-Wire breaks are accepted pre-freeze. Reservation policy (D6, pass 6):
-removed fields and messages are deleted outright, with no `reserved`
-statements, up to and including pass 13. From the first stored production
-event onwards, every removal reserves its number and name (see
-`proto/buf.yaml` and backlog GAP-3).
+Wire breaks are gated (decision 14.54): taskloom's store kept the first
+production events on 2026-10-31, so `buf breaking` gates the spec, and
+every removal reserves its number and name (reservation policy D6, pass
+6; see `proto/buf.yaml`). Before then, removed fields and messages were
+deleted outright, with no `reserved` statements.
 
 ## Documents
 

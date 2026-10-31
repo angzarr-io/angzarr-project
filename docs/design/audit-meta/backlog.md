@@ -1357,12 +1357,12 @@ no-op implementations only.
 - Why: matching annals would need a coordinator-level unit of work.
 - Settled when: the user decides whether angzarr wants one.
 
-**GAP-3** [project] **`buf breaking` does not gate merges.**
-- What: `just proto-breaking` is manual, and `contracts.yml` lints only.
-- Why: wire breaks are accepted pre-freeze.
-- Settled when: it gates at v0.1.0, or before hatpick stores production
-  events. The same moment starts `reserved` statements for every removed
-  field (decision 6.6, D6, written in `proto/buf.yaml`).
+**GAP-3** [project] **`buf breaking` does not gate merges.** Closed by
+decision 14.54: taskloom's store kept the first production events
+(2026-10-31), so `just proto-breaking` gates `just contracts`, the
+Contracts workflow and the pre-push hook, against the merge base with the
+spec draft, and every removal is reserved from then on (decision 6.6, D6,
+written in `proto/buf.yaml`).
 
 ## DOC: site, feature specs and branches
 

@@ -11,18 +11,19 @@ lint:
     - RPC_RESPONSE_STANDARD_NAME
     - SERVICE_SUFFIX
     - IMPORT_USED
-# Breaking checks report wire + JSON incompatibility. Nothing is gated on
-# them yet (backlog GAP-3).
+# Breaking checks report wire + JSON incompatibility, and gate (decision
+# 14.54): `just proto-breaking` runs in `just contracts`, the Contracts
+# workflow and the pre-push hook, against the merge base with the spec
+# draft (the justfile's DRAFT_BRANCH).
 #
-# Reservation policy (decision D6, pass 6): reserve from the first stored
-# production event onwards. Until then (every pass up to and including
-# pass 14) removed fields, enum values and messages are deleted outright,
-# with no `reserved` statements, and stored data is wiped across schema
-# changes. From the first production event any store keeps (hatpick stores
-# EventPage bytes as written), every removed field number and name gets a
-# `reserved` statement in the same change that removes it, so a later field
-# can never misdecode stored rows. That moment is also when `buf breaking`
-# starts gating merges (the gate-wire-compat trigger).
+# Reservation policy (decision D6, pass 6, in force since 14.54): the
+# first production event any store keeps was taskloom's, on 2026-10-31.
+# From then on every removed field number and name, and every removed enum
+# value, gets a `reserved` statement in the same change that removes it, so
+# a later field can never misdecode stored rows; an incompatible change is
+# a new message version plus an upcaster. Stored data is no longer wiped
+# across schema changes. (Up to then removals were deleted outright,
+# unreserved.)
 breaking:
   use:
     - WIRE_JSON
