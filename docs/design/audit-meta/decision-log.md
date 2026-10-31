@@ -4252,6 +4252,43 @@ over a local socket".
   angzarr-embedded's host is held to the text where it differs (its
   malformed key, and readiness it does not check yet).
 
+**14.60 A framework key is its own code, its args and English are the
+spec's.** Admitted by the owner, 2026-10-31, as architecture-fixes C2
+(review K5 and layering F4: "spec keys as the codes"). Amends 14.37's
+catalog rule and 14.44.
+- **The rule.** A condition the spec keys (RouterReason, HostReason,
+  CoordinatorReason) is answered under that key, verbatim, everywhere:
+  on the wire, as before, and as every runtime's in-process diagnostic
+  code, which no runtime renames to a code of its own. Crate-prefixed
+  codes stay for conditions the spec does not key.
+- **Args on the value.** Each live key's args are named by a custom
+  option on its value, `(io.angzarr.v1.reason) = { args: [...] }`
+  (`ReasonOptions`, extending `EnumValueOptions` at 50109, after
+  `refusal_status`'s 50108), `{}` for a key with none, so a key whose
+  args were never declared is told apart. The value comments no longer
+  list args. A key whose answerers give different args
+  (ROUTER_REASON_DUPLICATE_COMPONENT: the router's component and
+  component_kind, the host's registered and refused) declares every
+  name, and an answer gives none it does not declare. Each language
+  generates its arg-name constants from the option; none types them by
+  hand.
+- **One catalog.** `proto/io/angzarr/v1/reasons.en-US.ftl` holds the
+  English for every live key, one message each, naming only args every
+  answer of its key gives and never its `cause` (a wrapped key renders
+  as its own message). It is language-neutral data that every runtime
+  embeds, so it sits under `proto/io/angzarr/`, beside reasons.proto,
+  where 14.58 puts what a user's process links.
+- **The gate.** `just check-reason-keys` refuses a live key without the
+  option, an arg that is not snake_case or is declared twice, and a
+  catalog with a key missing, a message for no live key, a message
+  twice, or a variable its key does not declare.
+- Why: one condition had two names (the key and a runtime's code) with
+  translation tables between them, its arg names were prose re-typed in
+  three places, and no catalog held a spec key (review K5, F4).
+- Cost: buf-compatible (an option added, no field or value changed);
+  every runtime's codes for spec conditions change to the keys, and
+  its own catalog drops their messages.
+
 ## Corrections
 
 Facts the earlier passes or the design note got wrong:

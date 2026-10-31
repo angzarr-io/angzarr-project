@@ -174,8 +174,10 @@ test-check-feature-ids:
     python3 -m unittest scripts/test_check_feature_ids.py
 
 # reasons.proto's keys keep decision 14.44's rules (every key carries its
-# enum's prefix, every enum reserves every retired key), read from the
-# descriptor buf builds in its pinned container. The Rust crates' own
+# enum's prefix, every enum reserves every retired key) and 14.60's (every
+# key declares its args; reasons.en-US.ftl holds one message per key, naming
+# only its args), read from the descriptor buf builds in its pinned
+# container. The Rust crates' own
 # reason tests (generated code) live with angzarr-proto in angzarr-core.
 check-reason-keys:
     #!/usr/bin/env bash
@@ -184,7 +186,7 @@ check-reason-keys:
     docker run --rm -e BUF_CACHE_DIR=/tmp/buf-cache \
         -v "$root:$root:ro" -w "$root/proto" {{BUF_IMAGE}} \
         build -o '-#format=json' --path io/angzarr/v1/reasons.proto \
-        | python3 "$root/scripts/check_reason_keys.py" -
+        | python3 "$root/scripts/check_reason_keys.py" - "$root/proto/io/angzarr/v1/reasons.en-US.ftl"
 
 # Unit tests for the reason-key checker
 test-check-reason-keys:

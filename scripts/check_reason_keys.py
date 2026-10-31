@@ -14,13 +14,22 @@ runs buf in its pinned container):
 - every live key is ``<PREFIX><SCREAMING_SNAKE>``, and no key is in two enums;
 - every enum reserves exactly RETIRED under its prefix, reserves no number
   (numbers are bookkeeping), and answers no retired key;
-- the owners' keys pinned by decisions 14.45 to 14.49 are there.
+- the owners' keys pinned by decisions 14.45 to 14.49 are there;
+- every live key declares its args on its ``(io.angzarr.v1.reason)``
+  option, ``{}`` for none, each name snake_case and declared once
+  (decision 14.60);
+
+and, given the en-US catalog beside the proto (``reasons.en-US.ftl``,
+decision 14.60), that it holds one message per live key and no other, each
+naming only args its key declares, and never its ``cause``, which renders as
+a key of its own.
 
 Ported from angzarr-proto's ``tests/reasons.rs`` when the Rust crates moved to
 angzarr-core; the generated-code assertions (``as_str_name`` and friends) stay
 with the crate there.
 
-Usage: check_reason_keys.py DESCRIPTOR.json   (``-`` reads stdin)
+Usage: check_reason_keys.py DESCRIPTOR.json CATALOG.ftl   (``-`` reads the
+descriptor from stdin)
 
 Exits 0 when every rule holds, 1 otherwise (one line per problem).
 """
@@ -33,6 +42,12 @@ import sys
 from typing import Any
 
 REASONS_PROTO = "io/angzarr/v1/reasons.proto"
+
+# The en-US catalog of the keys, from the repository root.
+CATALOG = "proto/io/angzarr/v1/reasons.en-US.ftl"
+
+# How buf's JSON descriptor names the (io.angzarr.v1.reason) option.
+REASON_OPTION = "[io.angzarr.v1.reason]"
 
 PREFIXES = {
     "RouterReason": "ROUTER_REASON_",
@@ -113,6 +128,7 @@ PINNED = (
 )
 
 SCREAMING_SNAKE = re.compile(r"^[A-Z0-9_]+$")
+SNAKE = re.compile(r"^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$")
 
 
 def check(descriptor: dict[str, Any]) -> list[str]:
@@ -169,22 +185,116 @@ def check(descriptor: dict[str, Any]) -> list[str]:
     for key in PINNED:
         if key not in every:
             problems.append(f"{key}: a decision pins it, and it is not a live key")
+    problems.extend(_arg_problems(enums))
+    return problems
+
+
+def _live_values(enums: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Every value but the zeros of the enums this checks."""
+    return [v for e in enums if e.get("name") in PREFIXES for v in e.get("value", []) if v.get("number", 0) != 0]
+
+
+def _arg_problems(enums: list[dict[str, Any]]) -> list[str]:
+    """Each live key's (reason) option: present, its args snake_case, each once."""
+    problems: list[str] = []
+    for value in _live_values(enums):
+        key = value.get("name", "")
+        option = value.get("options", {}).get(REASON_OPTION)
+        if option is None:
+            problems.append(f"{key}: declares no args (its (reason) option is missing)")
+            continue
+        args = option.get("args", [])
+        for arg in args:
+            if not SNAKE.match(arg):
+                problems.append(f"{key}: arg {arg!r} is not snake_case")
+        for arg in sorted({a for a in args if args.count(a) > 1}):
+            problems.append(f"{key}: arg {arg} declared twice")
+    return problems
+
+
+def _reasons_enums(descriptor: dict[str, Any]) -> list[dict[str, Any]]:
+    """reasons.proto's enums: the first such file's (check reports a second)."""
+    for f in descriptor.get("file", []):
+        if f.get("name") == REASONS_PROTO:
+            return f.get("enumType", [])
+    return []
+
+
+def declared_args(descriptor: dict[str, Any]) -> dict[str, list[str]]:
+    """Each live key's declared args, by key: what its (reason) option names."""
+    return {
+        v.get("name", ""): list(v.get("options", {}).get(REASON_OPTION, {}).get("args", []))
+        for v in _live_values(_reasons_enums(descriptor))
+    }
+
+
+MESSAGE = re.compile(r"^([A-Za-z][A-Za-z0-9_-]*) =(?: (.*))?$")
+VARIABLE = re.compile(r"\$([A-Za-z][A-Za-z0-9_-]*)")
+
+
+def parse_catalog(text: str) -> tuple[dict[str, set[str]], list[str]]:
+    """The catalog's messages, each id with the variables it names, and its
+    problems: a message twice, a line that is no comment, message or
+    continuation. The subset of Fluent a catalog of messages uses."""
+    messages: dict[str, set[str]] = {}
+    problems: list[str] = []
+    current: str | None = None
+    for number, line in enumerate(text.splitlines(), start=1):
+        if not line.strip() or line.startswith("#"):
+            current = None
+            continue
+        if line.startswith(" ") and current is not None:
+            messages[current] |= set(VARIABLE.findall(line))
+            continue
+        match = MESSAGE.match(line)
+        if match is None:
+            problems.append(f"line {number}: not a message, comment or continuation: {line!r}")
+            current = None
+            continue
+        current = match.group(1)
+        if current in messages:
+            problems.append(f"{current}: two messages")
+        messages[current] = set(VARIABLE.findall(match.group(2) or ""))
+    return messages, problems
+
+
+def check_catalog(descriptor: dict[str, Any], text: str) -> list[str]:
+    """Every rule the catalog `text` breaks against the descriptor's keys."""
+    declared = declared_args(descriptor)
+    messages, problems = parse_catalog(text)
+    for key in declared:
+        if key not in messages:
+            problems.append(f"{key}: no message in the catalog")
+    for key, variables in sorted(messages.items()):
+        if key not in declared:
+            problems.append(f"{key}: a message for no live key")
+            continue
+        if "cause" in variables:
+            problems.append(f"{key}: names its cause, which renders as its own key")
+        undeclared = sorted(variables - set(declared[key]))
+        if undeclared:
+            problems.append(f"{key}: names {', '.join(undeclared)}, which it does not declare")
     return problems
 
 
 def main(argv: list[str]) -> int:
-    if len(argv) != 2:
-        print("usage: check_reason_keys.py DESCRIPTOR.json  (- reads stdin)", file=sys.stderr)
+    if len(argv) != 3:
+        print("usage: check_reason_keys.py DESCRIPTOR.json CATALOG.ftl  (- reads stdin)", file=sys.stderr)
         return 2
     src = sys.stdin if argv[1] == "-" else open(argv[1], encoding="utf-8")
     with src:
         descriptor = json.load(src)
-    problems = check(descriptor)
+    with open(argv[2], encoding="utf-8") as ftl:
+        catalog = ftl.read()
+    problems = check(descriptor) + check_catalog(descriptor, catalog)
     for p in problems:
         print(f"FAIL check-reason-keys: {p}", file=sys.stderr)
     if problems:
         return 1
-    print(f"ok   check-reason-keys ({len(PREFIXES)} enums, every key prefixed, {len(RETIRED)} retired keys reserved)")
+    print(
+        f"ok   check-reason-keys ({len(PREFIXES)} enums, every key prefixed and its args declared, "
+        f"{len(RETIRED)} retired keys reserved, {len(declared_args(descriptor))} messages in the catalog)"
+    )
     return 0
 
 

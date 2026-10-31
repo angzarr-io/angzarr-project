@@ -19,7 +19,10 @@ import check_reason_keys as crk  # noqa: E402
 def _enum(name: str, keys: list[str]) -> dict[str, Any]:
     prefix = crk.PREFIXES[name]
     values = [{"name": f"{prefix}UNSPECIFIED", "number": 0}]
-    values += [{"name": k, "number": n} for n, k in enumerate(keys, start=1)]
+    values += [
+        {"name": k, "number": n, "options": {crk.REASON_OPTION: {"args": ["domain"]}}}
+        for n, k in enumerate(keys, start=1)
+    ]
     return {
         "name": name,
         "value": values,
@@ -47,6 +50,21 @@ def _good() -> dict[str, Any]:
 
 def _enum_of(d: dict[str, Any], name: str) -> dict[str, Any]:
     return next(e for e in d["file"][1]["enumType"] if e["name"] == name)
+
+
+def _value(d: dict[str, Any], key: str) -> dict[str, Any]:
+    return next(v for e in d["file"][1]["enumType"] for v in e["value"] if v["name"] == key)
+
+
+def _catalog(d: dict[str, Any]) -> str:
+    """A conforming catalog of `d`: one message per live key, each using its first arg."""
+    lines = ["# English for the keys.", ""]
+    for e in d["file"][1]["enumType"]:
+        for v in e["value"][1:]:
+            args = v.get("options", {}).get(crk.REASON_OPTION, {}).get("args", [])
+            body = f"a {{ ${args[0]} }} failed" if args else "it failed"
+            lines.append(f"{v['name']} = {body}")
+    return "\n".join(lines) + "\n"
 
 
 class CheckReasonKeysTest(unittest.TestCase):
@@ -178,24 +196,133 @@ class CheckReasonKeysTest(unittest.TestCase):
         crk.check(d)
         self.assertEqual(d, before)
 
+    def test_every_live_key_declares_its_args(self) -> None:
+        d = _good()
+        del _value(d, "HOST_REASON_HANDSHAKE_MALFORMED")["options"]
+        self.assertProblem(d, "HOST_REASON_HANDSHAKE_MALFORMED: declares no args (its (reason) option is missing)")
+
+    def test_an_empty_option_declares_no_args(self) -> None:
+        d = _good()
+        _value(d, "HOST_REASON_HANDSHAKE_MALFORMED")["options"] = {crk.REASON_OPTION: {}}
+        self.assertEqual(crk.check(d), [])
+        self.assertEqual(crk.declared_args(d)["HOST_REASON_HANDSHAKE_MALFORMED"], [])
+
+    def test_declared_args_are_read_per_key(self) -> None:
+        d = _good()
+        _value(d, "ROUTER_REASON_TOO_MANY_STEPS")["options"] = {crk.REASON_OPTION: {"args": ["limit"]}}
+        declared = crk.declared_args(d)
+        self.assertEqual(declared["ROUTER_REASON_TOO_MANY_STEPS"], ["limit"])
+        self.assertNotIn("ROUTER_REASON_UNSPECIFIED", declared)
+
+    def test_an_arg_named_twice(self) -> None:
+        d = _good()
+        _value(d, "ROUTER_REASON_TOO_MANY_STEPS")["options"] = {crk.REASON_OPTION: {"args": ["limit", "limit"]}}
+        self.assertProblem(d, "ROUTER_REASON_TOO_MANY_STEPS: arg limit declared twice")
+
+    def test_an_arg_not_snake_case(self) -> None:
+        for bad in ("Limit", "cause.ext_err_txt", "step-limit", "", "_limit", "9lives", "limit_", "step__limit"):
+            with self.subTest(arg=bad):
+                d = _good()
+                _value(d, "ROUTER_REASON_TOO_MANY_STEPS")["options"] = {crk.REASON_OPTION: {"args": [bad]}}
+                self.assertProblem(d, f"ROUTER_REASON_TOO_MANY_STEPS: arg {bad!r} is not snake_case")
+
+    def test_a_conforming_catalog_passes(self) -> None:
+        d = _good()
+        self.assertEqual(crk.check_catalog(d, _catalog(d)), [])
+
+    def test_a_key_with_no_message(self) -> None:
+        d = _good()
+        text = "\n".join(l for l in _catalog(d).splitlines() if not l.startswith("HOST_REASON_HANDSHAKE_MALFORMED "))
+        self.assertIn("HOST_REASON_HANDSHAKE_MALFORMED: no message in the catalog", crk.check_catalog(d, text))
+
+    def test_a_message_for_no_live_key(self) -> None:
+        d = _good()
+        for stray in ("ROUTER_REASON_UNSPECIFIED", "ROUTER_REASON_NULL_ABI_POINTER", "angzarr-embedded-stale"):
+            with self.subTest(stray=stray):
+                text = _catalog(d) + f"{stray} = stray\n"
+                self.assertIn(f"{stray}: a message for no live key", crk.check_catalog(d, text))
+
+    def test_a_message_twice(self) -> None:
+        d = _good()
+        text = _catalog(d) + "ROUTER_REASON_TOO_MANY_STEPS = again\n"
+        self.assertIn("ROUTER_REASON_TOO_MANY_STEPS: two messages", crk.check_catalog(d, text))
+
+    def test_a_message_naming_an_undeclared_arg(self) -> None:
+        d = _good()
+        text = _catalog(d) + "\n"
+        text = text.replace(
+            "ROUTER_REASON_TOO_MANY_STEPS = a { $domain } failed",
+            "ROUTER_REASON_TOO_MANY_STEPS = stream { $stream } ran { $count ->\n    [one] a step\n   *[other] { $count } steps\n  }",
+        )
+        problems = crk.check_catalog(d, text)
+        self.assertIn("ROUTER_REASON_TOO_MANY_STEPS: names count, stream, which it does not declare", problems)
+
+    def test_a_message_naming_its_cause(self) -> None:
+        d = _good()
+        _value(d, "COORDINATOR_REASON_STORE_UNAVAILABLE")["options"] = {crk.REASON_OPTION: {"args": ["cause"]}}
+        text = _catalog(d).replace(
+            "COORDINATOR_REASON_STORE_UNAVAILABLE = a { $cause } failed",
+            "COORDINATOR_REASON_STORE_UNAVAILABLE = failed: { $cause }",
+        )
+        problems = crk.check_catalog(d, text)
+        self.assertEqual(
+            problems, ["COORDINATOR_REASON_STORE_UNAVAILABLE: names its cause, which renders as its own key"]
+        )
+
+    def test_a_catalog_line_that_is_no_message(self) -> None:
+        d = _good()
+        text = _catalog(d) + "not a message\n"
+        self.assertTrue(any("line" in p and "not a message" in p for p in crk.check_catalog(d, text)))
+
+    def test_a_continuation_with_no_message_above_it(self) -> None:
+        for text in ("  { $x }\n", "# a comment\n  { $x }\n", "KEY_A = a\nnot a message\n  { $x }\n"):
+            with self.subTest(text=text):
+                messages, problems = crk.parse_catalog(text)
+                self.assertTrue(any("not a message" in p and "$x" in p for p in problems), problems)
+                self.assertNotIn("x", messages.get("KEY_A", set()))
+
+    def test_continuation_and_comment_lines(self) -> None:
+        text = "# a comment\n## a group\n\nKEY_A = one { $a ->\n    [one] x\n   *[other] { $b }\n  }\nKEY_B = two\n"
+        self.assertEqual(crk.parse_catalog(text), ({"KEY_A": {"a", "b"}, "KEY_B": set()}, []))
+
+    def test_the_real_catalog_against_the_real_proto(self) -> None:
+        # The catalog shipped beside reasons.proto conforms to the keys that
+        # build into this test's descriptor shape: every message is a
+        # well-formed entry, which is all this test can know without buf.
+        text = (Path(__file__).resolve().parent.parent / crk.CATALOG).read_text(encoding="utf-8")
+        messages, problems = crk.parse_catalog(text)
+        self.assertEqual(problems, [])
+        self.assertIn("HOST_REASON_HANDSHAKE_MALFORMED", messages)
+
     def test_main_exit_codes(self) -> None:
+        import tempfile
+
         bad = _good()
         _enum_of(bad, "HostReason")["reservedRange"] = [{"start": 5, "end": 5}]
-        for descriptor, code in ((_good(), 0), (bad, 1)):
-            with self.subTest(code=code):
+        no_message = _good()
+        for descriptor, catalog, code in (
+            (_good(), _catalog(_good()), 0),
+            (bad, _catalog(bad), 1),
+            (no_message, "", 1),
+        ):
+            with self.subTest(code=code, catalog=bool(catalog)):
                 out, err = io.StringIO(), io.StringIO()
                 sys.stdin = io.StringIO(json.dumps(descriptor))
+                with tempfile.NamedTemporaryFile("w", suffix=".ftl", delete=False) as ftl:
+                    ftl.write(catalog)
                 try:
                     with redirect_stdout(out), redirect_stderr(err):
-                        self.assertEqual(crk.main(["check_reason_keys.py", "-"]), code)
+                        self.assertEqual(crk.main(["check_reason_keys.py", "-", ftl.name]), code)
                 finally:
                     sys.stdin = sys.__stdin__
+                    Path(ftl.name).unlink()
                 if code:
                     self.assertIn("FAIL check-reason-keys", err.getvalue())
                 else:
                     self.assertIn("ok   check-reason-keys", out.getvalue())
         with redirect_stderr(io.StringIO()):
             self.assertEqual(crk.main(["check_reason_keys.py"]), 2)
+            self.assertEqual(crk.main(["check_reason_keys.py", "-"]), 2)
 
 
 if __name__ == "__main__":
