@@ -4166,6 +4166,28 @@ Owner ruling, 2026-10-31. Follows 14.37 and 14.51.
 - Cost: every coordinator answers one more key; angzarr-embedded is
   re-keyed to it later.
 
+**14.57 The protos are BSD-3-Clause; the rest of the spec stays AGPL.**
+Owner ruling, 2026-10-31: "BSD wherever linked". User business logic must
+never be bound by the AGPL: anything a user's process links is
+BSD-3-Clause, and only what runs beside it, never linked, stays AGPL.
+- **The protos.** Every client library and in-process host compiles
+  `proto/` into the user's process, so `proto/io/angzarr/` is
+  BSD-3-Clause, under `proto/LICENSE` (the text and holder of
+  angzarr-embedded's). The vendored third-party protos keep their own
+  licences: `proto/google/api/` (Google's, Apache-2.0) and
+  `proto/sererr/v1/` (sererr's, BSD-3-Clause or MIT).
+- **Everything else stays AGPL-3.0**: the features, the parity suite,
+  the docs, the site and the scripts. The client libraries run the
+  features as their tests and ship none of them in a library: client-java
+  and client-csharp copy them into test resources only, and
+  client-python's sdist includes only `angzarr-project/proto/`. One
+  exception to check: client-rust's Cargo.toml sets no `include`, so a
+  `cargo publish` would package the whole angzarr-project submodule,
+  features included, as data in the crate.
+- The README's licence section says so, one sentence each.
+- Why: the ruling.
+- Cost: two licences in one repository, split by directory.
+
 ## Corrections
 
 Facts the earlier passes or the design note got wrong:
