@@ -118,7 +118,9 @@ message ComponentOptions {
   // list; neither means the sources are the domains its (event) entries
   // name. A domain listed twice, or listed with no (event) entry naming
   // it, fails generation. Set on any other kind, generation fails (a
-  // policy has exactly one source, input_domain).
+  // policy has exactly one source, input_domain). Every source is named:
+  // there is no wildcard domain, so a projector over every domain lists
+  // each one (decision 14.53).
   repeated string input_domains = 8;
   // The component's NAME in an application (decision 14.50): what the
   // host config's [[component]] entry, the generated registration and

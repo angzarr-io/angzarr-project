@@ -48,7 +48,6 @@ Feature: Public API parity
   @C-0097
   Scenario: Canonical domain constants are exported
     Then the "UNKNOWN_DOMAIN" constant is exported
-    And the "WILDCARD_DOMAIN" constant is exported
     And the "DEFAULT_EDITION" constant is exported
     And the "META_ANGZARR_DOMAIN" constant is exported
     And the "PROJECTION_DOMAIN_PREFIX" constant is exported

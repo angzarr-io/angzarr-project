@@ -26,7 +26,7 @@ Those are the coordinator's, in [`../coordinator-contract/`](../coordinator-cont
 | `counter_dispatch.feature` | The CounterAggregate: folding prior events, emitting, rejecting, an unclassified failure, an unknown command, a failing fold, historical evidence, a starting state, routing under any type-URL prefix |
 | `context.feature` | Facts recorded and flagged, a fact of no handler's type refused, appliers seeing sequences, handlers their cover, projector folds their place |
 | `policy_dispatch.feature` | The OrderPolicy: a declared event emits in its page's reaction, an undeclared one emits nothing, the handler sees its trigger's sequence |
-| `projector_dispatch.feature` | The CounterProjector: one projection, an undeclared domain folds nothing, `*` folds every domain |
+| `projector_dispatch.feature` | The CounterProjector: one projection, an undeclared domain folds nothing; no wildcard domain (14.53) |
 
 The fixtures every router runs these against are in [`fixture/`](fixture/FIXTURE.md).
 

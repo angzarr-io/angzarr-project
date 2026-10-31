@@ -4079,6 +4079,27 @@ ruling, 2026-10-31 (morning). Settles 14.50's Open point; follows 14.37.
 - Cost: every generator reads one more option; a client library's typed
   refusal takes its status from the code rather than a constant.
 
+**14.53 There is no wildcard projector domain.** Owner ruling,
+2026-10-31 (architecture review, Q4). Retires the `"*"` domain that
+C-0714 asserted (ported from angzarr-router's conformance features, 14.42).
+- **The rule.** A projector lists every domain it reads, in
+  `input_domains` or `input_domain` (14.50), or through its (event)
+  entries. No domain name means "every domain", and a delivery from a
+  domain the projector does not list folds nothing (C-0713).
+- **Retired:** C-0714 (a projector declaring the `"*"` domain folds every
+  domain). Its ID is not reused. The parity constant `WILDCARD_DOMAIN` is
+  gone from C-0097's list of exported domain constants.
+- The proto prose agrees: `options.proto`'s `input_domains` says every
+  source is named. `projector_dispatch.feature`'s description records the
+  retirement.
+- Why: the ruling. angzarr-embedded refused a `"*"` projector at
+  start-up while the handler-contract and client-python's router accepted
+  it; the spec takes the explicit form rather than adding a wildcard to
+  every router and host.
+- Cost: a cross-domain projector names every domain it reads, and is
+  edited when a domain is added. client-python drops `WILDCARD_DOMAIN` and
+  the `"*"` path of `ProjectorDispatch` and `describe()`.
+
 ## Corrections
 
 Facts the earlier passes or the design note got wrong:
