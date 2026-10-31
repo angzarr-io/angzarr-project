@@ -19,6 +19,6 @@ just proto-docs  # regenerate the Proto API reference page only
 
 ## License
 
-The protos under `proto/` are BSD-3-Clause; see [proto/LICENSE](proto/LICENSE).
+The protos under `proto/`: Licensed under either of Apache License 2.0 or BSD 3-Clause, at your option ([proto/LICENSE-APACHE](proto/LICENSE-APACHE), [proto/LICENSE-BSD](proto/LICENSE-BSD)).
 The vendored third-party protos, `proto/google/` (Apache-2.0) and `proto/sererr/` (sererr's BSD-3-Clause or MIT), keep their own licences.
 Everything else is AGPL-3.0; see [LICENSE](LICENSE).

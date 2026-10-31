@@ -4188,6 +4188,18 @@ BSD-3-Clause, and only what runs beside it, never linked, stays AGPL.
 - Why: the ruling.
 - Cost: two licences in one repository, split by directory.
 
+**14.58 Linked code is dual licensed, Apache-2.0 OR BSD-3-Clause.** Owner
+ruling, 2026-10-31. Amends 14.57.
+- **The rule.** Everything 14.57's "BSD wherever linked" made BSD-3-Clause
+  is `Apache-2.0 OR BSD-3-Clause`, at the user's option: here,
+  `proto/io/angzarr/`, under `proto/LICENSE-APACHE` and
+  `proto/LICENSE-BSD` (the BSD text 14.57 added, renamed). The vendored
+  third-party protos keep their own licences, and everything else stays
+  AGPL-3.0, as 14.57 has it.
+- The README's licence section says so.
+- Why: the ruling.
+- Cost: two licence texts under `proto/`.
+
 ## Corrections
 
 Facts the earlier passes or the design note got wrong:
