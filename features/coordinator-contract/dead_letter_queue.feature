@@ -34,6 +34,39 @@ Feature: Dead letter queue routing
     And the dead letter's source_component_type is "aggregate"
     And the dead letter has occurred_at set
 
+  @C-0738
+  Scenario: A command whose business process cannot be reached is dead-lettered at the retry cap with the unavailable key
+    # Decision 14.49: a retryable bug at its cap records its own key, as
+    # last answered (14.48, amended), never COORDINATOR_REASON_RETRY_CAP_EXHAUSTED.
+    Given an "order" aggregate "order-1" at next_sequence 3
+    And the retry cap is reached after 3 attempts
+    And the business process handling "order" cannot be reached, its connection refused
+    When an AddItem command with no expected sequence is sent asynchronously and the coordinator processes it
+    Then the coordinator attempts the delivery 3 times, backing off between attempts
+    And a dead letter is published to "angzarr.dlq.order"
+    And the dead letter carries the rejected command
+    And the dead letter's reason has code COORDINATOR_REASON_HANDLER_UNAVAILABLE, arg domain "order" and arg cause
+    And the dead letter's processing_failed details have failure code COORDINATOR_REASON_HANDLER_UNAVAILABLE, retry_count 2 and is_transient true
+    And the dead letter carries no other rejection_details variant
+    And an alert is raised
+    And no events are persisted
+
+  @C-0739
+  Scenario: A decision that runs past the router's step limit is dead-lettered as a fatal bug
+    # Decision 14.49: a limit a router may enforce, where a client library
+    # lets a decision continue in follow-on steps.
+    Given an "order" aggregate "order-1" at next_sequence 3, hosted by a router whose step limit is 16
+    And the business process answers AddItem with an ItemAdded event and a follow-on step that always continues
+    When an AddItem command with no expected sequence is sent asynchronously and the coordinator processes it
+    Then the coordinator attempts the delivery once
+    And a dead letter is published to "angzarr.dlq.order"
+    And the dead letter carries the rejected command
+    And the dead letter's reason has code ROUTER_REASON_TOO_MANY_STEPS and arg limit "16"
+    And the dead letter's processing_failed details have failure code ROUTER_REASON_TOO_MANY_STEPS, retry_count 0 and is_transient false
+    And the dead letter carries no other rejection_details variant
+    And an alert is raised
+    And no events are persisted
+
   @C-0444
   Scenario: A policy that keeps failing is dead-lettered with the events it could not process
     Given a policy "OrderFulfillment" subscribed to "order" whose handler fails with code INVENTORY_UNAVAILABLE
@@ -42,7 +75,7 @@ Feature: Dead letter queue routing
     Then the policy handler is attempted 3 times
     And a dead letter is published to "angzarr.dlq.order"
     And the dead letter carries the OrderCreated event as rejected_events
-    And the dead letter's processing_failed details have failure code INVENTORY_UNAVAILABLE and retry_count 3
+    And the dead letter's processing_failed details have failure code INVENTORY_UNAVAILABLE and retry_count 2
     And the dead letter's source_component is "OrderFulfillment" with source_component_type "policy"
 
   @C-0445
@@ -115,7 +148,8 @@ Feature: Dead letter queue routing
   @C-0732
   Scenario Outline: A command dead-lettered at a retry cap carries event processing failed details
     # Decision 14.48: one variant for the key, whether or not the command
-    # carries an expected sequence; retry_count is the attempts arg.
+    # carries an expected sequence; retry_count is the retries, the attempts
+    # arg less the first run (ProcessingFailedDetails.retry_count).
     Given an "order" aggregate "order-1" at next_sequence 3
     And the <cap> is reached after 3 runs
     And an AddItem command <handling> is sent asynchronously
@@ -125,7 +159,7 @@ Feature: Dead letter queue routing
     Then a dead letter is published to "angzarr.dlq.order"
     And the dead letter carries the rejected command
     And the dead letter's reason has code COORDINATOR_REASON_RETRY_CAP_EXHAUSTED, arg attempts "3" and arg cap "3"
-    And the dead letter's processing_failed details have failure code COORDINATOR_REASON_RETRY_CAP_EXHAUSTED, retry_count 3 and is_transient true
+    And the dead letter's processing_failed details have failure code COORDINATOR_REASON_RETRY_CAP_EXHAUSTED, retry_count 2 and is_transient true
     And the dead letter carries no other rejection_details variant
 
     Examples:

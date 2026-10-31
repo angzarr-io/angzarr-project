@@ -14,7 +14,7 @@ runs buf in its pinned container):
 - every live key is ``<PREFIX><SCREAMING_SNAKE>``, and no key is in two enums;
 - every enum reserves exactly RETIRED under its prefix, reserves no number
   (numbers are bookkeeping), and answers no retired key;
-- the owners' keys pinned by decisions 14.45 to 14.48 are there.
+- the owners' keys pinned by decisions 14.45 to 14.49 are there.
 
 Ported from angzarr-proto's ``tests/reasons.rs`` when the Rust crates moved to
 angzarr-core; the generated-code assertions (``as_str_name`` and friends) stay
@@ -89,6 +89,11 @@ PINNED = (
     "COORDINATOR_REASON_POLICY_COMMAND_OTHER_IDENTITY",
     "COORDINATOR_REASON_POLICY_COMMAND_IS_FACT",
     "COORDINATOR_REASON_POLICY_COMMAND_FACT_ORIGIN",
+    # 14.49
+    "COORDINATOR_REASON_POLICY_COMMAND_UNKNOWN_DOMAIN",
+    "COORDINATOR_REASON_HANDLER_UNAVAILABLE",
+    "COORDINATOR_REASON_CHAIN_TOO_DEEP",
+    "ROUTER_REASON_TOO_MANY_STEPS",
 )
 
 SCREAMING_SNAKE = re.compile(r"^[A-Z0-9_]+$")

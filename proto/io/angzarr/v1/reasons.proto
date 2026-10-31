@@ -84,6 +84,20 @@ enum RouterReason {
   // the component already registered and the one refused (C-0579; decision
   // 14.44, amended).
   ROUTER_REASON_DUPLICATE_COMPONENT = 14;
+  // INTERNAL. Args: limit. A limit a router may enforce: where a client
+  // library lets a handler's decision continue in follow-on steps (each
+  // deciding from the state after the events before it, all of them one
+  // decision, committed together), a decision that ran more steps after
+  // its handler than the router's step limit (`limit`, a count). A step
+  // that always continues never settles, so the same input runs the same
+  // steps again: the router keeps nothing the decision emitted, and the
+  // command or fact fails as a handler's bug does. Bug, fatal (decision
+  // 14.37): dead-lettered and alerted at once, never retried (a retryable
+  // status would re-run business code to the cap for the same answer),
+  // never a policy's OnRefused (a business status would invite a
+  // compensating reaction to a bug). A router that offers no follow-on
+  // steps never answers it. (Decision 14.49.)
+  ROUTER_REASON_TOO_MANY_STEPS = 15;
 
   // Retired by 14.37.
   reserved
@@ -286,6 +300,48 @@ enum CoordinatorReason {
   // AngzarrDeadLetter.reason, and alerted. Never delivered. (Decision
   // 14.48, amended.)
   COORDINATOR_REASON_POLICY_COMMAND_FACT_ORIGIN = 27;
+  // INTERNAL. Args: domain, command_type. A reaction command (a policy's)
+  // addressed to a domain its coordinator cannot route: no component of
+  // the domain is registered with it, and it knows no coordinator for the
+  // domain elsewhere. Found when the reactions are checked
+  // (PolicyResponse.reactions), after the destination check
+  // (COORDINATOR_REASON_POLICY_COMMAND_OUTSIDE_DESTINATION): refused, its
+  // trigger dead-lettered with this key as its AngzarrDeadLetter.reason
+  // (processing_failed), and alerted. Never delivered. Bug, fatal
+  // (decision 14.37): a deployment that wires a policy to a domain it does
+  // not host is fixed by its operator, not by a retry. A client's command
+  // for an unknown domain is the client's malformed input, never this.
+  // (Decision 14.49.)
+  COORDINATOR_REASON_POLICY_COMMAND_UNKNOWN_DOMAIN = 28;
+  // UNAVAILABLE. Args: domain, cause. The coordinator could not reach the
+  // business process that handles `domain`: its process is not running,
+  // the connection or the transport failed, or the call timed out before
+  // an answer (`cause`, the transport's failure, a third-party library's
+  // text as `cause.ext_err_txt`). Nothing ran and nothing was written.
+  // Bug, retryable (decision 14.37): UNAVAILABLE means resend, under the
+  // retry cap with backoff and jitter. At the cap the input is
+  // dead-lettered with this key and its args, as last answered, as its
+  // AngzarrDeadLetter.reason (processing_failed, is_transient true), never
+  // COORDINATOR_REASON_RETRY_CAP_EXHAUSTED, which is for write races only
+  // (decision 14.48, amended), and alerted. A business process that is
+  // reached and answers a retryable bug of its own answers
+  // ROUTER_REASON_UNHANDLED_HANDLER_ERROR (C-0678), never this.
+  // (Decision 14.49.)
+  COORDINATOR_REASON_HANDLER_UNAVAILABLE = 29;
+  // INTERNAL. Args: limit. A limit a coordinator may enforce: where it
+  // follows a chain of reactions from the input a caller sent (the input
+  // at depth 0, a policy's reaction to its events at depth 1, and so on),
+  // a reaction that would go deeper than its chain depth limit (`limit`,
+  // configuration): a policy cycle that never settles, or a cascade longer
+  // than allowed. The reaction is not delivered; the trigger whose
+  // reaction it was is dead-lettered with this key as its
+  // AngzarrDeadLetter.reason (processing_failed, retry_count 0,
+  // is_transient false), and alerted. Bug, fatal (decision 14.37): the
+  // same chain runs as deep again, so a retry cannot help, and a business
+  // status would reach OnRefused, whose reaction deepens the chain. A
+  // coordinator that does not follow chains never answers it. (Decision
+  // 14.49.)
+  COORDINATOR_REASON_CHAIN_TOO_DEEP = 30;
 
   // Retired by 14.37.
   reserved

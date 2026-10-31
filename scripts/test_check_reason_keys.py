@@ -147,6 +147,18 @@ class CheckReasonKeysTest(unittest.TestCase):
                 problems = crk.check(d)
                 self.assertIn(f"{key}: a decision pins it, and it is not a live key", problems)
 
+    def test_decision_14_49_pins_its_four_keys(self) -> None:
+        # The limits and conditions any coordinator (and, the step limit,
+        # any router) may enforce: each a live key of its owner's enum.
+        for key in (
+            "COORDINATOR_REASON_POLICY_COMMAND_UNKNOWN_DOMAIN",
+            "COORDINATOR_REASON_HANDLER_UNAVAILABLE",
+            "COORDINATOR_REASON_CHAIN_TOO_DEEP",
+            "ROUTER_REASON_TOO_MANY_STEPS",
+        ):
+            with self.subTest(key=key):
+                self.assertIn(key, crk.PINNED)
+
     def test_the_good_descriptor_is_not_mutated(self) -> None:
         d = _good()
         before = copy.deepcopy(d)

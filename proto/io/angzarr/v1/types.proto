@@ -1539,7 +1539,7 @@ message CommandRefusedDetails {
 // 14.48's amendment; the field numbers are unchanged.
 message ProcessingFailedDetails {
   Diagnostic failure = 5; // The handler's failure: its code and args, never its text (decision 14.37)
-  uint32 retry_count = 2; // Number of retry attempts before DLQ routing
+  uint32 retry_count = 2; // Number of retry attempts before DLQ routing: the retries after the first attempt (0 when it was tried once)
   bool is_transient = 3; // Whether the failure is considered transient
   // Flat array of captured errors representing the cause chain
   // (most-causal-first; the originating caught error is the LAST
@@ -1644,7 +1644,7 @@ message AngzarrDeadLetter {
   // processing_failed: failure is the same Diagnostic as reason.
   //   - COORDINATOR_REASON_RETRY_CAP_EXHAUSTED, a command or fact at either
   //     write-race cap, with or without an expected sequence: retry_count
-  //     is arg attempts, is_transient true.
+  //     the retries, arg attempts less the first run, is_transient true.
   //   - An untyped business, fatal refusal of an asynchronous command
   //     (COORDINATOR_REASON_PM_NO_INSTANCE, a handler's own business key;
   //     14.37): retry_count 0, is_transient false.
@@ -1654,7 +1654,8 @@ message AngzarrDeadLetter {
   //     ROUTER_REASON_PERSISTED_EVENT_CORRUPT,
   //     ROUTER_REASON_ANY_DECODE_FAILED, ROUTER_REASON_UNKNOWN_COMMAND_TYPE,
   //     ROUTER_REASON_NO_FACT_HANDLER, ROUTER_REASON_NO_REFUSAL_HANDLER,
-  //     ROUTER_REASON_CONFLICT_RESOLUTION_UNSUPPORTED, and, with the
+  //     ROUTER_REASON_CONFLICT_RESOLUTION_UNSUPPORTED,
+  //     ROUTER_REASON_TOO_MANY_STEPS, and, with the
   //     policy's trigger as rejected_events,
   //     COORDINATOR_REASON_REFUSAL_FACT_WRONG_STREAM,
   //     COORDINATOR_REASON_REFUSAL_FACT_ADDRESSED,
@@ -1667,18 +1668,22 @@ message AngzarrDeadLetter {
   //     COORDINATOR_REASON_POLICY_COMMAND_OTHER_CORRELATION,
   //     COORDINATOR_REASON_POLICY_COMMAND_OTHER_IDENTITY,
   //     COORDINATOR_REASON_POLICY_COMMAND_IS_FACT,
+  //     COORDINATOR_REASON_POLICY_COMMAND_UNKNOWN_DOMAIN,
+  //     COORDINATOR_REASON_CHAIN_TOO_DEEP,
   //     COORDINATOR_REASON_POLICY_COMMAND_FACT_ORIGIN and
   //     COORDINATOR_REASON_POLICY_COMMAND_WITH_HANDLING (the last two
   //     also on a reaction command refused at its destination, as
   //     rejected_command):
   //     retry_count 0, is_transient false, stack_trace when captured.
   //   - COORDINATOR_REASON_EDITION_REMOVAL_FAILED, with the
-  //     failed_edition_removal payload: retry_count the attempts made,
-  //     is_transient as the store's failure was judged.
+  //     failed_edition_removal payload: retry_count the retries, arg
+  //     attempts less the first removal, is_transient as the store's
+  //     failure was judged.
   //   - A retryable bug, or a policy step's ABORTED re-run, at its cap
-  //     (ROUTER_REASON_NO_COMPONENT_OF_KIND, a handler's retryable bug),
-  //     its reason the bug's own key as last answered: retry_count the
-  //     attempts made, is_transient true.
+  //     (ROUTER_REASON_NO_COMPONENT_OF_KIND,
+  //     COORDINATOR_REASON_HANDLER_UNAVAILABLE, a handler's retryable
+  //     bug), its reason the bug's own key as last answered: retry_count
+  //     the retries after the first attempt, is_transient true.
   // payload_retrieval_failed: a claim-checked payload (PayloadReference)
   // that cannot be retrieved.
   // Never a dead letter's reason: the readiness keys, the HostReason keys,

@@ -3720,7 +3720,9 @@ Follows 14.37, 14.45, 14.46 and 14.47.
   processing variant.
 - **Every other key carries `ProcessingFailedDetails`**, its `failure`
   the reason's Diagnostic: `COORDINATOR_REASON_RETRY_CAP_EXHAUSTED`
-  (`retry_count` its `attempts`, `is_transient` true, with or without an
+  (`retry_count` the retries, `attempts` less the first run, as
+  `ProcessingFailedDetails.retry_count` counts them (14.49);
+  `is_transient` true, with or without an
   expected sequence: `expected_sequence` is the command's
   `handling.expected_sequence`, which a stamped command or a fact does not
   carry), an untyped business, fatal refusal of an asynchronous command
@@ -3799,6 +3801,73 @@ Follows 14.37, 14.45, 14.46 and 14.47.
   and C-0448 retired. Then the rule "every dead letter is keyed": the
   policy's identity, Fact and fact-origin checks on its reactions get
   their three keys.
+
+**14.49 Four keys for limits and conditions any coordinator may enforce.**
+Owner rulings, 2026-10-30. Follows 14.37, 14.44, 14.46 and 14.48. Keys
+angzarr-embedded answered under codes of its own get spec keys, each a
+condition any coordinator (the step limit: any router) may enforce; one
+that does not enforce it never answers it.
+- **`COORDINATOR_REASON_POLICY_COMMAND_UNKNOWN_DOMAIN`**: INTERNAL, bug,
+  fatal; args `domain`, `command_type`. A policy's reaction command for a
+  domain its coordinator cannot route (no component of it registered, no
+  coordinator for it known elsewhere), found when the reactions are
+  checked, after the destination check: never delivered, its trigger
+  dead-lettered with the key (`processing_failed`, `retry_count` 0,
+  `is_transient` false) and alerted (C-0736). A client's command for an
+  unknown domain stays the client's malformed input.
+- **`COORDINATOR_REASON_HANDLER_UNAVAILABLE`**: UNAVAILABLE, bug,
+  retryable; args `domain`, `cause` (the transport's failure). The business
+  process handling the domain could not be reached: nothing ran, nothing
+  was written, and UNAVAILABLE means resend, under the retry cap. At the
+  cap the input is dead-lettered with THIS key, as last answered (14.48,
+  amended: a retryable bug at its cap records its own key, never
+  `COORDINATOR_REASON_RETRY_CAP_EXHAUSTED`), `processing_failed` with
+  `is_transient` true, and alerted (C-0738). A business process that is
+  reached and answers its own retryable bug stays
+  `ROUTER_REASON_UNHANDLED_HANDLER_ERROR` (C-0678).
+- **`COORDINATOR_REASON_CHAIN_TOO_DEEP`** (a limit): INTERNAL, bug, fatal;
+  arg `limit`. Where a coordinator follows the chain of reactions from the
+  input a caller sent (that input at depth 0), a reaction deeper than its
+  chain depth limit (configuration) is not delivered, and the trigger
+  whose reaction it was is dead-lettered with the key and alerted (C-0737).
+- **`ROUTER_REASON_TOO_MANY_STEPS`** (a limit): INTERNAL, bug, fatal; arg
+  `limit`. Where a client library lets a decision continue in follow-on
+  steps (one decision, committed together), a decision that ran more steps
+  than the router's step limit keeps nothing and fails as a handler's bug
+  does (C-0739).
+- **Why these statuses (14.37's four classes).** The status decides the
+  class, and the class what the caller does next. The two limits and the
+  unknown domain are deterministic: the same input runs as deep, as long,
+  or to the same missing domain again, so a retryable status
+  (RESOURCE_EXHAUSTED, the gRPC status for a limit, means "wait longer
+  before resending") would only re-run business code to the cap for the
+  same answer, and ABORTED would have a policy runtime re-run the step. A
+  business status (OUT_OF_RANGE, FAILED_PRECONDITION) would reach the
+  issuing policy's OnRefused, whose compensating reaction, for a chain too
+  deep, deepens the very chain; and none of the three is a handler's
+  answer. Bug, fatal (INTERNAL) dead-letters and alerts at once, which a
+  policy cycle, a step that never settles and a policy wired to a domain
+  the deployment does not host all need: an operator's fix. An unreachable
+  business process is the one transient condition: resending can succeed
+  once it is back, so UNAVAILABLE ("resend"), a retryable bug.
+- **`retry_count` is the retries.** `ProcessingFailedDetails.retry_count`
+  counts "retry attempts before DLQ routing": the retries after the first
+  attempt, 0 for an input tried once. 14.48's mapping on
+  `AngzarrDeadLetter.rejection_details` said "the attempts made" and "arg
+  attempts", which count the first; it now says the retries (`attempts`
+  less the first run, or the first removal), and C-0732 and C-0444, three
+  attempts, assert `retry_count` 2. The field's comment says so.
+- The proto prose agrees: `reasons.proto`'s value comments,
+  `types.proto`'s `rejection_details` mapping and `retry_count`;
+  `policy_addressing.feature` adds C-0736 and C-0737,
+  `dead_letter_queue.feature` C-0738 and C-0739;
+  `scripts/check_reason_keys.py` pins the four keys.
+- Why: the rulings. angzarr-embedded dead-lettered these under its own
+  codes (`REMOTE_HANDLER_UNAVAILABLE`, `ANGZARR_EMBEDDED_TOO_MANY_STEPS`,
+  `angzarr-embedded-next-chain-too-deep`), so two coordinators keyed the
+  same condition differently, against "every dead letter is keyed" (14.48).
+- Cost: every coordinator that enforces a limit answers its key; readers of
+  `retry_count` that took it for the attempts count one fewer.
 
 ## Corrections
 

@@ -132,3 +132,29 @@ Feature: Who a policy's command addresses, and the correlation it carries
     Then the command is not delivered to business code
     And the command is dead-lettered with reason COORDINATOR_REASON_POLICY_COMMAND_FACT_ORIGIN, domain "inventory" and command_type "ReserveStock", as rejected_command, and an alert is raised
     And no events are persisted
+
+  # Decision 14.49: conditions any coordinator may enforce on a policy's
+  # reactions, each keyed.
+  @policy_addressing
+  @C-0736
+  Scenario: A policy's reaction command for a domain its coordinator cannot route is a policy bug
+    Given a policy "OrderToInventory" translating from "order" to "inventory", whose descriptor names output domain "inventory"
+    And no component of "inventory" is registered with the policy's coordinator, and it knows no coordinator for "inventory"
+    And its business code answers an OrderPlaced event with a ReserveStock command for "inventory" "inv-7"
+    When an OrderPlaced event with correlation "0192a6b0-0000-7000-8000-000000000050" is recorded for order "order-1"
+    Then the policy's answer is refused INTERNAL with reason COORDINATOR_REASON_POLICY_COMMAND_UNKNOWN_DOMAIN, naming domain "inventory" and command type ReserveStock
+    And nothing is delivered
+    And the OrderPlaced trigger is dead-lettered with reason COORDINATOR_REASON_POLICY_COMMAND_UNKNOWN_DOMAIN as rejected_events, and an alert is raised
+    And the dead letter's processing_failed details have failure code COORDINATOR_REASON_POLICY_COMMAND_UNKNOWN_DOMAIN, retry_count 0 and is_transient false
+
+  @policy_addressing
+  @C-0737
+  Scenario: A chain of reactions deeper than the coordinator's limit stops at the limit
+    # A limit a coordinator may enforce, where it follows the chain from
+    # the input a caller sent (that input at depth 0).
+    Given a coordinator whose chain depth limit is 8
+    And a policy "OrderToOrder" translating from "order" to "order" whose business code answers every ItemAdded event with an AddItem command for the same order
+    When an AddItem command for "order" "order-1" is handled
+    Then the reaction at depth 9 is not delivered
+    And the ItemAdded event that triggered it is dead-lettered with reason COORDINATOR_REASON_CHAIN_TOO_DEEP and arg limit "8" as rejected_events, and an alert is raised
+    And the dead letter's processing_failed details have failure code COORDINATOR_REASON_CHAIN_TOO_DEEP, retry_count 0 and is_transient false
