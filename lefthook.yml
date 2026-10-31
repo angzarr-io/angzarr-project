@@ -10,10 +10,9 @@ pre-commit:
     scan-secrets:
       run: just scan-secrets
 
-# No mutation testing in any hook: mutation of the Rust (rust/angzarr-ports)
-# runs while tests are written and judged (`just mutation-push`, by hand), at
-# the end of an unattended run, and in the scheduled CI full pass
-# (.github/workflows/mutation.yml).
+# No mutation testing in any hook. This repository has no Rust: the crates
+# (angzarr-proto, angzarr-ports) moved to angzarr-core, whose scheduled CI
+# pass mutates them.
 
 # Red tests never reach main or a spec draft: `just push-check` runs every
 # test in each pushed commit's own tree (the justfile says how), refusing a

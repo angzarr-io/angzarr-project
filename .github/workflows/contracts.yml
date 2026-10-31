@@ -1,8 +1,9 @@
 name: Contracts
 
 # Gates the spec surface: buf lint on the protos, Gherkin syntax and
-# scenario-ID hygiene on the feature tiers, and rule citations on the
-# example rule tiers. Wire compatibility is not gated (stored data
+# scenario-ID hygiene on the feature tiers, rule citations on the
+# example rule tiers, and the reason keys (reasons.proto's rules, and no
+# retired or unprefixed key named in the features, protos or docs). Wire compatibility is not gated (stored data
 # is wiped across schema changes); `just proto-breaking` is a manual check.
 # All logic lives in justfile recipes; this workflow only invokes them.
 
@@ -15,6 +16,9 @@ on:
       - 'scripts/check_feature_ids.py'
       - 'scripts/test_check_feature_ids.py'
       - 'scripts/check_gherkin_parse.py'
+      - 'scripts/check_reason_keys.py'
+      - 'scripts/test_check_reason_keys.py'
+      - 'site/src/content/docs/**'
       - 'justfile'
       - '.github/workflows/contracts.yml'
 
@@ -41,3 +45,9 @@ jobs:
 
       - name: check-rules
         run: just check-rules
+
+      - name: check-reason-names
+        run: just check-reason-names
+
+      - name: check-reason-keys
+        run: just test-check-reason-keys check-reason-keys

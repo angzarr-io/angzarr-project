@@ -117,7 +117,7 @@ check-gherkin *dirs="features parity":
         "pip install --quiet --disable-pip-version-check --root-user-action=ignore gherkin-official=={{GHERKIN_VERSION}} && python scripts/check_gherkin_parse.py {{dirs}}"
 
 # Required contract gates (proto-breaking is optional and run by hand)
-contracts: proto-lint test-check-feature-ids check-feature-ids check-gherkin check-rules check-reason-names
+contracts: proto-lint test-check-feature-ids check-feature-ids check-gherkin check-rules check-reason-names test-check-reason-keys check-reason-keys
 
 # The features, the protos and the site docs (the generated Proto API page
 # aside) name no retired reason key, bare or prefixed, and no live key
@@ -147,10 +147,27 @@ check-reason-names:
 test-check-feature-ids:
     python3 -m unittest scripts/test_check_feature_ids.py
 
-# Every test the repository has: the scenario-ID checker's unit tests and
-# rust/angzarr-ports' suite (its `test`: needs protoc). What `push-check` runs.
-test: test-check-feature-ids
-    just --justfile '{{justfile_directory()}}/rust/angzarr-ports/justfile' test
+# reasons.proto's keys keep decision 14.44's rules (every key carries its
+# enum's prefix, every enum reserves every retired key), read from the
+# descriptor buf builds in its pinned container. The Rust crates' own
+# reason tests (generated code) live with angzarr-proto in angzarr-core.
+check-reason-keys:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    root="$(git rev-parse --show-toplevel)"
+    docker run --rm -e BUF_CACHE_DIR=/tmp/buf-cache \
+        -v "$root:$root:ro" -w "$root/proto" {{BUF_IMAGE}} \
+        build -o '-#format=json' --path io/angzarr/v1/reasons.proto \
+        | python3 "$root/scripts/check_reason_keys.py" -
+
+# Unit tests for the reason-key checker
+test-check-reason-keys:
+    python3 -m unittest scripts/test_check_reason_keys.py
+
+# Every test the repository has: the scenario-ID and reason-key checkers'
+# unit tests. What `push-check` runs. (The Rust crates moved to
+# angzarr-core; their tests run there.)
+test: test-check-feature-ids test-check-reason-keys
 
 # The branches red tests never reach: the remote's default branch, and these
 # (bash globs): the dated spec drafts that land on it whole.
@@ -216,8 +233,7 @@ push-check remote *lefthook:
             exit 1
         fi
         range="$(git -C "$top" rev-parse --short "$base")..$(git -C "$top" rev-parse --short "$local_sha") to $remote/$target"
-        # The pushed commit's tree, alone, no hook run for it. Its Rust builds
-        # go to rust/angzarr-ports/target/push here, kept across pushes.
+        # The pushed commit's tree, alone, no hook run for it.
         if ! git -C "$tree" rev-parse --git-dir > /dev/null 2>&1; then
             rm -rf "$tree"
             git -C "$top" worktree prune
@@ -226,7 +242,7 @@ push-check remote *lefthook:
         git -c core.hooksPath=/dev/null -C "$tree" checkout --quiet --detach --force "$local_sha"
         git -C "$tree" clean -fdq
         rc=0
-        (cd "$tree" && CARGO_TARGET_DIR="$top/rust/angzarr-ports/target/push" just --justfile "$tree/justfile" test) > "$log" 2>&1 9>&- || rc=$?
+        (cd "$tree" && just --justfile "$tree/justfile" test) > "$log" 2>&1 9>&- || rc=$?
         if [ "$rc" -ne 0 ]; then
             if [ -z "$guarded" ]; then
                 echo "RED  push-check: $range: the tests fail (target/logs/push-tests.log); allowed off ${protected[*]}, which $target cannot merge into until they pass"
@@ -239,91 +255,3 @@ push-check remote *lefthook:
         echo "ok   push-check ($range): tests pass"
     done
     [ "$pushed" = 1 ] || echo "ok   push-check (no commit pushed: nothing to test)"
-
-# By hand (no git hook runs mutation), given the remote's name and git's
-# pre-push refs on stdin; for the current branch against origin:
-#
-#     echo "refs/heads/B $(git rev-parse HEAD) refs/heads/B 0" | just mutation-push origin
-#
-# Mutation-test what each ref given changes in rust/angzarr-ports
-# (`mutation-diff` there, judged by its MUTATION_THRESHOLD), in that commit's
-# tree checked out alone (rust/angzarr-ports/target/push-tree), so an
-# unpushed edit cannot pass or fail it. The diff's base is the merge base of
-# the commit pushed and the remote's current tip of that ref (a fast-forward's
-# base is that tip); for a new ref, or a tip not fetched here, the merge base
-# with the remote's default branch (<remote>/HEAD, else main). A deleted ref,
-# and a ref that changes no Rust there, pass at once. rust/angzarr-proto is
-# generated code (build.rs), not mutated.
-#
-# Red tests (cargo-mutants' baseline fails, exit 4) cannot be judged: pushed
-# to a branch other than the default one they pass, with a warning that the
-# branch cannot merge until they pass; pushed to the default branch they are
-# refused. `lefthook` is ignored.
-[positional-arguments]
-mutation-push remote *lefthook:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    top='{{justfile_directory()}}'
-    crate=rust/angzarr-ports
-    remote=$1
-    default=$(git -C "$top" symbolic-ref --quiet --short "refs/remotes/$remote/HEAD" 2>/dev/null) && default=${default#"$remote"/} || default=main
-    tree="$top/$crate/target/push-tree"
-    mkdir -p "$top/$crate/target"
-    exec 9> "$top/$crate/target/.push-tree.lock"
-    flock 9
-    # git exports repository-locating variables (GIT_DIR, ...) into a hook;
-    # with them, a git -C the push tree would act on this checkout instead,
-    # and so would git run by a test there.
-    unset $(git rev-parse --local-env-vars)
-    pushed=0
-    while read -r local_ref local_sha remote_ref remote_sha; do
-        [ -n "${local_sha:-}" ] || continue
-        [ "${local_sha//0/}" = "" ] && continue  # a deletion
-        pushed=1
-        target=${remote_ref#refs/heads/}
-        base=
-        if [ -n "${remote_sha//0/}" ] && git -C "$top" cat-file -e "$remote_sha^{commit}" 2>/dev/null; then
-            base=$(git -C "$top" merge-base "$remote_sha" "$local_sha") || base=
-        fi
-        if [ -z "$base" ]; then
-            for ref in "refs/remotes/$remote/$default" "refs/heads/$default"; do
-                if git -C "$top" rev-parse --verify --quiet "$ref^{commit}" > /dev/null; then
-                    base=$(git -C "$top" merge-base "$ref" "$local_sha") && break
-                fi
-            done
-        fi
-        if [ -z "$base" ]; then
-            echo "FAIL mutation-push: $local_ref shares no history with $remote's tip or with $default" >&2
-            exit 1
-        fi
-        range="$(git -C "$top" rev-parse --short "$base")..$(git -C "$top" rev-parse --short "$local_sha") to $remote/$target"
-        if [ -z "$(git -C "$top" diff --name-only "$base" "$local_sha" -- "$crate/*.rs")" ]; then
-            echo "ok   mutation-push ($range: no mutants, the push changes no Rust in $crate)"
-            continue
-        fi
-        # The pushed commit's tree, alone, no hook run for it.
-        if ! git -C "$tree" rev-parse --git-dir > /dev/null 2>&1; then
-            rm -rf "$tree"
-            git -C "$top" worktree prune
-            git -c core.hooksPath=/dev/null -C "$top" worktree add --quiet --detach --no-checkout "$tree" "$local_sha"
-        fi
-        git -c core.hooksPath=/dev/null -C "$tree" checkout --quiet --detach --force "$local_sha"
-        git -C "$tree" clean -fdq
-        mkdir -p "$tree/$crate/target"
-        git -C "$top" diff --relative="$crate" --no-color --no-ext-diff --no-renames --src-prefix=a/ --dst-prefix=b/ \
-            "$base" "$local_sha" -- "$crate/*.rs" > "$tree/$crate/target/push.patch"
-        rc=0
-        CARGO_TARGET_DIR="$top/$crate/target/push" just --justfile "$tree/$crate/justfile" mutation-diff target/push.patch 9>&- || rc=$?
-        case "$rc" in
-            0) ;;
-            4)
-                if [ "$remote_ref" != "refs/heads/$default" ]; then
-                    echo "RED  mutation-push: $range not judged, the tests are red; allowed off $default, which $target cannot merge into until they pass"
-                else
-                    echo "FAIL mutation-push: $range: red tests cannot be pushed to $remote/$target" >&2
-                    exit 1
-                fi ;;
-            *) exit "$rc" ;;
-        esac
-    done
-    [ "$pushed" = 1 ] || echo "ok   mutation-push (no commit pushed: nothing to mutate)"
