@@ -97,6 +97,10 @@ The model is HashiCorp's go-plugin (Terraform providers, Vault and Packer plugin
 - angzarr-embedded supervises the child. An unreachable handler is a retryable failure, which resume by
   position already handles.
 
+The launch protocol itself (the socket in `ANGZARR_SOCKET`, the handshake line, readiness, shutdown and
+socket cleanup) is normative in [`docs/design/child-protocol.md`](docs/design/child-protocol.md)
+(decision 14.59), with its scenarios in `parity/client/child.feature`.
+
 The cost is one local round trip per handler call (microseconds over a Unix socket, against nanoseconds
 in-process), plus supervising the child process.
 

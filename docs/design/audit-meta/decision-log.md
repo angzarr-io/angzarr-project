@@ -4200,6 +4200,58 @@ ruling, 2026-10-31. Amends 14.57.
 - Why: the ruling.
 - Cost: two licence texts under `proto/`.
 
+**14.59 The child-process launch protocol is in the spec.** Admitted by
+the owner, 2026-10-31, as architecture-fixes A1 (review S4: "orchestrate
+those fixes"); the drafter's text follows angzarr-embedded wherever the
+two copies disagreed, as the admission directs. Follows FUTURE.md's "gRPC
+over a local socket".
+- **The rule.** How a host launches a business process written in another
+  language as a child, and how the two find each other, is normative in
+  `docs/design/child-protocol.md`: the socket path the host chooses, in
+  `ANGZARR_SOCKET`; the one stdout line `angzarr-handshake v1
+  unix:<absolute path>`, its grammar, and how a reader classifies a line
+  by its first word (not a handshake, skipped; a handshake; malformed,
+  refused); stdout before and after it; readiness, the overall server
+  SERVING on grpc.health.v1 before the line is written; shutdown on
+  stdin's end of file or SIGTERM, the host's stdin, SIGTERM, SIGKILL
+  steps; and who removes the socket file.
+- **`HOST_REASON_HANDSHAKE_MALFORMED`**: INTERNAL, a refusal to start;
+  args `line`, the line as read, its line ending removed. Answered by
+  whatever reads a child's handshake: a host that launches children, and a
+  client's handshake parser. It replaces angzarr-embedded's
+  `angzarr-embedded-host-handshake-malformed` and client-python's bare
+  `HANDSHAKE_MALFORMED`. `scripts/check_reason_keys.py` pins it.
+- **`parity/client/child.feature`**, C-0749 to C-0756: run by every client
+  that provides a child shim against it (the handshake-line outlines by
+  any reader of the line).
+- **Where the two copies disagreed, angzarr-embedded's behaviour is the
+  norm:**
+  - Lines before the handshake: embedded skips any line whose first word is
+    not `angzarr-handshake`; client-python promised nothing would precede
+    it. The norm: a child SHOULD write nothing first, MAY write such lines,
+    and a host skips them. client-python's child, which writes nothing,
+    conforms already.
+  - Stdout after the handshake: embedded drains it onto its own stderr;
+    client-python's child closes it. The norm: never protocol; the host
+    drains it onto its stderr, and the child MAY write there or close it.
+    Both conform.
+  - A longer first word (`angzarr-handshaker ...`) and any line not
+    starting `angzarr-handshake`, the empty line included: embedded says
+    not a handshake, client-python's `parse_handshake` refused it as
+    malformed. The norm is embedded's.
+  - A CR LF line ending: embedded removes it; client-python's parser kept
+    the CR in the path. The norm removes it.
+- **Not ruled here:** a key for a handshake that never arrives, or a child
+  whose stdout closes first (the host's own failures); the host watching
+  every child's health after the handshake; a language-neutral
+  conformance probe. These are S4's host-side half.
+- Why: the contract every non-Rust client must implement lived only in
+  angzarr-embedded's rustdoc and a hand copy in client-python, which
+  already disagreed (review S4; layering F3, polyglot 1).
+- Cost: a client providing a child shim runs one more feature, and
+  angzarr-embedded's host is held to the text where it differs (its
+  malformed key, and readiness it does not check yet).
+
 ## Corrections
 
 Facts the earlier passes or the design note got wrong:

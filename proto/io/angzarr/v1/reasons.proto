@@ -12,7 +12,9 @@ option ruby_package = "Angzarr";
 //
 //   RouterReason       the client library's router, in every language
 //   HostReason         the client library's component host, in every
-//                      language (parity/client/hosting.feature)
+//                      language (parity/client/hosting.feature), and
+//                      whatever reads a child's handshake
+//                      (parity/client/child.feature)
 //   CoordinatorReason  core's coordinator and the angzarr-embedded kernel
 //
 // The key on the wire is the VALUE'S FULL NAME, its enum's prefix
@@ -158,6 +160,16 @@ enum HostReason {
   // a client's describe() of such a table refuses with it too (C-0747;
   // decision 14.55).
   HOST_REASON_PROJECTOR_NO_INPUT_DOMAIN = 4;
+  // INTERNAL. Args: line. A child's stdout line whose first word is
+  // `angzarr-handshake` but which is not a v1 handshake naming an absolute
+  // Unix socket path (`angzarr-handshake v1 unix:<path>`): another
+  // version, another transport, a relative path, a missing address.
+  // `line` is the line as read, its line ending removed. Refused, never
+  // skipped: the host that reads it fails to start the child, and a
+  // client's handshake parser refuses it with the same key. Answered by
+  // whatever reads a child's handshake (docs/design/child-protocol.md;
+  // C-0756; decision 14.59).
+  HOST_REASON_HANDSHAKE_MALFORMED = 5;
 
   // Retired by 14.37.
   reserved

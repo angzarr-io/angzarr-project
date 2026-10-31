@@ -132,7 +132,7 @@ class CheckReasonKeysTest(unittest.TestCase):
 
     def test_host_keys_are_exactly_these(self) -> None:
         d = _good()
-        _enum_of(d, "HostReason")["value"].append({"name": "HOST_REASON_EXTRA", "number": 5})
+        _enum_of(d, "HostReason")["value"].append({"name": "HOST_REASON_EXTRA", "number": 6})
         self.assertProblem(d, "HostReason: keys are")
 
     def test_every_pinned_key_is_live(self) -> None:
