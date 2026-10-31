@@ -14,8 +14,9 @@ option ruby_package = "Angzarr::Examples";
 // =============================================================================
 //
 // Subscribes to "wallet" and "table" (the wallet was the "player" domain
-// until decision 14.38) (the domain of each consumed event is on
-// its (event) entry). Every applied event is remembered by (domain, root,
+// until decision 14.38): its input_domains, one projector over both
+// (decision 14.50); the domain of each consumed event is on its (event)
+// entry. Every applied event is remembered by (domain, root,
 // sequence), so replaying or redelivering an event leaves the read model
 // unchanged.
 //
@@ -73,6 +74,9 @@ message LedgerProjection {
   option (io.angzarr.v1.component) = {
     kind: COMPONENT_KIND_PROJECTOR
     name: "LedgerProjector"
+    input_domains: "table"
+    input_domains: "wallet"
+    component_name: "projector-wallet-table-ledger"
   };
   map<string, WalletLedgerRow> wallets = 1; // key = hex(player_root)
   map<string, TableLedgerRow> tables = 2; // key = hex(table_root)

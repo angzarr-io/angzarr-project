@@ -38,13 +38,20 @@ option ruby_package = "Angzarr::Examples";
 // of this port: they wait on the top-up ruling in
 // docs/design/blackjack-latest-proto-rulings.md.
 //
-// Rejections (gRPC status, ErrorInfo.reason code):
+// Rejections: the typed refusal TableRefused (below; decision 14.50), its
+// Reason the ErrorInfo.reason code, named in each refusing command's
+// refuses. ConfirmSeat refuses with its own SeatNotConfirmable.
 //   FAILED_PRECONDITION: TABLE_ALREADY_EXISTS, TABLE_NOT_FOUND, SEAT_TAKEN,
 //     PLAYER_ALREADY_SEATED, NOT_SEATED, WAGER_IN_PLAY, ROUND_IN_PROGRESS,
 //     ALREADY_BET, INSUFFICIENT_STACK, NO_BETS, NO_ROUND_IN_PROGRESS,
 //     NOT_YOUR_TURN, DOUBLE_NOT_ALLOWED.
 //   INVALID_ARGUMENT: INVALID_TABLE_CONFIG, SEAT_OUT_OF_RANGE,
 //     BUY_IN_OUT_OF_RANGE, BET_OUT_OF_RANGE, BET_NOT_EVEN.
+//
+// Emits cardinality (CommandOptions.emits_cardinality): RequestSeat,
+// ConfirmSeat and ReleaseSeat are OPTIONAL (a repeat emits nothing);
+// DealRound, Hit, Stand and DoubleDown are MANY (a variable subset of their
+// emits); the rest are the default ONE.
 //
 // Conflict resolution (io.angzarr.v1.ConflictResolution). TableState lists
 // no COMMUTATIVE, so it supports the base STRICT and AGGREGATE_HANDLES, and
@@ -83,6 +90,7 @@ message CreateTable {
     component: "io.angzarr.examples.v1.TableState"
     emits: "io.angzarr.examples.v1.TableCreated"
     emits: "io.angzarr.examples.v1.ShoeShuffled"
+    refuses: "io.angzarr.examples.v1.TableRefused"
   };
   string name = 1;
   int64 min_bet = 2;
@@ -104,6 +112,8 @@ message RequestSeat {
   option (io.angzarr.v1.command) = {
     component: "io.angzarr.examples.v1.TableState"
     emits: "io.angzarr.examples.v1.SeatHeld"
+    refuses: "io.angzarr.examples.v1.TableRefused"
+    emits_cardinality: EMITS_CARDINALITY_OPTIONAL
   };
   bytes player_root = 1;
   int32 seat = 2;
@@ -117,6 +127,7 @@ message LeaveTable {
   option (io.angzarr.v1.command) = {
     component: "io.angzarr.examples.v1.TableState"
     emits: "io.angzarr.examples.v1.PlayerCashedOut"
+    refuses: "io.angzarr.examples.v1.TableRefused"
   };
   int32 seat = 1;
 }
@@ -127,6 +138,7 @@ message PlaceBet {
   option (io.angzarr.v1.command) = {
     component: "io.angzarr.examples.v1.TableState"
     emits: "io.angzarr.examples.v1.BetPlaced"
+    refuses: "io.angzarr.examples.v1.TableRefused"
   };
   int32 seat = 1;
   int64 amount = 2;
@@ -144,6 +156,8 @@ message DealRound {
     emits: "io.angzarr.examples.v1.TurnStarted"
     emits: "io.angzarr.examples.v1.DealerPlayed"
     emits: "io.angzarr.examples.v1.RoundSettled"
+    refuses: "io.angzarr.examples.v1.TableRefused"
+    emits_cardinality: EMITS_CARDINALITY_MANY
   };
 }
 
@@ -151,11 +165,11 @@ message DealRound {
 // action that leaves a decision to make also emits TurnStarted; the action
 // that finishes the last hand also emits DealerPlayed + RoundSettled. Sent
 // by a client, or by policy-player-table from a player's MoveDecided. They
-// name no refuses: the table asks only the seat on turn, and DecideMove's
-// can_double says when doubling is allowed, so a refused move from a player
-// (NOT_YOUR_TURN, NO_ROUND_IN_PROGRESS, DOUBLE_NOT_ALLOWED) is a bug; the
-// player defines no on_refused handler for them, so it is dead-lettered
-// and alerted.
+// refuse with TableRefused, for a client: the table asks only the seat on
+// turn, and DecideMove's can_double says when doubling is allowed, so a
+// refused move from a player (NOT_YOUR_TURN, NO_ROUND_IN_PROGRESS,
+// DOUBLE_NOT_ALLOWED) is a bug; the player defines no on_refused handler
+// for them, so it is dead-lettered and alerted.
 message Hit {
   option (io.angzarr.v1.command) = {
     component: "io.angzarr.examples.v1.TableState"
@@ -163,6 +177,8 @@ message Hit {
     emits: "io.angzarr.examples.v1.TurnStarted"
     emits: "io.angzarr.examples.v1.DealerPlayed"
     emits: "io.angzarr.examples.v1.RoundSettled"
+    refuses: "io.angzarr.examples.v1.TableRefused"
+    emits_cardinality: EMITS_CARDINALITY_MANY
   };
   int32 seat = 1;
 }
@@ -174,6 +190,8 @@ message Stand {
     emits: "io.angzarr.examples.v1.TurnStarted"
     emits: "io.angzarr.examples.v1.DealerPlayed"
     emits: "io.angzarr.examples.v1.RoundSettled"
+    refuses: "io.angzarr.examples.v1.TableRefused"
+    emits_cardinality: EMITS_CARDINALITY_MANY
   };
   int32 seat = 1;
 }
@@ -185,6 +203,8 @@ message DoubleDown {
     emits: "io.angzarr.examples.v1.TurnStarted"
     emits: "io.angzarr.examples.v1.DealerPlayed"
     emits: "io.angzarr.examples.v1.RoundSettled"
+    refuses: "io.angzarr.examples.v1.TableRefused"
+    emits_cardinality: EMITS_CARDINALITY_MANY
   };
   int32 seat = 1;
 }
@@ -206,6 +226,7 @@ message ConfirmSeat {
     component: "io.angzarr.examples.v1.TableState"
     emits: "io.angzarr.examples.v1.PlayerSeated"
     refuses: "io.angzarr.examples.v1.SeatNotConfirmable"
+    emits_cardinality: EMITS_CARDINALITY_OPTIONAL
   };
   bytes buy_in_id = 1;
 }
@@ -218,15 +239,84 @@ message SeatNotConfirmable {
 }
 
 // Free a held seat (SeatReleased). Releasing a hold that no longer exists
-// succeeds with no events. policy-buy-in-table sends it on BuyInFailed (the
-// wallet refused HoldFunds; see the refusal flow in buy_in.proto).
+// succeeds with no events; it never refuses. policy-buy-in-table sends it
+// on BuyInFailed (the wallet refused HoldFunds; see the refusal flow in
+// buy_in.proto).
 message ReleaseSeat {
   option (io.angzarr.v1.command) = {
     component: "io.angzarr.examples.v1.TableState"
     emits: "io.angzarr.examples.v1.SeatReleased"
+    emits_cardinality: EMITS_CARDINALITY_OPTIONAL
   };
   bytes buy_in_id = 1;
   string reason = 2;
+}
+
+// -----------------------------------------------------------------------------
+// Refusals
+// -----------------------------------------------------------------------------
+
+// The table's typed refusal of every command but ConfirmSeat and
+// ReleaseSeat (decision 14.50): a refusal object, never an event. reason is
+// the code; the ErrorInfo.reason on the wire is its name without the
+// REASON_ prefix (ALREADY_BET). The other fields are the args, each set
+// only for the codes that name it (listed per value), so a refusal's args
+// are its set fields. Each value lists the commands that refuse with it.
+// TABLE_NOT_FOUND and the FAILED_PRECONDITION codes report that status;
+// the five marked INVALID_ARGUMENT report INVALID_ARGUMENT.
+message TableRefused {
+  enum Reason {
+    REASON_UNSPECIFIED = 0;
+    // CreateTable on a table that already exists. Args: name.
+    REASON_TABLE_ALREADY_EXISTS = 1;
+    // CreateTable with a configuration outside the house rules
+    // (INVALID_ARGUMENT). Args: rule.
+    REASON_INVALID_TABLE_CONFIG = 2;
+    // Any command but CreateTable, ConfirmSeat and ReleaseSeat before the
+    // table is created.
+    REASON_TABLE_NOT_FOUND = 3;
+    // RequestSeat for a seat that is held or taken. Args: seat.
+    REASON_SEAT_TAKEN = 4;
+    // RequestSeat from a player already seated here.
+    REASON_PLAYER_ALREADY_SEATED = 5;
+    // LeaveTable or PlaceBet for an empty seat. Args: seat.
+    REASON_NOT_SEATED = 6;
+    // PlaceBet once the round is dealt, or DealRound during one.
+    REASON_ROUND_IN_PROGRESS = 7;
+    // PlaceBet a second time on one seat in one round. Args: seat.
+    REASON_ALREADY_BET = 8;
+    // PlaceBet or DoubleDown the stack cannot cover.
+    REASON_INSUFFICIENT_STACK = 9;
+    // DealRound with no bet placed.
+    REASON_NO_BETS = 10;
+    // Hit, Stand or DoubleDown between rounds.
+    REASON_NO_ROUND_IN_PROGRESS = 11;
+    // Hit, Stand or DoubleDown from a seat not on turn. Args: seat.
+    REASON_NOT_YOUR_TURN = 12;
+    // DoubleDown on more than two cards.
+    REASON_DOUBLE_NOT_ALLOWED = 13;
+    // RequestSeat for a seat the table does not have (INVALID_ARGUMENT).
+    // Args: seat.
+    REASON_SEAT_OUT_OF_RANGE = 14;
+    // RequestSeat with an amount outside [min_buy_in, max_buy_in]
+    // (INVALID_ARGUMENT). Args: min_buy_in, max_buy_in.
+    REASON_BUY_IN_OUT_OF_RANGE = 15;
+    // PlaceBet with an amount outside [min_bet, max_bet]
+    // (INVALID_ARGUMENT). Args: min_bet, max_bet.
+    REASON_BET_OUT_OF_RANGE = 16;
+    // PlaceBet with an odd amount (INVALID_ARGUMENT).
+    REASON_BET_NOT_EVEN = 17;
+    // LeaveTable while the seat has a wager in the round. Args: seat.
+    REASON_WAGER_IN_PLAY = 18;
+  }
+  Reason reason = 1;
+  optional string name = 2; // The existing table's name
+  optional string rule = 3; // The house rule the configuration breaks
+  optional int32 seat = 4;
+  optional int64 min_buy_in = 5;
+  optional int64 max_buy_in = 6;
+  optional int64 min_bet = 7;
+  optional int64 max_bet = 8;
 }
 
 // -----------------------------------------------------------------------------
