@@ -3870,6 +3870,69 @@ that does not enforce it never answers it.
 - Cost: every coordinator that enforces a limit answers its key; readers of
   `retry_count` that took it for the attempts count one fewer.
 
+**14.50 Generation reads cardinality, sources, names and refusal codes from
+the proto; the host config is strict.** Owner rulings, 2026-10-31 (the
+overnight generator and app-generation rulings). Follows 14.31, 14.37 and
+14.38.
+- **Emits cardinality.** `CommandOptions.emits_cardinality` (field 6, enum
+  `EmitsCardinality`): `EMITS_CARDINALITY_ONE` (the default, and what
+  unset means), `EMITS_CARDINALITY_OPTIONAL`, `EMITS_CARDINALITY_MANY`.
+  ONE is one event of each emits type, a fixed tuple; OPTIONAL is that or
+  nothing; MANY is any number of events of the emits types. It applies to
+  commands and facts; with no emits only MANY is accepted. The generator
+  types the handler's result from it, so a repeat that emits nothing, or
+  a variable subset, needs no hand edit. table.proto marks RequestSeat,
+  ConfirmSeat and ReleaseSeat OPTIONAL and DealRound, Hit, Stand and
+  DoubleDown MANY.
+- **A projector's sources are a list.** `ComponentOptions.input_domains`
+  (field 8), PROJECTOR only: one projector, one handler, many source
+  domains. Every (event) entry naming the projector sets a domain from the
+  list; `input_domain` alone means a one-entry list; both together, a
+  duplicate, a listed domain no entry names, or the field on another kind
+  fails generation. A policy keeps exactly one source. The ledger lists
+  `table` and `wallet`.
+- **Names come from the proto.** `ComponentOptions.component_name` (field
+  9) is the component's name in an application: the host config's
+  `[[component]]`, the generated registration and hand-written code all
+  take it from one public helper. Unset, it defaults by kind: an
+  aggregate's domain; `pmg-` + a process manager's domain; `policy-` +
+  input_domain + `-` + output_domain (unique, one policy per pair);
+  `projector-` + the anchor message name in kebab case. `name` (field 4)
+  stays the code base name. The blackjack policies and pmg-buy-in take the
+  defaults; the ledger declares `projector-wallet-table-ledger`.
+- **Rejection codes are a typed refusal.** A domain's codes are one refusal
+  message with a nested `Reason` enum (`REASON_` + the code) and one
+  optional field per argument, named in each refusing command's
+  `refuses`; the ErrorInfo.reason on the wire is the value's name without
+  the prefix. The generated diagnostic key is the generator's, from the
+  refusal's full name and reason, its args the set fields, and a public
+  helper reproduces it. table.proto declares `TableRefused` with its
+  eighteen codes, named by every command but ConfirmSeat (which keeps
+  `SeatNotConfirmable`) and ReleaseSeat (which never refuses).
+- **A command may refuse several types.** `refuses` was always repeated;
+  the generator lifts its one-refusal-per-command limit, and the handler
+  returns any of them.
+- **An outside event consumer is a reference.** An (event) entry naming a
+  component outside the descriptor set being generated is skipped, not
+  refused, so one domain's protos generate alone; `angzarr lint app`
+  reports a component an application lists but does not have.
+- **The host config is strict.** `kind` is required on every
+  `[[component]]` (no `domain` default; existing configs add it); unknown
+  keys and values are refused, with the key path in the error; every
+  component is listed, in-process policies and projectors too, and the
+  generated main registers what the config lists.
+- Why: the generator wrote names, result types and refusals the examples
+  then hand-edited (examples-rust's `HAND-EDIT` markers); each now comes
+  from the proto, so hand-written and generated code agree.
+- Open: TableRefused carries codes of two status classes (five are
+  INVALID_ARGUMENT), while a typed refusal is a business rejection,
+  FAILED_PRECONDITION (the refusals region of options.proto). Nothing in
+  the markup carries a code's class yet; until a ruling, the client
+  library reports FAILED_PRECONDITION and table.proto's comments record
+  the intended class.
+- Cost: configs without `kind`, or with keys the host does not know, stop
+  loading; generators read three new options.
+
 ## Corrections
 
 Facts the earlier passes or the design note got wrong:

@@ -262,8 +262,9 @@ message ReleaseSeat {
 // REASON_ prefix (ALREADY_BET). The other fields are the args, each set
 // only for the codes that name it (listed per value), so a refusal's args
 // are its set fields. Each value lists the commands that refuse with it.
-// TABLE_NOT_FOUND and the FAILED_PRECONDITION codes report that status;
-// the five marked INVALID_ARGUMENT report INVALID_ARGUMENT.
+// The five marked INVALID_ARGUMENT are of that class, the rest
+// FAILED_PRECONDITION; how a typed refusal reports a class other than
+// FAILED_PRECONDITION awaits a ruling (decision 14.50, Open).
 message TableRefused {
   enum Reason {
     REASON_UNSPECIFIED = 0;
