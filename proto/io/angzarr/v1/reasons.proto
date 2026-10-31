@@ -150,6 +150,14 @@ enum HostReason {
   // refuse every answer the component gave (types.proto,
   // ComponentDescriptor; C-0743).
   HOST_REASON_DESCRIPTOR_RULES_VERSION_MISMATCH = 3;
+  // INTERNAL. Args: component. A projector that names no domain it reads:
+  // its descriptor's inputs are empty, as are its table's domains where
+  // the client builds the descriptor from the table. There is no wildcard
+  // domain (decision 14.53), so it would fold nothing. Refused at
+  // registration, before anything is served, and nothing is registered;
+  // a client's describe() of such a table refuses with it too (C-0747;
+  // decision 14.55).
+  HOST_REASON_PROJECTOR_NO_INPUT_DOMAIN = 4;
 
   // Retired by 14.37.
   reserved

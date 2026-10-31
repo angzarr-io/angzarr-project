@@ -91,3 +91,14 @@ Feature: Component host - serving its registered component over gRPC
     When the component is registered with a descriptor carrying rules version "1.4.1"
     Then the registration fails with reason HOST_REASON_DESCRIPTOR_RULES_VERSION_MISMATCH, component "Order", described "1.4.1" and reported "1.4.2"
     And no component is registered
+
+  @C-0747
+  Scenario: A host refuses a projector that names no input domain
+    # Decision 14.55: there is no wildcard domain (14.53), so a projector
+    # naming no domain it reads would fold nothing. A client that builds
+    # the descriptor from the dispatch table (describe()) refuses such a
+    # table there too, with the same key.
+    Given a component host
+    When a projector component "Totals" naming no input domain is registered
+    Then the registration fails with reason HOST_REASON_PROJECTOR_NO_INPUT_DOMAIN and component "Totals"
+    And no component is registered

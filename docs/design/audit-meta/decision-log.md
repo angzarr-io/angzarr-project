@@ -4122,6 +4122,30 @@ kept its events in angzarr-embedded's SQLite store since 2026-10-31.
 - Cost: every proto change is held to compatibility; the gate needs the
   draft fetched, and docker, as proto-lint does. GAP-3 is closed.
 
+**14.55 A projector naming no source domain is refused.** Owner ruling,
+2026-10-31. Follows 14.53 and 14.44.
+- **The rule.** A projector whose descriptor names no input domain (its
+  `inputs` empty; no `input_domains`, `input_domain` or (event) entry
+  naming one) is refused at registration, before anything is served, and
+  nothing is registered. With no wildcard domain (14.53) it would fold
+  nothing.
+- **`HOST_REASON_PROJECTOR_NO_INPUT_DOMAIN`**: INTERNAL, a refusal to
+  start raised as the language's configuration error; args `component`.
+  In `HostReason` because the component host refuses it where it
+  registers the component, as it refuses
+  `HOST_REASON_DESCRIPTOR_RULES_VERSION_MISMATCH` (14.44, amended). A
+  client whose `describe()` builds the descriptor from the dispatch table
+  refuses such a table there with the same key. angzarr-embedded's host,
+  which refuses a child projector describing no input, answers it too.
+- C-0747 in `parity/client/hosting.feature` asserts the key and arg;
+  `scripts/check_reason_keys.py` pins it. The proto prose agrees:
+  `reasons.proto`'s value comment and `options.proto`'s `input_domains`.
+- Why: the ruling. angzarr-embedded refused such a projector at start-up
+  under a local error with no key, while client-python's router folded
+  every book for a table given no domains: a wildcard by omission.
+- Cost: every client library's host and descriptor builder refuse one
+  more case under one more key.
+
 ## Corrections
 
 Facts the earlier passes or the design note got wrong:

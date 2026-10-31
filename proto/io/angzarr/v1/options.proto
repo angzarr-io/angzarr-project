@@ -120,7 +120,8 @@ message ComponentOptions {
   // it, fails generation. Set on any other kind, generation fails (a
   // policy has exactly one source, input_domain). Every source is named:
   // there is no wildcard domain, so a projector over every domain lists
-  // each one (decision 14.53).
+  // each one (decision 14.53), and a projector naming none is refused at
+  // registration (HOST_REASON_PROJECTOR_NO_INPUT_DOMAIN, decision 14.55).
   repeated string input_domains = 8;
   // The component's NAME in an application (decision 14.50): what the
   // host config's [[component]] entry, the generated registration and
