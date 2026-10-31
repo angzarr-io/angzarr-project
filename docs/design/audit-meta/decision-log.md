@@ -4012,13 +4012,14 @@ the event that the retry fails."
   cannot reach its upcaster, or holds no descriptor, was answering a bare
   UNAVAILABLE, and a store's own failure and an unretrievable payload had
   no key at all: the dead letter at the cap had nothing to record.
-- **Drafter's choices, for the owner to confirm:** the store's failure
-  and the payload's are keyed by the coordinator, the store's or payload
-  store's own code and args its `cause` (angzarr-ports'
-  `StoreError::Unavailable` cause, `annals-store-sql-io` and the like), so
-  the key is the same whatever the adapter; the query server's misroute is
-  UNIMPLEMENTED, as before, and keyed rather than moved to a business
-  status.
+- **Drafter's choices, confirmed by the owner (2026-10-31):**
+  - The store's failure and the payload's are keyed by the coordinator,
+    the store's or payload store's own code and args its `cause`
+    (angzarr-ports' `StoreError::Unavailable` cause, `annals-store-sql-io`
+    and the like), so the key is the same whatever the adapter.
+  - The query server's misroute stays UNIMPLEMENTED, as before, keyed
+    `COORDINATOR_REASON_COMMANDS_NOT_SERVED` rather than moved to a
+    business status.
 - The proto prose agrees: `reasons.proto`'s header and six value comments
   (and `COORDINATOR_REASON_RETRY_CAP_EXHAUSTED`'s), `command_handler.proto`'s
   status codes, `types.proto`'s `ConflictResolution` region and the
