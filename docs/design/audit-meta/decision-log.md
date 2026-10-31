@@ -3364,6 +3364,18 @@ language.
   routing guards, deduplication and saga association. The handler-contract
   tier plays the part of a TCK (a technology compatibility kit), as the
   Reactive Streams TCK does for its implementations.
+- **Amendment, 2026-10-31 (owner ruling: generated code is
+  hand-replaceable).** A descriptor written by hand is supported: business
+  code may write the `ComponentDescriptor` to its documented schema in
+  place of angzarr-cli's (client-python's `describe()` builds one), and the
+  coordinator validates it exactly as a generated one. The business
+  process still answers `Describe` with it unchanged, and the router still
+  holds no descriptor logic. The client library's component host checks
+  one thing at registration: the descriptor's `rules_version` must be the
+  version the component's answers report, else it refuses at once,
+  `HOST_REASON_DESCRIPTOR_RULES_VERSION_MISMATCH` (14.44, amended; C-0743).
+  `types.proto` (`ComponentDescriptor`, its `state`) and `component.proto`
+  (`ComponentService`) say so.
 
 **14.43 A purge is guarded by the head its caller read.** Owner rulings,
 2026-10-29: angzarr-ports' `Purge` gains an expected-head guard, and the
@@ -3499,6 +3511,17 @@ standard names.** Owner rulings, 2026-10-30. Amends 14.37 and 14.42.
   `registered`, `refused`, naming the component already registered and the
   one refused (C-0579 in `parity/client/hosting.feature`). Its value
   comment in `reasons.proto` says so.
+- **Amended, 2026-10-31 (owner ruling: every refusal carries a spec
+  key).** `HostReason` gains `HOST_REASON_DESCRIPTOR_RULES_VERSION_MISMATCH`
+  (INTERNAL; args `component`, `described`, `reported`): the component
+  host refuses, at registration, a descriptor whose `rules_version`
+  (`described`) is not the version its component's answers report
+  (`reported`), so nothing the coordinator would refuse is served
+  (14.42, amended; C-0743). client-python raised it under a client-local
+  code, `DESCRIPTOR_RULES_VERSION_MISMATCH`. Its
+  `DESCRIPTOR_RESOLUTION_UNSPECIFIED` is no host refusal and gets no key
+  here: `describe()`, the client library's descriptor builder, raises it
+  for an UNSPECIFIED conflict resolution before any host is involved.
 
 **14.45 A stale expected sequence is STRICT's key; a command that loses
 a race at its write is re-run or re-delivered.** Owner ruling, 2026-10-30,
@@ -3639,6 +3662,10 @@ has its own cap.** Owner rulings, 2026-10-30. Follows 14.37 and 14.45.
   coordinator deciding for consistency, a dead letter at either cap
   records the key as its reason.
 - **Amendment, 2026-10-30 (cap 0).** A race re-run cap of 0 is the opt-out for a consumer that owns its retries: a lost race is never re-run, and never parked or dead-lettered by the coordinator, whatever the retry cap says; it goes back to its caller at once as the store's retryable conflict, and a policy step's position holds at its trigger, moving past only after a dead letter (14.37), so the next catch-up runs it again (C-0740 command, C-0741 fact, C-0742 policy step).
+  The proto prose agrees: `command_handler.proto`'s status codes,
+  `types.proto`'s `ConflictResolution` region and `reasons.proto`'s
+  `COORDINATOR_REASON_RETRY_CAP_EXHAUSTED`. C-0742's policy uses the
+  coordinator tier's generic vocabulary (`"payment"` to `"order"`).
 
 **14.47 An expected sequence ahead of the head is malformed, under every
 resolution.** Owner ruling, 2026-10-30. Amends 14.45; follows 14.37 and

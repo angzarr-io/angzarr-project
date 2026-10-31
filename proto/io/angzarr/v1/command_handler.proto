@@ -246,6 +246,17 @@ message ConflictReport {
 // outcome.delivery PARKED, no events), never the key. Either way the dead
 // letter's reason (AngzarrDeadLetter.reason) is
 // COORDINATOR_REASON_RETRY_CAP_EXHAUSTED with the same args.
+// A race re-run cap of 0 is the opt-out for a consumer that owns its
+// retries (decision 14.46, amended): a stamped command or fact that loses
+// a race at its write is never re-run, and the coordinator neither parks
+// nor dead-letters it nor raises an alert, whatever the retry cap says.
+// It goes back to its caller at once, with no wait, as the store's write
+// conflict, retryable: never COORDINATOR_REASON_RETRY_CAP_EXHAUSTED, and a
+// fact never PARKED (C-0740, C-0741). A policy step that loses such a race
+// fails with that conflict and nothing is persisted; its position holds at
+// its trigger, since a step's position moves past its trigger only after
+// the step is dead-lettered (decision 14.37), so the policy's next
+// catch-up runs the step again (C-0742).
 // ABORTED COORDINATOR_REASON_EXPECTED_SEQUENCE_STALE is STRICT's failed
 // test-and-set: the command's caller-provided expected_sequence is behind
 // the stream's head, found at load or at the write (decision 14.45,

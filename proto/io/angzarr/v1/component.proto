@@ -25,10 +25,14 @@ option ruby_package = "Angzarr";
 // Every business process serves ComponentService beside its kind service
 // (CommandHandlerService for an aggregate or a process manager, PolicyService or
 // ProjectorService). It never serves UpcasterService. It
-// answers Describe with the descriptor angzarr-cli generated at build time,
-// unchanged; business code never implements it, and the router never
-// builds or checks it. The coordinator validates it (see
-// ComponentDescriptor in types.proto; decision 14.42).
+// answers Describe with its component's descriptor, unchanged: the one
+// angzarr-cli generated at build time, or one business code wrote by hand
+// to the documented schema in its place (generated code is
+// hand-replaceable). The client library's component host serves the RPC,
+// so business code never implements it, and the router never builds or
+// checks the descriptor. The coordinator validates it, a hand-written one
+// exactly as a generated one (see ComponentDescriptor in types.proto;
+// decision 14.42, amended).
 //
 // The coordinator PULLS the descriptor: it already dials the business
 // process for every delivery, and it calls Describe over that same channel.

@@ -81,3 +81,13 @@ Feature: Component host - serving its registered component over gRPC
     When the host starts
     Then starting fails with a configuration error naming both components
     And no service is served
+
+  @C-0743
+  Scenario: A host refuses a descriptor whose rules version is not the one its component reports
+    # Decision 14.42, amended: a descriptor generated or written by hand is
+    # checked alike; the coordinator would refuse every answer of a
+    # component whose descriptor names another version.
+    Given a component host whose aggregate component "Order" for domain "order" reports rules version "1.4.2"
+    When the component is registered with a descriptor carrying rules version "1.4.1"
+    Then the registration fails with reason HOST_REASON_DESCRIPTOR_RULES_VERSION_MISMATCH, component "Order", described "1.4.1" and reported "1.4.2"
+    And no component is registered

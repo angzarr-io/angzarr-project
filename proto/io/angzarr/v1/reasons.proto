@@ -135,6 +135,14 @@ enum HostReason {
   HOST_REASON_UPCASTER_WITH_COMPONENT = 1;
   // INTERNAL. No args. A host with no component registered (C-0504).
   HOST_REASON_NO_COMPONENTS_REGISTERED = 2;
+  // INTERNAL. Args: component, described, reported. A component registered
+  // with a descriptor whose rules_version (`described`) is not the version
+  // its answers report (`reported`: CommandHandlerResponse.rules_version),
+  // generated or written by hand alike. Refused at registration, before
+  // anything is served, and nothing is registered: the coordinator would
+  // refuse every answer the component gave (types.proto,
+  // ComponentDescriptor; C-0743).
+  HOST_REASON_DESCRIPTOR_RULES_VERSION_MISMATCH = 3;
 
   // Retired by 14.37.
   reserved
@@ -237,7 +245,10 @@ enum CoordinatorReason {
   // key, with the same args, as its AngzarrDeadLetter.reason, whether or
   // not a caller was waiting. (Decision 14.46.) The key is for write races
   // only: a retryable bug dead-lettered at its cap records its own key, as
-  // last answered (decision 14.48, amended).
+  // last answered (decision 14.48, amended). A race re-run cap of 0 never
+  // reaches this key: a lost race then goes back to its caller as the
+  // store's write conflict (command_handler.proto, the status codes;
+  // decision 14.46, amended).
   COORDINATOR_REASON_RETRY_CAP_EXHAUSTED = 21;
   // INVALID_ARGUMENT. Args: expected, head. Every resolution (STRICT,
   // AGGREGATE_HANDLES, COMMUTATIVE). The command set

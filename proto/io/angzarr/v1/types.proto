@@ -283,7 +283,12 @@ message Cover {
 // re-runs it on the new head (optimistic concurrency, per stream only;
 // decision 14.45). Re-runs are capped by the race re-run cap (default 10
 // runs), with exponential backoff and jitter between them (the status
-// codes in command_handler.proto; decision 14.46).
+// codes in command_handler.proto; decision 14.46). A race re-run cap of 0
+// opts out, for a consumer that owns its retries: the lost race is never
+// re-run, parked or dead-lettered, and goes back to its caller at once as
+// the store's write conflict, retryable; a policy step's position holds at
+// its trigger (command_handler.proto, the status codes; decision 14.46,
+// amended).
 //
 // COORDINATOR_REASON_EXPECTED_SEQUENCE_STALE is STRICT's alone: under
 // STRICT, a stream that has moved, found at load or because another write
@@ -1731,12 +1736,22 @@ enum ComponentKind {
 // (ComponentService.Describe in component.proto); holding it is what makes
 // the component registered.
 //
-// Generated, then validated (decision 14.42). angzarr-cli generates the
-// whole descriptor at build time from the component's protos (its
-// (component) declaration, its (command) and (event) entries and its
-// (state) message), with rules_version the build's baked-in version. The
-// business process answers Describe with it unchanged; neither business
-// code nor the client library's router builds or checks it. The
+// Generated or written by hand, then validated (decision 14.42, amended).
+// angzarr-cli generates the whole descriptor at build time from the
+// component's protos (its (component) declaration, its (command) and
+// (event) entries and its (state) message), with rules_version the build's
+// baked-in version. Generated code is hand-replaceable: business code may
+// write the descriptor itself instead, to this message's documented
+// schema (a client library may offer a builder for it, as client-python's
+// describe() does), and a hand-written descriptor is held to exactly the
+// rules a generated one is. Either way the business process answers
+// Describe with it unchanged, and the client library's router never builds
+// or checks it. The client library's component host checks one thing when
+// the component is registered: that rules_version is the version the
+// component's answers report (CommandHandlerResponse.rules_version), which
+// the coordinator would otherwise refuse on every answer; a descriptor of
+// any other version is refused at once, before anything is served
+// (HOST_REASON_DESCRIPTOR_RULES_VERSION_MISMATCH). The
 // COORDINATOR validates it and refuses (see ComponentService, Refusal) a
 // descriptor that has: an empty rules_version (COORDINATOR_REASON_MISSING_RULES_VERSION);
 // starting_types on a kind other than PROCESS_MANAGER
@@ -1762,8 +1777,8 @@ message ComponentDescriptor {
   string rules_version = 4;
   // The component's event-sourced state: set for AGGREGATE and
   // PROCESS_MANAGER, unset for POLICY and PROJECTOR. Generated from the state
-  // message's descriptor by angzarr-cli (business code never writes it by
-  // hand).
+  // message's descriptor by angzarr-cli, or written by hand to the same
+  // rules (see StateDescriptor).
   StateDescriptor state = 6;
   // PROCESS_MANAGER only: the fully-qualified type NAMES (no type URL
   // prefix: "examples.v1.OpenTable", never "/examples.v1.OpenTable") of the

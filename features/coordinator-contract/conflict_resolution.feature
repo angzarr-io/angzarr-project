@@ -456,14 +456,15 @@ Feature: Conflict resolution - how the coordinator treats a stale command
     # coordinator dead-letters nothing, whatever the retry cap says.
     Given the race re-run cap is 0
     And the retry cap is reached after 3 deliveries
-    And a policy that reacts to an event at sequence 1 of a "bell" stream with an AddItem command for the "order" stream, with no expected sequence and no conflict resolution
+    And a policy "PaymentToOrder" translating from "payment" to "order" that sends AddItem to "order" "o-1" on PaymentReceived, with no expected sequence and no conflict resolution
+    And a PaymentReceived event at sequence 1 of a "payment" stream
     And another write to the "order" stream lands at sequence 3 after the step's command is loaded and before it is written
-    When the policy runs on the event
+    When the policy "PaymentToOrder" runs on the PaymentReceived event
     Then business code is invoked once
     And the step persists nothing
     And nothing is dead-lettered and no alert is raised
     And the step fails with the store's write conflict, retryable, with no wait before it
-    And the policy's position on the "bell" stream stays at the triggering event, never moved past it
+    And the policy's position on the "payment" stream stays at the PaymentReceived event, never moved past it
     And the policy's next catch-up runs the step again
 
   @write_race
