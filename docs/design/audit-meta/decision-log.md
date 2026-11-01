@@ -4289,6 +4289,29 @@ catalog rule and 14.44.
   every runtime's codes for spec conditions change to the keys, and
   its own catalog drops their messages.
 
+**14.61 A policy and a projector read the event's whole context.** Admitted
+by the owner, 2026-10-31, as architecture-fixes D3 (review polyglot 4:
+"handlers get the full context", the owner's hard rule).
+- **The rule.** A policy's handler and a projector's fold are given the
+  event as delivered with all of its context: its book's cover, the page's
+  sequence, and the page's whole `EventMeta`, its causation (the producing
+  command's id), correlation, fact origin, rules version and
+  `recorded_at`, none withheld. A runtime may wrap them in a typed
+  context, but every field is reachable from it, and the same fields are
+  reachable in every language. A binding whose policy or projector API
+  passes the event alone (or the event and its cover) offers the
+  context-taking form as its default or only one.
+- **`context.feature`**, C-0757 (a policy) and C-0758 (a projector): the
+  handler reads back every field of the metadata its event was delivered
+  with. Every router binds both.
+- Why: an aggregate's handler got its whole command context, but a
+  policy's and a projector's were curated in Rust (no causation, fact
+  origin or rules version) and defaulted away in Python (`(event, cover)`
+  and `(projection, event)`), so one component ported between languages
+  saw different facts.
+- Cost: none on the wire; bindings whose default form dropped the context
+  change their signature.
+
 ## Corrections
 
 Facts the earlier passes or the design note got wrong:
