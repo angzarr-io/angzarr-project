@@ -4650,6 +4650,40 @@ Ruled by the owner, 2026-11-01, on the 2026-10-31 run's decision 24:
   child that wedges only now and then.
 - Cost: none on the wire.
 
+**14.68 A projector's and a saga's driver keeps the record of what it
+processed; a purge never touches it.** Ruled by the owner, 2026-11-01, on
+the 2026-10-31 run's decision 20: "a stored capability on the projector
+coordinators (distributed) or in embedded's driving machinery. Embedded's
+may be in memory only, but the same capability must exist. Purge doesn't
+own the projector's record", clarified "projectors and sagas do get to
+track state of what they've processed". Amends 14.43 (a purge removed the
+positions on its stream).
+- **The record.** A projector's driver, and a policy's (a saga's: a
+  process manager is composed of policies, 14.31), keeps every stream its
+  handler has seen and where it is on each, its next sequence. It is one
+  capability, angzarr-ports' `Processed` (the record read, and a stream
+  forgotten), whatever keeps it: a distributed coordinator stores it
+  durably, angzarr-embedded's catch-up may hold it in memory or in the
+  store. Positions are written as ever, in a write.
+- **A purge never touches it.** A purge removes a stream, its snapshot, its
+  command ids and the dead letters about it; the positions on it stay.
+- **A stream gone.** A driver compares its record with the store's
+  listing of streams (`ListStreams`); a stream it holds that the store no
+  longer lists is gone. It hands its handler the stream's gone book (its
+  cover, no page, `next_sequence` 0: what a projector already took as
+  gone), then forgets the stream. A purge made while no driver ran is found
+  so at the next one, which the positions a purge removed could not tell.
+- **A stream purged and written again** before a driver runs is still
+  listed. A driver holding a position past its head hands it from its
+  start; one written again to at least the old position (the purge's known
+  ABA limit, 14.43) is not told apart by a stored record.
+- **`features/coordinator-contract/processed_state.feature`**, C-0771 to
+  C-0774.
+- Why: the ruling. A purge made while no catch-up ran was undetectable,
+  since the purge deleted the very position that said the stream existed.
+- Cost: the positions of a purged stream stay until its driver forgets it;
+  a store's `ListPositions` becomes `Processed`.
+
 ## Corrections
 
 Facts the earlier passes or the design note got wrong:
