@@ -36,6 +36,12 @@ HOST_REASON_NO_COMPONENTS_REGISTERED = no component is registered with the host:
 HOST_REASON_DESCRIPTOR_RULES_VERSION_MISMATCH = component "{ $component }" describes rules version "{ $described }" but answers as "{ $reported }": nothing was registered
 HOST_REASON_PROJECTOR_NO_INPUT_DOMAIN = projector "{ $component }" names no domain it reads: name one
 HOST_REASON_HANDSHAKE_MALFORMED = malformed handshake "{ $line }": expected angzarr-handshake v1 unix:<absolute path>
+HOST_REASON_HANDSHAKE_TIMEOUT = no handshake within { $timeout_ms } ms
+HOST_REASON_HANDSHAKE_CLOSED = stdout closed before a handshake
+HOST_REASON_CHILD_NOT_SERVING = component "{ $component }" reported its health { $status } after its handshake, when a child handshakes only once it is SERVING
+HOST_REASON_CHILD_EXIT_STATUS = component "{ $component }" exited on its stdin's end with status { $exit_code }, not 0
+HOST_REASON_CHILD_NOT_EXITED = component "{ $component }" did not exit by itself on its stdin's end within its grace ({ $ended })
+HOST_REASON_PROBE_INPUT = the probe's input for component "{ $component }" is not one a { $kind } handles
 
 ## CoordinatorReason: core's coordinator and the angzarr-embedded kernel.
 

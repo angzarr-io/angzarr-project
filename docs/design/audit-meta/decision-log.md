@@ -4312,6 +4312,61 @@ by the owner, 2026-10-31, as architecture-fixes D3 (review polyglot 4:
 - Cost: none on the wire; bindings whose default form dropped the context
   change their signature.
 
+**14.62 The host's failures with a child are spec keys; the socket path
+is UTF-8.** Ruled by the owner, 2026-11-01: "seven host keys plus UTF-8".
+Amends 14.59.
+- **The keys.** The failures angzarr-embedded's host coded under codes of
+  its own when a child breaks the launch protocol are HostReason keys,
+  their args on the `(reason)` option and their English in
+  `reasons.en-US.ftl` (14.60), named in `docs/design/child-protocol.md`,
+  section 7:
+  - `HOST_REASON_HANDSHAKE_TIMEOUT`, INTERNAL, args `timeout_ms`: no
+    handshake within the host's time limit;
+  - `HOST_REASON_HANDSHAKE_CLOSED`, INTERNAL, no args: the child's stdout
+    ended first;
+  - `HOST_REASON_CHILD_NOT_SERVING`, INTERNAL, args `component`, `status`:
+    health other than SERVING once it had handshaken;
+  - `HOST_REASON_CHILD_EXIT_STATUS`, INTERNAL, args `component`,
+    `exit_code`: a nonzero exit on its stdin's end;
+  - `HOST_REASON_CHILD_NOT_EXITED`, INTERNAL, args `component`, `ended`:
+    no exit by itself within its grace;
+  - `HOST_REASON_PROBE_INPUT`, INVALID_ARGUMENT, args `component`, `kind`:
+    a conformance probe given an input its child does not handle.
+
+  The arg names are embedded's, but for its `domain`, which is the
+  component's name in the host's configuration: `component`, as every
+  other HostReason key names it. They replace embedded's
+  `angzarr-embedded-host-handshake-timeout`, `-handshake-closed`,
+  `-not-serving`, `-exit-status`, `-not-exited` and `-probe-input`.
+  `scripts/check_reason_keys.py` pins all six.
+- **The socket path is UTF-8.** The handshake's ABNF holds the path to
+  UTF-8 (RFC 3629), and `ANGZARR_SOCKET` with it: a host chooses a UTF-8
+  path, and a child given one that is not writes no handshake and exits
+  with a status other than 0.
+- **A path that is not UTF-8 is `HOST_REASON_HANDSHAKE_MALFORMED`**, not a
+  key of its own; the seventh code, embedded's
+  `angzarr-embedded-host-handshake-path-not-utf8`, is retired with no
+  successor. Why: the ruling makes such a line a malformed handshake, and
+  section 2's rule 3 already keys every line that starts
+  `angzarr-handshake` and does not match the grammar, so a reader
+  classifies by the grammar alone, with no check after it; a reader that
+  holds lines as text (client-python's `parse_handshake`) has no second
+  condition to tell apart; and `line` already holds the path, so nothing
+  a path key's arg would carry is lost. A line that is not UTF-8 is given
+  as `line` with each byte outside printable ASCII, and each backslash,
+  written `\xhh`.
+- **`parity/client/child.feature`**, C-0759 to C-0762: a UTF-8 path of any
+  characters is named; one that is not UTF-8 is malformed, given back
+  escaped; a line that is not UTF-8 and does not start
+  `angzarr-handshake` is not a handshake; a child given a socket path that
+  is not UTF-8 fails to start.
+- Why: the ruling. The host's own failures were the one part of the
+  launch protocol's refusals no other host could answer alike (14.59's
+  "not ruled here"), and a path's encoding was left to each reader.
+- Cost: buf-compatible (six values added); embedded's codes for these
+  conditions change to the keys, and a child shim that wrote any path it
+  was given checks it is UTF-8.
+
 ## Corrections
 
 Facts the earlier passes or the design note got wrong:

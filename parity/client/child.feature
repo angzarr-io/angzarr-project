@@ -2,7 +2,7 @@ Feature: Child process - the launch protocol between a host and its child
   A host (angzarr-embedded) runs a business process written in another
   language as a child process, and talks to it over gRPC on a Unix socket.
   The launch contract is normative in docs/design/child-protocol.md
-  (decision 14.59): the host names the socket in ANGZARR_SOCKET; the child
+  (decisions 14.59 and 14.62): the host names the socket in ANGZARR_SOCKET; the child
   serves there and, once its gRPC health reports SERVING, writes one
   handshake line on stdout, "angzarr-handshake v1 unix:<absolute path>";
   it shuts down on stdin's end of file or SIGTERM and removes its socket.
@@ -15,6 +15,12 @@ Feature: Child process - the launch protocol between a host and its child
 
   Fixtures use the generic client-tier vocabulary: an "order" aggregate
   component.
+
+  The socket path is UTF-8 (decision 14.62). In "the stdout line of bytes
+  ...", "\xhh" is the byte hh, two hexadecimal digits, and every other
+  character is itself, in UTF-8; a refused line that is not UTF-8 is given
+  back with each byte outside printable ASCII, and each backslash, written
+  "\xhh".
 
   @C-0749
   Scenario: A child serves at the socket its parent names and announces it
@@ -100,3 +106,50 @@ Feature: Child process - the launch protocol between a host and its child
       | angzarr-handshake v1 unix:order.sock           |
       | angzarr-handshake  v1 unix:/run/app/order.sock |
       | angzarr-handshake v1  unix:/run/app/order.sock |
+
+  @C-0759
+  Scenario Outline: A handshake names a socket path of any UTF-8 characters
+    When the stdout line of bytes "<bytes>" is read
+    Then it is a handshake naming socket path "<path>"
+
+    Examples:
+      | bytes                                                 | path                |
+      | angzarr-handshake v1 unix:/run/caf\xc3\xa9/order.sock   | /run/café/order.sock |
+      | angzarr-handshake v1 unix:/run/\xe2\x82\xac/order.sock | /run/€/order.sock    |
+
+  @C-0760
+  Scenario Outline: A handshake naming a socket path that is not UTF-8 is malformed
+    # Refused, never skipped, as any other malformed line is; no reader
+    # decodes the path into another one.
+    When the stdout line of bytes "<bytes>" is read
+    Then reading it fails with reason HOST_REASON_HANDSHAKE_MALFORMED and line "<line>"
+
+    Examples:
+      | bytes                                             | line                                              |
+      | angzarr-handshake v1 unix:/run/caf\xe9/order.sock  | angzarr-handshake v1 unix:/run/caf\xe9/order.sock  |
+      | angzarr-handshake v1 unix:/run/\xc3/order.sock     | angzarr-handshake v1 unix:/run/\xc3/order.sock     |
+      | angzarr-handshake v1 unix:/run/\xed\xa0\x80.sock   | angzarr-handshake v1 unix:/run/\xed\xa0\x80.sock   |
+      | angzarr-handshake v1 unix:/run/a\x5cb\x09\xff.sock | angzarr-handshake v1 unix:/run/a\x5cb\x09\xff.sock |
+
+  @C-0761
+  Scenario Outline: A line that is not UTF-8 is not a handshake when its first word is not angzarr-handshake
+    # Only a handshake's path is decoded: a banner in another encoding
+    # before the handshake is skipped, as any other such line is.
+    When the stdout line of bytes "<bytes>" is read
+    Then it is not a handshake
+
+    Examples:
+      | bytes                                         |
+      | listening on /run/caf\xe9/order.sock          |
+      | angzarr-handshake\xe9 v1 unix:/run/order.sock |
+      | \xff                                          |
+
+  @C-0762
+  Scenario: A child given a socket path that is not UTF-8 fails to start
+    # No handshake could name the path: the child writes none, and the
+    # host's read of its stdout ends with HOST_REASON_HANDSHAKE_CLOSED.
+    Given a child serving an aggregate component for domain "order"
+    And a parent that names a socket path that is not UTF-8 in ANGZARR_SOCKET
+    When the parent launches the child
+    Then the child exits with a status other than 0
+    And the child has written no handshake line on stdout

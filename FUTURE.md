@@ -99,7 +99,7 @@ The model is HashiCorp's go-plugin (Terraform providers, Vault and Packer plugin
 
 The launch protocol itself (the socket in `ANGZARR_SOCKET`, the handshake line, readiness, shutdown and
 socket cleanup) is normative in [`docs/design/child-protocol.md`](docs/design/child-protocol.md)
-(decision 14.59), with its scenarios in `parity/client/child.feature`.
+(decisions 14.59 and 14.62), with its scenarios in `parity/client/child.feature`.
 
 The cost is one local round trip per handler call (microseconds over a Unix socket, against nanoseconds
 in-process), plus supervising the child process.
