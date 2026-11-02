@@ -21,10 +21,7 @@ def _enum(name: str, keys: list[str], moved: tuple[str, ...] = ()) -> dict[str, 
     and by the numbers after them."""
     prefix = crk.PREFIXES[name]
     values = [{"name": f"{prefix}UNSPECIFIED", "number": 0}]
-    values += [
-        {"name": k, "number": n, "options": {crk.REASON_OPTION: {"args": ["domain"]}}}
-        for n, k in enumerate(keys, start=1)
-    ]
+    values += [{"name": k, "number": n, "options": {crk.REASON_OPTION: _option(k)}} for n, k in enumerate(keys, start=1)]
     enum: dict[str, Any] = {
         "name": name,
         "value": values,
@@ -33,6 +30,14 @@ def _enum(name: str, keys: list[str], moved: tuple[str, ...] = ()) -> dict[str, 
     if moved:
         enum["reservedRange"] = [{"start": len(keys) + 1, "end": len(keys) + len(moved)}]
     return enum
+
+
+def _option(key: str) -> dict[str, Any]:
+    """A conforming (reason) option for `key`: its pinned status, else
+    INTERNAL; `stream` first for a key that concerns one stream, then
+    `domain`."""
+    args = (["stream"] if key in crk.STREAM_KEYS else []) + ["domain"]
+    return {"args": args, "status": crk.PINNED_STATUS.get(key, "REASON_STATUS_INTERNAL")}
 
 
 def _moved(path: str, prefix: str) -> tuple[str, ...]:
@@ -305,7 +310,9 @@ class CheckReasonKeysTest(unittest.TestCase):
 
     def test_an_empty_option_declares_no_args(self) -> None:
         d = _good()
-        _value(d, "HOST_REASON_HANDSHAKE_MALFORMED")["options"] = {crk.REASON_OPTION: {}}
+        _value(d, "HOST_REASON_HANDSHAKE_MALFORMED")["options"] = {
+            crk.REASON_OPTION: {"status": "REASON_STATUS_INTERNAL"}
+        }
         self.assertEqual(crk.check(d), [])
         self.assertEqual(crk.declared_args(d)["HOST_REASON_HANDSHAKE_MALFORMED"], [])
 
@@ -315,6 +322,73 @@ class CheckReasonKeysTest(unittest.TestCase):
         declared = crk.declared_args(d)
         self.assertEqual(declared["ROUTER_REASON_TOO_MANY_STEPS"], ["limit"])
         self.assertNotIn("ROUTER_REASON_UNSPECIFIED", declared)
+
+    def test_every_live_key_declares_its_status(self) -> None:
+        # Decision 14.65: a key's gRPC status is declared on its option.
+        for status in (None, "REASON_STATUS_UNSPECIFIED"):
+            with self.subTest(status=status):
+                d = _good()
+                option = _value(d, "HOST_REASON_HANDSHAKE_MALFORMED")["options"][crk.REASON_OPTION]
+                option.pop("status")
+                if status is not None:
+                    option["status"] = status
+                self.assertProblem(d, "HOST_REASON_HANDSHAKE_MALFORMED: declares no status")
+
+    def test_an_empty_option_declares_no_status(self) -> None:
+        d = _good()
+        _value(d, "HOST_REASON_HANDSHAKE_MALFORMED")["options"] = {crk.REASON_OPTION: {}}
+        self.assertProblem(d, "HOST_REASON_HANDSHAKE_MALFORMED: declares no status")
+
+    def test_declared_statuses_are_read_per_key(self) -> None:
+        d = _good()
+        _value(d, "ROUTER_REASON_TOO_MANY_STEPS")["options"][crk.REASON_OPTION]["status"] = "REASON_STATUS_READINESS"
+        statuses = crk.declared_statuses(d)
+        self.assertEqual(statuses["ROUTER_REASON_TOO_MANY_STEPS"], "REASON_STATUS_READINESS")
+        self.assertEqual(statuses["HOST_REASON_HANDSHAKE_MALFORMED"], "REASON_STATUS_INTERNAL")
+        self.assertNotIn("ROUTER_REASON_UNSPECIFIED", statuses)
+
+    def test_decision_11_names_the_keys_that_concern_one_stream(self) -> None:
+        self.assertEqual(
+            sorted(crk.STREAM_KEYS),
+            [
+                "COORDINATOR_REASON_CONFLICT_OVERLAP",
+                "COORDINATOR_REASON_CONFLICT_UNRESOLVED",
+                "COORDINATOR_REASON_EDITION_NOT_FORKED",
+                "COORDINATOR_REASON_EDITION_REMOVAL_FAILED",
+                "COORDINATOR_REASON_EVENTS_NOT_ITS_STREAM",
+                "COORDINATOR_REASON_EXPECTED_SEQUENCE_AHEAD",
+                "COORDINATOR_REASON_EXPECTED_SEQUENCE_STALE",
+                "COORDINATOR_REASON_HANDLER_UNAVAILABLE",
+                "COORDINATOR_REASON_PM_NO_INSTANCE",
+                "COORDINATOR_REASON_RETRY_CAP_EXHAUSTED",
+                "COORDINATOR_REASON_RULES_VERSION_MISMATCH",
+                "COORDINATOR_REASON_STORE_CONFLICT",
+            ],
+        )
+
+    def test_a_key_that_concerns_one_stream_declares_stream(self) -> None:
+        for key in crk.STREAM_KEYS:
+            with self.subTest(key=key):
+                d = _good()
+                _value(d, key)["options"][crk.REASON_OPTION]["args"] = ["domain"]
+                self.assertProblem(d, f"{key}: concerns one stream and declares no stream arg")
+
+    def test_decision_14_65_pins_its_keys_their_statuses_and_args(self) -> None:
+        pinned = {
+            "COORDINATOR_REASON_EVENTS_NOT_ITS_STREAM": ("REASON_STATUS_INTERNAL", ["stream", "event_stream"]),
+            "COORDINATOR_REASON_EDITION_NOT_FORKED": ("REASON_STATUS_FAILED_PRECONDITION", ["stream", "edition"]),
+        }
+        for key, (status, args) in pinned.items():
+            with self.subTest(key=key):
+                self.assertIn(key, crk.PINNED)
+                self.assertEqual(crk.PINNED_STATUS[key], status)
+                self.assertEqual(crk.PINNED_ARGS[key], args)
+                d = _good()
+                _value(d, key)["options"][crk.REASON_OPTION]["status"] = "REASON_STATUS_ABORTED"
+                self.assertProblem(d, f"{key}: status is REASON_STATUS_ABORTED, and a decision pins {status}")
+                d = _good()
+                _value(d, key)["options"][crk.REASON_OPTION]["args"] = ["stream"]
+                self.assertProblem(d, f"{key}: args are ['stream'], and a decision pins {args}")
 
     def test_an_arg_named_twice(self) -> None:
         d = _good()
