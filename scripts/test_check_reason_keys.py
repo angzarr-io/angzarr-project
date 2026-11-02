@@ -150,7 +150,8 @@ class CheckReasonKeysTest(unittest.TestCase):
 
     def test_host_keys_are_exactly_these(self) -> None:
         d = _good()
-        _enum_of(d, "HostReason")["value"].append({"name": "HOST_REASON_EXTRA", "number": 6})
+        values = _enum_of(d, "HostReason")["value"]
+        values.append({"name": "HOST_REASON_EXTRA", "number": len(values)})
         self.assertProblem(d, "HostReason: keys are")
 
     def test_every_pinned_key_is_live(self) -> None:
@@ -189,6 +190,20 @@ class CheckReasonKeysTest(unittest.TestCase):
         ):
             with self.subTest(key=key):
                 self.assertIn(key, crk.PINNED)
+
+    def test_decision_14_62_pins_the_hosts_child_keys(self) -> None:
+        # The host's own failures with a child, keyed by the spec.
+        for key in (
+            "HOST_REASON_HANDSHAKE_TIMEOUT",
+            "HOST_REASON_HANDSHAKE_CLOSED",
+            "HOST_REASON_CHILD_NOT_SERVING",
+            "HOST_REASON_CHILD_EXIT_STATUS",
+            "HOST_REASON_CHILD_NOT_EXITED",
+            "HOST_REASON_PROBE_INPUT",
+        ):
+            with self.subTest(key=key):
+                self.assertIn(key, crk.PINNED)
+                self.assertIn(key, crk.HOST_KEYS)
 
     def test_the_good_descriptor_is_not_mutated(self) -> None:
         d = _good()
