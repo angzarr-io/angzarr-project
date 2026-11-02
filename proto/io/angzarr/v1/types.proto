@@ -308,11 +308,13 @@ message Cover {
 // Re-deliveries are capped by the retry cap (the status codes in
 // command_handler.proto; decision 14.45).
 //
-// A command that reaches either cap is dead-lettered and alerted, as any
-// exhausted retry is, and nothing is persisted; a caller waiting on Handle
-// or HandleSync is answered INTERNAL,
-// COORDINATOR_REASON_RETRY_CAP_EXHAUSTED (args attempts, cap; decision
-// 14.46). A fact (always stamped) that reaches the race re-run cap is
+// A command that reaches either cap persists nothing. A caller waiting on
+// Handle or HandleSync is answered INTERNAL,
+// COORDINATOR_REASON_RETRY_CAP_EXHAUSTED (args attempts, cap), and nothing
+// is dead-lettered: the caller holds the command (decision 14.46, as
+// corrected by 14.85, DRAFT, to the owner's ruling of 2026-10-31). A
+// command with no caller waiting (HandleAsync, a reaction) is
+// dead-lettered and alerted, as any exhausted retry is. A fact (always stamped) that reaches the race re-run cap is
 // dead-lettered and alerted too, but never refused: its sender is answered
 // "accepted, parked" (see Fact). Either dead letter's reason is
 // COORDINATOR_REASON_RETRY_CAP_EXHAUSTED with the same args.
@@ -983,9 +985,10 @@ message Projection {
 // (a STRICT command with a provided expected_sequence then fails at step
 // 4), at most to a cap: the race re-run cap for a stamped command, the
 // retry cap for an AGGREGATE_HANDLES or COMMUTATIVE re-delivery. At the
-// cap the command is dead-lettered and alerted, and a waiting caller is
-// answered INTERNAL, COORDINATOR_REASON_RETRY_CAP_EXHAUSTED (a fact,
-// PARKED; decision 14.46).
+// cap a waiting caller is answered INTERNAL,
+// COORDINATOR_REASON_RETRY_CAP_EXHAUSTED and nothing is dead-lettered;
+// a command with no caller waiting is dead-lettered and alerted (a fact,
+// PARKED; decisions 14.46, 14.85).
 //
 // Violations are refused loudly, never silently ignored. Each of these is
 // malformed, refused at step 1, before deduplication or business code:
@@ -1054,8 +1057,9 @@ message Handling {
   // AGGREGATE_HANDLES and COMMUTATIVE a provided expected_sequence is never
   // answered that key: the coordinator re-delivers the widened window and
   // the resolution's rule decides again, under the retry cap. At either
-  // cap the command is dead-lettered and alerted, and a waiting caller is
-  // answered INTERNAL, COORDINATOR_REASON_RETRY_CAP_EXHAUSTED (see
+  // cap a waiting caller is answered INTERNAL,
+  // COORDINATOR_REASON_RETRY_CAP_EXHAUSTED and nothing is dead-lettered,
+  // and a command with no caller waiting is dead-lettered and alerted (see
   // ConflictResolution; decisions 14.45 and 14.46). Ordering is per stream: no other stream's writes
   // matter.
   optional uint64 expected_sequence = 1;
@@ -1365,8 +1369,8 @@ message AngzarrDeadLetter {
   //     ROUTER_REASON_COMMAND_REFUSED with arg refusal_type, as on the
   //     wire; the object itself is `refusal`, below. A handler's own
   //     business key is an untyped refusal, its code and args here.
-  //   - A command or fact the coordinator gave up on after losing write
-  //     races, at the retry cap (AGGREGATE_HANDLES and COMMUTATIVE
+  //   - A command with no caller waiting (HandleAsync, a reaction), or a
+  //     fact, the coordinator gave up on after losing write races, at the retry cap (AGGREGATE_HANDLES and COMMUTATIVE
   //     re-deliveries) or the race re-run cap, is
   //     COORDINATOR_REASON_RETRY_CAP_EXHAUSTED with args attempts and cap,
   //     as answered to a waiting caller (decision 14.46); that key is for

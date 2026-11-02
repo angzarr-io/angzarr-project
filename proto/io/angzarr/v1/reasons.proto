@@ -424,15 +424,17 @@ enum CoordinatorReason {
   // sequence) re-run on the new head stops at the race re-run cap; an
   // AGGREGATE_HANDLES or COMMUTATIVE command re-delivered its widened window
   // stops at the retry cap. `attempts` is how many times business code ran,
-  // `cap` the configured limit reached. The command is dead-lettered and
-  // alerted, and nothing is persisted. INTERNAL, a fatal bug's status
-  // (decision 14.37): the retries are spent and the dead letter holds the
-  // command, so no caller retries it again, and a policy step that sent it
-  // follows on_policy_bug, as at any cap. A lost race carries no key, so there
+  // `cap` the configured limit reached. Nothing is persisted, and the
+  // command is not dead-lettered: its caller holds it (the owner's ruling of
+  // 2026-10-31; decision 14.85, DRAFT). INTERNAL, a fatal bug's status
+  // (decision 14.37): the retries are spent. A command with no caller
+  // waiting (HandleAsync, a reaction) is dead-lettered and alerted at the
+  // cap, and a policy step that sent it follows on_policy_bug, as at any
+  // cap. A lost race carries no key, so there
   // is no cause. A fact is never answered this: at the race re-run cap it is
-  // parked (OK, PARKED). A command or fact dead-lettered at either cap records
-  // this key, with the same args, as its AngzarrDeadLetter.reason, whether or
-  // not a caller was waiting. (Decision 14.46.) The key is for write races
+  // parked (OK, PARKED). A command with no caller waiting, or a fact,
+  // dead-lettered at either cap records this key, with the same args, as
+  // its AngzarrDeadLetter.reason. (Decisions 14.46, 14.85.) The key is for write races
   // only: a retryable bug dead-lettered at its cap records its own key, as
   // last answered (decision 14.48, amended). The race re-run cap is at least
   // 1 (decision 14.84).

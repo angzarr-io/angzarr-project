@@ -124,12 +124,14 @@ option ruby_package = "Angzarr";
 // and a configuration of 0 is refused when it is loaded: decision 14.84,
 // DRAFT), bounds a stamped command's re-runs on the new head; between runs the coordinator
 // waits with the exponential backoff and jitter above, never re-running at
-// once. At either cap the command is dead-lettered and alerted, nothing is
-// persisted, and a caller waiting on Handle or HandleSync is answered
-// INTERNAL COORDINATOR_REASON_RETRY_CAP_EXHAUSTED (args attempts, cap):
-// the retries are spent and the dead letter holds the command, so no
-// caller retries it again (decision 14.46). HandleAsync has no caller to
-// answer; its command is only dead-lettered and alerted. A fact is always
+// once. At either cap nothing is persisted. A caller waiting on Handle or
+// HandleSync is answered INTERNAL COORDINATOR_REASON_RETRY_CAP_EXHAUSTED
+// (args attempts, cap), and its command is NOT dead-lettered: the caller
+// holds it (the owner's ruling of 2026-10-31, "sync commands write no dead
+// letter at the retry cap"; decision 14.46 as corrected by 14.85, DRAFT).
+// Only work with no caller waiting is dead-lettered and alerted: a
+// HandleAsync command, and a reaction (Deliver) whose policy step then
+// follows on_policy_bug. A fact is always
 // stamped, so a lost race re-runs it under the race re-run cap too, but a
 // fact is never refused: at the cap it is dead-lettered and alerted,
 // nothing is persisted, and its sender is answered "accepted, parked" (OK,
