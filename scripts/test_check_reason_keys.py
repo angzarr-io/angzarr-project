@@ -34,9 +34,9 @@ def _enum(name: str, keys: list[str], moved: tuple[str, ...] = ()) -> dict[str, 
 
 def _option(key: str) -> dict[str, Any]:
     """A conforming (reason) option for `key`: its pinned status, else
-    INTERNAL; `stream` first for a key that concerns one stream, then
-    `domain`."""
-    args = (["stream"] if key in crk.STREAM_KEYS else []) + ["domain"]
+    INTERNAL; its pinned args, else `stream` first for a key that concerns
+    one stream, then `domain`."""
+    args = crk.PINNED_ARGS.get(key, (["stream"] if key in crk.STREAM_KEYS else []) + ["domain"])
     return {"args": args, "status": crk.PINNED_STATUS.get(key, "REASON_STATUS_INTERNAL")}
 
 
@@ -47,6 +47,7 @@ def _moved(path: str, prefix: str) -> tuple[str, ...]:
 def _good() -> dict[str, Any]:
     router = [k for k in crk.PINNED if k.startswith("ROUTER_REASON_")]
     coordinator = [k for k in crk.PINNED if k.startswith("COORDINATOR_REASON_") and k not in crk.MOVED]
+    coordinator += [k for k in crk.STREAM_KEYS if k not in coordinator]
     to_embedded = _moved(crk.EMBEDDED, "HOST_REASON_")
     to_distributed = _moved(crk.DISTRIBUTED, "COORDINATOR_REASON_")
     return {
@@ -58,6 +59,7 @@ def _good() -> dict[str, Any]:
                     _enum("RouterReason", router),
                     _enum("HostReason", list(crk.HOST_KEYS[crk.CORE]), to_embedded),
                     _enum("CoordinatorReason", coordinator, to_distributed),
+                    {"name": "ReasonStatus", "value": [{"name": "REASON_STATUS_UNSPECIFIED", "number": 0}]},
                 ],
             },
             {"name": crk.EMBEDDED, "enumType": [_enum("HostReason", list(crk.HOST_KEYS[crk.EMBEDDED]))]},
@@ -116,6 +118,14 @@ class CheckReasonKeysTest(unittest.TestCase):
         self.assertProblem(d, "enums are")
         d = _good()
         _file(d, crk.EMBEDDED)["enumType"].append(_enum("RouterReason", ["ROUTER_REASON_STRAY"]))
+        self.assertProblem(d, f"{crk.EMBEDDED}: enums are")
+
+    def test_core_declares_its_statuses_beside_its_keys(self) -> None:
+        d = _good()
+        _file(d)["enumType"] = [e for e in _file(d)["enumType"] if e["name"] != "ReasonStatus"]
+        self.assertProblem(d, f"{crk.CORE}: enums are")
+        d = _good()
+        _file(d, crk.EMBEDDED)["enumType"].append({"name": "ReasonStatus", "value": []})
         self.assertProblem(d, f"{crk.EMBEDDED}: enums are")
 
     def test_zero_must_be_unspecified(self) -> None:

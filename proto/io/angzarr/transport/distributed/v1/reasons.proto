@@ -21,38 +21,39 @@ option ruby_package = "Angzarr::Transport::Distributed";
 // Keys only a distributed coordinator answers.
 enum CoordinatorReason {
   COORDINATOR_REASON_UNSPECIFIED = 0;
-  // UNAVAILABLE. The coordinator holds no descriptor of
-  // `domain`'s component (component/v1/component.proto,
-  // Registration): it has not yet
-  // been described, or its Describe failed or was refused, so the
-  // coordinator delivers nothing to it. A waiting caller is answered this
-  // key, to resend; queued and reaction deliveries stay queued until the
-  // component is registered, so it is never a dead letter's reason. A
-  // business process that is described and then cannot be reached is
+  // The coordinator holds no descriptor of `domain`'s component
+  // (component/v1/component.proto, Registration): it has not yet been
+  // described, or its Describe failed or was refused, so the coordinator
+  // delivers nothing to it. A waiting caller is answered this key, to resend;
+  // queued and reaction deliveries stay queued until the component is
+  // registered, so it is never a dead letter's reason. A business process that
+  // is described and then cannot be reached is
   // COORDINATOR_REASON_HANDLER_UNAVAILABLE. (Decision 14.51.)
   COORDINATOR_REASON_COMPONENT_NOT_REGISTERED = 1 [(io.angzarr.v1.reason) = {
     args: ["domain"]
+    status: REASON_STATUS_UNAVAILABLE
   }];
-  // UNIMPLEMENTED. A command or fact sent to a standalone
-  // query server for `domain`'s event store, which has no component
-  // behind it and takes no commands (query_server.feature, C-0588). Bug,
-  // retryable (decision 14.37): a misroute or a stale deployment, which
-  // the caller's resend to the right address, or a corrected deployment,
-  // can clear. Never a dead letter's reason: a query server queues
-  // nothing. (Decision 14.51.)
-  COORDINATOR_REASON_COMMANDS_NOT_SERVED = 2 [(io.angzarr.v1.reason) = { args: ["domain"] }];
-  // UNAVAILABLE. A claim-checked payload
-  // (PayloadReference, at `uri`) the coordinator could not retrieve from
-  // its payload store (`cause`, the store's failure, a third-party
-  // library's text as `cause.ext_err_txt`). Bug, retryable (decision
-  // 14.37): retried under the retry cap with backoff and jitter; at the cap
-  // dead-lettered with this key and its args as its
-  // AngzarrDeadLetter.reason, processing_failed its details variant with
-  // this key as its failure, the retrieval's details on the
-  // DeadLetterEnvelope (payload_retrieval_failed), and alerted (C-0447).
-  // (Decision 14.51.)
+  // A command or fact sent to a standalone query server for `domain`'s event
+  // store, which has no component behind it and takes no commands
+  // (query_server.feature, C-0588). Bug, retryable (decision 14.37): a
+  // misroute or a stale deployment, which the caller's resend to the right
+  // address, or a corrected deployment, can clear. Never a dead letter's
+  // reason: a query server queues nothing. (Decision 14.51.)
+  COORDINATOR_REASON_COMMANDS_NOT_SERVED = 2 [(io.angzarr.v1.reason) = {
+    args: ["domain"]
+    status: REASON_STATUS_UNIMPLEMENTED
+  }];
+  // A claim-checked payload (PayloadReference, at `uri`) the coordinator could
+  // not retrieve from its payload store (`cause`, the store's failure, a
+  // third-party library's text as `cause.ext_err_txt`). Bug, retryable
+  // (decision 14.37): retried under the retry cap with backoff and jitter; at
+  // the cap dead-lettered with this key and its args as its
+  // AngzarrDeadLetter.reason, processing_failed its details variant with this
+  // key as its failure, the retrieval's details on the DeadLetterEnvelope
+  // (payload_retrieval_failed), and alerted (C-0447). (Decision 14.51.)
   COORDINATOR_REASON_PAYLOAD_UNAVAILABLE = 3 [(io.angzarr.v1.reason) = {
     args: ["uri", "cause"]
+    status: REASON_STATUS_UNAVAILABLE
   }];
 
   // Retired by 14.37.

@@ -14,7 +14,8 @@ reused again. This checks those spec-level rules on the compiled descriptor,
 ``buf build -o -#format=json`` of the three files (``just check-reason-keys``
 runs buf in its pinned container):
 
-- each file declares exactly its enums (REASON_FILES);
+- each file declares exactly its enums (REASON_FILES), and core's its
+  statuses' (STATUS_ENUMS);
 - each enum's 0 is ``<PREFIX>UNSPECIFIED``, and its live keys with the
   numbers it reserves are numbered densely from 1;
 - every live key is ``<PREFIX><SCREAMING_SNAKE>``, and no key is in two
@@ -26,8 +27,11 @@ runs buf in its pinned container):
   hold exactly their keys (HOST_KEYS);
 - the owners' keys pinned by decisions 14.45 to 14.49 are there;
 - every live key declares its args on its ``(io.angzarr.v1.reason)``
-  option, ``{}`` for none, each name snake_case and declared once
-  (decision 14.60);
+  option, each name snake_case and declared once (decision 14.60), and its
+  gRPC status, never ``REASON_STATUS_UNSPECIFIED`` (decision 14.65);
+- every key that concerns one stream (STREAM_KEYS) declares a ``stream``
+  arg (decision 14.65), and the keys a decision pins with a status and
+  args (PINNED_STATUS, PINNED_ARGS) declare exactly those;
 
 and, given the proto root, that the en-US catalog beside each file
 (``reasons.en-US.ftl``, decisions 14.60 and 14.64) holds one message per
@@ -61,6 +65,10 @@ REASON_FILES = {
     EMBEDDED: ("HostReason",),
     DISTRIBUTED: ("CoordinatorReason",),
 }
+
+# The enums a reasons.proto declares beside its key enums: core's statuses
+# (decision 14.65), which no key enum's rules apply to.
+STATUS_ENUMS = {CORE: ("ReasonStatus",)}
 
 # Each file's en-US catalog sits beside it, under this name.
 CATALOG_NAME = "reasons.en-US.ftl"
@@ -178,7 +186,41 @@ PINNED = (
     "HOST_REASON_CHILD_EXIT_STATUS",
     "HOST_REASON_CHILD_NOT_EXITED",
     "HOST_REASON_PROBE_INPUT",
+    # 14.65
+    "COORDINATOR_REASON_EVENTS_NOT_ITS_STREAM",
+    "COORDINATOR_REASON_EDITION_NOT_FORKED",
 )
+
+# The coordinator's keys that concern one stream, each declaring a `stream`
+# arg, the stream's text (decision 14.65, from the owner's ruling on
+# decision 11 of the 2026-10-31 run).
+STREAM_KEYS = (
+    "COORDINATOR_REASON_CONFLICT_UNRESOLVED",
+    "COORDINATOR_REASON_CONFLICT_OVERLAP",
+    "COORDINATOR_REASON_PM_NO_INSTANCE",
+    "COORDINATOR_REASON_EXPECTED_SEQUENCE_STALE",
+    "COORDINATOR_REASON_RETRY_CAP_EXHAUSTED",
+    "COORDINATOR_REASON_EXPECTED_SEQUENCE_AHEAD",
+    "COORDINATOR_REASON_EDITION_REMOVAL_FAILED",
+    "COORDINATOR_REASON_HANDLER_UNAVAILABLE",
+    "COORDINATOR_REASON_STORE_CONFLICT",
+    "COORDINATOR_REASON_RULES_VERSION_MISMATCH",
+    "COORDINATOR_REASON_EVENTS_NOT_ITS_STREAM",
+    "COORDINATOR_REASON_EDITION_NOT_FORKED",
+)
+
+# The statuses and args a decision pins (14.65).
+PINNED_STATUS = {
+    "COORDINATOR_REASON_EVENTS_NOT_ITS_STREAM": "REASON_STATUS_INTERNAL",
+    "COORDINATOR_REASON_EDITION_NOT_FORKED": "REASON_STATUS_FAILED_PRECONDITION",
+}
+PINNED_ARGS = {
+    "COORDINATOR_REASON_EVENTS_NOT_ITS_STREAM": ["stream", "event_stream"],
+    "COORDINATOR_REASON_EDITION_NOT_FORKED": ["stream", "edition"],
+}
+
+# A status option left unset, which no live key may.
+NO_STATUS = "REASON_STATUS_UNSPECIFIED"
 
 SCREAMING_SNAKE = re.compile(r"^[A-Z0-9_]+$")
 SNAKE = re.compile(r"^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$")
@@ -205,8 +247,9 @@ def check(descriptor: dict[str, Any]) -> list[str]:
     live: dict[tuple[str, str], list[str]] = {}
     for path, enums in files.items():
         names = sorted(e.get("name", "") for e in enums)
-        if names != sorted(REASON_FILES[path]):
-            problems.append(f"{path}: enums are {names}, expected {sorted(REASON_FILES[path])}")
+        expected = sorted(REASON_FILES[path] + STATUS_ENUMS.get(path, ()))
+        if names != expected:
+            problems.append(f"{path}: enums are {names}, expected {expected}")
         for e in enums:
             if e.get("name", "") in REASON_FILES[path]:
                 live[(path, e["name"])] = _check_enum(path, e, problems)
@@ -278,7 +321,9 @@ def _live_values(enums: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 
 def _arg_problems(enums: list[dict[str, Any]]) -> list[str]:
-    """Each live key's (reason) option: present, its args snake_case, each once."""
+    """Each live key's (reason) option: present, its args snake_case, each
+    once, a key of one stream's naming `stream`, and its status declared;
+    what a decision pins, as pinned."""
     problems: list[str] = []
     for value in _live_values(enums):
         key = value.get("name", "")
@@ -292,6 +337,15 @@ def _arg_problems(enums: list[dict[str, Any]]) -> list[str]:
                 problems.append(f"{key}: arg {arg!r} is not snake_case")
         for arg in sorted({a for a in args if args.count(a) > 1}):
             problems.append(f"{key}: arg {arg} declared twice")
+        if key in STREAM_KEYS and "stream" not in args:
+            problems.append(f"{key}: concerns one stream and declares no stream arg")
+        if key in PINNED_ARGS and args != PINNED_ARGS[key]:
+            problems.append(f"{key}: args are {args}, and a decision pins {PINNED_ARGS[key]}")
+        status = option.get("status", NO_STATUS)
+        if status == NO_STATUS:
+            problems.append(f"{key}: declares no status (its (reason) option's status)")
+        elif key in PINNED_STATUS and status != PINNED_STATUS[key]:
+            problems.append(f"{key}: status is {status}, and a decision pins {PINNED_STATUS[key]}")
     return problems
 
 
@@ -302,6 +356,16 @@ def declared_args(descriptor: dict[str, Any], path: str | None = None) -> dict[s
         v.get("name", ""): list(v.get("options", {}).get(REASON_OPTION, {}).get("args", []))
         for p, enums in _files(descriptor).items()
         if path in (None, p)
+        for v in _live_values(enums)
+    }
+
+
+def declared_statuses(descriptor: dict[str, Any]) -> dict[str, str]:
+    """Each live key's declared status, by key, as its (reason) option names
+    it (a ReasonStatus value's name), across every reasons.proto."""
+    return {
+        v.get("name", ""): v.get("options", {}).get(REASON_OPTION, {}).get("status", NO_STATUS)
+        for enums in _files(descriptor).values()
         for v in _live_values(enums)
     }
 
@@ -382,7 +446,7 @@ def main(argv: list[str]) -> int:
     if problems:
         return 1
     print(
-        f"ok   check-reason-keys ({len(REASON_FILES)} files, every key prefixed and its args declared, "
+        f"ok   check-reason-keys ({len(REASON_FILES)} files, every key prefixed and its args and status declared, "
         f"{len(RETIRED)} retired keys reserved, {len(MOVED)} moved keys reserved, "
         f"{len(declared_args(descriptor))} messages in the catalogs)"
     )

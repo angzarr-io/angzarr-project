@@ -53,7 +53,7 @@ send(Cover(domain="orders", root=order_id, edition="pricing-experiment"),
 
 **The fork travels with the data.** You don't propagate forks yourself. When a policy's command in the edition reaches a stream that isn't forked yet, that arrival forks it, and then the command is handled. The fork is at the main head angzarr read for that one stream on arrival, recorded in the `EditionCreated`; your policies never handle sequences. If main moves on in between, the fork still sits where it says. Streams the edition's activity never touches are never forked. It is eventually consistent, not lazy.
 
-A command you send yourself to a stream the edition hasn't reached is refused (`FAILED_PRECONDITION`, `EDITION_NOT_FORKED`) until propagation forks it, or until you fork it with `ForkStream`. A query of such a stream reads main's version and forks nothing.
+A command you send yourself to a stream the edition hasn't reached is refused (`FAILED_PRECONDITION`, `COORDINATOR_REASON_EDITION_NOT_FORKED`) until propagation forks it, or until you fork it with `ForkStream`. A query of such a stream reads main's version and forks nothing.
 
 **Every fork is per stream.** angzarr orders events per stream only and has no global position, so an edition's streams diverge at their own points, never at one store-wide moment. The fork point is per aggregate (one domain and root): no consistent snapshot across streams is promised.
 

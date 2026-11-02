@@ -207,8 +207,9 @@ message Cover {
   //     never touches are never forked.
   //   - A command or fact from outside (not a policy's) addressed in X to a
   //     stream with no fork in X is REFUSED until propagation forks it:
-  //     FAILED_PRECONDITION, google.rpc.ErrorInfo reason EDITION_NOT_FORKED
-  //     (the owner's ruling). Fork it with ForkStream to address it
+  //     FAILED_PRECONDITION, google.rpc.ErrorInfo reason
+  //     COORDINATOR_REASON_EDITION_NOT_FORKED (the owner's ruling;
+  //     decision 14.65), checked before business code runs. Fork it with ForkStream to address it
   //     directly.
   //   - A query or subscription of a stream not forked in X reads main's
   //     version (it is identical so far) and forks nothing.

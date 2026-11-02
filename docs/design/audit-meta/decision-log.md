@@ -4537,6 +4537,50 @@ protos into four packages". Restores 1.12, and amends 14.60's one catalog.
   changes meaning: core keeps its name, and no runtime ever set a stripped
   field.
 
+**14.65 A key declares its status, a key of one stream names it, and two
+keys are added.** Ruled by the owner, 2026-11-01, on the 2026-10-31 run's
+decisions 11 ("add `stream` to the coordinator keys that concern a single
+stream"), 27 ("declare it on the option") and 26 (C-0590: "add a key and
+refuse the answer as a handler bug"; C-0633: "add `EDITION_NOT_FORKED` and
+check it before the handler runs"). Amends 14.60.
+- **The status is on the option.** `ReasonOptions.status`, a
+  `ReasonStatus` (core's reasons.proto), set on every live key of every
+  package's reasons.proto; a value's number is its `google.rpc.Code`
+  number, and `REASON_STATUS_READINESS` (100, no code) marks a readiness
+  refusal, which never travels as a status. The key's comment keeps only
+  what the status alone cannot say (a retryable bug's picked status,
+  C-0678). `just check-reason-keys` refuses a live key with no status.
+  Each language's generated tables carry it beside the args (Rust's
+  `status()` on each key enum, Python's `reason_args.STATUS`), and a
+  runtime raises a spec key under its generated status, never one typed by
+  hand.
+- **`stream`.** A coordinator key that concerns one stream declares a
+  `stream` arg, the stream's text: its domain, `/`, its root as canonical
+  lowercase UUID text, then `@` and its edition when it is in one
+  (reasons.proto's header). They are `CONFLICT_UNRESOLVED`,
+  `CONFLICT_OVERLAP`, `PM_NO_INSTANCE`, `EXPECTED_SEQUENCE_STALE`,
+  `RETRY_CAP_EXHAUSTED`, `EXPECTED_SEQUENCE_AHEAD`,
+  `EDITION_REMOVAL_FAILED`, `HANDLER_UNAVAILABLE`, `STORE_CONFLICT`,
+  `RULES_VERSION_MISMATCH` and the two keys below, each `stream` first; the
+  catalog names it. A key about a reaction command (`POLICY_COMMAND_*`), a
+  refusal fact, a component's readiness or a store or sidecar as a whole
+  concerns no one stream and names none. Adding an arg breaks nothing on
+  the wire.
+- **`COORDINATOR_REASON_EVENTS_NOT_ITS_STREAM`** (38; INTERNAL; `stream`,
+  `event_stream`). A domain's or process manager's answer whose events book
+  names another stream (another edition included) is refused before any
+  write and dead-lettered as a handler bug (C-0590).
+- **`COORDINATOR_REASON_EDITION_NOT_FORKED`** (39; FAILED_PRECONDITION;
+  `stream`, `edition`). An outside input to a stream not forked in its
+  edition is refused when it is loaded, before business code runs, by the
+  store's Editions capability (C-0633, C-0654), where the scenarios named
+  an unprefixed key reasons.proto did not hold.
+- Why: the rulings. An operator lost the stream a kernel error named once
+  its code became the spec's key (14.60), a status lived only in prose,
+  and two scenarios named behaviour no key carried.
+- Cost: a new arg on ten keys (none removed); every runtime's raised
+  statuses now come from the generated table.
+
 ## Corrections
 
 Facts the earlier passes or the design note got wrong:

@@ -39,9 +39,9 @@ HOST_REASON_PROJECTOR_NO_INPUT_DOMAIN = projector "{ $component }" names no doma
 
 ## CoordinatorReason: core's coordinator and the angzarr-embedded kernel.
 
-COORDINATOR_REASON_CONFLICT_UNRESOLVED = the handler never acknowledged the events it did not see: a bug in the handler; re-read and re-issue
-COORDINATOR_REASON_CONFLICT_OVERLAP = the command's change to { $command_units } overlaps the change to { $window_units } it did not see: re-read and re-issue
-COORDINATOR_REASON_PM_NO_INSTANCE = the process manager has no instance here, and a { $type_url } does not start one: start it first
+COORDINATOR_REASON_CONFLICT_UNRESOLVED = the handler of { $stream } never acknowledged the events it did not see: a bug in the handler; re-read and re-issue
+COORDINATOR_REASON_CONFLICT_OVERLAP = the command's change to { $command_units } of { $stream } overlaps the change to { $window_units } it did not see: re-read and re-issue
+COORDINATOR_REASON_PM_NO_INSTANCE = the process manager has no instance at { $stream }, and a { $type_url } does not start one: start it first
 COORDINATOR_REASON_REFUSAL_FACT_WRONG_STREAM = a refusal fact was addressed to domain { $domain }, not its trigger's stream: a bug in the runtime
 COORDINATOR_REASON_POLICY_COMMAND_OUTSIDE_DESTINATION = a policy sent a command to domain { $actual_domain }, not its one destination { $expected_domain }: a bug in the policy
 COORDINATOR_REASON_POLICY_COMMAND_OUTSIDE_EDITION = a policy sent a command into edition "{ $actual_edition }", not its trigger's "{ $expected_edition }": a bug in the policy
@@ -61,14 +61,14 @@ COORDINATOR_REASON_POLICY_INPUT_COUNT = component "{ $component }": a policy has
     }; it must have exactly one
 COORDINATOR_REASON_POLICY_NO_OUTPUT_DOMAIN = component "{ $component }": a policy has no output domain
 COORDINATOR_REASON_OUTPUT_DOMAIN_ON_NON_POLICY = component "{ $component }": a { $component_kind } has an output domain; only a policy may
-COORDINATOR_REASON_EXPECTED_SEQUENCE_STALE = the stream is at { $actual }, not the { $expected } expected: re-read and re-issue
+COORDINATOR_REASON_EXPECTED_SEQUENCE_STALE = stream { $stream } is at { $actual }, not the { $expected } expected: re-read and re-issue
 COORDINATOR_REASON_RETRY_CAP_EXHAUSTED = gave up after { $attempts ->
         [one] one run
        *[other] { $attempts } runs
-    }, each losing its write to another write to the stream, at the cap of { $cap }: dead-lettered, nothing persisted
-COORDINATOR_REASON_EXPECTED_SEQUENCE_AHEAD = the stream is at { $head }, behind the { $expected } expected: the command names a sequence the stream never reached
+    }, each losing its write to another write to stream { $stream }, at the cap of { $cap }: dead-lettered, nothing persisted
+COORDINATOR_REASON_EXPECTED_SEQUENCE_AHEAD = stream { $stream } is at { $head }, behind the { $expected } expected: the command names a sequence the stream never reached
 COORDINATOR_REASON_POLICY_COMMAND_WITH_HANDLING = a policy sent a { $command_type } to domain { $domain } carrying an expected sequence or a conflict resolution, which only its target sets: a bug in the policy
-COORDINATOR_REASON_EDITION_REMOVAL_FAILED = the rows of deleted edition "{ $edition }" could not be removed, after { $attempts ->
+COORDINATOR_REASON_EDITION_REMOVAL_FAILED = the rows of { $stream } in deleted edition "{ $edition }" could not be removed, after { $attempts ->
         [one] one attempt
        *[other] { $attempts } attempts
     }: dead-lettered
@@ -76,9 +76,11 @@ COORDINATOR_REASON_POLICY_COMMAND_OTHER_IDENTITY = a policy sent a { $command_ty
 COORDINATOR_REASON_POLICY_COMMAND_IS_FACT = a policy sent a { $command_type } fact to domain { $domain }, where it sends commands only: a bug in the policy, whose refusal facts come from its refusal handler
 COORDINATOR_REASON_POLICY_COMMAND_FACT_ORIGIN = a policy sent a { $command_type } to domain { $domain } carrying a fact origin, which only a fact carries: a bug in the policy
 COORDINATOR_REASON_POLICY_COMMAND_UNKNOWN_DOMAIN = a policy sent a { $command_type } to domain { $domain }, which this coordinator cannot route: a bug in the deployment
-COORDINATOR_REASON_HANDLER_UNAVAILABLE = the handler of domain { $domain } could not be reached: run it again
+COORDINATOR_REASON_HANDLER_UNAVAILABLE = the handler of domain { $domain } could not be reached for { $stream }: run it again
 COORDINATOR_REASON_CHAIN_TOO_DEEP = the command chain went deeper than its limit of { $limit }
-COORDINATOR_REASON_STORE_CONFLICT = another write to the stream landed first, at { $actual }, not the { $expected } this write was stamped with: send it again
+COORDINATOR_REASON_STORE_CONFLICT = another write to { $stream } landed first, at { $actual }, not the { $expected } this write was stamped with: send it again
 COORDINATOR_REASON_STORE_UNAVAILABLE = the event store did not answer: send it again
 COORDINATOR_REASON_UPCASTER_UNAVAILABLE = the upcaster sidecar of domain { $domain } is not serving: send it again
-COORDINATOR_REASON_RULES_VERSION_MISMATCH = component "{ $component }" answered as rules version "{ $reported }", not "{ $registered }", the version it is registered at: a bug in the component; nothing was kept
+COORDINATOR_REASON_RULES_VERSION_MISMATCH = component "{ $component }" answered as rules version "{ $reported }", not "{ $registered }", the version it is registered at, for { $stream }: a bug in the component; nothing was kept
+COORDINATOR_REASON_EVENTS_NOT_ITS_STREAM = the handler of { $stream } answered events for { $event_stream }, another stream: a bug in the handler; nothing was kept
+COORDINATOR_REASON_EDITION_NOT_FORKED = { $stream } is not forked into edition "{ $edition }": fork it, or let a policy propagate into it, then send it again
