@@ -7,8 +7,12 @@
 [`parity/host/supervision.feature`](../../parity/host/supervision.feature)
 (C-0763 to C-0768), run by every host. Reason keys: HostReason's
 `HOST_REASON_HANDSHAKE_*`, `HOST_REASON_CHILD_*` and
-`HOST_REASON_PROBE_INPUT` (`proto/io/angzarr/v1/reasons.proto`; section
-7).
+`HOST_REASON_PROBE_INPUT`, the local-process transport's
+(`proto/io/angzarr/transport/embedded/v1/reasons.proto`, English in
+`reasons.en-US.ftl` beside it; section 7; decision 14.64). The protocol's
+constants (`angzarr-handshake`, `v1`, `unix:`, `ANGZARR_SOCKET` and the
+107-byte path limit) are declared once, as the `(child_protocol)` option of
+`proto/io/angzarr/transport/embedded/v1/child_protocol.proto`.
 
 A **host** (angzarr-embedded, or any runtime that runs a business process
 written in another language) launches the business process as a **child**

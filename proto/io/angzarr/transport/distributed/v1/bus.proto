@@ -1,0 +1,74 @@
+syntax = "proto3";
+package io.angzarr.transport.distributed.v1;
+
+import "google/protobuf/timestamp.proto";
+import "io/angzarr/v1/types.proto";
+
+option csharp_namespace = "Angzarr.Transport.Distributed";
+option go_package = "github.com/benjaminabbitt/angzarr/client/go/proto/io/angzarr/transport/distributed/v1;angzarrdistributed";
+option java_multiple_files = true;
+option java_package = "io.angzarr.transport.distributed";
+option ruby_package = "Angzarr::Transport::Distributed";
+
+// region bus_envelope
+// The message bus's envelope, and its claim check (decision 14.64): what
+// the distributed transport carries between its coordinators, wrapping the
+// core books unchanged. Nothing here is ever part of a persisted page:
+// EventPage and CommandPage payloads are always a plain
+// google.protobuf.Any, and the event store records the resolved payload.
+// The angzarr-embedded kernel has no bus and never sees an envelope.
+//
+// Claim check. A page whose payload exceeds the bus's size limit travels
+// with its payload unset and a ClaimCheck naming it in its place; the
+// receiving side resolves every claim check back into its page's payload
+// (and checks its content_hash) before anything else sees the book. A
+// payload that cannot be retrieved, after the retry cap, is
+// dead-lettered with reason COORDINATOR_REASON_PAYLOAD_UNAVAILABLE
+// (reasons.proto, here), its details on the envelope
+// (DeadLetterEnvelope.payload_retrieval_failed).
+message BusEnvelope {
+  oneof body {
+    io.angzarr.v1.EventBook events = 1; // A book of events, its claim-checked pages' payloads unset
+    io.angzarr.v1.CommandBook command = 2; // A command or fact, its payload unset when claim-checked
+  }
+  // One per page whose payload was claim-checked: none when every payload
+  // travels inline.
+  repeated ClaimCheck claim_checks = 3;
+}
+
+// One claim-checked payload: which page of the envelope's book it belongs to
+// and where it is stored.
+message ClaimCheck {
+  // The page's index in the book's pages, from 0 (always 0 for a
+  // CommandBook, which carries one page).
+  uint32 page = 1;
+  PayloadReference reference = 2;
+}
+// endregion
+
+// region payload_reference
+// Storage backend type for externally stored payloads (claim check pattern).
+enum PayloadStorageType {
+  PAYLOAD_STORAGE_TYPE_UNSPECIFIED = 0;
+  PAYLOAD_STORAGE_TYPE_FILESYSTEM = 1;
+  PAYLOAD_STORAGE_TYPE_GCS = 2;
+  PAYLOAD_STORAGE_TYPE_S3 = 3;
+}
+
+// Reference to an externally stored payload (claim check pattern), carried
+// only by a bus envelope, never by a persisted page (see above).
+message PayloadReference {
+  PayloadStorageType storage_type = 1;
+  // Location URI:
+  // - file:///var/angzarr/payloads/{hash}.bin
+  // - gs://bucket/prefix/{hash}.bin
+  // - s3://bucket/prefix/{hash}.bin
+  string uri = 2;
+  // Content hash for integrity verification and deduplication (SHA-256)
+  bytes content_hash = 3;
+  // Original serialized payload size in bytes
+  uint64 original_size = 4;
+  // Timestamp when payload was stored (for TTL cleanup)
+  google.protobuf.Timestamp stored_at = 5;
+}
+// endregion

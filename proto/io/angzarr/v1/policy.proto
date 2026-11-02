@@ -1,7 +1,6 @@
 syntax = "proto3";
 package io.angzarr.v1;
 
-import "google/api/annotations.proto";
 import "google/protobuf/any.proto";
 import "io/angzarr/v1/types.proto";
 
@@ -11,6 +10,14 @@ option java_multiple_files = true;
 option java_package = "io.angzarr";
 option ruby_package = "Angzarr";
 
+// Policies: stateless translation from source events to commands. The
+// business logic's service is the component contract's
+// (io.angzarr.component.v1.PolicyService,
+// io/angzarr/component/v1/policy.proto) and the coordinator's the
+// distributed transport's (PolicyCoordinatorService,
+// io/angzarr/transport/distributed/v1/policy.proto); what follows, and
+// the messages, are every runtime's (decision 14.64).
+//
 // PolicyService: stateless translation from source events to commands.
 //
 // A policy translates between exactly two domains: events of its one source
@@ -138,49 +145,6 @@ option ruby_package = "Angzarr";
 //   - This is the one exception to "a policy never delivers a fact": a
 //     policy's business code emits Commands only, and the one fact each
 //     refusal yields goes only to its own source domain.
-service PolicyService {
-  // Translate source events into commands for the destination domain (an
-  // aggregate's or a process manager's).
-  rpc Handle(EventBook) returns (PolicyResponse);
-
-  // One refusal of the policy's command (Refusals, above): the translated
-  // fact, or no translation. Called by the policy's coordinator only, for
-  // every business rejection of one of its commands. The business process
-  // runs the translating callback for the refused command's type and
-  // answers its fact (payload only), or answers an empty response when it
-  // has none; the coordinator then builds the pass-through CommandRefused
-  // (decision 14.42). An error status, or a fact the coordinator refuses as
-  // malformed, is a policy bug (dead-lettered and alerted).
-  rpc OnRefused(Refusal) returns (OnRefusedResponse);
-}
-
-// PolicyCoordinatorService: orchestrates policy execution.
-// Checks every emitted command (see PolicyResponse; decision 14.42), stamps
-// its edition when unset, and stamps its identity: causation_id (the
-// triggering event's EventRef: the page its PolicyReaction names),
-// command_id (UUIDv5 of the trigger, the policy's registered name and the
-// command's index within its reaction; derived_ids region) and
-// correlation_id (the trigger's). Records them in the
-// transient outbox (see PolicyResponse), delivers them through the
-// destination's coordinator (CommandHandlerCoordinatorService) as a
-// framework component, and retries retryable failures. On a business
-// rejection it calls PolicyService.OnRefused and delivers the refusal fact
-// it answers, through the outbox, to the policy's own source domain
-// (PolicyService, Refusals).
-service PolicyCoordinatorService {
-  // Execute policy: translate source events → commands, deliver to targets.
-  // The request is the source EventBook; the policy's configuration, not the
-  // request, sets how its commands are delivered. A trigger entry point:
-  // callers authenticated as framework components only; a client is
-  // refused PERMISSION_DENIED (see the entry_points region of
-  // command_handler.proto).
-  rpc Execute(EventBook) returns (PolicyResponse) {
-    option (google.api.http) = {
-      post: "/v1/policy/execute"
-      body: "*"
-    };
-  }
-}
 
 // Policies are pure translators: source events → commands. The request is the
 // source EventBook and carries no destination state or sequences.

@@ -1,0 +1,105 @@
+syntax = "proto3";
+package io.angzarr.transport.embedded.v1;
+
+import "io/angzarr/v1/reasons.proto";
+
+option csharp_namespace = "Angzarr.Transport.Embedded";
+option go_package = "github.com/benjaminabbitt/angzarr/client/go/proto/io/angzarr/transport/embedded/v1;angzarrembedded";
+option java_multiple_files = true;
+option java_package = "io.angzarr.transport.embedded";
+option ruby_package = "Angzarr::Transport::Embedded";
+
+// The local-process transport's reason keys (decision 14.64): what
+// whatever runs a child process answers when the child breaks the launch
+// protocol (docs/design/child-protocol.md, section 7): its handshake, its
+// health once handshaken, its exit, and a conformance probe's input. The
+// rules of core's reasons.proto hold here: a key travels as its value's full
+// name, prefix included, each carries its (io.angzarr.v1.reason) args, its
+// English is reasons.en-US.ftl beside this file, and the enum reserves every
+// retired key under its prefix. The enum keeps core's name and prefix, so
+// each key moved here from io.angzarr.v1.HostReason kept its string.
+//
+// Keys whatever runs a child answers.
+enum HostReason {
+  HOST_REASON_UNSPECIFIED = 0;
+  // INTERNAL. A child's stdout line whose first word is
+  // `angzarr-handshake` but which is not a v1 handshake naming an absolute
+  // UTF-8 Unix socket path (`angzarr-handshake v1 unix:<path>`): another
+  // version, another transport, a relative path, a path that is not
+  // UTF-8, a missing address. `line` is the line as read, its line ending
+  // removed; a line that is not UTF-8 is given with each byte outside
+  // printable ASCII, and each backslash, written `\xhh`. Refused, never
+  // skipped: the host that reads it fails to start the child, and a
+  // client's handshake parser refuses it with the same key. Answered by
+  // whatever reads a child's handshake (docs/design/child-protocol.md;
+  // C-0756, C-0760; decisions 14.59 and 14.62).
+  HOST_REASON_HANDSHAKE_MALFORMED = 1 [(io.angzarr.v1.reason) = { args: ["line"] }];
+  // INTERNAL. No handshake within the host's time limit for one
+  // (`timeout_ms`, in milliseconds): the child never wrote it, or wrote
+  // only lines that are not handshakes. The host fails to start the child,
+  // and stops it (docs/design/child-protocol.md, section 7; decision
+  // 14.62).
+  HOST_REASON_HANDSHAKE_TIMEOUT = 2 [(io.angzarr.v1.reason) = { args: ["timeout_ms"] }];
+  // INTERNAL. The child's stdout ended (it exited, or closed it) before
+  // a handshake. The host fails to start the child; its stderr says why
+  // (child-protocol.md, sections 3 and 7; decision 14.62).
+  HOST_REASON_HANDSHAKE_CLOSED = 3 [(io.angzarr.v1.reason) = {}];
+  // INTERNAL. A child whose overall server (service `""`) reported other
+  // than SERVING on grpc.health.v1 once it had handshaken, when a child
+  // handshakes only once SERVING: `component` its name in the host's
+  // configuration, `status` the health status by its name (`NOT_SERVING`,
+  // `SERVICE_UNKNOWN`), or its number when it has none. The host fails to
+  // start the child (child-protocol.md, sections 4 and 7; decision 14.62).
+  HOST_REASON_CHILD_NOT_SERVING = 4 [(io.angzarr.v1.reason) = {
+    args: ["component", "status"]
+  }];
+  // INTERNAL. A child that exited on its stdin's end with a status other
+  // than 0 (`exit_code`), when a child shutting down exits with 0: what a
+  // host's conformance probe refuses (child-protocol.md, sections 5 and 7;
+  // decision 14.62).
+  HOST_REASON_CHILD_EXIT_STATUS = 5 [(io.angzarr.v1.reason) = {
+    args: ["component", "exit_code"]
+  }];
+  // INTERNAL. A child that did not exit by itself on its stdin's end
+  // within its grace: `ended` is how it did end, `signalled` (a signal
+  // ended it), `terminated` (by the host's SIGTERM), `killed` (by its
+  // SIGKILL) or `not-running`. What a host's conformance probe refuses
+  // (child-protocol.md, sections 5 and 7; decision 14.62).
+  HOST_REASON_CHILD_NOT_EXITED = 6 [(io.angzarr.v1.reason) = {
+    args: ["component", "ended"]
+  }];
+  // INVALID_ARGUMENT. A host's conformance probe given an input a child
+  // of its kind (`kind`, as its configuration names it: `domain`,
+  // `policy`, `projector`) does not handle: a command for a policy, a
+  // book of events for a domain. Nothing is sent to the child
+  // (child-protocol.md, section 7; decision 14.62).
+  HOST_REASON_PROBE_INPUT = 7 [(io.angzarr.v1.reason) = {
+    args: ["component", "kind"]
+  }];
+
+  // Retired by 14.37.
+  reserved
+    "HOST_REASON_MALFORMED_REFUSAL_FACT",
+    "HOST_REASON_DUPLICATE_REGISTRATION",
+    "HOST_REASON_NO_HANDLER_REGISTERED";
+  // Retired by 14.39.
+  reserved
+    "HOST_REASON_DUPLICATE_UPCASTER_CHAIN",
+    "HOST_REASON_DUPLICATE_COMMAND_HANDLER";
+  // Retired by 14.42.
+  reserved
+    "HOST_REASON_MISSING_COMMAND_BOOK",
+    "HOST_REASON_MISSING_COMMAND_PAGE",
+    "HOST_REASON_MISSING_COMMAND_PAYLOAD",
+    "HOST_REASON_MISSING_EVENT_BOOK_COVER",
+    "HOST_REASON_EMPTY_POLICY_SOURCE",
+    "HOST_REASON_POLICY_SOURCE_OUTSIDE_INPUT_DOMAIN",
+    "HOST_REASON_REFUSAL_FACT_MISSING",
+    "HOST_REASON_REFUSAL_WITHOUT_COMMAND",
+    "HOST_REASON_REFUSAL_WITHOUT_EVENT",
+    "HOST_REASON_REFUSAL_WITHOUT_REFUSED_COMMAND",
+    "HOST_REASON_REFUSED_COMMAND_WITHOUT_ID",
+    "HOST_REASON_REFUSAL_WITHOUT_TRIGGER_STREAM",
+    "HOST_REASON_HOST_STATUS_UNDECODABLE",
+    "HOST_REASON_NULL_ABI_POINTER";
+}

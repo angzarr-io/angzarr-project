@@ -1,13 +1,13 @@
 syntax = "proto3";
-package io.angzarr.v1;
+package io.angzarr.transport.distributed.v1;
 
 import "google/protobuf/any.proto";
 
-option csharp_namespace = "Angzarr";
-option go_package = "github.com/benjaminabbitt/angzarr/client/go/proto/io/angzarr/v1;angzarr";
+option csharp_namespace = "Angzarr.Transport.Distributed";
+option go_package = "github.com/benjaminabbitt/angzarr/client/go/proto/io/angzarr/transport/distributed/v1;angzarrdistributed";
 option java_multiple_files = true;
-option java_package = "io.angzarr";
-option ruby_package = "Angzarr";
+option java_package = "io.angzarr.transport.distributed";
+option ruby_package = "Angzarr::Transport::Distributed";
 
 // region cloud_event
 // CloudEvent represents a single event for external consumption.
@@ -45,7 +45,7 @@ message CloudEvent {
   // EventMeta.correlation_id, which is always set (correlation is per page;
   // covers carry none). CloudEvents attribute values are strings, so this is a display
   // boundary: the value is the UUID's canonical text (36 lowercase
-  // characters, hyphenated; see UUID in types.proto).
+  // characters, hyphenated; see UUID in io/angzarr/v1/types.proto).
   map<string, string> extensions = 3;
 
   // Optional overrides. Framework uses Cover/EventPage values if not set.

@@ -10,14 +10,28 @@ option java_package = "io.angzarr";
 option ruby_package = "Angzarr";
 
 // The framework's reason keys (decisions 14.37, 14.42 and 14.44): every key
-// angzarr answers, once, in the enum of the component that answers it.
+// angzarr answers, once, in the enum of the component that answers it, in
+// the package whose code raises it (decision 14.64). This file holds core's:
 //
 //   RouterReason       the client library's router, in every language
 //   HostReason         the client library's component host, in every
-//                      language (parity/client/hosting.feature), and
-//                      whatever reads a child's handshake
-//                      (parity/client/child.feature)
+//                      language (parity/client/hosting.feature): its
+//                      configuration and composition keys, which a
+//                      Rust-only application can hit too
 //   CoordinatorReason  core's coordinator and the angzarr-embedded kernel
+//
+// Two transports add keys of their own, under the same enum names and
+// prefixes, so each moved key kept its string:
+//
+//   io.angzarr.transport.embedded.v1.HostReason
+//       (transport/embedded/v1/reasons.proto) whatever runs a child
+//       process: its handshake, health and exit (parity/client/child.feature)
+//   io.angzarr.transport.distributed.v1.CoordinatorReason
+//       (transport/distributed/v1/reasons.proto) only a distributed
+//       coordinator: registration by Describe, a query server, a claim
+//       check
+//
+// A key's string is unique across every package: it is what travels.
 //
 // The key on the wire is the VALUE'S FULL NAME, its enum's prefix
 // included: the gRPC status message, the google.rpc.ErrorInfo reason and
@@ -37,7 +51,7 @@ option ruby_package = "Angzarr";
 // whose answerers differ declares every name any of them gives (the
 // comment says which gives which), and an answer gives none it does not
 // declare. "Readiness" means the key never travels as a status: it is a readiness
-// refusal, logged and alerted (component.proto). A `cause` arg flattens a
+// refusal, logged and alerted (component/v1/component.proto). A `cause` arg flattens a
 // wrapped key and its args as `cause` and `cause.<arg>` (types.proto, the
 // diagnostic region). Which class a status is (decision 14.37's four
 // classes) is the coordinator's to decide, not listed here. English for a
@@ -77,7 +91,7 @@ message ReasonOptions {
 
 extend google.protobuf.EnumValueOptions {
   // On every live value of RouterReason, HostReason and
-  // CoordinatorReason. Numbered after options.proto's extensions of
+  // CoordinatorReason, here and in the transports' reasons.proto. Numbered after options.proto's extensions of
   // EnumValueOptions (refusal_status, 50108), which share the field space.
   ReasonOptions reason = 50109;
 }
@@ -203,60 +217,18 @@ enum HostReason {
   HOST_REASON_PROJECTOR_NO_INPUT_DOMAIN = 4 [(reason) = {
     args: ["component"]
   }];
-  // INTERNAL. A child's stdout line whose first word is
-  // `angzarr-handshake` but which is not a v1 handshake naming an absolute
-  // UTF-8 Unix socket path (`angzarr-handshake v1 unix:<path>`): another
-  // version, another transport, a relative path, a path that is not
-  // UTF-8, a missing address. `line` is the line as read, its line ending
-  // removed; a line that is not UTF-8 is given with each byte outside
-  // printable ASCII, and each backslash, written `\xhh`. Refused, never
-  // skipped: the host that reads it fails to start the child, and a
-  // client's handshake parser refuses it with the same key. Answered by
-  // whatever reads a child's handshake (docs/design/child-protocol.md;
-  // C-0756, C-0760; decisions 14.59 and 14.62).
-  HOST_REASON_HANDSHAKE_MALFORMED = 5 [(reason) = { args: ["line"] }];
-  // INTERNAL. No handshake within the host's time limit for one
-  // (`timeout_ms`, in milliseconds): the child never wrote it, or wrote
-  // only lines that are not handshakes. The host fails to start the child,
-  // and stops it (docs/design/child-protocol.md, section 7; decision
-  // 14.62).
-  HOST_REASON_HANDSHAKE_TIMEOUT = 6 [(reason) = { args: ["timeout_ms"] }];
-  // INTERNAL. The child's stdout ended (it exited, or closed it) before
-  // a handshake. The host fails to start the child; its stderr says why
-  // (child-protocol.md, sections 3 and 7; decision 14.62).
-  HOST_REASON_HANDSHAKE_CLOSED = 7 [(reason) = {}];
-  // INTERNAL. A child whose overall server (service `""`) reported other
-  // than SERVING on grpc.health.v1 once it had handshaken, when a child
-  // handshakes only once SERVING: `component` its name in the host's
-  // configuration, `status` the health status by its name (`NOT_SERVING`,
-  // `SERVICE_UNKNOWN`), or its number when it has none. The host fails to
-  // start the child (child-protocol.md, sections 4 and 7; decision 14.62).
-  HOST_REASON_CHILD_NOT_SERVING = 8 [(reason) = {
-    args: ["component", "status"]
-  }];
-  // INTERNAL. A child that exited on its stdin's end with a status other
-  // than 0 (`exit_code`), when a child shutting down exits with 0: what a
-  // host's conformance probe refuses (child-protocol.md, sections 5 and 7;
-  // decision 14.62).
-  HOST_REASON_CHILD_EXIT_STATUS = 9 [(reason) = {
-    args: ["component", "exit_code"]
-  }];
-  // INTERNAL. A child that did not exit by itself on its stdin's end
-  // within its grace: `ended` is how it did end, `signalled` (a signal
-  // ended it), `terminated` (by the host's SIGTERM), `killed` (by its
-  // SIGKILL) or `not-running`. What a host's conformance probe refuses
-  // (child-protocol.md, sections 5 and 7; decision 14.62).
-  HOST_REASON_CHILD_NOT_EXITED = 10 [(reason) = {
-    args: ["component", "ended"]
-  }];
-  // INVALID_ARGUMENT. A host's conformance probe given an input a child
-  // of its kind (`kind`, as its configuration names it: `domain`,
-  // `policy`, `projector`) does not handle: a command for a policy, a
-  // book of events for a domain. Nothing is sent to the child
-  // (child-protocol.md, section 7; decision 14.62).
-  HOST_REASON_PROBE_INPUT = 11 [(reason) = {
-    args: ["component", "kind"]
-  }];
+
+  // Moved to io.angzarr.transport.embedded.v1 (decision 14.64), each
+  // key's string unchanged: a key lives in the package whose code raises it.
+  reserved 5 to 11;
+  reserved
+    "HOST_REASON_HANDSHAKE_MALFORMED",
+    "HOST_REASON_HANDSHAKE_TIMEOUT",
+    "HOST_REASON_HANDSHAKE_CLOSED",
+    "HOST_REASON_CHILD_NOT_SERVING",
+    "HOST_REASON_CHILD_EXIT_STATUS",
+    "HOST_REASON_CHILD_NOT_EXITED",
+    "HOST_REASON_PROBE_INPUT";
 
   // Retired by 14.37.
   reserved
@@ -428,7 +400,7 @@ enum CoordinatorReason {
     args: ["domain", "command_type"]
   }];
   // INTERNAL. The rows of a deleted
-  // edition in one stream could not be removed (meta.proto,
+  // edition in one stream could not be removed (transport/distributed/v1/meta.proto,
   // DeleteEdition): the removal is dead-lettered (the stream and its
   // meta.EditionDeleted as AngzarrDeadLetter.failed_edition_removal) with
   // this key as its reason, and alerted. `attempts` is how many removals
@@ -558,37 +530,6 @@ enum CoordinatorReason {
   COORDINATOR_REASON_UPCASTER_UNAVAILABLE = 33 [(reason) = {
     args: ["domain", "cause"]
   }];
-  // UNAVAILABLE. The coordinator holds no descriptor of
-  // `domain`'s component (component.proto, Registration): it has not yet
-  // been described, or its Describe failed or was refused, so the
-  // coordinator delivers nothing to it. A waiting caller is answered this
-  // key, to resend; queued and reaction deliveries stay queued until the
-  // component is registered, so it is never a dead letter's reason. A
-  // business process that is described and then cannot be reached is
-  // COORDINATOR_REASON_HANDLER_UNAVAILABLE. (Decision 14.51.)
-  COORDINATOR_REASON_COMPONENT_NOT_REGISTERED = 34 [(reason) = {
-    args: ["domain"]
-  }];
-  // UNIMPLEMENTED. A command or fact sent to a standalone
-  // query server for `domain`'s event store, which has no component
-  // behind it and takes no commands (query_server.feature, C-0588). Bug,
-  // retryable (decision 14.37): a misroute or a stale deployment, which
-  // the caller's resend to the right address, or a corrected deployment,
-  // can clear. Never a dead letter's reason: a query server queues
-  // nothing. (Decision 14.51.)
-  COORDINATOR_REASON_COMMANDS_NOT_SERVED = 35 [(reason) = { args: ["domain"] }];
-  // UNAVAILABLE. A claim-checked payload
-  // (PayloadReference, at `uri`) the coordinator could not retrieve from
-  // its payload store (`cause`, the store's failure, a third-party
-  // library's text as `cause.ext_err_txt`). Bug, retryable (decision
-  // 14.37): retried under the retry cap with backoff and jitter; at the cap
-  // dead-lettered with this key and its args as its
-  // AngzarrDeadLetter.reason, payload_retrieval_failed its details
-  // variant, with this key as its failure, and alerted (C-0447).
-  // (Decision 14.51.)
-  COORDINATOR_REASON_PAYLOAD_UNAVAILABLE = 36 [(reason) = {
-    args: ["uri", "cause"]
-  }];
   // INTERNAL. A
   // CommandHandlerResponse whose rules_version (`reported`, an empty one
   // included) is not the version the component registered (`registered`:
@@ -600,6 +541,14 @@ enum CoordinatorReason {
   COORDINATOR_REASON_RULES_VERSION_MISMATCH = 37 [(reason) = {
     args: ["component", "registered", "reported"]
   }];
+
+  // Moved to io.angzarr.transport.distributed.v1 (decision 14.64), each
+  // key's string unchanged: a key lives in the package whose code raises it.
+  reserved 34 to 36;
+  reserved
+    "COORDINATOR_REASON_COMPONENT_NOT_REGISTERED",
+    "COORDINATOR_REASON_COMMANDS_NOT_SERVED",
+    "COORDINATOR_REASON_PAYLOAD_UNAVAILABLE";
 
   // Retired by 14.37.
   reserved

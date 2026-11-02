@@ -3,7 +3,13 @@
 Core resources for the [Angzarr](https://angzarr.io) polyglot event-sourcing framework:
 
 - **`site/`** — Documentation site (Astro + Starlight), deployed to [angzarr.io](https://angzarr.io)
-- **`proto/`** — Canonical Protocol Buffer definitions (single source of truth)
+- **`proto/`** — Canonical Protocol Buffer definitions (single source of truth), in four packages (decision 14.64):
+  - `io/angzarr/v1` — core: messages only (books, pages, covers, snapshots, descriptors, options, the router's and kernel's reason keys, dead letters, editions); imports nothing else of angzarr's and no sererr;
+  - `io/angzarr/component/v1` — the component contract: the handler-side services (`CommandHandlerService`, `PolicyService`, `ProjectorService`, `UpcasterService`, `ComponentService`);
+  - `io/angzarr/transport/embedded/v1` — the local-process transport: the child launch protocol's constants and its reason keys;
+  - `io/angzarr/transport/distributed/v1` — the distributed transport: the coordinator, query, stream, edition-admin and DLQ-admin services, the bus envelope and claim check, the dead-letter envelope, CloudEvents, and its reason keys.
+
+  Each transport imports only component and core, never the other transport.
 - **`features/`** — Cucumber/Gherkin specs shared across language implementations
 
 ## Development

@@ -13,19 +13,20 @@ A destination for messages that cannot be processed automatically. Messages are 
 
 ## DLQ Entry Types
 
-Each entry carries exactly one of four detail messages, chosen by its reason (the mapping on `AngzarrDeadLetter.rejection_details`):
+Each entry carries exactly one of three detail messages, chosen by its reason (the mapping on `AngzarrDeadLetter.rejection_details`):
 
 - **SequenceMismatchDetails** — the expected sequence the command carried and the stream's head (its `next_sequence`) when it was refused.
 - **CommandRefusedDetails** — a typed business refusal of an asynchronous command: the refusal's type and the refusal object itself.
-- **ProcessingFailedDetails** — why a handler or the coordinator failed to process the entry's events, command or edition removal, with retry count, transience, and a structured stack trace.
-- **PayloadRetrievalFailedDetails** — claim-check failures when an externally stored payload cannot be retrieved.
+- **ProcessingFailedDetails** — why a handler or the coordinator failed to process the entry's events, command or edition removal, with retry count and transience.
+
+The distributed transport wraps each entry in a `DeadLetterEnvelope` (decision 14.64) that adds what only it knows: a structured stack trace, metadata, and **PayloadRetrievalFailedDetails** for claim-check failures when an externally stored payload cannot be retrieved. The angzarr-embedded kernel stores the core entry bare.
 
 ```protobuf file=proto/io/angzarr/v1/types.proto region=dlq_details
 ```
 
 ### Stack traces
 
-`ProcessingFailedDetails.stack_trace` carries a Sentry-compatible structured capture from the [sererr](https://sererr.fyi) schema: per-frame function/file/line, optional source context, and an `ExceptionMechanism` that links chain entries. The array is the cause chain, most-causal-first; the originating caught error is the last element. Producers capture it at the originating failure site, not at the DLQ-publish layer, and operators read it from the status console's DLQ detail view. See [Stack-trace Proto](/reference/stack-trace-proto) for the shape and producer/consumer conventions.
+`DeadLetterEnvelope.stack_trace` (the distributed transport's) carries a Sentry-compatible structured capture from the [sererr](https://sererr.fyi) schema: per-frame function/file/line, optional source context, and an `ExceptionMechanism` that links chain entries. The array is the cause chain, most-causal-first; the originating caught error is the last element. Producers capture it at the originating failure site, not at the DLQ-publish layer, and operators read it from the status console's DLQ detail view. See [Stack-trace Proto](/reference/stack-trace-proto) for the shape and producer/consumer conventions.
 
 ## Topic Structure
 

@@ -1,6 +1,8 @@
 # English for the framework's reason keys (reasons.proto; decision 14.60).
-# Each message id is a live key, verbatim: RouterReason's, HostReason's and
-# CoordinatorReason's values but the zeros. Its variables are that key's
+# Each message id is a live key of core's reasons.proto, verbatim:
+# RouterReason's, HostReason's and CoordinatorReason's values but the zeros.
+# Each transport's keys have a catalog of their own, beside its reasons.proto
+# (decision 14.64), so a runtime embeds only its packages' English. Its variables are that key's
 # args, from the value's (reason) option, and only args every answer of the
 # key gives: where answerers give different args (the comment on the value
 # says which), or an arg may be absent (a fold's page or range, a
@@ -28,20 +30,12 @@ ROUTER_REASON_NO_HANDLERS_REGISTERED = no component is registered: register one
 ROUTER_REASON_DUPLICATE_COMPONENT = a router hosts one component: register the other in its own
 ROUTER_REASON_TOO_MANY_STEPS = a decision ran more than its limit of { $limit } continuation steps: a step that always continues, a bug in the domain
 
-## HostReason: the client library's component host, and whatever reads a
-## child's handshake.
+## HostReason: the client library's component host.
 
 HOST_REASON_UPCASTER_WITH_COMPONENT = component "{ $component }" is hosted beside an upcaster: an upcaster is its own sidecar
 HOST_REASON_NO_COMPONENTS_REGISTERED = no component is registered with the host: register one
 HOST_REASON_DESCRIPTOR_RULES_VERSION_MISMATCH = component "{ $component }" describes rules version "{ $described }" but answers as "{ $reported }": nothing was registered
 HOST_REASON_PROJECTOR_NO_INPUT_DOMAIN = projector "{ $component }" names no domain it reads: name one
-HOST_REASON_HANDSHAKE_MALFORMED = malformed handshake "{ $line }": expected angzarr-handshake v1 unix:<absolute path>
-HOST_REASON_HANDSHAKE_TIMEOUT = no handshake within { $timeout_ms } ms
-HOST_REASON_HANDSHAKE_CLOSED = stdout closed before a handshake
-HOST_REASON_CHILD_NOT_SERVING = component "{ $component }" reported its health { $status } after its handshake, when a child handshakes only once it is SERVING
-HOST_REASON_CHILD_EXIT_STATUS = component "{ $component }" exited on its stdin's end with status { $exit_code }, not 0
-HOST_REASON_CHILD_NOT_EXITED = component "{ $component }" did not exit by itself on its stdin's end within its grace ({ $ended })
-HOST_REASON_PROBE_INPUT = the probe's input for component "{ $component }" is not one a { $kind } handles
 
 ## CoordinatorReason: core's coordinator and the angzarr-embedded kernel.
 
@@ -87,7 +81,4 @@ COORDINATOR_REASON_CHAIN_TOO_DEEP = the command chain went deeper than its limit
 COORDINATOR_REASON_STORE_CONFLICT = another write to the stream landed first, at { $actual }, not the { $expected } this write was stamped with: send it again
 COORDINATOR_REASON_STORE_UNAVAILABLE = the event store did not answer: send it again
 COORDINATOR_REASON_UPCASTER_UNAVAILABLE = the upcaster sidecar of domain { $domain } is not serving: send it again
-COORDINATOR_REASON_COMPONENT_NOT_REGISTERED = no component of domain { $domain } is registered yet: send it again
-COORDINATOR_REASON_COMMANDS_NOT_SERVED = the query server of domain { $domain } takes no commands: send it to the domain's coordinator
-COORDINATOR_REASON_PAYLOAD_UNAVAILABLE = the payload at { $uri } could not be retrieved: send it again
 COORDINATOR_REASON_RULES_VERSION_MISMATCH = component "{ $component }" answered as rules version "{ $reported }", not "{ $registered }", the version it is registered at: a bug in the component; nothing was kept

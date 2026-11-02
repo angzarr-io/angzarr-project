@@ -1,13 +1,13 @@
 syntax = "proto3";
-package io.angzarr.v1;
+package io.angzarr.component.v1;
 
 import "io/angzarr/v1/types.proto";
 
-option csharp_namespace = "Angzarr";
-option go_package = "github.com/benjaminabbitt/angzarr/client/go/proto/io/angzarr/v1;angzarr";
+option csharp_namespace = "Angzarr.Component";
+option go_package = "github.com/benjaminabbitt/angzarr/client/go/proto/io/angzarr/component/v1;angzarrcomponent";
 option java_multiple_files = true;
-option java_package = "io.angzarr";
-option ruby_package = "Angzarr";
+option java_package = "io.angzarr.component";
+option ruby_package = "Angzarr::Component";
 
 // ComponentService: how a coordinator learns which component its business
 // process is.
@@ -20,7 +20,7 @@ option ruby_package = "Angzarr";
 // component's upcasters are part of it, not components of their own: they
 // run in the component's upcaster sidecar, which serves UpcasterService to
 // the component's coordinator and is not a business process (see
-// upcaster.proto; decision 14.39).
+// io/angzarr/v1/upcaster.proto; decision 14.39).
 //
 // Every business process serves ComponentService beside its kind service
 // (CommandHandlerService for an aggregate or a process manager, PolicyService or
@@ -31,7 +31,7 @@ option ruby_package = "Angzarr";
 // hand-replaceable). The client library's component host serves the RPC,
 // so business code never implements it, and the router never builds or
 // checks the descriptor. The coordinator validates it, a hand-written one
-// exactly as a generated one (see ComponentDescriptor in types.proto;
+// exactly as a generated one (see ComponentDescriptor in io/angzarr/v1/types.proto;
 // decision 14.42, amended).
 //
 // The coordinator PULLS the descriptor: it already dials the business
@@ -53,7 +53,7 @@ option ruby_package = "Angzarr";
 //     event). Until it holds one, deliveries wait: a synchronous caller is
 //     answered UNAVAILABLE COORDINATOR_REASON_COMPONENT_NOT_REGISTERED
 //     (retryable, arg domain; see the status codes in
-//     command_handler.proto; decision 14.51), and queued and reaction
+//     io/angzarr/v1/command_handler.proto; decision 14.51), and queued and reaction
 //     deliveries stay queued.
 //   - Refusal: a descriptor that fails the coordinator's validation (see
 //     ComponentDescriptor: an empty rules_version, starting types
@@ -77,7 +77,7 @@ option ruby_package = "Angzarr";
 //     successful Describe, and NOT_SERVING while it holds no descriptor.
 service ComponentService {
   // Describe the one component this business process is.
-  rpc Describe(DescribeRequest) returns (ComponentDescriptor);
+  rpc Describe(DescribeRequest) returns (io.angzarr.v1.ComponentDescriptor);
 }
 
 // Describe takes no arguments.

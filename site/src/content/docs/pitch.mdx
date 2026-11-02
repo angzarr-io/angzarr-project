@@ -375,7 +375,7 @@ No mode waits for reactions. Synchronous cascades across domains were removed (d
 
 To observe what a command sets off downstream rather than wait for it, subscribe to the event stream filtered by the command's `correlation_id`:
 
-```protobuf file=proto/io/angzarr/v1/stream.proto region=event_stream_service
+```protobuf file=proto/io/angzarr/transport/distributed/v1/stream.proto region=event_stream_service
 ```
 
 Every command or fact a policy sends carries its trigger's `correlation_id` unchanged, so one subscription follows the whole workflow across aggregate boundaries.

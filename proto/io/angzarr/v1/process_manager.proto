@@ -11,7 +11,7 @@ option ruby_package = "Angzarr";
 //
 // This file defines no service and no message. A process manager is
 // served exactly as an aggregate is: its business process implements
-// CommandHandlerService (command_handler.proto), its coordinator serves
+// CommandHandlerService (component/v1/command_handler.proto), its coordinator serves
 // CommandHandlerCoordinatorService for the PM's domain, and it is
 // described by ComponentService with kind PROCESS_MANAGER. The PM-specific
 // ProcessManagerService, ProcessManagerCoordinatorService and their

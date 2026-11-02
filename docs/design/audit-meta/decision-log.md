@@ -143,6 +143,9 @@ no `google.api`) and builds for wasm32.
   runtime.
 - Cost: a fourth Rust generation of the same types, until core, the router
   and client-rust remap onto it (backlog TG-1).
+- Restored by 14.64: the `grpc` feature added since (tonic stubs on the
+  same messages) moved to the component and transport crates, and
+  angzarr-proto (now in angzarr-core) is prost only again.
 
 ## Pass 2 (46404df): removals and DRY
 
@@ -4398,6 +4401,141 @@ handshake.
   unhealthy child's calls left it down for good.
 - Cost: none on the wire; a host keeps a timer per child, and a child's
   health service answers a `Check` every interval.
+
+**14.64 The protos are four packages: core, the component contract, and a
+package per transport.** Ruled by the owner, 2026-11-01: "split the angzarr
+protos into four packages". Restores 1.12, and amends 14.60's one catalog.
+- **The packages, and their direction.** `transport.distributed ->
+  component -> core` and `transport.embedded -> component -> core`; the
+  transports never import each other, and core imports nothing of angzarr's
+  other packages and no sererr. A file imports only what it uses, so the
+  direction is carried by the crates (each transport's crate depends on the
+  component crate) where a transport's file names nothing of component.
+  - **Core, `io.angzarr.v1`** (keeps its name): messages only, what a
+    Rust-only embedded application with no gRPC needs. Its crate,
+    angzarr-proto, is again a prost-only wasm32 leaf with no `grpc` feature
+    (1.12).
+  - **The component contract, `io.angzarr.component.v1`**: the handler-side
+    services only, nothing tied to how they are reached. angzarr-embedded's
+    host imports it for its non-Rust children; the distributed layer
+    imports it to call remote handlers.
+  - **`io.angzarr.transport.embedded.v1`**: the local-process transport,
+    the child launch protocol's constants and its keys.
+  - **`io.angzarr.transport.distributed.v1`**: the distributed transport,
+    its services and their messages, its envelopes and its keys.
+- **The cut.** Every message, enum and service, and its package:
+
+  | Item | Package |
+  |---|---|
+  | `UUID`, `Cover`, `ConflictResolution`, `StateOptions`, `EventPage`, `EventRef`, `FactOrigin`, `Diagnostic`, `CommandRefused`, `RefusalResponse`, `EventMeta`, `Snapshot`, `EventBook`, `Projection`, `Handling`, `CommandPage`, `Command`, `Fact`, `CommandBook`, `Outcome` (stripped), `DeliveryOutcome`, `ContextualCommand`, `SequenceMismatchDetails`, `CommandRefusedDetails`, `ProcessingFailedDetails` (stripped), `AngzarrDeadLetter` (stripped), `Target`, `ComponentKind`, `ComponentDescriptor`, `StateDescriptor` (types.proto) | core |
+  | `CommandHandlerResponse`, `ConflictReport` (command_handler.proto; the router and the kernel use them in process) | core |
+  | `PolicyResponse`, `PolicyReaction`, `Refusal`, `OnRefusedResponse` (policy.proto; the router uses them in process) | core |
+  | `UpcastRequest`, `UpcastResponse` (upcaster.proto; the kernel upcasts in process) | core |
+  | `EditionSummary` (meta.proto; angzarr-ports' `list_editions`) | core |
+  | `meta.EditionCreated`, `meta.EditionDeleted` (meta/events.proto) | core (`io.angzarr.v1.meta`) |
+  | `ComponentOptions`, `CommandOptions`, `EmitsCardinality`, `EventConsumer`, `ConflictUnit`, `RefusalStatus` and the options (options.proto) | core |
+  | `ReasonOptions`, `RouterReason`, `HostReason`, `CoordinatorReason` (reasons.proto) | core |
+  | `CommandHandlerService`, `PolicyService`, `ProjectorService`, `UpcasterService`, `ComponentService` | component |
+  | `DescribeRequest` (no runtime uses it in process) | component |
+  | `ChildProtocol` and its `(child_protocol)` file option (child_protocol.proto) | transport.embedded |
+  | `HostReason` (the child's keys; reasons.proto) | transport.embedded |
+  | `CommandHandlerCoordinatorService` (DECISION, ASYNC and SIMPLE), `CommandResponse`, `SyncOutcome`, `ProjectorFailure` (command_handler.proto) | transport.distributed |
+  | `PolicyCoordinatorService` (policy.proto), `ProjectorCoordinatorService` (projector.proto) | transport.distributed |
+  | `EventQueryService`, `Query`, `CorrelationQuery`, `TemporalQuery`, `SequenceRange`, `SequenceSet` (query.proto) | transport.distributed |
+  | `EventStreamService`, `EventStreamFilter` (stream.proto) | transport.distributed |
+  | `EditionAdminService`, `ForkStreamRequest`, `ListEditionsRequest`, `ListEditionsResponse`, `DeleteEditionRequest` (meta.proto) | transport.distributed |
+  | `DlqAdminService` and every message and enum of dlq_admin.proto, folded in from `io.angzarr.status.v1` | transport.distributed |
+  | `CloudEvent`, `CloudEventsResponse` (cloudevents.proto) | transport.distributed |
+  | `BusEnvelope`, `ClaimCheck`, `PayloadStorageType`, `PayloadReference` (bus.proto) | transport.distributed |
+  | `DeadLetterEnvelope`, `PayloadRetrievalFailedDetails` (dead_letter.proto) | transport.distributed |
+  | `CoordinatorReason` (the distribution-only keys; reasons.proto) | transport.distributed |
+
+  A file whose every item moved went with them: `component.proto`,
+  `projector.proto`, `query.proto`, `stream.proto`, `cloudevents.proto` and
+  `status/v1/dlq_admin.proto`. A file that keeps core messages keeps the
+  prose every runtime follows (the command modes, the pipeline and the
+  status codes in `command_handler.proto`; policies, refusals and the outbox
+  in `policy.proto`; the upcaster's rules in `upcaster.proto`; editions in
+  `meta.proto`), and its services moved beside the files that cite it.
+- **Strip and wrap.** A distribution-only field leaves core, its number and
+  name reserved, and the transport's envelope wraps the core message; no
+  field is added back to core.
+  - `Outcome.projections` (2) and `projector_failures` (3) move to
+    `SyncOutcome`, which wraps `Outcome`; `CommandResponse.outcome` is a
+    `SyncOutcome`.
+  - `ProcessingFailedDetails.stack_trace` (4) moves to
+    `DeadLetterEnvelope.stack_trace`, `AngzarrDeadLetter.metadata` (8) to
+    `DeadLetterEnvelope.metadata`, and the `payload_retrieval_failed` arm
+    (14) to `DeadLetterEnvelope.payload_retrieval_failed`; a dead letter
+    for an unretrievable payload carries `processing_failed`, as every
+    other retryable failure at its cap does (C-0447 says so).
+  - `PayloadReference` and `PayloadStorageType` ride the new `BusEnvelope`
+    and its `ClaimCheck`s (the protos had no bus envelope before).
+  - Kept in core, though their comments read as transport: `Cover.edition`
+    (editions are the system layer's, in every runtime),
+    `CommandPage.causation_id` (the kernel's checks read it),
+    `ContextualCommand.conflict_nonce` and `recorded_at` (stamped by
+    whichever runtime handles the command). Their comments now say so.
+- **A key lives in the package whose code raises it.** A moved key keeps
+  its string: each transport's enum keeps core's name and prefix
+  (`io.angzarr.transport.embedded.v1.HostReason`,
+  `io.angzarr.transport.distributed.v1.CoordinatorReason`), and core's
+  enum reserves the moved names and numbers. A key's string stays unique
+  across every package, since it is what travels.
+  - **To transport.embedded:** `HOST_REASON_HANDSHAKE_MALFORMED`,
+    `_HANDSHAKE_TIMEOUT`, `_HANDSHAKE_CLOSED`, `_CHILD_NOT_SERVING`,
+    `_CHILD_EXIT_STATUS`, `_CHILD_NOT_EXITED`, `_PROBE_INPUT`
+    (angzarr-embedded's host, and a client's handshake parser).
+  - **To transport.distributed:** `COORDINATOR_REASON_COMPONENT_NOT_REGISTERED`
+    (registration by a coordinator's Describe pull),
+    `_COMMANDS_NOT_SERVED` (a standalone query server) and
+    `_PAYLOAD_UNAVAILABLE` (the claim check): no runtime but a distributed
+    coordinator raises them. None was renamed.
+  - **Stay in core:** every `RouterReason` key; `HostReason`'s
+    `UPCASTER_WITH_COMPONENT`, `NO_COMPONENTS_REGISTERED`,
+    `DESCRIPTOR_RULES_VERSION_MISMATCH` and `PROJECTOR_NO_INPUT_DOMAIN`
+    (configuration and composition, which a Rust-only application can hit);
+    and every other `CoordinatorReason` key, the kernel's as much as
+    core's coordinator's, `EDITION_REMOVAL_FAILED` among them (the system
+    layer removes an edition's rows in every runtime).
+- **One catalog per package.** Each `reasons.proto` has its
+  `reasons.en-US.ftl` beside it, holding exactly its keys, so a runtime
+  embeds the English of the packages it links and no more (a Rust-only
+  application carries no transport's text), and each crate exports its own
+  `REASONS_EN_US`. `just check-reason-keys` holds each file and its
+  catalog to 14.44's and 14.60's rules, every moved key reserved in core and
+  live in its transport; `just check-reason-names` reads all three files.
+- **Declared constants are a file option.** proto3 has no constants, an
+  enum value holds no string, and the spec declared none before, so the
+  child protocol's constants (`angzarr-handshake`, `v1`, `unix:`,
+  `ANGZARR_SOCKET`, the 107-byte path limit) are a `ChildProtocol` message
+  set as `child_protocol.proto`'s `(child_protocol)` option (FileOptions
+  50110): the idiom the spec already uses for data a generator reads off the
+  descriptor ((component), (state), (reason)).
+- **The DLQ admin is folded in** (`io.angzarr.status.v1` becomes
+  `io.angzarr.transport.distributed.v1`, its file moved whole, every
+  message and number unchanged): only a distributed deployment keeps an
+  admin store of dead letters, and a fifth package for one service would sit
+  outside the four the ruling names. `StoredDeadLetter.payload` holds a
+  `DeadLetterEnvelope`.
+- **The crates** (angzarr-core, beside angzarr-proto, each `Apache-2.0 OR
+  BSD-3-Clause`): `angzarr-proto` (core, prost only, wasm32),
+  `angzarr-proto-component` (the services' tonic stubs, always: they are
+  the crate's whole reason to exist), `angzarr-proto-transport-embedded`
+  (the constants and its keys, prost only) and
+  `angzarr-proto-transport-distributed` (its messages and the services'
+  tonic stubs).
+- Why: the ruling. A Rust-only application linked tonic's codegen, sererr
+  and the coordinator's services through one package, and a key or a field
+  only a distributed coordinator raises or sets read as every runtime's.
+- Cost: buf-compatible for core (every removed field and value reserved);
+  every moved service's gRPC method path changes
+  (`/io.angzarr.v1.CommandHandlerService/Handle` becomes
+  `/io.angzarr.component.v1.CommandHandlerService/Handle`), so a host and
+  its children move in lockstep; the moved messages' full names and type
+  URLs change; `CommandResponse.outcome` is a `SyncOutcome`. No stored data
+  changes meaning: core keeps its name, and no runtime ever set a stripped
+  field.
 
 ## Corrections
 

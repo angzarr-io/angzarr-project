@@ -1,8 +1,6 @@
 syntax = "proto3";
 package io.angzarr.v1;
 
-import "google/api/annotations.proto";
-import "google/protobuf/empty.proto";
 import "io/angzarr/v1/types.proto";
 
 option csharp_namespace = "Angzarr";
@@ -10,6 +8,7 @@ option go_package = "github.com/benjaminabbitt/angzarr/client/go/proto/io/angzar
 option java_multiple_files = true;
 option java_package = "io.angzarr";
 option ruby_package = "Angzarr";
+
 
 // ============================================================================
 // Edition administration
@@ -41,86 +40,10 @@ option ruby_package = "Angzarr";
 // indexes against main, and
 // main can be neither forked into nor deleted.
 
-// region edition_admin
-// EditionAdminService: forks origin streams into editions, lists editions,
-// and deletes them (see Cover.edition in types.proto).
-service EditionAdminService {
-  // Fork one origin stream into an edition at the sequence the request
-  // states (parent_sequence): append EditionCreated there to (the
-  // stream's domain, edition, root), creating the edition if no fork event
-  // of it exists yet. From there the fork travels with the data
-  // (meta.EditionCreated). Forking more origin streams into an
-  // existing edition is allowed, and is how a stream that policy commands
-  // have not reached is addressed from outside. Answers the fork event's
-  // EventRef.
-  //   INVALID_ARGUMENT     edition is empty or unset (main is unnamed and
-  //                        cannot be forked into), or the cover names no
-  //                        domain or root;
-  //   ALREADY_EXISTS       the stream is already forked in this edition;
-  //   ABORTED              parent_sequence is above main's head for the
-  //                        stream.
-  rpc ForkStream(ForkStreamRequest) returns (EventRef) {
-    option (google.api.http) = {
-      post: "/v1/admin/editions/{stream.edition}/forks"
-      body: "*"
-    };
-  }
-  // List the editions: a query over the edition stores' fork events (no
-  // record is kept anywhere else, and main is never read for it).
-  rpc ListEditions(ListEditionsRequest) returns (ListEditionsResponse) {
-    option (google.api.http) = {get: "/v1/admin/editions"};
-  }
-  // Delete an edition (meta.EditionDeleted, the owner's rulings of
-  // 2026-10-28): append EditionDeleted to each of X's origin streams, in
-  // sequence after their earlier work. From there, per stream: the event
-  // is RECORDED in the stream's own domain; the angzarr system layer
-  // PROPAGATES it
-  // onward along the streams that domain's policies reached in X, each of
-  // which records its own (never as a policy's command: the router sees no
-  // meta-event); and only once it has propagated onward (the system layer's
-  // onward writes and outbox entries have completed) are that stream's rows
-  // of X removed: events, the creation and deletion events included,
-  // snapshots, projector output, outbox entries and positions. Nothing
-  // remains. A stream of X the deletion cannot reach through the policy
-  // flows keeps its rows and stays visible in ListEditions. Once X is
-  // deleted, a later arrival in it (a policy command, a step's position on a
-  // removed stream) is refused NOT_FOUND and re-creates nothing; only
-  // ForkStream brings the name back. Answers once
-  // the origins have recorded it. A removal that genuinely fails is
-  // dead-lettered (AngzarrDeadLetter.failed_edition_removal, reason
-  // COORDINATOR_REASON_EDITION_REMOVAL_FAILED) and alerted. Main is never
-  // touched.
-  //   INVALID_ARGUMENT  name is empty (a name is required; main is unnamed
-  //                     and can never be deleted);
-  //   NOT_FOUND         the edition is unknown (no stream of it is forked
-  //                     and not yet deleted).
-  rpc DeleteEdition(DeleteEditionRequest) returns (google.protobuf.Empty) {
-    option (google.api.http) = {delete: "/v1/admin/editions/{name}"};
-  }
-}
-
-message ForkStreamRequest {
-  // The origin stream, named in the edition to create or extend: domain,
-  // root, and edition (required, non-empty). Its main version is forked.
-  // The fork is per stream (one domain and root): each stream a policy
-  // command reaches is forked at the main head read on its arrival. There
-  // is no global position to fork at and no cross-stream snapshot
-  // (decisions 14.35 and 14.36).
-  Cover stream = 1;
-  // The fork point, always stated by the caller (decision 14.36): the
-  // EditionCreated's parent_sequence and sequence. 0 is a valid fork at
-  // the start of the stream; there is no "head when unset". Any sequence
-  // at or below main's head (main's next sequence for the stream) is
-  // taken; one above it is refused ABORTED (the store's conflict, the
-  // status for a failed test-and-set), writing nothing.
-  uint64 parent_sequence = 3;
-}
-
-message ListEditionsRequest {}
-
-message ListEditionsResponse {
-  repeated EditionSummary editions = 1;
-}
+// The administration RPCs (EditionAdminService) and their requests are the
+// distributed transport's (io/angzarr/transport/distributed/v1/meta.proto);
+// an edition's summary is core's, since every store lists editions
+// (decision 14.64).
 
 // One edition, as the fork events show it. Derived on each call; never
 // stored.
@@ -130,8 +53,3 @@ message EditionSummary {
   repeated EventRef origins = 2;
   uint64 forked_streams = 3; // How many streams hold a fork event of it
 }
-
-message DeleteEditionRequest {
-  string name = 1; // The edition name: required, non-empty
-}
-// endregion

@@ -1,0 +1,52 @@
+syntax = "proto3";
+package io.angzarr.transport.distributed.v1;
+
+import "io/angzarr/transport/distributed/v1/bus.proto";
+import "io/angzarr/v1/types.proto";
+// Sentry-compat structured stack-trace + error-chain capture from the sererr
+// project (sererr.fyi). The schema is vendored in this repo at
+// proto/sererr/v1/sererr.proto and resolves from the same proto root as
+// this file. Only the distributed transport imports it (decision 14.64).
+import "sererr/v1/sererr.proto";
+
+option csharp_namespace = "Angzarr.Transport.Distributed";
+option go_package = "github.com/benjaminabbitt/angzarr/client/go/proto/io/angzarr/transport/distributed/v1;angzarrdistributed";
+option java_multiple_files = true;
+option java_package = "io.angzarr.transport.distributed";
+option ruby_package = "Angzarr::Transport::Distributed";
+
+// region dead_letter_envelope
+// A dead letter as the distributed transport publishes and stores it: core's
+// AngzarrDeadLetter, whole and unchanged, wrapped with what only this
+// transport knows (decision 14.64). Per-domain topics: angzarr.dlq.{domain}.
+// The DLQ admin store keeps the envelope's bytes (dlq_admin.proto,
+// StoredDeadLetter.payload). The angzarr-embedded kernel stores the core
+// entry bare and never builds one.
+message DeadLetterEnvelope {
+  io.angzarr.v1.AngzarrDeadLetter dead_letter = 1; // The entry, as core defines it
+  // The failure's cause chain, when one was captured: a flat array of
+  // captured errors (most-causal-first; the originating caught error is the
+  // LAST element), matching Sentry's `exception.values` shape; linkage via
+  // each entry's `mechanism.exception_id` / `mechanism.parent_id`. Empty
+  // when no capture was attempted. See sererr.fyi/spec/proto for the schema
+  // rationale. Was ProcessingFailedDetails.stack_trace.
+  repeated sererr.v1.CapturedError stack_trace = 2;
+  map<string, string> metadata = 3; // Additional context; was AngzarrDeadLetter.metadata
+  // Set, with reason COORDINATOR_REASON_PAYLOAD_UNAVAILABLE, when a
+  // claim-checked payload could not be retrieved (bus.proto); the core
+  // entry's rejection_details is then processing_failed. Was the core
+  // entry's payload_retrieval_failed variant.
+  PayloadRetrievalFailedDetails payload_retrieval_failed = 4;
+}
+
+// Payload retrieval failure details for a dead letter: why a claim-checked
+// payload (PayloadReference, bus.proto) couldn't be retrieved. Moved from
+// io.angzarr.v1, its field numbers unchanged (decision 14.64).
+message PayloadRetrievalFailedDetails {
+  PayloadStorageType storage_type = 1; // Storage backend type
+  string uri = 2; // URI of the payload that couldn't be retrieved
+  bytes content_hash = 3; // Content hash for identification
+  uint64 original_size = 4; // Original payload size in bytes
+  io.angzarr.v1.Diagnostic failure = 6; // The retrieval's failure: its code and args, never its text (decision 14.37)
+}
+// endregion

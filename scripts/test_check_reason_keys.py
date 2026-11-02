@@ -16,50 +16,69 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import check_reason_keys as crk  # noqa: E402
 
 
-def _enum(name: str, keys: list[str]) -> dict[str, Any]:
+def _enum(name: str, keys: list[str], moved: tuple[str, ...] = ()) -> dict[str, Any]:
+    """A key enum of `keys`, numbered from 1, then reserving `moved` by name
+    and by the numbers after them."""
     prefix = crk.PREFIXES[name]
     values = [{"name": f"{prefix}UNSPECIFIED", "number": 0}]
     values += [
         {"name": k, "number": n, "options": {crk.REASON_OPTION: {"args": ["domain"]}}}
         for n, k in enumerate(keys, start=1)
     ]
-    return {
+    enum: dict[str, Any] = {
         "name": name,
         "value": values,
-        "reservedName": [f"{prefix}{k}" for k in crk.RETIRED],
+        "reservedName": [f"{prefix}{k}" for k in crk.RETIRED] + list(moved),
     }
+    if moved:
+        enum["reservedRange"] = [{"start": len(keys) + 1, "end": len(keys) + len(moved)}]
+    return enum
+
+
+def _moved(path: str, prefix: str) -> tuple[str, ...]:
+    return tuple(k for k, p in crk.MOVED.items() if p == path and k.startswith(prefix))
 
 
 def _good() -> dict[str, Any]:
     router = [k for k in crk.PINNED if k.startswith("ROUTER_REASON_")]
-    coordinator = [k for k in crk.PINNED if k.startswith("COORDINATOR_REASON_")]
+    coordinator = [k for k in crk.PINNED if k.startswith("COORDINATOR_REASON_") and k not in crk.MOVED]
+    to_embedded = _moved(crk.EMBEDDED, "HOST_REASON_")
+    to_distributed = _moved(crk.DISTRIBUTED, "COORDINATOR_REASON_")
     return {
         "file": [
             {"name": "sererr/v1/sererr.proto"},
             {
-                "name": crk.REASONS_PROTO,
+                "name": crk.CORE,
                 "enumType": [
                     _enum("RouterReason", router),
-                    _enum("HostReason", list(crk.HOST_KEYS)),
-                    _enum("CoordinatorReason", coordinator),
+                    _enum("HostReason", list(crk.HOST_KEYS[crk.CORE]), to_embedded),
+                    _enum("CoordinatorReason", coordinator, to_distributed),
                 ],
             },
+            {"name": crk.EMBEDDED, "enumType": [_enum("HostReason", list(crk.HOST_KEYS[crk.EMBEDDED]))]},
+            {"name": crk.DISTRIBUTED, "enumType": [_enum("CoordinatorReason", list(to_distributed))]},
         ]
     }
 
 
-def _enum_of(d: dict[str, Any], name: str) -> dict[str, Any]:
-    return next(e for e in d["file"][1]["enumType"] if e["name"] == name)
+def _file(d: dict[str, Any], path: str = crk.CORE) -> dict[str, Any]:
+    return next(f for f in d["file"] if f["name"] == path)
+
+
+def _enum_of(d: dict[str, Any], name: str, path: str = crk.CORE) -> dict[str, Any]:
+    return next(e for e in _file(d, path)["enumType"] if e["name"] == name)
 
 
 def _value(d: dict[str, Any], key: str) -> dict[str, Any]:
-    return next(v for e in d["file"][1]["enumType"] for v in e["value"] if v["name"] == key)
+    return next(
+        v for f in d["file"] for e in f.get("enumType", []) for v in e["value"] if v["name"] == key
+    )
 
 
-def _catalog(d: dict[str, Any]) -> str:
-    """A conforming catalog of `d`: one message per live key, each using its first arg."""
+def _catalog(d: dict[str, Any], path: str = crk.CORE) -> str:
+    """A conforming catalog of `path` in `d`: one message per live key, each using its first arg."""
     lines = ["# English for the keys.", ""]
-    for e in d["file"][1]["enumType"]:
+    for e in _file(d, path)["enumType"]:
         for v in e["value"][1:]:
             args = v.get("options", {}).get(crk.REASON_OPTION, {}).get("args", [])
             body = f"a {{ ${args[0]} }} failed" if args else "it failed"
@@ -77,14 +96,22 @@ class CheckReasonKeysTest(unittest.TestCase):
 
     def test_missing_file(self) -> None:
         self.assertProblem({"file": [{"name": "other.proto"}]}, "not in the descriptor set exactly once")
+        for path in crk.REASON_FILES:
+            with self.subTest(path=path):
+                d = _good()
+                d["file"].remove(_file(d, path))
+                self.assertProblem(d, f"{path}: not in the descriptor set exactly once (0 found)")
 
     def test_an_extra_or_missing_enum(self) -> None:
         d = _good()
-        d["file"][1]["enumType"].append({"name": "OtherReason", "value": []})
+        _file(d)["enumType"].append({"name": "OtherReason", "value": []})
         self.assertProblem(d, "enums are")
         d = _good()
-        d["file"][1]["enumType"].pop(0)
+        _file(d)["enumType"].pop(0)
         self.assertProblem(d, "enums are")
+        d = _good()
+        _file(d, crk.EMBEDDED)["enumType"].append(_enum("RouterReason", ["ROUTER_REASON_STRAY"]))
+        self.assertProblem(d, f"{crk.EMBEDDED}: enums are")
 
     def test_zero_must_be_unspecified(self) -> None:
         d = _good()
@@ -93,8 +120,16 @@ class CheckReasonKeysTest(unittest.TestCase):
 
     def test_numbers_are_dense(self) -> None:
         d = _good()
-        _enum_of(d, "RouterReason")["value"].append({"name": "ROUTER_REASON_GAP", "number": 9})
+        _enum_of(d, "RouterReason")["value"].append({"name": "ROUTER_REASON_GAP", "number": 99})
         self.assertProblem(d, "RouterReason: live keys are not numbered densely from 1")
+
+    def test_a_moved_keys_reserved_number_fills_its_place(self) -> None:
+        # Core's HostReason: four live keys, then the seven moved numbers.
+        e = _enum_of(_good(), "HostReason")
+        self.assertEqual(e["reservedRange"], [{"start": 5, "end": 11}])
+        d = _good()
+        _enum_of(d, "HostReason")["reservedRange"] = [{"start": 6, "end": 12}]
+        self.assertProblem(d, "HostReason: live keys are not numbered densely from 1")
 
     def test_an_enum_with_no_keys(self) -> None:
         d = _good()
@@ -136,8 +171,33 @@ class CheckReasonKeysTest(unittest.TestCase):
 
     def test_reserved_numbers(self) -> None:
         d = _good()
-        _enum_of(d, "HostReason")["reservedRange"] = [{"start": 5, "end": 5}]
-        self.assertProblem(d, "HostReason: reserves numbers")
+        _enum_of(d, "RouterReason")["reservedRange"] = [{"start": 16, "end": 16}]
+        self.assertProblem(d, "RouterReason: reserves 1 numbers, for 0 moved keys")
+        d = _good()
+        _enum_of(d, "HostReason", crk.EMBEDDED)["reservedRange"] = [{"start": 8, "end": 8}]
+        self.assertProblem(d, "HostReason: reserves 1 numbers, for 0 moved keys")
+
+    def test_a_moved_key_not_reserved_in_core(self) -> None:
+        d = _good()
+        _enum_of(d, "HostReason")["reservedName"].remove("HOST_REASON_PROBE_INPUT")
+        self.assertProblem(d, "HostReason: moved key HOST_REASON_PROBE_INPUT is not reserved")
+
+    def test_a_moved_key_reserved_outside_core(self) -> None:
+        d = _good()
+        _enum_of(d, "HostReason", crk.EMBEDDED)["reservedName"].append("HOST_REASON_PROBE_INPUT")
+        self.assertProblem(d, "HostReason: HOST_REASON_PROBE_INPUT is reserved but not retired")
+
+    def test_a_moved_key_answered_in_core(self) -> None:
+        d = _good()
+        values = _enum_of(d, "CoordinatorReason")["value"]
+        values.append({"name": "COORDINATOR_REASON_COMMANDS_NOT_SERVED", "number": len(values) + 3})
+        self.assertProblem(d, f"CoordinatorReason: COORDINATOR_REASON_COMMANDS_NOT_SERVED moved to {crk.DISTRIBUTED}")
+
+    def test_a_moved_key_missing_from_its_transport(self) -> None:
+        d = _good()
+        e = _enum_of(d, "CoordinatorReason", crk.DISTRIBUTED)
+        e["value"] = [v for v in e["value"] if v["name"] != "COORDINATOR_REASON_PAYLOAD_UNAVAILABLE"]
+        self.assertProblem(d, f"COORDINATOR_REASON_PAYLOAD_UNAVAILABLE: moved to {crk.DISTRIBUTED}, and not a live key there")
 
     def test_a_key_in_two_enums(self) -> None:
         d = _good()
@@ -149,20 +209,31 @@ class CheckReasonKeysTest(unittest.TestCase):
         self.assertProblem(d, "ROUTER_REASON_DUPLICATE_COMPONENT: a key in two enums")
 
     def test_host_keys_are_exactly_these(self) -> None:
+        for path in crk.HOST_KEYS:
+            with self.subTest(path=path):
+                d = _good()
+                values = _enum_of(d, "HostReason", path)["value"]
+                values.insert(1, {"name": "HOST_REASON_EXTRA", "number": len(values)})
+                self.assertProblem(d, f"{path}: HostReason: keys are")
+
+    def test_a_key_in_two_files(self) -> None:
+        # The string travels, not the package: one key in two files' enums.
         d = _good()
-        values = _enum_of(d, "HostReason")["value"]
-        values.append({"name": "HOST_REASON_EXTRA", "number": len(values)})
-        self.assertProblem(d, "HostReason: keys are")
+        values = _enum_of(d, "HostReason", crk.EMBEDDED)["value"]
+        values.append({"name": "HOST_REASON_UPCASTER_WITH_COMPONENT", "number": len(values)})
+        self.assertProblem(d, "HOST_REASON_UPCASTER_WITH_COMPONENT: a key in two enums")
 
     def test_every_pinned_key_is_live(self) -> None:
         for key in crk.PINNED:
             with self.subTest(key=key):
                 d = _good()
-                for e in d["file"][1]["enumType"]:
+                for e in (e for f in d["file"] for e in f.get("enumType", [])):
                     kept = [v for v in e["value"] if v["name"] != key]
                     if len(kept) != len(e["value"]):
                         # Keep the numbering dense: renumber what remains.
                         e["value"] = [{"name": v["name"], "number": n} for n, v in enumerate(kept)]
+                        e.pop("reservedRange", None)
+                        e["reservedName"] = [n for n in e["reservedName"] if n not in crk.MOVED]
                 problems = crk.check(d)
                 self.assertIn(f"{key}: a decision pins it, and it is not a live key", problems)
 
@@ -203,7 +274,23 @@ class CheckReasonKeysTest(unittest.TestCase):
         ):
             with self.subTest(key=key):
                 self.assertIn(key, crk.PINNED)
-                self.assertIn(key, crk.HOST_KEYS)
+                self.assertIn(key, crk.HOST_KEYS[crk.EMBEDDED])
+
+    def test_decision_14_64_moves_the_child_and_distribution_keys(self) -> None:
+        # The child's keys to the local-process transport; the keys only a
+        # distributed coordinator raises to the distributed one.
+        self.assertEqual(
+            sorted(k for k, p in crk.MOVED.items() if p == crk.EMBEDDED), sorted(crk.HOST_KEYS[crk.EMBEDDED])
+        )
+        self.assertEqual(
+            sorted(k for k, p in crk.MOVED.items() if p == crk.DISTRIBUTED),
+            [
+                "COORDINATOR_REASON_COMMANDS_NOT_SERVED",
+                "COORDINATOR_REASON_COMPONENT_NOT_REGISTERED",
+                "COORDINATOR_REASON_PAYLOAD_UNAVAILABLE",
+            ],
+        )
+        self.assertNotIn("HOST_REASON_PROJECTOR_NO_INPUT_DOMAIN", crk.MOVED)
 
     def test_the_good_descriptor_is_not_mutated(self) -> None:
         d = _good()
@@ -243,12 +330,25 @@ class CheckReasonKeysTest(unittest.TestCase):
 
     def test_a_conforming_catalog_passes(self) -> None:
         d = _good()
-        self.assertEqual(crk.check_catalog(d, _catalog(d)), [])
+        for path in crk.REASON_FILES:
+            with self.subTest(path=path):
+                self.assertEqual(crk.check_catalog(d, _catalog(d, path), path), [])
+
+    def test_each_catalog_holds_only_its_files_keys(self) -> None:
+        d = _good()
+        text = _catalog(d, crk.EMBEDDED)
+        problems = crk.check_catalog(d, text)
+        self.assertIn("HOST_REASON_HANDSHAKE_MALFORMED: a message for no live key", problems)
+        self.assertIn("ROUTER_REASON_TOO_MANY_STEPS: no message in the catalog", problems)
 
     def test_a_key_with_no_message(self) -> None:
         d = _good()
-        text = "\n".join(l for l in _catalog(d).splitlines() if not l.startswith("HOST_REASON_HANDSHAKE_MALFORMED "))
-        self.assertIn("HOST_REASON_HANDSHAKE_MALFORMED: no message in the catalog", crk.check_catalog(d, text))
+        text = "\n".join(
+            l for l in _catalog(d, crk.EMBEDDED).splitlines() if not l.startswith("HOST_REASON_HANDSHAKE_MALFORMED ")
+        )
+        self.assertIn(
+            "HOST_REASON_HANDSHAKE_MALFORMED: no message in the catalog", crk.check_catalog(d, text, crk.EMBEDDED)
+        )
 
     def test_a_message_for_no_live_key(self) -> None:
         d = _good()
@@ -300,41 +400,55 @@ class CheckReasonKeysTest(unittest.TestCase):
         text = "# a comment\n## a group\n\nKEY_A = one { $a ->\n    [one] x\n   *[other] { $b }\n  }\nKEY_B = two\n"
         self.assertEqual(crk.parse_catalog(text), ({"KEY_A": {"a", "b"}, "KEY_B": set()}, []))
 
-    def test_the_real_catalog_against_the_real_proto(self) -> None:
-        # The catalog shipped beside reasons.proto conforms to the keys that
-        # build into this test's descriptor shape: every message is a
+    def test_the_real_catalogs_against_the_real_protos(self) -> None:
+        # The catalog shipped beside each reasons.proto conforms to the keys
+        # that build into this test's descriptor shape: every message is a
         # well-formed entry, which is all this test can know without buf.
-        text = (Path(__file__).resolve().parent.parent / crk.CATALOG).read_text(encoding="utf-8")
-        messages, problems = crk.parse_catalog(text)
-        self.assertEqual(problems, [])
-        self.assertIn("HOST_REASON_HANDSHAKE_MALFORMED", messages)
+        root = Path(__file__).resolve().parent.parent / "proto"
+        expect = {
+            crk.CORE: "HOST_REASON_PROJECTOR_NO_INPUT_DOMAIN",
+            crk.EMBEDDED: "HOST_REASON_HANDSHAKE_MALFORMED",
+            crk.DISTRIBUTED: "COORDINATOR_REASON_PAYLOAD_UNAVAILABLE",
+        }
+        for path, key in expect.items():
+            with self.subTest(path=path):
+                text = (root / crk.catalog_path(path)).read_text(encoding="utf-8")
+                messages, problems = crk.parse_catalog(text)
+                self.assertEqual(problems, [])
+                self.assertIn(key, messages)
+        core, _ = crk.parse_catalog((root / crk.catalog_path(crk.CORE)).read_text(encoding="utf-8"))
+        self.assertFalse(set(core) & set(crk.MOVED), "core's catalog keeps no moved key")
 
     def test_main_exit_codes(self) -> None:
         import tempfile
 
         bad = _good()
-        _enum_of(bad, "HostReason")["reservedRange"] = [{"start": 5, "end": 5}]
-        no_message = _good()
-        for descriptor, catalog, code in (
-            (_good(), _catalog(_good()), 0),
-            (bad, _catalog(bad), 1),
-            (no_message, "", 1),
+        _enum_of(bad, "RouterReason")["reservedRange"] = [{"start": 16, "end": 16}]
+        for descriptor, catalogs, code in (
+            (_good(), True, 0),
+            (bad, True, 1),
+            (_good(), False, 1),
         ):
-            with self.subTest(code=code, catalog=bool(catalog)):
+            with self.subTest(code=code, catalogs=catalogs):
                 out, err = io.StringIO(), io.StringIO()
                 sys.stdin = io.StringIO(json.dumps(descriptor))
-                with tempfile.NamedTemporaryFile("w", suffix=".ftl", delete=False) as ftl:
-                    ftl.write(catalog)
-                try:
-                    with redirect_stdout(out), redirect_stderr(err):
-                        self.assertEqual(crk.main(["check_reason_keys.py", "-", ftl.name]), code)
-                finally:
-                    sys.stdin = sys.__stdin__
-                    Path(ftl.name).unlink()
+                with tempfile.TemporaryDirectory() as root:
+                    if catalogs:
+                        for path in crk.REASON_FILES:
+                            target = Path(root) / crk.catalog_path(path)
+                            target.parent.mkdir(parents=True, exist_ok=True)
+                            target.write_text(_catalog(descriptor, path), encoding="utf-8")
+                    try:
+                        with redirect_stdout(out), redirect_stderr(err):
+                            self.assertEqual(crk.main(["check_reason_keys.py", "-", root]), code)
+                    finally:
+                        sys.stdin = sys.__stdin__
                 if code:
                     self.assertIn("FAIL check-reason-keys", err.getvalue())
                 else:
                     self.assertIn("ok   check-reason-keys", out.getvalue())
+                if not catalogs:
+                    self.assertIn("reasons.en-US.ftl: no catalog", err.getvalue())
         with redirect_stderr(io.StringIO()):
             self.assertEqual(crk.main(["check_reason_keys.py"]), 2)
             self.assertEqual(crk.main(["check_reason_keys.py", "-"]), 2)

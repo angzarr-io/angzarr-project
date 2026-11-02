@@ -9,6 +9,11 @@ option java_multiple_files = true;
 option java_package = "io.angzarr";
 option ruby_package = "Angzarr";
 
+// The upcaster's service is the component contract's
+// (io.angzarr.component.v1.UpcasterService,
+// io/angzarr/component/v1/upcaster.proto); its messages, and what follows,
+// are core's (decision 14.64).
+//
 // UpcasterService: transforms old event versions to current versions.
 // An upcaster is PART of the component whose streams it upcasts, never a
 // component of its own: it has no ComponentKind, no descriptor and no
@@ -29,7 +34,7 @@ option ruby_package = "Angzarr";
 // upcasts that stream's events on EVERY read and publish path, by calling
 // the sidecar: loading the stream for Handle (an aggregate's events, a
 // process manager's state), answering queries (EventQueryService, see
-// query.proto), and wherever stored events reach a subscriber: live
+// transport/distributed/v1/query.proto), and wherever stored events reach a subscriber: live
 // publishing and every read of stored history (catch-up, gap fill,
 // rebuild) alike. (Live publishing carries only what was just appended,
 // which business code wrote in the current shape; old shapes reach
@@ -75,11 +80,6 @@ option ruby_package = "Angzarr";
 // domain, cause; decision 14.51); queued and reaction deliveries stay
 // queued. A
 // rule that fails (an error status from Upcast) is a handler bug.
-service UpcasterService {
-  // Transform events to current version
-  // Returns events in same order, transformed where applicable
-  rpc Upcast(UpcastRequest) returns (UpcastResponse);
-}
 
 message UpcastRequest {
   string domain = 1;

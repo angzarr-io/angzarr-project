@@ -57,7 +57,7 @@ option ruby_package = "Angzarr";
 // projectors own no stream.
 //
 // Each declaration is one component, served by its own business process
-// behind its own coordinator (see ComponentService in component.proto).
+// behind its own coordinator (see ComponentService in component/v1/component.proto).
 // A policy is a translator between exactly two domains: one source
 // (input_domain) and one destination (output_domain). There is one policy per
 // (source domain, destination domain) pair: every reaction that translates

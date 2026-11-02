@@ -10,11 +10,10 @@ package io.angzarr.v1;
 
 import "google/protobuf/any.proto";
 import "google/protobuf/timestamp.proto";
-// Sentry-compat structured stack-trace + error-chain capture from the sererr
-// project (sererr.fyi). The schema is vendored in this repo at
-// proto/sererr/v1/sererr.proto and resolves from the same proto root as
-// this file.
-import "sererr/v1/sererr.proto";
+// Core imports nothing of angzarr's other packages and nothing of sererr
+// (decision 14.64): what a transport adds (a captured stack trace, a
+// claim-checked payload, a sync projector's result) rides that transport's
+// envelope around these messages, never a field of theirs.
 
 option csharp_namespace = "Angzarr";
 option go_package = "github.com/benjaminabbitt/angzarr/client/go/proto/io/angzarr/v1;angzarr";
@@ -173,6 +172,10 @@ message Cover {
   UUID root = 1;
   // Edition: the NAME of the timeline the stream belongs to.
   //
+  // Core, whatever the transport: the angzarr-embedded kernel and core's
+  // coordinator alike keep and read editions (the angzarr system layer);
+  // only their administration RPCs are the distributed transport's.
+  //
   // Main timeline: unset (absent). The main timeline has no name; there is
   // no magic value for it. A set edition is a named, non-main edition and
   // must be non-empty: a set empty string is malformed and refused
@@ -195,7 +198,7 @@ message Cover {
   //     fork sequence, then X's own events (the fork event first). Main's
   //     later events never reach it.
   //   - Creating X forks an origin stream (EditionAdminService.ForkStream,
-  //     meta.proto).
+  //     transport/distributed/v1/meta.proto).
   //   - The fork TRAVELS WITH THE DATA (the owner's ruling): when a policy's
   //     command in X reaches a stream with no fork in X, that arrival is
   //     the propagation; the angzarr system layer forks the stream then,
@@ -239,7 +242,7 @@ message Cover {
   //
   // Lifetime follows the backend: memory lives as long as the process, redis
   // as long as its TTL, a database persists. EditionAdminService.DeleteEdition
-  // (meta.proto) deletes a named edition explicitly: every row tagged with
+  // (transport/distributed/v1/meta.proto) deletes a named edition explicitly: every row tagged with
   // it, once its in-flight work is done; main cannot be named, so it can
   // never be deleted.
   optional string edition = 4;
@@ -274,7 +277,7 @@ message Cover {
 // support is malformed: the command is refused INVALID_ARGUMENT before
 // deduplication, and the configuration is refused when it is loaded or
 // when the coordinator receives the component's descriptor (see
-// ComponentService in component.proto).
+// ComponentService in component/v1/component.proto).
 //
 // The strategy matters only for commands whose sender provided
 // expected_sequence. A command without one is stamped by the framework with
@@ -421,43 +424,6 @@ message StateOptions {
 }
 // endregion
 
-// region payload_reference
-// TRANSPORT-ONLY: claim-check references for the message bus.
-//
-// A bus envelope may carry a PayloadReference in place of an oversized
-// payload when the payload exceeds the bus's size limit; the receiving side
-// resolves it back into the payload before anything else sees the message.
-// PayloadReference is never part of a persisted page: EventPage and
-// CommandPage payloads are always a plain google.protobuf.Any, and the
-// event store records the resolved payload. (These protos define no bus
-// envelope message; the transport layer owns that envelope.)
-
-// Storage backend type for externally stored payloads (claim check pattern).
-enum PayloadStorageType {
-  PAYLOAD_STORAGE_TYPE_UNSPECIFIED = 0;
-  PAYLOAD_STORAGE_TYPE_FILESYSTEM = 1;
-  PAYLOAD_STORAGE_TYPE_GCS = 2;
-  PAYLOAD_STORAGE_TYPE_S3 = 3;
-}
-
-// Reference to an externally stored payload (claim check pattern), carried
-// only by a bus envelope, never by a persisted page (see above).
-message PayloadReference {
-  PayloadStorageType storage_type = 1;
-  // Location URI:
-  // - file:///var/angzarr/payloads/{hash}.bin
-  // - gs://bucket/prefix/{hash}.bin
-  // - s3://bucket/prefix/{hash}.bin
-  string uri = 2;
-  // Content hash for integrity verification and deduplication (SHA-256)
-  bytes content_hash = 3;
-  // Original serialized payload size in bytes
-  uint64 original_size = 4;
-  // Timestamp when payload was stored (for TTL cleanup)
-  google.protobuf.Timestamp stored_at = 5;
-}
-// endregion
-
 // region event_page
 // One persisted event. Sequences are uint64 wherever they appear (pages,
 // snapshots, next_sequence, query ranges, DLQ details): a stream's sequence
@@ -561,9 +527,14 @@ message EventRef {
 // edge in the command's trace and logs (OpenTelemetry), as Marten and
 // Wolverine do, so "which event led to these events" is answered from
 // traces, not from the event store (decision 13.3; see CorrelationQuery for
-// what the store still answers). Accepted only from a caller authenticated
-// as a framework component (command_handler.proto, the entry_points
-// region); a client caller that sets it is refused PERMISSION_DENIED.
+// what the store still answers). Set by the runtime that delivers a
+// policy's output: core's coordinator, or the angzarr-embedded kernel,
+// whose checks read it (a refusal fact's address, a reaction's derived
+// id) in process. Over the distributed transport it is accepted only from
+// a caller authenticated as a framework component
+// (transport/distributed/v1/command_handler.proto, the entry_points
+// region); a client caller that sets it there is refused
+// PERMISSION_DENIED.
 //
 // fact_origin: where a Fact came from (FactOrigin, below), kept for audit
 // and copied onto every event the fact produces (EventMeta.fact).
@@ -939,7 +910,7 @@ message EventMeta {
 // instance's coordinator judges by its own instance's version). A server
 // holding no registration (a coordinator before its first successful
 // Describe, or a standalone query server, which has no component behind
-// it; see query.proto) returns no snapshot and every page from sequence
+// it; see transport/distributed/v1/query.proto) returns no snapshot and every page from sequence
 // 0.
 message Snapshot {
   // Sequence of the last event folded into `state`. A TemporalQuery
@@ -1101,7 +1072,7 @@ message Projection {
 // causation_id from a caller not authenticated as a framework component is
 // refused PERMISSION_DENIED, and an unknown edition (no fork event of it
 // exists: never created, or deleted) NOT_FOUND (see the
-// entry_points region in command_handler.proto). A reaction command has no
+// entry_points region in transport/distributed/v1/command_handler.proto). A reaction command has no
 // caller to answer, so it is dead-lettered as a reactor bug (and alerted),
 // never delivered; one that carries Handling, with reason
 // COORDINATOR_REASON_POLICY_COMMAND_WITH_HANDLING, and one that carries
@@ -1216,11 +1187,14 @@ message CommandPage {
   // onto every event (EventMeta.correlation_id).
   UUID correlation_id = 9;
   // A policy's output only (reaction commands, and refusal facts): the
-  // command's own causation, its triggering event. Framework-authenticated
-  // callers only. The reaction command_id is derived from it, and a refusal
-  // fact must be addressed to the exact stream it names (domain, root and
-  // edition). Transport and trace metadata: NOT persisted on the events
-  // the command produces (their causation is this command; see the
+  // command's own causation, its triggering event. Core, not transport:
+  // the runtime that delivers a policy's output sets it (core's
+  // coordinator, or the angzarr-embedded kernel, whose own checks read it),
+  // and over the distributed transport it is accepted only from
+  // framework-authenticated callers. The reaction command_id is derived
+  // from it, and a refusal fact must be addressed to the exact stream it
+  // names (domain, root and edition). NOT persisted on the events the
+  // command produces (their causation is this command; see the
   // command_identity region).
   EventRef causation_id = 10;
   // Facts only, and required there: where the fact came from. Copied onto
@@ -1292,35 +1266,20 @@ message CommandBook {
 // endregion
 
 // region outcome
-// What the system did with one command: results of its handling, carried on
-// CommandResponse and NEVER persisted. Nothing here is written to any
-// stream, and replaying a stream cannot reproduce it. The command's business
-// result is CommandResponse.events.
+// What the runtime did with one delivery of a command: the result of its
+// handling, NEVER persisted. Nothing here is written to any stream, and
+// replaying a stream cannot reproduce it. The command's business result is
+// its events. Answered by the angzarr-embedded kernel with the events, and
+// by a distributed coordinator inside its own response
+// (io.angzarr.transport.distributed.v1.CommandResponse), whose SyncOutcome
+// wraps this message with the synchronous projectors' results (decision
+// 14.64).
 message Outcome {
   DeliveryOutcome delivery = 1;
-  // Synchronous projector results. Produced only by the coordinator's
-  // HandleSync (SIMPLE); empty for Handle (DECISION). (Projectors
-  // persist their own read models; these are copies returned to the caller.)
-  repeated Projection projections = 2;
-  // Synchronous projectors that failed on this command's events. HandleSync
-  // answers OK whenever the decision committed: a projector failure never
-  // undoes it and never turns the response into an error status. Each
-  // failing projector appears here instead of in projections, and its
-  // events are retried or dead-lettered on the asynchronous projection
-  // path. Empty for Handle (DECISION).
-  repeated ProjectorFailure projector_failures = 3;
-}
-
-// One synchronous projector that failed during HandleSync.
-message ProjectorFailure {
-  string projector = 1; // Registered name of the projector
-  // The failure as a gRPC status code (google.rpc.Code numbering). Whether
-  // the projection will be retried follows the retryable set in
-  // command_handler.proto.
-  int32 code = 2;
-  // The failure's key and args (decision 14.37): its status's ErrorInfo
-  // reason and metadata. Never the status's text.
-  Diagnostic diagnostic = 4;
+  // Fields 2 and 3 (projections, projector_failures) moved to
+  // io.angzarr.transport.distributed.v1.SyncOutcome (decision 14.64).
+  reserved 2, 3;
+  reserved "projections", "projector_failures";
 }
 
 // What the coordinator did with this delivery of a command. Deduplication
@@ -1350,8 +1309,11 @@ enum DeliveryOutcome {
 // endregion
 
 message ContextualCommand {
-  // Passed from aggregate coordinator to aggregate, consists of everything
-  // needed to execute/evaluate the command: the target stream's history (a
+  // Passed by the runtime that handles the command (core's coordinator, or
+  // the angzarr-embedded kernel; "the coordinator" below means either) to
+  // the aggregate's business logic, in process or over
+  // CommandHandlerService; it consists of everything needed to
+  // execute/evaluate the command: the target stream's history (a
   // snapshot plus pages up to the head) and the command, whose handling is
   // always resolved by the time it arrives here (see Handling):
   // expected_sequence provided by the caller or stamped by the coordinator
@@ -1404,114 +1366,6 @@ message ContextualCommand {
   bytes conflict_nonce = 3;
 }
 
-// Query types
-message SequenceRange {
-  uint64 lower = 1;
-  optional uint64 upper = 2; // If not set, query to latest
-}
-
-message SequenceSet {
-  repeated uint64 values = 1;
-}
-
-// Temporal query: retrieve aggregate state at a point in history.
-//
-// The returned EventBook may start from a snapshot instead of sequence 0,
-// but only from one that cannot contain state from after the point:
-// - as_of_sequence N: a snapshot with sequence <= N, followed by pages
-//   snapshot.sequence+1 .. N.
-// - as_of_time T: the stream's prefix up to and including the last event
-//   whose EventMeta.recorded_at <= T. recorded_at is non-decreasing per
-//   stream (see EventMeta), so this is a prefix: no later event can have an
-//   earlier recorded_at. The book may start from a snapshot whose last
-//   folded event (the page at snapshot.sequence) lies in that prefix.
-// Without a qualifying kept snapshot (by default only the newest is kept)
-// the book carries no snapshot and every page from 0 up to the point. Either
-// way, folding the book yields the same state as a full replay to the point.
-message TemporalQuery {
-  oneof point_in_time {
-    google.protobuf.Timestamp as_of_time = 1; // The prefix of events with EventMeta.recorded_at <= this
-    uint64 as_of_sequence = 2; // Events with sequence <= this
-  }
-}
-
-// Selects events within one domain. cover.domain is required, and
-// cover.edition picks the timeline (unset = main; a set name must be a
-// known edition, see Cover.edition, and each stream is read by its fork:
-// main below its fork sequence, then the edition's own events; a stream
-// not yet forked reads as main). For every event of one correlation across
-// all domains, use EventQueryService.GetCorrelatedEvents (CorrelationQuery).
-//   By stream:       cover { domain, root }
-//   By correlation:  cover { domain } + correlation_id; every stream of the
-//                    domain is searched, one EventBook per matching stream
-//   Both:            cover { domain, root } + correlation_id; that stream only
-// The selection, when set, applies within each selected stream.
-message Query {
-  Cover cover = 1;
-  oneof selection {
-    SequenceRange range = 3;
-    SequenceSet sequences = 4;
-    TemporalQuery temporal = 5;
-  }
-  // Correlation selector: when set, only pages whose
-  // EventMeta.correlation_id equals it (the same 16 bytes) are
-  // returned; a set value that is not 16 bytes is INVALID_ARGUMENT. Correlation
-  // is recorded per page only (covers carry none); all pages of one write
-  // share one correlation. Never crosses cover.domain (CorrelationQuery
-  // does).
-  UUID correlation_id = 6;
-}
-
-// region correlation_query
-// Selects every event of one correlation, across all domains: the whole
-// workflow a request or a fact started. Answered by
-// EventQueryService.GetCorrelatedEvents as one EventBook per stream (domain,
-// edition, root) holding that stream's pages with this correlation, in
-// sequence order. The order of books is unspecified.
-//
-// Forward causation, from the result alone. Every reaction (a policy's
-// commands, their events, a process manager's events, and refusal facts
-// and their events) carries its trigger's correlation (see the
-// command_identity region), so everything event E led to is in the result.
-// How exactly each edge is known depends on the kind of event (decision
-// 13.3):
-//   - Events of a refusal fact are linked EXACTLY: their
-//     causation.command_id is the refused command's id, derived from E,
-//     the policy and the command's index (derived_ids region; decision
-//     14.31).
-//   - Events of reaction commands are linked only COARSELY, by
-//     correlation: the pages of one command share its
-//     causation.command_id, but the command's trigger (its causation_id)
-//     is not on its events. The exact trigger edge (E -> the commands a
-//     policy emitted for it -> their events) is in the traces and
-//     logs the coordinators write (OpenTelemetry), not in the store.
-// Accepted cost: the event store alone answers "what belongs to this
-// workflow", but not "which events did
-// this policy's reaction to E produce"; that question goes to the traces,
-// whose retention the deployment chooses. Rejected commands leave no
-// events, so they do not appear (see the attempt-audit sink in the design
-// record).
-message CorrelationQuery {
-  // Required: INVALID_ARGUMENT when unset or not 16 bytes.
-  UUID correlation_id = 1;
-  // The timeline, as Cover.edition: unset = main; a set name must be
-  // non-empty (a set "" is refused INVALID_ARGUMENT) and must be a known
-  // edition (Cover.edition), and each stream is read as the edition reads
-  // it (main's events below that stream's fork sequence, then its own; a
-  // stream not yet forked reads as main).
-  optional string edition = 2;
-}
-// endregion
-
-// region event_stream_filter
-// Subscription filter for event streaming: matches events whose
-// EventMeta.correlation_id equals correlation_id (correlation is
-// recorded per page only; all pages of one write share one correlation).
-message EventStreamFilter {
-  UUID correlation_id = 1; // Required: INVALID_ARGUMENT when unset or not 16 bytes
-}
-// endregion
-
 // ============================================================================
 // Dead Letter Queue (DLQ) Messages
 // ============================================================================
@@ -1547,25 +1401,14 @@ message ProcessingFailedDetails {
   Diagnostic failure = 5; // The handler's failure: its code and args, never its text (decision 14.37)
   uint32 retry_count = 2; // Number of retry attempts before DLQ routing: the retries after the first attempt (0 when it was tried once)
   bool is_transient = 3; // Whether the failure is considered transient
-  // Flat array of captured errors representing the cause chain
-  // (most-causal-first; the originating caught error is the LAST
-  // element). Matches Sentry's `exception.values` shape; linkage via
-  // each entry's `mechanism.exception_id` / `mechanism.parent_id`.
-  // Empty when no capture was attempted. See sererr.fyi/spec/proto
-  // for the schema rationale.
-  repeated sererr.v1.CapturedError stack_trace = 4;
+  // Field 4 (stack_trace, sererr's captured cause chain) moved to the
+  // distributed transport's dead-letter envelope
+  // (io.angzarr.transport.distributed.v1.DeadLetterEnvelope.stack_trace;
+  // decision 14.64): core imports no sererr.
+  reserved 4;
+  reserved "stack_trace";
 }
 
-// Payload retrieval failure details for DLQ entries.
-// Contains information about why a claim-checked payload (see
-// PayloadReference: a bus-envelope concern) couldn't be retrieved.
-message PayloadRetrievalFailedDetails {
-  PayloadStorageType storage_type = 1; // Storage backend type
-  string uri = 2; // URI of the payload that couldn't be retrieved
-  bytes content_hash = 3; // Content hash for identification
-  uint64 original_size = 4; // Original payload size in bytes
-  Diagnostic failure = 6; // The retrieval's failure: its code and args, never its text (decision 14.37)
-}
 // endregion
 
 // region dead_letter
@@ -1575,7 +1418,7 @@ message PayloadRetrievalFailedDetails {
 // Among other failures, a fact whose ingest handler fails lands here: a
 // failing fact handler is a bug, never a business rejection (see Fact).
 //
-// Replay (see dlq_admin.proto). An entry is immutable once written; replays
+// Replay (see transport/distributed/v1/dlq_admin.proto). An entry is immutable once written; replays
 // of it are recorded beside it in the admin store (StoredDeadLetter.replays).
 // A replay keeps the original command_id, correlation_id and causation_id:
 // it is a redelivery of the same message, never a new command, so
@@ -1588,7 +1431,14 @@ message PayloadRetrievalFailedDetails {
 //                     (source_component), never re-published to every
 //                     subscriber.
 //   failed_edition_removal  the removal of that stream's rows of the
-//                     edition attempted again (meta.proto, DeleteEdition).
+//                     edition attempted again (DeleteEdition,
+//                     transport/distributed/v1/meta.proto).
+//
+// A transport may wrap the entry with what only it knows: the distributed
+// transport's DeadLetterEnvelope adds the captured stack trace, metadata
+// and a claim-checked payload's retrieval details (decision 14.64). The
+// entry itself is whole without it: the angzarr-embedded kernel stores it
+// bare.
 //
 // The stream concerned is the payload's own cover (rejected_command.cover,
 // rejected_events.cover or failed_edition_removal.cover); the entry does not
@@ -1604,7 +1454,7 @@ message AngzarrDeadLetter {
     // stamps the current head.
     CommandBook rejected_command = 2;
     EventBook rejected_events = 9; // Events that failed (policy/projector failures)
-    // An edition removal that failed (meta.proto, DeleteEdition): the
+    // An edition removal that failed (DeleteEdition): the
     // stream whose rows of the edition could not be removed, as its cover,
     // and its meta.EditionDeleted event, as recorded there, as the one
     // page. An EventBook, since meta/events.proto imports this file.
@@ -1680,7 +1530,8 @@ message AngzarrDeadLetter {
   //     COORDINATOR_REASON_POLICY_COMMAND_WITH_HANDLING (the last two
   //     also on a reaction command refused at its destination, as
   //     rejected_command):
-  //     retry_count 0, is_transient false, stack_trace when captured.
+  //     retry_count 0, is_transient false (a transport that captures the
+  //     stack trace carries it on its envelope).
   //   - COORDINATOR_REASON_EDITION_REMOVAL_FAILED, with the
   //     failed_edition_removal payload: retry_count the retries, arg
   //     attempts less the first removal, is_transient as the store's
@@ -1691,26 +1542,30 @@ message AngzarrDeadLetter {
   //     COORDINATOR_REASON_STORE_UNAVAILABLE, a handler's retryable
   //     bug), its reason the bug's own key as last answered: retry_count
   //     the retries after the first attempt, is_transient true.
-  // payload_retrieval_failed: a claim-checked payload (PayloadReference)
-  // that cannot be retrieved, at the retry cap:
-  //   - COORDINATOR_REASON_PAYLOAD_UNAVAILABLE, args uri and cause, its
-  //     failure the same Diagnostic as reason (decision 14.51).
+  //   - The distributed transport's COORDINATOR_REASON_PAYLOAD_UNAVAILABLE
+  //     (a claim-checked payload that cannot be retrieved, at the retry
+  //     cap; args uri and cause): retry_count the retries, is_transient
+  //     true, its failure the same Diagnostic as reason; the retrieval's
+  //     details ride the transport's DeadLetterEnvelope
+  //     (payload_retrieval_failed; decisions 14.51 and 14.64).
   // Never a dead letter's reason: the readiness keys, the HostReason keys,
   // ROUTER_REASON_NO_HANDLERS_REGISTERED, ROUTER_REASON_DUPLICATE_COMPONENT
   // and ROUTER_REASON_HANDLER_PANICKED (only ever a cause); and the
   // retryable keys the coordinator only answers, never dead-letters:
   // COORDINATOR_REASON_STORE_CONFLICT (a race re-run cap of 0),
-  // COORDINATOR_REASON_UPCASTER_UNAVAILABLE and
-  // COORDINATOR_REASON_COMPONENT_NOT_REGISTERED (queued work waits) and
-  // COORDINATOR_REASON_COMMANDS_NOT_SERVED (decision 14.51).
+  // COORDINATOR_REASON_UPCASTER_UNAVAILABLE and the distributed
+  // transport's COORDINATOR_REASON_COMPONENT_NOT_REGISTERED (queued work
+  // waits) and COORDINATOR_REASON_COMMANDS_NOT_SERVED (decision 14.51).
   oneof rejection_details {
     SequenceMismatchDetails sequence_mismatch = 12; // Sequence conflict details
     ProcessingFailedDetails processing_failed = 13; // Handler or coordinator failure details
-    PayloadRetrievalFailedDetails payload_retrieval_failed = 14; // Payload store failure details
     CommandRefusedDetails command_refused = 17; // Typed business refusal
   }
+  // Field 14 (payload_retrieval_failed) and field 8 (metadata) moved to the
+  // distributed transport's DeadLetterEnvelope (decision 14.64).
+  reserved 8, 14;
+  reserved "metadata", "payload_retrieval_failed";
   google.protobuf.Timestamp occurred_at = 7;
-  map<string, string> metadata = 8; // Additional context
   string source_component = 10; // Which component sent to DLQ
   ComponentKind source_component_kind = 15; // Its kind
 }
@@ -1742,8 +1597,8 @@ enum ComponentKind {
 
 // Component self-description: the one component a business process is.
 // The coordinator pulls it from the business process
-// (ComponentService.Describe in component.proto); holding it is what makes
-// the component registered.
+// (ComponentService.Describe in component/v1/component.proto); holding it
+// is what makes the component registered.
 //
 // Generated or written by hand, then validated (decision 14.42, amended).
 // angzarr-cli generates the whole descriptor at build time from the

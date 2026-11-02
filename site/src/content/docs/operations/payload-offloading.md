@@ -103,9 +103,12 @@ URI: gs://bucket/e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b85
 
 ## PayloadReference
 
-Events and commands reference external payloads via `PayloadReference`:
+Claim checks are the distributed transport's (decision 14.64): the bus envelope wraps the core book, and each oversized page travels with its payload unset and a `ClaimCheck` naming a `PayloadReference` in its place. The stored page is always the plain core `EventPage`:
 
-```protobuf file=proto/io/angzarr/v1/types.proto region=payload_reference
+```protobuf file=proto/io/angzarr/transport/distributed/v1/bus.proto region=bus_envelope
+```
+
+```protobuf file=proto/io/angzarr/transport/distributed/v1/bus.proto region=payload_reference
 ```
 
 ```protobuf file=proto/io/angzarr/v1/types.proto region=event_page
@@ -163,9 +166,9 @@ curl -X POST http://localhost:9099/admin/payload-store/cleanup?age=7d
 
 ## Retrieval Failures
 
-When payload retrieval fails, angzarr routes to DLQ:
+When payload retrieval fails, angzarr routes to DLQ under `COORDINATOR_REASON_PAYLOAD_UNAVAILABLE`: the core entry carries `processing_failed`, and the retrieval's details ride the distributed transport's `DeadLetterEnvelope`:
 
-```protobuf file=proto/io/angzarr/v1/types.proto region=dlq_details
+```protobuf file=proto/io/angzarr/transport/distributed/v1/dead_letter.proto region=dead_letter_envelope
 ```
 
 Common failure causes:

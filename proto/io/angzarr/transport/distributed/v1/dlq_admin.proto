@@ -1,6 +1,13 @@
 // Dead Letter Queue admin service for the `angzarr-status` operations
-// console. Reads, replays and deletes the AngzarrDeadLetter entries
-// (io/angzarr/v1/types.proto) that the framework's DLQ publishers persist.
+// console. Reads, replays and deletes the dead letters the distributed
+// transport's DLQ publishers persist: each a DeadLetterEnvelope
+// (dead_letter.proto) around core's AngzarrDeadLetter
+// (io/angzarr/v1/types.proto).
+//
+// Part of the distributed transport (decision 14.64): it was package
+// io.angzarr.status.v1 until then, and moved whole, every message and
+// number unchanged, since only a distributed deployment runs an admin
+// store of dead letters and a transport's package holds its own services.
 //
 // Surface follows Google AIPs for resource naming, pagination and
 // filtering. Every method returns a health envelope (`oneof state` of an
@@ -9,19 +16,21 @@
 
 syntax = "proto3";
 
-package io.angzarr.status.v1;
+package io.angzarr.transport.distributed.v1;
 
 import "google/api/annotations.proto";
 import "google/protobuf/timestamp.proto";
 import "io/angzarr/v1/types.proto";
 
-option csharp_namespace = "Angzarr.Status";
-option go_package = "github.com/benjaminabbitt/angzarr/client/go/proto/io/angzarr/status/v1;angzarrstatus";
+option csharp_namespace = "Angzarr.Transport.Distributed";
+option go_package = "github.com/benjaminabbitt/angzarr/client/go/proto/io/angzarr/transport/distributed/v1;angzarrdistributed";
 option java_multiple_files = true;
-option java_package = "io.angzarr.status";
-option ruby_package = "Angzarr::Status";
+option java_package = "io.angzarr.transport.distributed";
+option ruby_package = "Angzarr::Transport::Distributed";
 
-// Discriminator for `AngzarrDeadLetter.rejection_details` oneof.
+// Discriminator for `AngzarrDeadLetter.rejection_details` oneof, and
+// PAYLOAD_RETRIEVAL_FAILED for an envelope whose payload_retrieval_failed is
+// set.
 // Stored as a string in `dlq_entries.rejection_type` by the existing
 // publishers; surfaced typed here for filter ergonomics.
 enum RejectionType {
@@ -33,7 +42,7 @@ enum RejectionType {
 }
 
 // One row from `dlq_entries`, surfaced via the API. The `payload`
-// bytes are the proto-encoded `AngzarrDeadLetter` exactly as the
+// bytes are the proto-encoded `DeadLetterEnvelope` exactly as the
 // publisher wrote it; ReplayDeadLetter reuses these bytes.
 //
 // The `payload_view` field carries a server-side descriptor-decoded
@@ -178,7 +187,7 @@ message GetDeadLetterResponse {
 // did apply after all, deduplication answers the replay DUPLICATE, so a
 // replay can never apply a command twice (except one whose original
 // decision produced no events, which is decided again; see the
-// command_identity region of types.proto). The replayer delivers as a
+// command_identity region of io/angzarr/v1/types.proto). The replayer delivers as a
 // framework component (mTLS identity), so a reaction command's causation_id
 // is accepted. The replay itself (time, mode, outcome) is recorded in the
 // entry (StoredDeadLetter.replays), not on the replayed message; who asked

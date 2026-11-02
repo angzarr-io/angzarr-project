@@ -142,7 +142,7 @@ No mode waits for reactions. Policies always run asynchronously, after the comma
 
 For observing events as they happen rather than waiting:
 
-```protobuf file=proto/io/angzarr/v1/stream.proto region=event_stream_service
+```protobuf file=proto/io/angzarr/transport/distributed/v1/stream.proto region=event_stream_service
 ```
 
 Events are correlated via `correlation_id` on `Cover`, allowing clients to track causally-related events across aggregate boundaries.

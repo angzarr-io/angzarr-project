@@ -1,8 +1,6 @@
 syntax = "proto3";
 package io.angzarr.v1;
 
-import "google/api/annotations.proto";
-import "google/protobuf/empty.proto";
 import "io/angzarr/v1/types.proto";
 
 option csharp_namespace = "Angzarr";
@@ -11,89 +9,16 @@ option java_multiple_files = true;
 option java_package = "io.angzarr";
 option ruby_package = "Angzarr";
 
-// CommandHandlerService: the business logic for one domain's aggregates,
-// implemented in a client library and called by the coordinator. Business code behaves the same in every
-// command mode.
-service CommandHandlerService {
-  // Process one command and return the events it produces, with the rules
-  // version that decided them. This is the only input path into an
-  // aggregate: facts arrive here too, in the Fact arm of CommandPage.body.
-  //
-  // By the time Handle is called the coordinator has already run pipeline
-  // steps 1-4 (types.proto, Handling): validated the command, assigned its
-  // command_id and correlation_id, deduplicated it, admitted it (a refusal
-  // fact's stream, a process manager's start rule; decision 14.42), and
-  // resolved its
-  // Handling (checked or stamped the expected sequence and resolved the
-  // conflict resolution), so decide always sees a concrete sequence. Which
-  // coordinator RPC the caller used (the command mode) is not passed on.
-  //
-  // Before Handle, the coordinator has also upcast the payload through the
-  // component's upcaster sidecar (decision 14.39; see upcaster.proto) and
-  // dropped the pages the snapshot covers (decision 14.40), so the library
-  // sees only current shapes, the starting state and the pages after it.
-  // Every delivery is well formed (the coordinator builds it): the client
-  // library guards no envelope (decision 14.42).
-  //
-  // In the client library, in order:
-  //   1. reflective dispatch: the body arm picks the pipeline (Command ->
-  //      decide, which may reject; Fact -> ingest, which never rejects), and
-  //      the type URL picks the handler. A type URL no registered handler
-  //      claims is refused INTERNAL (a bug: decision 14.37) with reason
-  //      ROUTER_REASON_UNKNOWN_COMMAND_TYPE (ROUTER_REASON_NO_FACT_HANDLER for a fact), which is also
-  //      the status message (a key, never text); the status details carry a
-  //      google.rpc.ErrorInfo whose metadata key "type_url" holds the type
-  //      URL the library was given. The coordinator answers its caller with
-  //      "type_url" as sent and "upcast_type_url" as delivered (see
-  //      upcaster.proto). A failing fact handler is a bug,
-  //      not a business rejection: the fact is dead-lettered (and alerted)
-  //      and the sender answered PARKED, never a rejection.
-  //   2. under AGGREGATE_HANDLES the library reports the nonce the handler
-  //      resolved with, and under COMMUTATIVE it computes the window's and
-  //      the command's conflict units (CommandHandlerResponse.conflict).
-  //      It never discards the handler's events for a conflict: the
-  //      coordinator judges the report (decision 14.42; see
-  //      ConflictResolution).
-  // The state the handler sees is the starting state (events.snapshot.state,
-  // when present) decoded, with every delivered page folded in order; the
-  // library never compares a page's sequence with the snapshot's.
-  // The library never checks a delivered snapshot: the coordinator offers
-  // only snapshots that pass its validity checks (see Snapshot in
-  // types.proto), and the library folds whatever it is given.
-  //
-  // A rejection is answered as a gRPC error status, never as a response
-  // message, and the refusing domain records nothing. A business rejection
-  // (a status of the business set; see the status codes below, and
-  // FAILED_PRECONDITION for a typed refusal) carries a message and, optionally, a typed
-  // refusal object: one of the command's CommandOptions.refuses types
-  // (options.proto), which the client library packs into the status
-  // details as a google.protobuf.Any; the generated handler returns its
-  // events or one of those refusals (decision 14.31). The
-  // coordinator passes the status on unchanged, and a policy whose command
-  // was refused receives it as RefusalResponse (types.proto). There is no
-  // compensation input: when a policy's command is refused, the policy delivers
-  // a refusal fact to its own source domain, which decides how to respond
-  // (decision 14.31; PolicyService in policy.proto, Refusals).
-  //
-  // Business output is payloads, plus the post-command state, and nothing
-  // else. The returned EventBook carries pages with only a payload set, and
-  // on EVERY response snapshot.state: the aggregate's state with the
-  // command's events folded in, filled by the client library. Business code
-  // never decides whether or when a snapshot is taken, and the request
-  // carries no flag asking for one. The coordinator persists the state as a
-  // snapshot per the domain's storage policy (see Snapshot) and supplies the
-  // cover (the command's), every sequence and every EventMeta, stamping
-  // EventMeta.rules_version (and Snapshot.rules_version) in full from the
-  // response's rules_version. Output that sets page meta or a page sequence,
-  // or a cover other than the command's (empty counts as the command's), or
-  // a response whose rules_version differs from the registered one, is a
-  // handler bug: the coordinator refuses it and persists nothing. A caller
-  // of Handle or HandleSync is answered INTERNAL; an asynchronous or
-  // reaction delivery is dead-lettered and alerted. It is never treated as
-  // a business rejection. The version's refusal is keyed
-  // COORDINATOR_REASON_RULES_VERSION_MISMATCH (decision 14.56).
-  rpc Handle(ContextualCommand) returns (CommandHandlerResponse);
-}
+// What a command handler answers, and how every runtime handles a command.
+// The handler's service is the component contract's
+// (io.angzarr.component.v1.CommandHandlerService,
+// io/angzarr/component/v1/command_handler.proto); the coordinator's RPCs
+// are the distributed transport's
+// (io.angzarr.transport.distributed.v1.CommandHandlerCoordinatorService,
+// io/angzarr/transport/distributed/v1/command_handler.proto). The
+// pipeline, the command modes and the status codes below are every
+// runtime's: core's coordinator and the angzarr-embedded kernel alike
+// (decision 14.64).
 
 // What the business logic answers for one command.
 message CommandHandlerResponse {
@@ -145,10 +70,11 @@ message ConflictReport {
 }
 
 // region command_modes
-// CommandHandlerCoordinatorService: the entry point for commands and facts
-// into a domain's aggregates, for clients and framework components alike.
-// (CommandHandlerService, above, is the business-logic service the
-// coordinator calls.)
+// CommandHandlerCoordinatorService (the distributed transport's) and the
+// angzarr-embedded kernel: the entry points for commands and facts into a
+// domain's aggregates, for clients and framework components alike.
+// (CommandHandlerService, the component contract's, is the business-logic
+// service they call.)
 //
 // Command modes. How much of a command's processing the caller waits for is
 // a call-level choice, never part of the command: one RPC per mode.
@@ -303,111 +229,4 @@ message ConflictReport {
 //
 // What-if execution is an ordinary command whose cover names an edition
 // (see Cover.edition), in any mode; there is no speculative RPC.
-service CommandHandlerCoordinatorService {
-  // DECISION. Process one command and answer with its decision. The
-  // CommandBook is the request: its handling says how to treat it (expected
-  // sequence, conflict resolution), with unspecified fields taken from
-  // configuration (see Handling). Facts (external realities) are injected
-  // here too, in the Fact arm of CommandPage.body.
-  //
-  // Accepted: the response carries the persisted events, with
-  // outcome.delivery APPLIED. A command whose command_id the addressed
-  // stream already holds is not handed to business code again; the response
-  // carries those events, re-read from the stream, with outcome.delivery
-  // DUPLICATE. A fact whose ingest handler fails, or that lost a race at
-  // every write until the race re-run cap, is answered OK with
-  // outcome.delivery PARKED and no events ("accepted, parked"; it is
-  // dead-lettered). outcome.projections and outcome.projector_failures are
-  // always empty. Rejected: a gRPC error status, and nothing is written (an
-  // expected sequence ahead of the head, under any resolution, is
-  // INVALID_ARGUMENT, COORDINATOR_REASON_EXPECTED_SEQUENCE_AHEAD; a stale
-  // one, behind the head, under STRICT is ABORTED,
-  // COORDINATOR_REASON_EXPECTED_SEQUENCE_STALE; a command that lost a race
-  // at every write until a cap is INTERNAL,
-  // COORDINATOR_REASON_RETRY_CAP_EXHAUSTED, and dead-lettered; see the
-  // status codes above).
-  rpc Handle(CommandBook) returns (CommandResponse) {
-    option (google.api.http) = {
-      post: "/v1/ch/{cover.domain}/commands"
-      body: "*"
-    };
-  }
-  // ASYNC. Validate the command, assign its ids (pipeline steps 1-2),
-  // enqueue it durably and return. The OK response says only that the
-  // command was accepted for processing: no decision has been made, and
-  // deduplication happens when it is processed, so there are no events and
-  // no delivery outcome to report.
-  //
-  // Asynchronous delivery is at least once; the command_id assigned before
-  // enqueueing makes redelivery from the queue safe. A caller that may
-  // itself retry the call should supply the command_id, as for Handle.
-  //
-  // Validation happens before enqueueing: a malformed command (see Handling)
-  // is refused here, never enqueued. An expected_sequence ahead of the head
-  // needs the head, so it is found only when the command is processed. A
-  // rejection happens later, with no caller to answer: like a reaction
-  // command's, a retryable bug is retried up to its cap, and any other
-  // failure is dead-lettered and alerted (status codes, above); a business,
-  // fatal refusal (COORDINATOR_REASON_EXPECTED_SEQUENCE_AHEAD among them)
-  // records its key and args as AngzarrDeadLetter.reason (decision 14.47).
-  // A caller that needs the outcome
-  // uses Handle, or follows the command's correlation_id
-  // (EventStreamFilter).
-  rpc HandleAsync(CommandBook) returns (google.protobuf.Empty) {
-    option (google.api.http) = {
-      post: "/v1/ch/{cover.domain}/commands:async"
-      body: "*"
-    };
-  }
-  // SIMPLE. As Handle (DECISION), and also waits for the domain's
-  // synchronous projectors to project the persisted events; their results
-  // come back in outcome.projections. The projectors run on the committed
-  // events, so a projector failure never undoes the decision and never
-  // turns the answer into an error: once the decision commits, HandleSync
-  // answers OK with the events, the projections that succeeded, and one
-  // outcome.projector_failures entry per projector that failed (whose
-  // events then follow the asynchronous projection path's retries).
-  rpc HandleSync(CommandBook) returns (CommandResponse) {
-    option (google.api.http) = {
-      post: "/v1/ch/{cover.domain}/commands:sync"
-      body: "*"
-    };
-  }
-}
 // endregion
-
-// region entry_points
-// Framework components and clients use the SAME RPCs. What differs is what
-// a caller may send, decided by who the caller is, never by the message.
-//
-// A framework component (a policy coordinator delivering reaction
-// commands and refusal facts, the outbox dispatcher, the DLQ replayer, a
-// coordinator delivering triggers) authenticates with its mTLS identity,
-// issued to framework components only. Only such a caller may send:
-//   - CommandPage.causation_id (with the derived command_id of a reaction
-//     command, or the refused command's id on a refusal fact; the
-//     receiving coordinator trusts them from this caller);
-//   - a caller-supplied trigger EventBook to PolicyCoordinatorService.Execute
-//     (whose stamping copies the trigger's correlation and EventRef onto
-//     the policy's commands and refusal facts).
-// Any other caller is a client. A client that sends a causation_id is
-// refused PERMISSION_DENIED, as is a client call to a trigger entry point:
-// the request is well formed, but the caller is not allowed to make it
-// (INVALID_ARGUMENT would wrongly tell the caller to fix the message).
-// Deployments may still expose the trigger routes over HTTP; the gateway
-// forwards the caller's identity, so a client reaching them is refused the
-// same way.
-//
-// Who called, framework or client, goes to the security log, never into
-// the data (types.proto, security_logs region).
-// endregion
-
-// Response to one command: its business result (the events) and what the
-// system did with it (the outcome).
-message CommandResponse {
-  EventBook events = 1; // Events from the target aggregate
-  // Results of handling: delivery outcome and, from HandleSync (SIMPLE),
-  // synchronous projector results. Response-only, never persisted (see
-  // Outcome).
-  Outcome outcome = 5;
-}

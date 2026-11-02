@@ -1,0 +1,35 @@
+syntax = "proto3";
+package io.angzarr.transport.distributed.v1;
+
+import "google/api/annotations.proto";
+import "google/protobuf/empty.proto";
+import "io/angzarr/v1/types.proto";
+
+option csharp_namespace = "Angzarr.Transport.Distributed";
+option go_package = "github.com/benjaminabbitt/angzarr/client/go/proto/io/angzarr/transport/distributed/v1;angzarrdistributed";
+option java_multiple_files = true;
+option java_package = "io.angzarr.transport.distributed";
+option ruby_package = "Angzarr::Transport::Distributed";
+
+// ProjectorCoordinatorService: orchestrates projection processing
+service ProjectorCoordinatorService {
+  // Synchronous processing: project the events and return the projection.
+  // "Sync" is in the name; the request is the EventBook itself, with no
+  // mode wrapper. The command coordinator's HandleSync (SIMPLE) calls this
+  // for each synchronous projector.
+  rpc HandleSync(io.angzarr.v1.EventBook) returns (io.angzarr.v1.Projection) {
+    option (google.api.http) = {
+      post: "/v1/projector/sync"
+      body: "*"
+    };
+  }
+  // Asynchronous processing: accept the events for projection and return
+  // without waiting (fire and forget). Named for the mode, as on the command
+  // coordinator (HandleAsync / HandleSync).
+  rpc HandleAsync(io.angzarr.v1.EventBook) returns (google.protobuf.Empty) {
+    option (google.api.http) = {
+      post: "/v1/projector/async"
+      body: "*"
+    };
+  }
+}

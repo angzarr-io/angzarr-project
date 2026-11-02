@@ -1,0 +1,21 @@
+syntax = "proto3";
+package io.angzarr.component.v1;
+
+import "io/angzarr/v1/upcaster.proto";
+
+option csharp_namespace = "Angzarr.Component";
+option go_package = "github.com/benjaminabbitt/angzarr/client/go/proto/io/angzarr/component/v1;angzarrcomponent";
+option java_multiple_files = true;
+option java_package = "io.angzarr.component";
+option ruby_package = "Angzarr::Component";
+
+// UpcasterService: the upcaster sidecar's one service (decision 14.39).
+// What an upcaster is, where it runs and who calls it are core's
+// (io/angzarr/v1/upcaster.proto), as are its messages: the
+// angzarr-embedded kernel runs a Rust upcaster in process under this same
+// contract (decision 14.64).
+service UpcasterService {
+  // Transform events to current version
+  // Returns events in same order, transformed where applicable
+  rpc Upcast(io.angzarr.v1.UpcastRequest) returns (io.angzarr.v1.UpcastResponse);
+}
