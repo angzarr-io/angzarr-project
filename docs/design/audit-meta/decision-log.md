@@ -4868,14 +4868,22 @@ descriptor at startup"). Cites 2.2 (no compensation channel) and 2.3 (no
   refusal reaching the PM records CompensationFailed for its step.
 - **Per language.** angzarr-embedded's markup (Rust) and client-python
   each offer the pairing and the helper; the handler-contract tier's
-  `compensation.feature` (C-0787 to C-0793) is bound by both, so they
+  `compensation.feature` (C-0787 to C-0793, C-0796) is bound by both, so they
   agree.
 - **Not in it.** Deadlines (ruling 7): a timeout stays an outside fact
   addressed to the PM.
-- **Open.** Ruling 6 also says the refused undo's input "is dead-lettered
-  and alerted". A handling either records events or is dead-lettered,
-  never both, so how one input does both waits on the owner; until then
-  the tooling records CompensationFailed, and C-0793 pins that half only.
+- **CompensationFailed is the alert.** Ruled by the owner, 2026-11-02
+  (decision 38, option (a)), settling ruling 6's "is dead-lettered and
+  alerted": a refused undo's refusal reaching the PM records
+  CompensationFailed on the PM's own stream, its handling succeeds, and
+  the refusal is not dead-lettered. A human learns of it by watching that
+  event, through a projector or subscriber. C-0793 pins the event,
+  C-0796 that the handling succeeds and nothing is dead-lettered.
+  - Why: a handling either commits events or is dead-lettered, never both.
+  - Cost: a refused undo does not show in the dead-letter queue; whoever
+    must hear of it watches CompensationFailed.
+  - Revisit: only for a kernel side record, an outbox-like alert table
+    that one handling could write beside its events. Not ruled.
 - Why: the rulings. Temporal's `Saga` and MassTransit's routing slips keep
   the same journal; here it is the PM's own events, so a rebuild replays
   it, and an undo that is a fact cannot loop.
