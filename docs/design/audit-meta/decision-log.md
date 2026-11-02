@@ -4747,6 +4747,32 @@ translation into commands and 14.42 (a policy's output checks); decision
   handler, which flags with an event; a non-starting fact for an absent
   process manager instance now reaches a human.
 
+**14.70 `PolicyReaction.commands` is `outputs`: the gate's one
+exception.** Ruled by the owner, 2026-11-02, on the escalation of 14.69's
+implementation: "One-off gate exception, full rename". Amends 14.54 (the
+gate) and 14.69 (which kept the name).
+- **The rename.** `PolicyReaction.commands` (2) is `outputs`, name and JSON
+  name; its number and its wire bytes are unchanged. It holds a reaction's
+  commands and facts alike (14.69), so it is named for both. No store keeps
+  a `PolicyReaction`: it is a policy's answer to its coordinator, never
+  stored ("no stored data exists", the owner).
+- **The exception.** `buf breaking` (14.54) refuses the JSON name's change.
+  `proto/breaking.exception` records exactly one exception: the commit that
+  renames the field, and buf's two findings for it (the field's name and
+  its `json_name`). `just proto-breaking` lets those two findings, and
+  nothing else, through while that commit is in what it checks and not yet
+  in its base; a further finding, or one of the two missing, fails it as
+  before. Once the commit is on the draft, everything forked after it has
+  it in its base, so nothing is excepted again.
+- **Not an allowlist.** The file names one commit, never a list: a later
+  exception is a decision of its own that replaces it, and the gate stays
+  strict for every other change.
+- Why: the ruling. The gate guards stored data, and none holds this field;
+  a name that says only "commands" misreads a reaction that carries facts.
+- Cost: JSON readers of a `PolicyReaction` (none stored, none outside the
+  framework's own runtimes) read `outputs`; every runtime and generator
+  renames its accessor.
+
 ## Corrections
 
 Facts the earlier passes or the design note got wrong:

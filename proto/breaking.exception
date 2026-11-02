@@ -1,0 +1,12 @@
+# The one exception to decision 14.54's `buf breaking` gate (decision 14.70,
+# owner ruling 2026-11-02: "One-off gate exception, full rename"). The commit
+# below renames PolicyReaction.commands to outputs, name and JSON name; no
+# stored data holds a PolicyReaction. While that commit is in what
+# `just proto-breaking` checks and not yet in its base, buf's findings must
+# be exactly the lines below (each without its file and line); everything
+# else stays strict, and once the commit is in the base nothing is excepted.
+# One commit, never a list: a later exception is a decision that replaces
+# this file's contents.
+commit c5a2ae3d23b76e5cf50effb336a994057613147b
+Field "2" with name "outputs" on message "PolicyReaction" changed option "json_name" from "commands" to "outputs".
+Field "2" on message "PolicyReaction" changed name from "commands" to "outputs".
