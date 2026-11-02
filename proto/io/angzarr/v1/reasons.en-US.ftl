@@ -36,6 +36,10 @@ HOST_REASON_UPCASTER_WITH_COMPONENT = component "{ $component }" is hosted besid
 HOST_REASON_NO_COMPONENTS_REGISTERED = no component is registered with the host: register one
 HOST_REASON_DESCRIPTOR_RULES_VERSION_MISMATCH = component "{ $component }" describes rules version "{ $described }" but answers as "{ $reported }": nothing was registered
 HOST_REASON_PROJECTOR_NO_INPUT_DOMAIN = projector "{ $component }" names no domain it reads: name one
+HOST_REASON_UPCASTER_UNKNOWN_DOMAIN = an upcaster is given for domain { $domain }, which no component here handles
+HOST_REASON_UPCASTER_OTHER_DOMAIN = the upcaster registered for domain { $domain } upcasts { $upcaster }'s payloads
+HOST_REASON_RESOLUTION_UNSUPPORTED = component { $component } is configured { $resolution }, which its state does not support
+HOST_REASON_REMOTE_SOURCE = { $component } reads the events of domain { $domain }, which a coordinator elsewhere handles: they are never written or read here
 
 ## CoordinatorReason: core's coordinator and the angzarr-embedded kernel.
 
@@ -84,3 +88,4 @@ COORDINATOR_REASON_UPCASTER_UNAVAILABLE = the upcaster sidecar of domain { $doma
 COORDINATOR_REASON_RULES_VERSION_MISMATCH = component "{ $component }" answered as rules version "{ $reported }", not "{ $registered }", the version it is registered at, for { $stream }: a bug in the component; nothing was kept
 COORDINATOR_REASON_EVENTS_NOT_ITS_STREAM = the handler of { $stream } answered events for { $event_stream }, another stream: a bug in the handler; nothing was kept
 COORDINATOR_REASON_EDITION_NOT_FORKED = { $stream } is not forked into edition "{ $edition }": fork it, or let a policy propagate into it, then send it again
+COORDINATOR_REASON_STATE_RESOLUTIONS_INVALID = component { $component }'s state lists a value that is not a conflict resolution, or lacks STRICT or AGGREGATE_HANDLES

@@ -270,6 +270,37 @@ enum HostReason {
     args: ["component"]
     status: REASON_STATUS_INTERNAL
   }];
+  // An upcaster given for `domain`, which no component of the host
+  // handles: there is nothing for it to upcast. Refused at registration,
+  // and nothing is registered (decision 14.65).
+  HOST_REASON_UPCASTER_UNKNOWN_DOMAIN = 12 [(reason) = {
+    args: ["domain"]
+    status: REASON_STATUS_INTERNAL
+  }];
+  // The upcaster registered for `domain` upcasts another domain's
+  // payloads (`upcaster`, the domain it names). Refused at registration,
+  // and nothing is registered (decision 14.65).
+  HOST_REASON_UPCASTER_OTHER_DOMAIN = 13 [(reason) = {
+    args: ["domain", "upcaster"]
+    status: REASON_STATUS_INTERNAL
+  }];
+  // Configuration naming a conflict resolution (`resolution`, its name)
+  // the component's state does not support: COMMUTATIVE for a state with
+  // no conflict units, or UNSPECIFIED; for one command (`command_type`, its
+  // full type name) or, with no `command_type`, the component's default.
+  // Refused at registration, and nothing is registered (decision 14.65).
+  HOST_REASON_RESOLUTION_UNSUPPORTED = 14 [(reason) = {
+    args: ["component", "resolution", "command_type"]
+    status: REASON_STATUS_INTERNAL
+  }];
+  // A policy or projector here (`component`) reading the events of
+  // `domain`, which a coordinator elsewhere handles: its events are never
+  // written or read here, so the component would never run. Refused at
+  // registration, and nothing is registered (decision 14.65).
+  HOST_REASON_REMOTE_SOURCE = 15 [(reason) = {
+    args: ["component", "domain"]
+    status: REASON_STATUS_INTERNAL
+  }];
 
   // Moved to io.angzarr.transport.embedded.v1 (decision 14.64), each
   // key's string unchanged: a key lives in the package whose code raises it.
@@ -630,6 +661,15 @@ enum CoordinatorReason {
   COORDINATOR_REASON_EDITION_NOT_FORKED = 39 [(reason) = {
     args: ["stream", "edition"]
     status: REASON_STATUS_FAILED_PRECONDITION
+  }];
+  // A component whose descriptor's state lists a value that is not a
+  // conflict resolution (UNSPECIFIED, or no value of ConflictResolution),
+  // or lacks the implicit base every state supports, STRICT and
+  // AGGREGATE_HANDLES (types.proto, StateOptions). Readiness, as every
+  // descriptor rule's (decision 14.65).
+  COORDINATOR_REASON_STATE_RESOLUTIONS_INVALID = 40 [(reason) = {
+    args: ["component"]
+    status: REASON_STATUS_READINESS
   }];
 
   // Moved to io.angzarr.transport.distributed.v1 (decision 14.64), each

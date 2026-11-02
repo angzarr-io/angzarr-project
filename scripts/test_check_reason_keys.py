@@ -139,11 +139,12 @@ class CheckReasonKeysTest(unittest.TestCase):
         self.assertProblem(d, "RouterReason: live keys are not numbered densely from 1")
 
     def test_a_moved_keys_reserved_number_fills_its_place(self) -> None:
-        # Core's HostReason: four live keys, then the seven moved numbers.
+        # The fixture's core HostReason: its eight live keys, then the
+        # seven moved numbers.
         e = _enum_of(_good(), "HostReason")
-        self.assertEqual(e["reservedRange"], [{"start": 5, "end": 11}])
+        self.assertEqual(e["reservedRange"], [{"start": 9, "end": 15}])
         d = _good()
-        _enum_of(d, "HostReason")["reservedRange"] = [{"start": 6, "end": 12}]
+        _enum_of(d, "HostReason")["reservedRange"] = [{"start": 10, "end": 16}]
         self.assertProblem(d, "HostReason: live keys are not numbered densely from 1")
 
     def test_an_enum_with_no_keys(self) -> None:
@@ -399,6 +400,20 @@ class CheckReasonKeysTest(unittest.TestCase):
                 d = _good()
                 _value(d, key)["options"][crk.REASON_OPTION]["args"] = ["stream"]
                 self.assertProblem(d, f"{key}: args are ['stream'], and a decision pins {args}")
+
+    def test_decision_14_65_keys_the_hosts_misconfigurations(self) -> None:
+        # One validator, the spec's keys (the owner's ruling on decision 21
+        # of the 2026-10-31 run): the gaps it found are keys of their own.
+        for key in (
+            "HOST_REASON_UPCASTER_UNKNOWN_DOMAIN",
+            "HOST_REASON_UPCASTER_OTHER_DOMAIN",
+            "HOST_REASON_RESOLUTION_UNSUPPORTED",
+            "HOST_REASON_REMOTE_SOURCE",
+        ):
+            with self.subTest(key=key):
+                self.assertIn(key, crk.PINNED)
+                self.assertIn(key, crk.HOST_KEYS[crk.CORE])
+        self.assertIn("COORDINATOR_REASON_STATE_RESOLUTIONS_INVALID", crk.PINNED)
 
     def test_an_arg_named_twice(self) -> None:
         d = _good()

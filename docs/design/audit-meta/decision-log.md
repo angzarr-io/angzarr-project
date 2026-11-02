@@ -4537,12 +4537,13 @@ protos into four packages". Restores 1.12, and amends 14.60's one catalog.
   changes meaning: core keeps its name, and no runtime ever set a stripped
   field.
 
-**14.65 A key declares its status, a key of one stream names it, and two
-keys are added.** Ruled by the owner, 2026-11-01, on the 2026-10-31 run's
+**14.65 A key declares its status, a key of one stream names it, and the
+keys a runtime lacked are added.** Ruled by the owner, 2026-11-01, on the 2026-10-31 run's
 decisions 11 ("add `stream` to the coordinator keys that concern a single
-stream"), 27 ("declare it on the option") and 26 (C-0590: "add a key and
+stream"), 27 ("declare it on the option"), 26 (C-0590: "add a key and
 refuse the answer as a handler bug"; C-0633: "add `EDITION_NOT_FORKED` and
-check it before the handler runs"). Amends 14.60.
+check it before the handler runs") and 21 ("unify on the spec keys").
+Amends 14.60.
 - **The status is on the option.** `ReasonOptions.status`, a
   `ReasonStatus` (core's reasons.proto), set on every live key of every
   package's reasons.proto; a value's number is its `google.rpc.Code`
@@ -4575,6 +4576,20 @@ check it before the handler runs"). Amends 14.60.
   edition is refused when it is loaded, before business code runs, by the
   store's Editions capability (C-0633, C-0654), where the scenarios named
   an unprefixed key reasons.proto did not hold.
+- **One misconfiguration validator, on the spec's keys** (the 2026-10-31
+  run's decision 21: "unify on the spec keys"). A runtime holds every
+  component it registers, in process or a child's descriptor alike, to one
+  set of rules, each refusal under a spec key: the descriptor rules'
+  `COORDINATOR_REASON_*` readiness keys, `ROUTER_REASON_DUPLICATE_COMPONENT`
+  for a name registered twice, and `HOST_REASON_PROJECTOR_NO_INPUT_DOMAIN`.
+  The gaps it found are keys: `HOST_REASON_UPCASTER_UNKNOWN_DOMAIN` (12;
+  `domain`), `HOST_REASON_UPCASTER_OTHER_DOMAIN` (13; `domain`,
+  `upcaster`), `HOST_REASON_RESOLUTION_UNSUPPORTED` (14; `component`,
+  `resolution`, `command_type`), `HOST_REASON_REMOTE_SOURCE` (15;
+  `component`, `domain`), each INTERNAL, a refusal to start; and
+  `COORDINATOR_REASON_STATE_RESOLUTIONS_INVALID` (40; `component`;
+  readiness), a state listing a value that is no resolution or lacking the
+  implicit base.
 - Why: the rulings. An operator lost the stream a kernel error named once
   its code became the spec's key (14.60), a status lived only in prose,
   and two scenarios named behaviour no key carried.
