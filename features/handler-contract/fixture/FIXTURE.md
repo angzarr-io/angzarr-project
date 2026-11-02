@@ -22,10 +22,10 @@ angzarr-router's own `conformance/`, which this replaces.
   translates `OrderPlaced` into `ReserveStock` for `inventory`.
 - [`compensation.proto`](compensation.proto): the shipment process
   manager of `compensation.feature` (14.74): its state (the journal, folded),
-  its two steps' completing and undoing events, ShipmentFailed and
-  CompensationFailed, and what the undos become, as their destinations
-  declare them: ReleaseStock and RefundPayment facts, RestockItems a
-  command. Bound by the client libraries' compensation tooling
+  its two steps' completing and undoing events, ShipmentFailed, and what
+  the undos become, as their destinations declare them: ReleaseStock and
+  RefundPayment facts, RestockItems a command (an undo targeting it is
+  refused at registration, 14.83). Bound by the client libraries' compensation tooling
   (angzarr-embedded's markup, client-python), not by a router.
 - [`txtpb/`](txtpb/): orthogonal envelopes the step definitions fill in.
 

@@ -97,11 +97,10 @@ option ruby_package = "Angzarr::Examples";
 // HoldReleaseDue, so the wallet releases the hold and the table is never
 // asked.
 //
-// A REFUSED UNDO. Both undos are facts, so neither can be refused; were
-// one a command, its refusal reaching the PM would record
-// CompensationFailed for its step, the alert a human watches (decision
-// 14.74, decision 38 (a)): the handling succeeds and nothing is
-// dead-lettered.
+// NO REFUSED UNDO. An undo's target must be a fact (decision 14.83, DRAFT;
+// the owner's ruling F4): both of the buy-in's are (ReleaseHold,
+// ReleaseSeat), so no undo can be refused, and a compensation whose undo
+// targeted a command would be refused at registration.
 //
 // In each refusal the refused command's id is the refusal fact's id: never
 // applied in the target's stream, recorded once in the buy-in stream, so a
@@ -342,18 +341,6 @@ message HoldReleaseDue {
   };
   bytes buy_in_id = 1;
   bytes player_root = 2; // The policy's target root (a policy never looks one up)
-}
-
-// A step's undo was refused (decision 14.74): the alert a human watches,
-// through a projector or a subscriber (decision 38 (a)); the handling that
-// records it succeeds, and nothing is dead-lettered. Triggers nothing.
-// Both of the buy-in's undos are facts, so none is refused today.
-message CompensationFailed {
-  option (io.angzarr.v1.event) = {
-    component: "io.angzarr.examples.v1.BuyInState"
-  };
-  bytes buy_in_id = 1;
-  string step = 2; // The step whose undo was refused, e.g. "hold funds"
 }
 
 // The BuyInProcessManager. Owns the "buy-in" stream and subscribes to

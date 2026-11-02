@@ -14,8 +14,9 @@ import "io/angzarr/v1/options.proto";
 //                    which its outbound policy turns into ReleaseStock;
 //   charge payment - completed by PaymentCharged, undone by RefundDue, which
 //                    its outbound policy turns into RefundPayment.
-// ShipmentFailed is its failed event; CompensationFailed records an undo
-// its destination refused.
+// ShipmentFailed is its failed event. An undo's target must be a fact
+// (decision 14.83, DRAFT): a registration whose undo targets a command is
+// refused, so no undo is ever refused.
 
 // --- the process manager's state and events ---
 
@@ -44,12 +45,6 @@ message StockReleaseDue {
 message RefundDue {
   string charge_id = 1;
 }
-// An undo its destination refused (a command, so refusable): the step it
-// undid, by name.
-message CompensationFailed {
-  string step = 1;
-}
-
 // --- what the undos become, as their destinations declare them ---
 
 // The inventory's: a fact, so an undo to it can never be refused.
@@ -61,7 +56,8 @@ message ReleaseStock {
   string reservation_id = 1;
 }
 
-// The inventory's: a command, so an undo to it may be refused.
+// The inventory's: a command, so a compensation whose undo targets it is
+// refused at registration (decision 14.83).
 message RestockItems {
   option (io.angzarr.v1.command) = {
     component: "test.compensation.InventoryState"
