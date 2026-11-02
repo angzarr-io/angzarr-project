@@ -44,12 +44,12 @@ option ruby_package = "Angzarr::Handler";
 // every payload is in its current shape (upcast, decision 14.39).
 message DecideRequest {
   // The command as the coordinator holds it: its cover (the stream), its
-  // page (command_id, correlation_id, and causation_id for a policy's
-  // command) and its Handling, resolved: expected_sequence provided or
+  // page (command_id, correlation_id) and its Handling
+  // (page.command.handling), resolved: expected_sequence provided or
   // stamped, conflict_resolution never UNSPECIFIED. The page's body is
   // the Command arm.
   //
-  // The window boundary is handling.expected_sequence (E). Under
+  // The window boundary is page.command.handling.expected_sequence (E). Under
   // AGGREGATE_HANDLES and COMMUTATIVE the pages of history with sequences
   // E .. history.next_sequence-1 are the conflict window, always delivered
   // as pages: history.snapshot, when present, has sequence <= E-1 (and
@@ -65,6 +65,9 @@ message DecideRequest {
   // When the input was accepted: stamped by the runtime that accepted it
   // before the handler runs, never by the caller (decision 14.37).
   google.protobuf.Timestamp recorded_at = 3;
+  // A policy's command only: its trigger (ReactionDelivery.causation;
+  // decision 14.79). Unset for a client's command.
+  io.angzarr.v1.EventRef causation = 4;
 }
 
 // What Decide answers: exactly one result, and the rules version that
@@ -173,14 +176,18 @@ message ConflictReport {
 // coordinator always stamps the head, and no conflict resolution applies.
 message IngestRequest {
   // The fact as the coordinator holds it: its cover, its page (command_id,
-  // correlation_id, fact_origin, and causation_id for a policy's fact or a
-  // refusal fact). The page's body is the Fact arm.
+  // correlation_id) and its Fact (payload, origin). A policy's fact or a
+  // refusal fact arrives as a ReactionDelivery, which the coordinator
+  // turns into this book with its derived origin.
   io.angzarr.v1.CommandBook fact = 1;
   // The stream as loaded, as for Decide; next_sequence is the stamped
   // head.
   io.angzarr.v1.EventBook history = 2;
   // When the input was accepted, as for Decide.
   google.protobuf.Timestamp recorded_at = 3;
+  // A policy's fact or a refusal fact only: its trigger
+  // (ReactionDelivery.causation; decision 14.79).
+  io.angzarr.v1.EventRef causation = 4;
 }
 
 // What Ingest answers. A fact is never refused, so there is no refusal and

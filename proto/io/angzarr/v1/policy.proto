@@ -52,15 +52,15 @@ option ruby_package = "Angzarr";
 // one alike: the destination domain (PolicyDescriptor.output_domain), the
 // trigger's edition, the derived command_id (commands and facts counted in
 // one index space), the trigger's correlation_id,
-// CommandPage.causation_id (the event being reacted to), and on a fact
-// its fact_origin, whose external_id is that command_id's canonical text
-// and whose description names the type and the policy (types.proto, the
-// command_identity region). So a type its destination turns from a command
+// the causation (the event being reacted to), and the policy's name, as a
+// ReactionDelivery (types.proto; decision 14.79); a fact's origin is
+// derived from them at the destination, external_id the command_id's
+// canonical text and description naming the type and the policy. So a type its destination turns from a command
 // into a fact keeps its id, and a re-run across the change is answered
 // DUPLICATE. It carries no Handling (see Handling): the destination always
-// stamps its head before business code, conflict resolution never applies,
-// and delivery mode (which coordinator RPC delivers it) comes from the
-// policy's configuration.
+// stamps its head before business code, and conflict resolution never
+// applies. It is delivered through the one framework-only RPC, Deliver
+// (decision 14.79).
 //   - A fact is never refused. One whose handler fails at its destination,
 //     or whose business process answers it with an error (decision 14.72),
 //     is dead-lettered and alerted there and its sender answered OK, PARKED
@@ -117,10 +117,10 @@ option ruby_package = "Angzarr";
 //   - The coordinator addresses and stamps the fact (decision 14.42). The
 //     fact's identity is the REFUSED COMMAND'S: its command_id is the
 //     refused command's command_id (no prefix, no derivation), and the
-//     coordinator stamps causation_id (the refused command's, the
-//     triggering event), the trigger's correlation_id, and
-//     fact_origin.external_id = that command_id's canonical text, and
-//     addresses it to the exact stream the trigger names (domain, root and
+//     coordinator stamps the causation (the refused command's, the
+//     triggering event) and the trigger's correlation_id, and addresses it
+//     as a ReactionDelivery (its origin's external_id, derived at the
+//     source, that command_id's canonical text) to the exact stream the trigger names (domain, root and
 //     edition). One id therefore appears in two streams by design: never
 //     applied in the foreign (target) stream, which recorded nothing, and
 //     recorded as the refusal fact in the domestic (source) stream. The

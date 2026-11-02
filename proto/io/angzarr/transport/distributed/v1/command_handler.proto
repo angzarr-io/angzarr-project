@@ -85,25 +85,33 @@ service CommandHandlerCoordinatorService {
       body: "*"
     };
   }
+  // A policy's output or refusal fact (decision 14.79, DRAFT; owner ruling
+  // Q4 on decision 46). Framework components only (the entry_points region
+  // below): a client is refused PERMISSION_DENIED. Answers as Handle
+  // (DECISION): the persisted events and the outcome, or the rejection's
+  // status, which the policy's coordinator hands to Translate. No HTTP
+  // route: it is not a client entry point.
+  rpc Deliver(io.angzarr.v1.ReactionDelivery) returns (CommandResponse);
 }
 
 // region entry_points
-// Framework components and clients use the SAME RPCs. What differs is what
-// a caller may send, decided by who the caller is, never by the message.
+// Clients use Handle, HandleAsync and HandleSync; framework components use
+// them too, and alone use Deliver (decision 14.79, DRAFT).
 //
 // A framework component (a policy coordinator delivering reaction
 // commands and refusal facts, the outbox dispatcher, the DLQ replayer, a
 // coordinator delivering triggers) authenticates with its mTLS identity,
-// issued to framework components only. Only such a caller may send:
-//   - CommandPage.causation_id (with the derived command_id of a reaction
-//     command, or the refused command's id on a refusal fact; the
+// issued to framework components only. Only such a caller may call:
+//   - Deliver, with a ReactionDelivery (its derived command_id, or the
+//     refused command's id on a refusal fact, and its causation; the
 //     receiving coordinator trusts them from this caller);
-//   - a caller-supplied trigger EventBook to PolicyCoordinatorService.ExecuteStamped
-//     (whose stamping copies the trigger's correlation and EventRef onto
-//     the policy's commands and refusal facts).
-// Any other caller is a client. A client that sends a causation_id is
-// refused PERMISSION_DENIED, as is a client call to a trigger entry point:
-// the request is well formed, but the caller is not allowed to make it
+//   - PolicyCoordinatorService.ExecuteStamped, with a caller-supplied
+//     trigger EventBook (whose stamping copies the trigger's correlation
+//     and EventRef onto the policy's commands and refusal facts).
+// Any other caller is a client. A client's CommandBook has no field for a
+// causation (decision 14.79). A client call to Deliver or to a trigger
+// entry point is refused PERMISSION_DENIED: the request is well formed,
+// but the caller is not allowed to make it
 // (INVALID_ARGUMENT would wrongly tell the caller to fix the message).
 // Deployments may still expose the trigger routes over HTTP; the gateway
 // forwards the caller's identity, so a client reaching them is refused the

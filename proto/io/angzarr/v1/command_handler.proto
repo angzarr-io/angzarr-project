@@ -172,9 +172,12 @@ option ruby_package = "Angzarr";
 // ABORTED is dead-lettered under that key, its args the sequences, since
 // resending it verbatim cannot succeed.
 //
-// Reaction commands and refusal facts (policy output) are delivered by
-// framework components through these same RPCs; the delivering component's
-// configuration chooses the mode, never the message.
+// Reaction commands and refusal facts (policy output) are not delivered
+// through these RPCs: a policy's coordinator delivers each as a
+// ReactionDelivery through the framework-only Deliver (the distributed
+// transport's) or in process (decision 14.79, DRAFT). Deliver answers as
+// Handle does (DECISION): the policy needs the decision, a refusal
+// included, to Translate it.
 //
 // A process manager is a domain (decision 14.31): its coordinator serves
 // these RPCs for the PM's own domain, and its business process implements

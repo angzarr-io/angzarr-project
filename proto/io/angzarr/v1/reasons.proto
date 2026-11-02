@@ -404,7 +404,7 @@ enum CoordinatorReason {
     status: REASON_STATUS_READINESS
   }];
   // STRICT only. The command, under STRICT, set
-  // CommandBook.handling.expected_sequence (`expected`) behind the stream's
+  // Command.handling.expected_sequence (`expected`) behind the stream's
   // head, its next_sequence (`actual`): found when the command is loaded
   // (before business code runs), or at its write, when another write to the
   // same stream landed first. Nothing is persisted. Under AGGREGATE_HANDLES
@@ -446,7 +446,7 @@ enum CoordinatorReason {
     status: REASON_STATUS_INTERNAL
   }];
   // Every resolution (STRICT, AGGREGATE_HANDLES, COMMUTATIVE). The command set
-  // CommandBook.handling.expected_sequence (`expected`) ahead of the stream's
+  // Command.handling.expected_sequence (`expected`) ahead of the stream's
   // head, its next_sequence (`head`): it names a sequence the stream has not
   // reached, so it was decided against no state the stream ever held, and no
   // resolution can apply (there is no window to deliver). Malformed input,
@@ -465,18 +465,6 @@ enum CoordinatorReason {
     args: ["stream", "expected", "head"]
     status: REASON_STATUS_INVALID_ARGUMENT
   }];
-  // A reaction command (a CommandBook with a causation_id, from a framework
-  // caller) that reaches its destination carrying Handling (an
-  // expected_sequence or a conflict_resolution), which a reaction command
-  // never may (types.proto, Handling): refused there before business code
-  // and dead-lettered as a reactor bug, with this key as its
-  // AngzarrDeadLetter.reason. Never delivered. A policy's own answer cannot
-  // carry Handling (io.angzarr.handler.v1.Output), so its coordinator never
-  // raises it. (Decision 14.48, amended; 14.78.)
-  COORDINATOR_REASON_POLICY_COMMAND_WITH_HANDLING = 23 [(reason) = {
-    args: ["domain", "command_type"]
-    status: REASON_STATUS_INTERNAL
-  }];
   // The rows of a deleted edition in one stream could not be removed
   // (transport/distributed/v1/meta.proto, DeleteEdition): the removal is
   // dead-lettered (the stream and its meta.EditionDeleted as
@@ -486,17 +474,6 @@ enum CoordinatorReason {
   // (Decision 14.48, amended.)
   COORDINATOR_REASON_EDITION_REMOVAL_FAILED = 24 [(reason) = {
     args: ["stream", "edition", "attempts", "cause"]
-    status: REASON_STATUS_INTERNAL
-  }];
-  // A reaction command (a Command arm with a causation_id, from a framework
-  // caller) that reaches its destination carrying a fact_origin, which a
-  // command never may (types.proto, the command_identity region): refused
-  // there before business code and dead-lettered as a reactor bug, with
-  // this key as its AngzarrDeadLetter.reason, and alerted. Never delivered.
-  // A policy's own answer cannot carry one (io.angzarr.handler.v1.Output),
-  // so its coordinator never raises it. (Decision 14.48, amended; 14.78.)
-  COORDINATOR_REASON_POLICY_COMMAND_FACT_ORIGIN = 27 [(reason) = {
-    args: ["domain", "command_type"]
     status: REASON_STATUS_INTERNAL
   }];
   // A reaction command (a policy's) addressed to a domain its coordinator
@@ -705,6 +682,15 @@ enum CoordinatorReason {
     "COORDINATOR_REASON_OUTPUT_DOMAIN_ON_NON_POLICY",
     "COORDINATOR_REASON_POLICY_COMMAND_OTHER_IDENTITY",
     "COORDINATOR_REASON_EVENTS_NOT_ITS_STREAM";
+
+  // Retired by 14.79 (decision 46, Q4, DRAFT): a reaction is a
+  // ReactionDelivery, and a Fact has no Handling and a Command no origin,
+  // so neither can be said: POLICY_COMMAND_WITH_HANDLING,
+  // POLICY_COMMAND_FACT_ORIGIN.
+  reserved 23, 27;
+  reserved
+    "COORDINATOR_REASON_POLICY_COMMAND_WITH_HANDLING",
+    "COORDINATOR_REASON_POLICY_COMMAND_FACT_ORIGIN";
 
   // Retired by 14.37.
   reserved

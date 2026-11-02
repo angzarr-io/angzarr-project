@@ -159,10 +159,9 @@ message UUID {
 // region cover
 // Stream identity, and nothing else: one stream is (domain, edition, root).
 // Everything that varies per write or per page (command id, correlation,
-// causation, fact source) lives on the page and its meta (CommandPage,
-// EventMeta), and how a command
-// is handled (expected sequence, conflict resolution) lives on
-// CommandBook.handling;
+// causation, fact source) lives on the page, the delivery and the meta
+// (CommandPage, ReactionDelivery, EventMeta), and how a command is handled
+// (expected sequence, conflict resolution) lives on Command.handling;
 // never on the Cover. Parent/child relationships between aggregates are
 // carried in domain event payloads, not in the Cover.
 message Cover {
@@ -454,7 +453,7 @@ message EventPage {
 // region event_ref
 // Identifies one event: the page at `sequence` in the stream `stream`. This
 // is an event's identity — no separate event id is minted — and is how a
-// reaction names the event it reacted to (CommandPage.causation_id).
+// reaction names the event it reacted to (ReactionDelivery.causation).
 message EventRef {
   Cover stream = 1; // The stream holding the event (domain, edition, root)
   uint64 sequence = 2; // The event's EventPage.sequence within that stream
@@ -464,12 +463,13 @@ message EventRef {
 // region command_identity
 // Why a command exists, and how it is deduplicated. Every command carries
 // one command_id; reaction commands also carry the triggering event
-// (causation_id); facts carry their source (fact_origin). All of it rides
-// the CommandPage. This follows the established message-metadata
+// (causation); facts carry their source (Fact.origin). A client's command
+// rides a CommandPage; a policy's, a ReactionDelivery (decision 14.79,
+// DRAFT). This follows the established message-metadata
 // convention (KurrentDB's $correlationId / $causationId, NServiceBus,
 // Marten and Wolverine): one message id, a correlation id, and a causation
 // id naming the message's DIRECT cause. A command's direct cause is its
-// trigger (causation_id); an event's direct cause is the command (or fact)
+// trigger (its causation); an event's direct cause is the command (or fact)
 // that produced it (EventMeta.causation). Every event has one: a process
 // manager's events too, since its only input is facts (decision 14.31).
 // Each event records only its own direct cause, never its command's
@@ -489,11 +489,12 @@ message EventRef {
 //                   in the reaction's output, commands and facts in one
 //                   index space); the exact name encoding and worked values
 //                   are in the derived_ids region. Stamped by the reactor's
-//                   coordinator, never by the reactor, which on a Fact also
-//                   stamps fact_origin: external_id that id's canonical
-//                   text, description naming the type and the policy.
+//                   coordinator, never by the reactor. Its fact's origin is
+//                   not sent: the destination derives it (external_id that
+//                   id's canonical text, description naming the type and
+//                   ReactionDelivery.component).
 //   Fact            from outside: derived, UUIDv5(ANGZARR_FACT_CORRELATION_NAMESPACE,
-//                   fact_origin.external_id) (derived_ids region). A sender
+//                   Fact.origin.external_id) (derived_ids region). A sender
 //                   may set it only to that value (an SDK may compute it);
 //                   any other value is malformed.
 // Every event the command produces records it as its causation
@@ -524,13 +525,13 @@ message EventRef {
 // only (covers carry none); Query.correlation_id, CorrelationQuery and
 // EventStreamFilter select by it.
 //
-// causation_id: the command message's own causation, as the standard
-// defines it: the EventRef of the event a policy reacted to, always the
-// triggering event (a process manager emits nothing but its own events,
-// so it stamps no causation_id; decision 14.31). Set by a policy's
+// causation (ReactionDelivery.causation): the command message's own
+// causation, as the standard defines it: the EventRef of the event a policy
+// reacted to, always the triggering event (a process manager emits nothing
+// but its own events, so it stamps none; decision 14.31). Set by a policy's
 // coordinator only: on reaction commands and facts, where it is the input
 // the reaction command_id is derived from, and on refusal facts, where it is
-// the refused command's own causation_id, so it names the very stream the
+// the refused command's own causation, so it names the very stream the
 // fact is addressed to (PolicyService in policy.proto, Refusals).
 // It is transport and trace metadata, NOT persisted on the events the
 // command produces: their causation is the command itself
@@ -541,26 +542,23 @@ message EventRef {
 // what the store still answers). Set by the runtime that delivers a
 // policy's output: core's coordinator, or the angzarr-embedded kernel,
 // whose checks read it (a refusal fact's address, a reaction's derived
-// id) in process. Over the distributed transport it is accepted only from
-// a caller authenticated as a framework component
+// id) in process. Over the distributed transport only the framework-only
+// Deliver RPC takes a ReactionDelivery
 // (transport/distributed/v1/command_handler.proto, the entry_points
-// region); a client caller that sets it there is refused
-// PERMISSION_DENIED.
+// region); a client's CommandBook has no field for it (decision 14.79).
 //
-// fact_origin: where a Fact came from (FactOrigin, below), kept for audit
-// and copied onto every event the fact produces (EventMeta.fact).
+// origin (Fact.origin): where a Fact came from (FactOrigin, below), kept
+// for audit and copied onto every event the fact produces (EventMeta.fact).
+// Only the Fact arm has one, so a Command cannot carry one.
 //
 // Validation (refused before deduplication; see Handling for the full list):
-//   Fact      requires fact_origin with a non-empty external_id; never
-//             any Handling field; a set command_id must equal the
-//             derivation; never causation_id. A policy's output is the
-//             exception (decision 14.69): a Fact with a causation_id,
-//             accepted only from the runtime that delivers a policy's
-//             output (a framework component, over the distributed
-//             transport), its command_id taken as stamped, not re-derived,
-//             and its fact_origin.external_id that command_id's canonical
-//             text. It is one of two kinds, told apart by payload alone,
-//             with no marker:
+//   Fact      requires origin with a non-empty external_id; a set
+//             command_id must equal the derivation. A policy's output is
+//             the exception (decision 14.69): a fact delivered as a
+//             ReactionDelivery, its command_id taken as stamped, not
+//             re-derived, and its origin's external_id that command_id's
+//             canonical text. It is one of two kinds, told apart by
+//             payload alone, with no marker:
 //               - a policy's fact for its destination (14.69): its
 //                 command_id the reaction command id, accepted by the
 //                 stream it is addressed to;
@@ -572,7 +570,6 @@ message EventRef {
 //                 id is thus in two streams by design: never applied in
 //                 the refusing (target) stream, and recorded as the
 //                 refusal in the source stream.
-//   Command   never fact_origin.
 // A client's malformed command is answered INVALID_ARGUMENT; a reaction
 // command has no caller to answer, so it is dead-lettered and alerted as a
 // reactor bug.
@@ -647,7 +644,7 @@ message EventRef {
 
 // Where a fact came from: something that already happened outside the
 // system (a webhook, an integration). Carried on the CommandPage of a Fact
-// (fact_origin) and copied onto every event the fact produces
+// (Fact.origin) and copied onto every event the fact produces
 // (EventMeta.fact). See Fact.
 message FactOrigin {
   // The external system's id for this fact (e.g. "pi_1234" from Stripe).
@@ -771,7 +768,7 @@ message Diagnostic {
 // set iff the producing command was a Fact.
 // rules_version is always recorded from the business logic's report
 // (empty only if the business logic reports none). A reaction command's
-// causation_id (its trigger) is NOT recorded: an event names its own
+// causation (its trigger) is NOT recorded: an event names its own
 // cause, not its cause's cause (decision 13.3; the trigger edge is in
 // traces).
 //
@@ -797,7 +794,7 @@ message EventMeta {
     // on the stream.
     UUID command_id = 17;
   }
-  // The producing Fact's source: the command's fact_origin, copied. Unset
+  // The producing Fact's source: its Fact.origin, copied. Unset
   // for Commands.
   FactOrigin fact = 16;
   // The producing command's correlation (see the command_identity
@@ -1011,16 +1008,13 @@ message Projection {
 //   - a field that configuration forbids overriding for the command type or
 //     component;
 //   - a conflict_resolution the component's state does not support;
-//   - any Handling field on a Fact (see below);
-//   - any Handling field on a reaction command (see below);
-//   - a policy's command with no cover root, whatever its target (INTERNAL,
+//   - a policy's output with no root, whatever its target (INTERNAL,
 //     google.rpc.ErrorInfo reason COORDINATOR_REASON_POLICY_COMMAND_NO_ROOT, metadata domain
-//     and command_type; decision 14.36, as amended);
-//   - a Fact without fact_origin, or with an empty external_id, or with a
-//     command_id other than its derivation (a policy's output excepted: a
-//     policy's fact's command_id is its reaction id, a refusal fact's the
-//     refused command's; decision 14.69); a Command with fact_origin
-//     (see the command_identity region);
+//     and command_type; decision 14.36, as amended), refused by the
+//     policy's coordinator;
+//   - a client's Fact without origin, or with an empty external_id, or
+//     with a command_id other than its derivation (see the
+//     command_identity region);
 //   - a set UUID that is not 16 bytes, or a set empty Cover.edition.
 // One more is malformed but needs the head, so it is refused at step 4,
 // after deduplication and still before business code: an
@@ -1028,26 +1022,21 @@ message Projection {
 // (INVALID_ARGUMENT, COORDINATOR_REASON_EXPECTED_SEQUENCE_AHEAD, args
 // expected and head; see ConflictResolution; decision 14.47).
 // A client's malformed command is answered INVALID_ARGUMENT, by every
-// coordinator RPC (HandleAsync included: it validates before enqueueing).
-// causation_id from a caller not authenticated as a framework component is
-// refused PERMISSION_DENIED, and an unknown edition (no fork event of it
-// exists: never created, or deleted) NOT_FOUND (see the
-// entry_points region in transport/distributed/v1/command_handler.proto). A reaction command has no
-// caller to answer, so it is dead-lettered as a reactor bug (and alerted),
-// never delivered; one that carries Handling, with reason
-// COORDINATOR_REASON_POLICY_COMMAND_WITH_HANDLING, and one that carries
-// fact_origin, with reason COORDINATOR_REASON_POLICY_COMMAND_FACT_ORIGIN.
+// coordinator RPC (HandleAsync included: it validates before enqueueing),
+// and an unknown edition (no fork event of it exists: never created, or
+// deleted) NOT_FOUND (see the entry_points region in
+// transport/distributed/v1/command_handler.proto). A reaction has no
+// caller to answer, so a malformed one is dead-lettered as a reactor bug
+// (and alerted), never delivered.
 //
-// Reaction commands and facts (emitted by policies; a process manager emits
-// none) carry NO Handling at all: expected_sequence and conflict_resolution are both
-// forbidden. A reactor never knows the destination's state, so the
-// destination always stamps expected_sequence, and with a stamped sequence
-// conflict resolution can never apply. How a reaction command is delivered
-// comes from the emitting component's configuration.
-//
-// Facts (CommandPage.body = Fact) cannot be refused, so no sequence check
-// or conflict resolution applies: a Fact that sets any Handling field is
-// malformed and refused as above. The coordinator always stamps a Fact.
+// Handling is the Command arm's alone (Command.handling; decision 14.79,
+// DRAFT): a Fact has no field for it, and neither has a ReactionDelivery.
+// A reactor never knows the destination's state, so the destination always
+// stamps a reaction's expected_sequence, and with a stamped sequence
+// conflict resolution can never apply. A reaction is delivered by the one
+// framework-only RPC, Deliver. Facts cannot be refused, so no sequence
+// check or conflict resolution applies: the coordinator always stamps a
+// Fact.
 //
 // A process manager is a domain (decision 14.31): Handling applies to the
 // commands addressed to it exactly as to an aggregate's.
@@ -1096,12 +1085,10 @@ message Handling {
 // endregion
 
 // region command_page
-// The one command of a CommandBook: its identity and provenance
-// (command_id, correlation_id, causation_id, fact_origin; see the
-// command_identity region) and a body
-// that is either a decision-requesting Command or an already-happened Fact.
-// How the command is handled is not part of the page (see
-// CommandBook.handling).
+// The one command of a CommandBook: its identity (command_id,
+// correlation_id; see the command_identity region) and a body that is
+// either a decision-requesting Command, with how it is to be handled, or an
+// already-happened Fact, with where it came from (decision 14.79, DRAFT).
 //
 // Reflective dispatch. The framework picks the pipeline from which body arm
 // is set (the arm's message type): a Command goes through decide (fallible:
@@ -1124,49 +1111,41 @@ message Handling {
 // registered handler's kind. There is no proto flag for facts. A process
 // manager's stream takes both arms, like any domain's (decision 14.31).
 //
-// The arm says what kind of payload this is; fact_origin says where a fact
-// came from. They must agree: a Fact requires fact_origin, and a Command
-// never has one. A policy emits what its destination declares (decision
-// 14.69): a Command for a declared command type, a Fact for a declared
-// fact type, each with a causation_id, the arm chosen by its generated
-// code from the destination's (command).fact; one the destination does not
-// declare is refused by its router, as above. A policy also delivers the
-// refusal fact of a refused command (the domestic fact its callback
-// translates the refusal into; the one refusal path, decision 46 #5), to
-// the exact stream of its trigger (decision 14.31, amending 2.2;
-// PolicyService in policy.proto, Refusals).
+// A client's command or fact rides a CommandPage; a policy's output and a
+// refusal fact ride a ReactionDelivery (below), whose fact flag is the arm
+// and whose causation is the trigger. A policy emits what its destination
+// declares (decision 14.69): a command for a declared command type, a fact
+// for a declared fact type, the arm chosen by its generated code from the
+// destination's (command).fact; one the destination does not declare is
+// refused by its router, as above. A policy also delivers the refusal fact
+// of a refused command (the domestic fact its callback translates the
+// refusal into; the one refusal path, decision 46 #5), to the exact stream
+// of its trigger (decision 14.31, amending 2.2; PolicyService in
+// policy.proto, Refusals).
 message CommandPage {
   oneof body {
     Command command = 3; // Asks the aggregate to decide; may be rejected
     Fact fact = 4; // Records something that already happened; never rejected
   }
   // The command's id: client-supplied or minted (client Command), derived
-  // (reaction command, Fact). Unset on arrival from a client means "mint
-  // one". Recorded on every event it produces as their causation
+  // (Fact). Unset on arrival from a client means "mint one". Recorded on
+  // every event it produces as their causation
   // (EventMeta.causation.command_id), and the deduplication key there.
   UUID command_id = 8;
   // The workflow correlation; set by the coordinator when absent. Copied
   // onto every event (EventMeta.correlation_id).
   UUID correlation_id = 9;
-  // A policy's output only (its commands and facts, and refusal facts):
-  // the input's own causation, its triggering event. Core, not transport:
-  // the runtime that delivers a policy's output sets it (core's
-  // coordinator, or the angzarr-embedded kernel, whose own checks read it),
-  // and over the distributed transport it is accepted only from
-  // framework-authenticated callers. The reaction command_id is derived
-  // from it, and a refusal fact's coordinator addresses it to the exact
-  // stream it names (domain, root and edition). NOT persisted on the events the
-  // command produces (their causation is this command; see the
-  // command_identity region).
-  EventRef causation_id = 10;
-  // Facts only, and required there: where the fact came from. Copied onto
-  // every event (EventMeta.fact).
-  FactOrigin fact_origin = 11;
+  // Field 10 was causation_id, which only a framework caller could set (a
+  // client's was refused PERMISSION_DENIED): a reaction's causation is
+  // ReactionDelivery.causation. Field 11 was fact_origin, beside the Fact
+  // arm it belonged to: Fact.origin. Both retired by decision 14.79.
+  reserved 10, 11;
+  reserved "causation_id", "fact_origin";
 }
 
 // A command proper: a request for the aggregate to decide. decide may emit
-// events or reject it. Never carries a fact_origin. A rejected command
-// writes nothing, so the same command_id may be retried.
+// events or reject it. A rejected command writes nothing, so the same
+// command_id may be retried.
 //
 // Commands may be upcast: the coordinator runs the payload through the
 // same upcaster chain as for events, by type URL, in the component's
@@ -1174,6 +1153,10 @@ message CommandPage {
 // which also explains why that is discouraged).
 message Command {
   google.protobuf.Any payload = 1; // The domain command; its type URL picks the handler
+  // How the system treats this command: as sent before the coordinator,
+  // resolved after it (see Handling). Never persisted. Was
+  // CommandBook.handling (decision 14.79).
+  Handling handling = 2;
 }
 
 // A fact: something that already happened outside the system (a webhook,
@@ -1190,7 +1173,7 @@ message Command {
 // rejection: the fact is dead-lettered and alerted, and the sender is
 // answered "accepted, parked" (OK, Outcome.delivery PARKED, no events),
 // never a rejection. The framework deduplicates on the command_id derived
-// from CommandPage.fact_origin.external_id, per addressed stream, before
+// from origin.external_id, per addressed stream, before
 // the handler runs; a parked fact wrote nothing, so its redelivery runs
 // ingest again. A fact that loses a race at its write to another write to
 // the same stream is re-run on the new head under the race re-run cap, and
@@ -1199,18 +1182,19 @@ message Command {
 // PARKED; decision 14.46).
 //
 // A Fact is never checked against a sequence and never conflict-resolved:
-// the coordinator always stamps the head. A book whose Fact sets any
-// Handling field is malformed and refused loudly (INVALID_ARGUMENT), before
-// deduplication or ingest; it is never silently stamped over (see
-// Handling).
+// the coordinator always stamps the head. It has no Handling to set.
 message Fact {
   google.protobuf.Any payload = 1; // The fact; its type URL picks the ingest handler
+  // Where the fact came from, required: copied onto every event
+  // (EventMeta.fact). Was CommandPage.fact_origin (decision 14.79). For a
+  // policy's fact the destination derives it (ReactionDelivery).
+  FactOrigin origin = 2;
 }
 // endregion
 
 // region command_book
-// Exactly one command addressed to one stream, with how it is to be
-// handled (decision 1.4). A CommandBook carries exactly one command, its
+// Exactly one client command or fact addressed to one stream (decision
+// 1.4). A policy's output is a ReactionDelivery instead (decision 14.79). A CommandBook carries exactly one command, its
 // page. More than one is unsupported: deduplication, the expected-sequence
 // check, errors and the outcome are all per command. A caller with
 // several commands sends several CommandBooks (a client library may batch
@@ -1221,9 +1205,47 @@ message Fact {
 message CommandBook {
   Cover cover = 1; // The target stream (domain, edition, root)
   CommandPage page = 3; // The one command
-  // How the system treats this command: as sent before the coordinator,
-  // resolved after it (see Handling). Never persisted.
-  Handling handling = 6;
+  // Field 6 was handling, retired by decision 14.79: it is the Command
+  // arm's (Command.handling), so a Fact cannot carry one.
+  reserved 6;
+  reserved "handling";
+}
+// endregion
+
+// region reaction_delivery
+// One output of a policy, or a refusal fact, as its coordinator delivers it
+// to the destination's coordinator (decision 14.79, DRAFT; owner ruling Q4
+// on decision 46). Built only by a policy's coordinator, from the policy's
+// answer (io.angzarr.handler.v1.Output, TranslateResponse) and its trigger,
+// and taken only by the framework-only Deliver RPC (the angzarr-embedded
+// kernel passes it in process). A client cannot send one.
+//
+// It carries no Handling: the destination stamps its head before business
+// code, and conflict resolution never applies. It carries no fact origin:
+// the destination derives a fact's, external_id the command_id's canonical
+// text and description naming the payload's type and `component`.
+message ReactionDelivery {
+  // The destination stream: the policy's output_domain and the output's
+  // root in the trigger's edition; for a refusal fact, the trigger's own
+  // stream.
+  Cover cover = 1;
+  // The command or fact, as the policy answered it.
+  google.protobuf.Any payload = 2;
+  // Whether payload is a fact of the destination (Output.fact); a refusal
+  // fact always is.
+  bool fact = 3;
+  // Derived from (trigger, policy, index) for an output (the derived_ids
+  // region); the refused command's for a refusal fact.
+  UUID command_id = 4;
+  // The trigger's.
+  UUID correlation_id = 5;
+  // The trigger: the event the policy reacted to. The reaction command_id
+  // is derived from it. NOT persisted on the events the delivery produces
+  // (their causation is the command; see the command_identity region).
+  EventRef causation = 6;
+  // The policy's registered component name: the fact origin's
+  // description, and the reacting component of the derived id.
+  string component = 7;
 }
 // endregion
 
@@ -1298,13 +1320,14 @@ enum DeliveryOutcome {
 //
 // Replay (see transport/distributed/v1/dlq_admin.proto). An entry is immutable once written; replays
 // of it are recorded beside it in the admin store (StoredDeadLetter.replays).
-// A replay keeps the original command_id, correlation_id and causation_id:
+// A replay keeps the original command_id, correlation_id and causation:
 // it is a redelivery of the same message, never a new command, so
 // deduplication answers it DUPLICATE if the original did apply after all.
 // Replays are delivered by a framework component (the DLQ replayer, mTLS
-// identity), so a reaction command keeps its causation_id.
+// identity), so a reaction keeps its causation.
 //   rejected_command  re-sent to the coordinator as an asynchronous command
 //                     (HandleAsync), carrying its original ids.
+//   rejected_reaction re-delivered through Deliver, as it was delivered.
 //   rejected_events   re-delivered to the one component that failed
 //                     (source_component), never re-published to every
 //                     subscriber.
@@ -1319,8 +1342,8 @@ enum DeliveryOutcome {
 // bare.
 //
 // The stream concerned is the payload's own cover (rejected_command.cover,
-// rejected_events.cover or failed_edition_removal.cover); the entry does not
-// repeat it.
+// rejected_reaction.cover, rejected_events.cover or
+// failed_edition_removal.cover); the entry does not repeat it.
 //
 // A dead letter is its payload, its reason and, for a typed refusal, the
 // refusal object (decision 14.78, from the owner's ruling #4). Everything
@@ -1331,14 +1354,19 @@ enum DeliveryOutcome {
 // decision 46, Q7).
 message AngzarrDeadLetter {
   oneof payload {
-    // Command that failed, stored with its ids assigned (command_id and
-    // correlation_id as minted, derived or supplied; pipeline step 2) and
-    // its Handling as sent, before the coordinator resolved it (see
-    // Handling). A command refused at validation never reaches the DLQ with
-    // a minted id: it has none. Replay AS_IS keeps the Handling;
-    // FRESH_SEQUENCE clears handling.expected_sequence so the coordinator
-    // stamps the current head.
+    // A client's command or fact that failed, stored with its ids
+    // assigned (command_id and correlation_id as minted, derived or
+    // supplied; pipeline step 2) and a command's Handling as sent, before
+    // the coordinator resolved it (see Handling). A command refused at
+    // validation never reaches the DLQ with a minted id: it has none.
+    // Replay AS_IS keeps the Handling; FRESH_SEQUENCE clears
+    // page.command.handling.expected_sequence so the coordinator stamps
+    // the current head.
     CommandBook rejected_command = 2;
+    // A policy's output or refusal fact that failed at its destination,
+    // as delivered (decision 14.79). Replayed through Deliver, keeping its
+    // ids and causation.
+    ReactionDelivery rejected_reaction = 21;
     EventBook rejected_events = 9; // Events that failed (policy/projector failures)
     // An edition removal that failed (DeleteEdition): the
     // stream whose rows of the edition could not be removed, as its cover,

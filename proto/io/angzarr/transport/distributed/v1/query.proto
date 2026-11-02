@@ -145,7 +145,7 @@ message Query {
 //     14.31).
 //   - Events of reaction commands are linked only COARSELY, by
 //     correlation: the pages of one command share its
-//     causation.command_id, but the command's trigger (its causation_id)
+//     causation.command_id, but the command's trigger (ReactionDelivery.causation)
 //     is not on its events. The exact trigger edge (E -> the commands a
 //     policy emitted for it -> their events) is in the traces and
 //     logs the coordinators write (OpenTelemetry), not in the store.

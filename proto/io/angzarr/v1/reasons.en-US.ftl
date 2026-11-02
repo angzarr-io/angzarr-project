@@ -56,12 +56,10 @@ COORDINATOR_REASON_RETRY_CAP_EXHAUSTED = gave up after { $attempts ->
        *[other] { $attempts } runs
     }, each losing its write to another write to stream { $stream }, at the cap of { $cap }: dead-lettered, nothing persisted
 COORDINATOR_REASON_EXPECTED_SEQUENCE_AHEAD = stream { $stream } is at { $head }, behind the { $expected } expected: the command names a sequence the stream never reached
-COORDINATOR_REASON_POLICY_COMMAND_WITH_HANDLING = a reaction { $command_type } reached domain { $domain } carrying an expected sequence or a conflict resolution, which only its target sets: a bug in the runtime that delivered it
 COORDINATOR_REASON_EDITION_REMOVAL_FAILED = the rows of { $stream } in deleted edition "{ $edition }" could not be removed, after { $attempts ->
         [one] one attempt
        *[other] { $attempts } attempts
     }: dead-lettered
-COORDINATOR_REASON_POLICY_COMMAND_FACT_ORIGIN = a reaction command { $command_type } reached domain { $domain } carrying a fact origin, which a command never has: a bug in the runtime that delivered it
 COORDINATOR_REASON_POLICY_COMMAND_UNKNOWN_DOMAIN = a policy sent a { $command_type } to domain { $domain }, which this coordinator cannot route: a bug in the deployment
 COORDINATOR_REASON_HANDLER_UNAVAILABLE = the handler of domain { $domain } could not be reached for { $stream }: run it again
 COORDINATOR_REASON_CHAIN_TOO_DEEP = the command chain went deeper than its limit of { $limit }

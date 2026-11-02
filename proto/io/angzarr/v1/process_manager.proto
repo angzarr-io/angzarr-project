@@ -126,13 +126,13 @@ option ruby_package = "Angzarr";
 // command handler that fails with anything but a business rejection is a
 // bug too: the command is dead-lettered and alerted. The client library
 // gives every PM handler one context type, carrying the input's identity
-// (its command_id, its fact_origin for a fact, its correlation_id, and the
+// (its command_id, its origin for a fact, its correlation_id, and the
 // instance's root), which is exactly the cause
 // the coordinator stamps on
 // the events the handler writes.
 //
 // Deduplication is the coordinator's job, never the handler's, as for any
-// domain: by command_id (a fact's derived from its fact_origin), on the
+// domain: by command_id (a fact's derived from its origin), on the
 // PM's stream, before the handler runs (types.proto, the command_identity
 // region). There is no trigger, no trigger EventRef and no find_triggered
 // lookup.

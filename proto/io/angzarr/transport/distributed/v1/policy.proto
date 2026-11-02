@@ -15,14 +15,15 @@ option ruby_package = "Angzarr::Transport::Distributed";
 // 46, Q3), checks each answer's outputs (a root, not the trigger's own
 // stream, a routable destination, the chain depth; io/angzarr/v1/policy.proto),
 // and addresses and stamps each one: the destination
-// (PolicyDescriptor.output_domain), the trigger's edition, causation_id
+// (PolicyDescriptor.output_domain), the trigger's edition, causation
 // (the triggering event's EventRef), command_id (UUIDv5 of the trigger,
 // the policy's registered name and the output's index within its
 // reaction, commands and facts in one index space; derived_ids region),
-// correlation_id (the trigger's) and, on a fact, fact_origin (external_id
-// the command_id's canonical text). Records them in the transient outbox
+// correlation_id (the trigger's) and the policy's name, as a
+// ReactionDelivery (decision 14.79). Records them in the transient outbox
 // (io/angzarr/v1/policy.proto), delivers them through the destination's
-// coordinator (CommandHandlerCoordinatorService) as a framework component,
+// coordinator (CommandHandlerCoordinatorService.Deliver) as a framework
+// component,
 // and retries retryable failures. On a business rejection it calls
 // PolicyService.Translate and delivers the fact it answers, through the
 // outbox, to the policy's own source stream (the one refusal path,
@@ -48,5 +49,5 @@ service PolicyCoordinatorService {
 // stamped them, in trigger order and, per trigger, in the policy's order.
 // Never persisted.
 message ExecuteResponse {
-  repeated io.angzarr.v1.CommandBook outputs = 1;
+  repeated io.angzarr.v1.ReactionDelivery outputs = 1;
 }

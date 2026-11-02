@@ -77,20 +77,20 @@ message TranslateRequest {
   // event the policy reacted to (the refused command's causation). Its
   // cover is also where the translated fact goes.
   io.angzarr.v1.EventBook trigger = 1;
-  // The refused command, as it was delivered: its cover (the destination
-  // and root), its page with the identity the coordinator stamped, and its
-  // payload, whose type picks the policy's callback.
-  io.angzarr.v1.CommandBook command = 2;
+  // The refused command, exactly as it was delivered (decision 14.79): its
+  // cover (the destination and root), the identity the coordinator
+  // stamped, and its payload, whose type picks the policy's callback.
+  io.angzarr.v1.ReactionDelivery command = 2;
   // The target's refusal, exactly its DecideResponse.refused.
   Refusal refusal = 3;
 }
 
 // What Translate answers: one fact of the policy's own source domain,
-// payload only. The coordinator builds the rest: a CommandBook addressed to
-// the trigger's exact stream, whose page is a Fact holding this payload,
-// with the refused command's command_id, the trigger's correlation_id,
-// causation_id the trigger, and fact_origin.external_id the command_id's
-// canonical text (io/angzarr/v1/policy.proto, Refusals). It is never
+// payload only. The coordinator builds the rest: a ReactionDelivery
+// addressed to the trigger's exact stream, a fact holding this payload,
+// with the refused command's command_id, the trigger's correlation_id and
+// causation the trigger (decision 14.79; io/angzarr/v1/policy.proto,
+// Refusals). It is never
 // refused, so compensation cannot loop.
 //
 // A fact with no payload (no type URL) is delivered like any other, and the

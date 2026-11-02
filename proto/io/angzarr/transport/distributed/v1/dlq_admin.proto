@@ -42,7 +42,8 @@ option ruby_package = "Angzarr::Transport::Distributed";
 // JSON rendering of the same data, so operators see structured
 // content in one round-trip without writing client-side decode logic.
 // Nested `Any` payloads (rejected_command.page.command.payload or
-// rejected_command.page.fact.payload, rejected_events.pages[].payload,
+// rejected_command.page.fact.payload, rejected_reaction.payload,
+// rejected_events.pages[].payload,
 // refusal) are
 // recursively decoded via the
 // framework `DescriptorPool`. User-domain types not yet in the pool
@@ -178,14 +179,15 @@ message GetDeadLetterResponse {
 // Replay semantics.
 //
 // Same message, same ids. A replay is a redelivery, never a new command: it
-// keeps the original command_id, correlation_id and causation_id (the
-// dead letter stores the command with its ids assigned). If the original
+// keeps the original command_id, correlation_id and causation (the dead
+// letter stores the command, or the reaction, with its ids assigned). If the original
 // did apply after all, deduplication answers the replay DUPLICATE, so a
 // replay can never apply a command twice (except one whose original
 // decision produced no events, which is decided again; see the
 // command_identity region of io/angzarr/v1/types.proto). The replayer delivers as a
-// framework component (mTLS identity), so a reaction command's causation_id
-// is accepted. The replay itself (time, mode, outcome) is recorded in the
+// framework component (mTLS identity): a reaction
+// (AngzarrDeadLetter.rejected_reaction) is replayed through Deliver, keeping
+// its causation (decision 14.79). The replay itself (time, mode, outcome) is recorded in the
 // entry (StoredDeadLetter.replays), not on the replayed message; who asked
 // for it goes to the security log.
 //
@@ -194,8 +196,8 @@ message GetDeadLetterResponse {
 // is enqueued, not when it is decided; the recorded replay's outcome is
 // PENDING until then. There is no hardcoded or per-replay sync mode. A
 // replayed command that fails again is retried or dead-lettered like any
-// asynchronous command. A replayed reaction command carries no Handling
-// (FRESH_SEQUENCE has nothing to clear).
+// asynchronous command. A reaction carries no Handling, so FRESH_SEQUENCE
+// has nothing to clear for one.
 //
 // There is no age limit: deduplication by command_id is permanent, so an
 // entry of any age replays safely.
@@ -209,7 +211,7 @@ message GetDeadLetterResponse {
 //                     ABORTED when state has moved on;
 //                     useful as a diagnostic "reproduce the failure"
 //                     mode.
-//   FRESH_SEQUENCE  — clear the command's handling.expected_sequence
+//   FRESH_SEQUENCE  — clear the command's page.command.handling.expected_sequence
 //                     before publishing, so the coordinator stamps the
 //                     current head. Best chance of success but the
 //                     payload may still depend on stale state
