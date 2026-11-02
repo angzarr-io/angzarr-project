@@ -46,6 +46,8 @@ What's missing is anything that produces those facts. There is no scheduler comp
 "deliver this fact at time T". Other frameworks make this central: Axon has `DeadlineManager`, NServiceBus
 has `RequestTimeout`, and Temporal is built around timers.
 
+> **Draft proto, 2026-11-02 (decision 14.90, DRAFT):** `proto/io/angzarr/scheduler/v1/scheduler.proto`, the owner's "external, firing facts (datetime reached) into the domains that asked for them". It supersedes the shape below where they differ: a domain asks for an instant (no duration form), and receives `AlarmReached`, not a fact it handed over.
+
 Decided shape: timers emit facts, in two forms:
 
 - **after a duration:** deliver fact F to stream S once N has elapsed;

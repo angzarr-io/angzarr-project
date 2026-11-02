@@ -226,6 +226,8 @@ and it is never persisted.
 `ContextualCommandRequest`, `SagaHandleRequest` and
 `ProcessManagerCoordinatorRequest`.
 
+> **Amended by 14.81 (DRAFT, pending review):** the precedence chain is gone. A command handler's conflict resolution is its state's (COMMUTATIVE where its `(state)` option lists it, else STRICT); `Handling.conflict_resolution` is reserved, and there is no per-command-type or per-component configuration and no override permission.
+
 **3.3 Defaults come from configuration.** Precedence: Handling, then
 command-type config, then component config, then STRICT.
 - Why: operators set policy, and a caller may override it only where
@@ -1222,6 +1224,8 @@ example `"v3"`), bumped when decide, ingest or apply semantics change.
 - Supersedes: 5.9 (declared at registration). Amends 6.8 (where validity is
   checked).
 
+> **Amended by 14.81 (DRAFT, pending review):** not a default: the state's declaration is the resolution, and nothing overrides it.
+
 **12.7 COMMUTATIVE is the default where the state declares conflict units;
 `StateOptions` replaces the bool.**
 - The `(state)` message option (50106) is `StateOptions { repeated
@@ -1899,6 +1903,8 @@ correlation is a 16-byte `UUID` since 9.1. Owner ruling, 2026-10-27.
 
 > **Amended by 14.42 (pass 14):** the coordinator owns admission: deduplication, the refusal fact's stream check and the start rule. The router's `admit` is deleted. The coordinator also builds and addresses every refusal fact; the router answers only a translate callback's fact, or none.
 
+> **Amended by 14.78 (DRAFT, pending review):** one refusal path. Pass-through, `CommandRefused` and the source domain's `on_refused_<Command>` dispatch are gone; a refusal reaches the policy's `Translate`, which answers a fact of its source.
+
 **14.31 A process manager is a domain.** Owner rulings of 2026-10-27
 (ruling 7 of the angzarr/annals common plan) and 2026-10-28 (rulings 7 and
 9 as settled after the pm-inputs survey; two earlier drafts of this entry,
@@ -2513,6 +2519,8 @@ order across streams.
   a consistent cross-stream snapshot is not offered.
 
 > **Amended by 14.42 (pass 14):** the policy's coordinator checks every command's root, correlation and edition (and stamps the edition), not the client library. The checks are per triggering page, from `PolicyResponse.reactions`.
+
+> **Amended by 14.86 (DRAFT, pending review):** `EditionCreated.parent_sequence` is reserved; the event's own sequence is the fork point, so the ports' `StoreError::MalformedCreation` rule (a creation stating another parent sequence) leaves the spec. `ForkStreamRequest.parent_sequence` stays.
 
 **14.36 A policy may name a process manager's root; a fork is where it
 says.** Owner rulings, 2026-10-28. Amends 14.30, 14.31 and 14.32.
@@ -3182,6 +3190,8 @@ projector.
 
 > **Amended by 14.44 (2026-10-30):** the reason keys are the enums of `reasons.proto` (`RouterReason`, `HostReason`, `CoordinatorReason`), not a TOML catalog; a key travels as its value's full name, its enum's prefix included (`ROUTER_REASON_DUPLICATE_COMPONENT`), and every enum reserves the retired keys. Every key named in this log before 14.44 is written here with its prefix, except the old reasons of 14.37's inventory and the retired keys, which were only ever answered bare. Nothing is generated per language from a catalog.
 
+> **Amended by 14.78 (DRAFT, pending review):** the conflict nonce and its report are gone (decision 46, Q5); a refusal travels in band (`DecideResponse.refused`, Q2); handler answers hold only payloads, so the output-shape refusals are unrepresentable.
+
 **14.42 The router keeps dispatch; everything else is the
 coordinator's.** Owner rulings, 2026-10-29 (plan `router-call-model`,
 latest rulings). Amends 2.2 (as amended by 14.31), 14.10, 14.24, 14.31,
@@ -3587,6 +3597,8 @@ amended twice the same day (below). Follows 14.35, 14.37, 14.42 and 14.44.
 > resolution, INVALID_ARGUMENT `COORDINATOR_REASON_EXPECTED_SEQUENCE_AHEAD`;
 > C-0717 loses its ahead example.
 
+> **Amended by 14.84 and corrected by 14.85 (DRAFT, pending review):** the race re-run cap is at least 1 (no cap-0 opt-out, `COORDINATOR_REASON_STORE_CONFLICT` reserved); and, to the owner's ruling of 2026-10-31, a caller waiting on Handle or HandleSync at either cap is answered `COORDINATOR_REASON_RETRY_CAP_EXHAUSTED` and nothing is dead-lettered.
+
 **14.46 A caller waiting at a retry cap gets its own key; a stamped re-run
 has its own cap.** Owner rulings, 2026-10-30. Follows 14.37 and 14.45.
 - **The key.** `CoordinatorReason` gains
@@ -3723,6 +3735,8 @@ resolution.** Owner ruling, 2026-10-30. Amends 14.45; follows 14.37 and
   DUPLICATE whatever its expected sequence (C-0728); and a `HandleAsync`
   command refused by any business, fatal key, this one included, is
   dead-lettered with that key as its reason and alerted (C-0729).
+
+> **Superseded by 14.78 (DRAFT, pending review):** a dead letter is its reason, `retry_count` and, for a typed refusal, the refusal object; the `rejection_details` variants and their mapping are retired.
 
 **14.48 Every dead letter carries the details variant its reason
 chooses.** Owner rulings, 2026-10-30, amended the same day (below).
@@ -3904,6 +3918,8 @@ that does not enforce it never answers it.
 - Cost: every coordinator that enforces a limit answers its key; readers of
   `retry_count` that took it for the attempts count one fewer.
 
+> **Amended by 14.78, 14.82 and 14.87 (DRAFT, pending review):** sources are derived from the events named, not declared; a refusal is one message per reason, not a code enum; a component has one required name, with no per-kind default formulas.
+
 **14.50 Generation reads cardinality, sources, names and refusal codes from
 the proto; the host config is strict.** Owner rulings, 2026-10-31 (the
 overnight generator and app-generation rulings). Follows 14.31, 14.37 and
@@ -3968,6 +3984,8 @@ overnight generator and app-generation rulings). Follows 14.31, 14.37 and
   the intended class. (Settled by 14.52: a per-value status option.)
 - Cost: configs without `kind`, or with keys the host does not know, stop
   loading; generators read three new options.
+
+> **Amended by 14.84 (DRAFT, pending review):** `COORDINATOR_REASON_STORE_CONFLICT` is retired with the race re-run cap of 0.
 
 **14.51 A retryable failure carries a key, for when the retry fails.**
 Owner rulings, 2026-10-31 (morning). Follows 14.37, 14.46 (cap 0), 14.48
@@ -4037,6 +4055,8 @@ the event that the retry fails."
   status, which tells neither an operator nor a catalog what failed.
 - Cost: every coordinator answers six more keys; a consumer that owns its
   retries (a race re-run cap of 0) reports the key it was handed.
+
+> **Amended by 14.82 (DRAFT, pending review):** the status is marked on the refusal MESSAGE (`refusal_status`, now a MessageOptions extension, 50111).
 
 **14.52 A refusal code's status is marked on its Reason value.** Owner
 ruling, 2026-10-31 (morning). Settles 14.50's Open point; follows 14.37.
@@ -4205,6 +4225,8 @@ ruling, 2026-10-31. Amends 14.57.
 - Why: the ruling.
 - Cost: two licence texts under `proto/`.
 
+> **Amended by 14.80 (DRAFT, pending review):** there is no handshake line; readiness is grpc.health SERVING on the path the host chose.
+
 **14.59 The child-process launch protocol is in the spec.** Admitted by
 the owner, 2026-10-31, as architecture-fixes A1 (review S4: "orchestrate
 those fixes"); the drafter's text follows angzarr-embedded wherever the
@@ -4316,6 +4338,8 @@ by the owner, 2026-10-31, as architecture-fixes D3 (review polyglot 4:
   saw different facts.
 - Cost: none on the wire; bindings whose default form dropped the context
   change their signature.
+
+> **Amended by 14.80 (DRAFT, pending review):** the three handshake keys are reserved; `HOST_REASON_CHILD_NOT_SERVING` covers a child not SERVING within the host's time limit.
 
 **14.62 The host's failures with a child are spec keys; the socket path
 is UTF-8.** Ruled by the owner, 2026-11-01: "seven host keys plus UTF-8".
@@ -4749,6 +4773,8 @@ translation into commands and 14.42 (a policy's output checks); decision
   handler, which flags with an event; a non-starting fact for an absent
   process manager instance now reaches a human.
 
+> **Superseded by 14.78 and 14.88 (DRAFT, pending review):** `PolicyReaction` is deleted, and the exception mechanism (`proto/breaking.exception` and its `just proto-breaking` logic) is removed.
+
 **14.70 `PolicyReaction.commands` is `outputs`: the gate's one
 exception.** Ruled by the owner, 2026-11-02, on the escalation of 14.69's
 implementation: "One-off gate exception, full rename". Amends 14.54 (the
@@ -4843,6 +4869,8 @@ declare `refuses`"). Amends 14.31's generated pass-through handlers.
   a generated policy always translates, so a generated policy never passes
   a refusal through.
 
+> **Amended by 14.83 (DRAFT, pending review):** an undo's target must be a fact, and a registration whose undo targets a command is refused; `CompensationFailed` and the `UndoTargetsCommand` warning are gone, and decision 38 is moot.
+
 **14.74 A process manager's compensation is code, kept by its client
 library.** Ruled by the owner, 2026-11-01, on decision 28's design
 (`policy-facts.plan.md`, section 7: ruling 5, "a code-level step/undo
@@ -4927,6 +4955,8 @@ decision 43 (no OPTIONAL annotations needed).
   always emits one is lost, and every handler's signature changes in both
   languages.
 
+> **Amended by 14.78 and 14.89 (DRAFT, pending review):** the domain-side refusal handler is gone; a policy has ONE refusal callback over its target's refusal messages, handling the refusals of the commands it sends, every other arm a Bug.
+
 **14.76 Every command a policy sends has a refusal path, and a generated
 policy always translates.** Ruled by the owner, 2026-11-02 (the 2026-10-31
 run's decision 42, on item S's escalations S-2 and S-4: "all commands must
@@ -4996,6 +5026,176 @@ owner, 2026-11-02 (the 2026-10-31 run's decision 44, option (a)).
 - Why: the ruling; the example shows 14.74's tooling end to end.
 - Cost: no wire change beyond new messages; BuyInFailed and BuyInSeatLost
   no longer feed a policy.
+
+## DRAFT, pending the owner's review (2026-11-02): decision 46 and the rulings audit
+
+> **DRAFT.** Entries 14.78 to 14.90 describe the proto draft on branch
+> `review/proto-layers-46`, for the owner's review before any
+> implementation. None is accepted until the owner says so; the review
+> guide (`proto-layers-review.md`, session inept-sixth-stick) lists the
+> points open in each.
+
+**14.78 (DRAFT) The handler layer: handlers get the books and return only
+what they decide.** From decision 46 ("we need to wrap things by
+layers/more proto ...") and its rulings Q1-Q3, Q5-Q7, #2-#5 (2026-11-02).
+- **A new package, `io.angzarr.handler.v1` (Q1).** Dependency: component
+  -> handler -> core. A request carries the full angzarr context
+  read-only, the books (the owner: "ensure that the business logic inputs
+  carry the angzarr metadata as well (command books, event books)"). A
+  response carries only what business code decides: payloads, the
+  post-decision state, the rules version, a conflict report, a refusal.
+- **Messages.** `DecideRequest { CommandBook command; EventBook history;
+  recorded_at }` -> `DecideResponse { oneof result { Decided decided;
+  Refusal refused; Diagnostic aborted }; rules_version }` (Q2: in band);
+  `IngestRequest` -> `IngestResponse`; `ReactRequest { EventBook trigger }`
+  (one page, one call per trigger, Q3) -> `ReactResponse { repeated Output
+  { root, payload, fact } }`; `TranslateRequest { trigger, command,
+  Refusal }` -> `TranslateResponse { Any fact }`; `ProjectRequest` ->
+  `ProjectResponse { Any projection }`; `UpcastRequest` ->
+  `UpcastResponse { repeated Any payloads }`.
+- **Services retyped under new RPC names:** Decide, Ingest, React,
+  Translate, Project, UpcastPayloads; `PolicyCoordinatorService.Execute`
+  becomes `ExecuteStamped`. The old RPCs are deleted, never retyped.
+- **Core trimmed.** ContextualCommand, CommandHandlerResponse,
+  ConflictReport, PolicyResponse, PolicyReaction, Refusal,
+  OnRefusedResponse, RefusalResponse, CommandRefused, UpcastRequest,
+  UpcastResponse and Target are deleted; none was stored.
+- **Q5.** The conflict nonce and any acknowledgement go (the owner: "drop
+  the entire thing. if a second call is happening, we don't need it").
+  AGGREGATE_HANDLES's handler decides on the window and nothing is
+  reported; COMMUTATIVE still reports its two unit sets.
+  `COORDINATOR_REASON_CONFLICT_UNRESOLVED` is retired.
+- **#2, #3.** `ComponentOptions` and `ComponentDescriptor` are a `oneof
+  kind` with per-kind messages (old fields reserved). A policy's and a
+  projector's sources are derived from the events they name;
+  `EventConsumer.domain` is an override for an event whose owner is outside
+  the descriptor set only.
+- **#4.** A dead letter is its payload, `reason`, `retry_count` (19) and,
+  for a typed refusal, `refusal` (20). `rejection_details` (12, 13, 17),
+  its three messages and `RejectionType` are retired;
+  `StoredDeadLetter.rejection_type` (6) is reserved and the admin filter
+  keys on `reason_code`. Q7: old rows rely on the stored-data waiver.
+- **#5.** One refusal path: pass-through, `CommandRefused` and the source
+  domain's refusal dispatch are removed. Q6:
+  `ROUTER_REASON_NO_REFUSAL_HANDLER` stays, re-scoped to the policy's
+  router.
+- **Reason keys.** Retired, reserved by name and number: CONFLICT_UNRESOLVED,
+  REFUSAL_FACT_WRONG_STREAM, POLICY_COMMAND_OUTSIDE_DESTINATION,
+  _OUTSIDE_EDITION, _OTHER_CORRELATION, _OTHER_IDENTITY,
+  REFUSAL_FACT_ADDRESSED, _NO_PAGE, _NOT_A_FACT, _IDENTIFIED,
+  EVENTS_NOT_ITS_STREAM, STARTING_TYPES_ON_NON_PM, STATE_ON_STATELESS_KIND,
+  OUTPUT_DOMAIN_ON_NON_POLICY, POLICY_INPUT_COUNT (all
+  `COORDINATOR_REASON_`). New: POLICY_NO_INPUT_DOMAIN, DESCRIPTOR_NO_KIND,
+  ANSWER_NO_RESULT.
+- Why: the rulings. A message that holds only what a handler decides makes
+  each "refuse what the type allows" check unrepresentable.
+- Cost: every runtime's handler dispatch and every coordinator change;
+  the features named in the review guide are falsified and wait on review.
+
+**14.79 (DRAFT) A reaction is a ReactionDelivery; Handling is the
+Command's and origin the Fact's.** Decision 46, Q4 (a), as its own commit.
+- `ReactionDelivery { cover, payload, fact, command_id, correlation_id,
+  causation, component }`, through the framework-only
+  `CommandHandlerCoordinatorService.Deliver`, answered as Handle.
+- `Command { payload, handling }`, `Fact { payload, origin }`;
+  `CommandBook.handling` (6), `CommandPage.causation_id` (10) and
+  `.fact_origin` (11) reserved. A client's book cannot carry a causation,
+  so the PERMISSION_DENIED check for one goes.
+- `AngzarrDeadLetter.rejected_reaction` (21); `DecideRequest` and
+  `IngestRequest` gain `causation`; `TranslateRequest.command` and
+  `ExecuteResponse.outputs` are ReactionDeliveries.
+- `COORDINATOR_REASON_POLICY_COMMAND_WITH_HANDLING` and `_FACT_ORIGIN`
+  retired.
+- Cost: old dead-letter rows of reaction commands lose their Handling,
+  origin and causation (the waiver); a reaction is always delivered in
+  DECISION mode.
+
+**14.80 (DRAFT) No child handshake line.** The owner's ruling F1. The host
+chooses the socket path, so readiness is grpc.health SERVING on it, within
+the host's time limit. `HOST_REASON_HANDSHAKE_MALFORMED`, `_TIMEOUT` and
+`_CLOSED` are reserved; `HOST_REASON_CHILD_NOT_SERVING` covers a child not
+SERVING in time (arg `timeout_ms` added). `ChildProtocol`'s handshake
+constants are reserved. `docs/design/child-protocol.md` follows. Amends
+14.59 and 14.62.
+
+**14.81 (DRAFT) The state declares the conflict resolution.** The owner's
+ruling F2. COMMUTATIVE where the state's `(state)` option lists it, STRICT
+otherwise; nothing overrides it. `Handling.conflict_resolution` (2) is
+reserved; the per-command-type and per-component configuration and the
+override permission are gone from the text.
+`ROUTER_REASON_CONFLICT_RESOLUTION_UNSUPPORTED` and
+`HOST_REASON_RESOLUTION_UNSUPPORTED` are retired. Open: no state now
+reaches AGGREGATE_HANDLES. Amends 3.3 and 12.7.
+
+**14.82 (DRAFT) One message per refusal.** The owner's ruling F3. Each
+refusal is its own message, named in the `refuses` of each command that
+refuses with it, with its status as a MESSAGE option (`refusal_status`
+moves to MessageOptions, 50111) and one wire key (COMMAND_REFUSED plus its
+type). TableRefused's 18 codes and WalletRefused's 6 become messages.
+Amends 14.50 and 14.52.
+
+**14.83 (DRAFT) An undo's target must be a fact.** The owner's ruling F4.
+A compensation whose undo targets a command is refused at registration.
+`CompensationFailed` (buy_in.proto, the compensation fixture) and the
+`UndoTargetsCommand` warning are gone. Decision 38 (how a human hears of a
+refused undo) is moot: no undo can be refused. Amends 14.74 and 14.77.
+
+**14.84 (DRAFT) The race re-run cap is at least 1.** The owner's ruling F5.
+The cap-0 opt-out is retired and `COORDINATOR_REASON_STORE_CONFLICT`
+reserved; a configuration of 0 is refused when it is loaded. C-0740 to
+C-0742 retire. Amends 14.46 and 14.51.
+
+**14.85 (DRAFT) A sync command writes no dead letter at the retry cap.**
+Corrects 14.46 to the owner's ruling of 2026-10-31 ("Sync commands write no
+dead letter at the retry cap"): a caller waiting on Handle or HandleSync is
+answered `COORDINATOR_REASON_RETRY_CAP_EXHAUSTED` and nothing is
+dead-lettered; work with no caller waiting is dead-lettered and alerted.
+
+**14.86 (DRAFT) The parent is authoritative; a fork is its own event's
+sequence.** The owner's ruling F7 ("the parent should never have any
+concept of forks/branches. It is authoritative, period.").
+`EditionCreated.parent_sequence` (2) is reserved, and the ports'
+`MalformedCreation` rule leaves the spec (14.36).
+`ForkStreamRequest.parent_sequence` stays.
+
+**14.87 (DRAFT) One required component name.** The owner's ruling F8.
+`ComponentOptions.name` (4) is reserved; `component_name` (9) is the one
+name, required, with no per-kind default formula. The example protos write
+each component's current name once. Amends 14.50.
+
+**14.88 (DRAFT) F9's four items.** The owner's ruling F9: the breaking-gate
+exception mechanism is removed (amends 14.70); a non-SemVer
+`rules_version` is refused at registration
+(`COORDINATOR_REASON_RULES_VERSION_NOT_SEMVER`), dropping the
+string-equality fallback; `ReasonOptions.readiness` replaces
+`REASON_STATUS_READINESS` (100, reserved);
+`ROUTER_REASON_DUPLICATE_COMPONENT` has one owner, the router, and one arg
+set (`registered`, `refused`). taskloom's `defers`/`initial` item is
+taskloom code and is not here.
+
+**14.89 (DRAFT) Ingest answers ingested or aborted; one refusal callback
+per policy; a refused move stands the hand.** Owner rulings, 2026-11-02.
+- `IngestResponse` is `oneof { Ingested ingested; Diagnostic aborted }`;
+  an abort is a bug, dead-lettered per 14.72. There is no refusal arm.
+- A policy has ONE refusal callback over a choice of its target's refusal
+  messages. Its author handles the refusals of the commands it sends, and
+  every other arm answers a Bug (the owner: "it only needs the
+  reversal/compensation for the commands its sending, not every possible
+  command"). There is no `sends` declaration (2026-10-28 stands). Amends
+  14.76.
+- Blackjack: a refused DecideMove makes the table stand the hand
+  (RecordMoveUndecided emits HandStood and what follows), so the round
+  always completes.
+
+**14.90 (DRAFT) The scheduler's time facts.** The owner's direction,
+2026-11-02 ("external, firing facts (datetime reached) into the domains
+that asked for them"; "we'll want proto for those time facts").
+`io.angzarr.scheduler.v1`: `ArmAlarm { target, alarm_id, at }`,
+`CancelAlarm { alarm_id }`, and the fact `AlarmReached { alarm_id, at }`,
+whose `fact_origin.external_id` is derived from (target stream, alarm_id,
+at) so a repeated delivery deduplicates. One scheduler stream per target
+stream (D5 Q5); the target re-checks. Supersedes FUTURE.md's timer sketch
+where they differ.
 
 ## Corrections
 
