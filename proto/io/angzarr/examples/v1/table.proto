@@ -271,14 +271,20 @@ message ReleaseSeat {
 // policy-table-player's refusal callback returns from the player's
 // DecideMoveRefused (decision 14.76: every command a policy sends has a
 // refusal path, translated into a fact of its source). The table records
-// MoveUndecided and changes nothing else: the seat stays on turn, and
-// what the table does then (a timeout, standing the hand) waits on a
-// ruling. A player always decides (player.proto), so it is never sent in
-// play.
+// MoveUndecided and STANDS THE HAND (the owner's ruling of 2026-11-02, so
+// the round always completes): HandStood, then as Stand goes on,
+// TurnStarted for the next seat on turn, or DealerPlayed + RoundSettled
+// when it was the last. For a seat no longer on turn (the round moved on)
+// it records MoveUndecided alone. A player always decides (player.proto),
+// so it is never sent in play.
 message RecordMoveUndecided {
   option (io.angzarr.v1.command) = {
     component: "io.angzarr.examples.v1.TableState"
     emits: "io.angzarr.examples.v1.MoveUndecided"
+    emits: "io.angzarr.examples.v1.HandStood"
+    emits: "io.angzarr.examples.v1.TurnStarted"
+    emits: "io.angzarr.examples.v1.DealerPlayed"
+    emits: "io.angzarr.examples.v1.RoundSettled"
     fact: true
   };
   uint32 round = 1; // The refused DecideMove's round
@@ -617,8 +623,9 @@ message RoundSettled {
   int64 house_result_after = 4;
 }
 
-// The seat's player could not decide (RecordMoveUndecided): recorded, and
-// nothing else changes.
+// The seat's player could not decide (RecordMoveUndecided): recorded,
+// followed by the stand the table makes for it (HandStood and what follows
+// a Stand).
 message MoveUndecided {
   option (io.angzarr.v1.event) = {component: "io.angzarr.examples.v1.TableState"};
   uint32 round = 1;
