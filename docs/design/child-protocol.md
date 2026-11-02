@@ -1,9 +1,11 @@
 # The child-process launch protocol (v1)
 
-**Status:** normative, decisions 14.59 (2026-10-31) and 14.62
+**Status:** normative, decisions 14.59 (2026-10-31), 14.62 and 14.63
 (2026-11-01). Scenarios:
 [`parity/client/child.feature`](../../parity/client/child.feature)
-(C-0749 to C-0756, C-0759 to C-0762). Reason keys: HostReason's
+(C-0749 to C-0756, C-0759 to C-0762), run by every child shim, and
+[`parity/host/supervision.feature`](../../parity/host/supervision.feature)
+(C-0763 to C-0768), run by every host. Reason keys: HostReason's
 `HOST_REASON_HANDSHAKE_*`, `HOST_REASON_CHILD_*` and
 `HOST_REASON_PROBE_INPUT` (`proto/io/angzarr/v1/reasons.proto`; section
 7).
@@ -171,9 +173,44 @@ children reports how each ended rather than refusing one. A host's other
 failures (a launch command that cannot start, a socket it cannot connect
 to) are its own, under codes of its own.
 
-## 8. Not specified here
+## 8. Supervision
 
-- Which command launches a child of a given language, and how a host
-  restarts one: the host's configuration and supervision.
-- What the host does with health after the handshake (watching it for
-  every child): S4's host-side half, still to come.
+Once a child has handshaken, its host supervises it (decision 14.63):
+
+- **The check.** Every check interval, the host sends the child a
+  `grpc.health.v1.Health/Check` for the overall server (service `""`),
+  with a deadline. A host MAY also watch the child's health
+  (`Health/Watch`); the periodic check is what finds a child that is
+  wedged, its watch still reporting SERVING while it answers nothing.
+- **Healthy, unhealthy.** A child is unhealthy from the first moment its
+  health is seen other than SERVING, by a check answering otherwise, a
+  check failing or passing its deadline unanswered, or its watch
+  reporting otherwise or ending; and healthy again once a check or its
+  watch reports SERVING. While it is unhealthy, the host sends it no new
+  call: a call to it fails retryably, as a call to a child that is not
+  running does (`COORDINATOR_REASON_HANDLER_UNAVAILABLE`).
+- **The grace, and a restart.** A child unhealthy for its whole grace,
+  unbroken, is restarted: the host stops it (section 5), launches a new
+  child, and reads its handshake and describes it as it did the first.
+  The host judges the grace when it sees the child's health, so the
+  restart comes at the first check, or watch report, at or after the
+  grace's end.
+- **The restart limit.** A host restarts a component's child for its
+  health at most its restart limit of times. Past the limit the host
+  stops the child once its grace has passed again and starts no other:
+  the component stays down, and every call to it fails retryably, until
+  the host itself is restarted.
+- **In flight.** A call in flight on a child the host stops fails
+  retryably; the host never sends it again by itself, to that child or the
+  next. Whether it is retried is its caller's to decide.
+
+The interval, the deadline, the grace and the limit are the host's
+configuration (angzarr-embedded: `angzarr.yaml`'s `supervision`). A child
+that exits by itself is the host's to restart as it chooses
+(angzarr-embedded: at once, then with a backoff while restarts fail); its
+restarts are not counted against the restart limit.
+
+## 9. Not specified here
+
+- Which command launches a child of a given language: the host's
+  configuration.

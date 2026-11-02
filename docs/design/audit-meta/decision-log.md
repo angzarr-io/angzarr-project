@@ -4367,6 +4367,38 @@ Amends 14.59.
   conditions change to the keys, and a child shim that wrote any path it
   was given checks it is UTF-8.
 
+**14.63 A host checks every child's health and restarts an unhealthy
+one.** Ruled by the owner, 2026-11-01: "supervision". Fills in 14.59's
+"not ruled here" on what a host does with a child's health after its
+handshake.
+- **The rule.** `docs/design/child-protocol.md`, section 8: every check
+  interval a host sends each child a grpc.health.v1 `Check` for the
+  overall server, with a deadline, which finds a child wedged with its
+  watch still SERVING. A child is unhealthy while its health is seen other
+  than SERVING (a check answered otherwise, failed or past its deadline, or
+  its watch reporting otherwise), and sent no new call meanwhile; one
+  unhealthy for its whole grace is restarted, judged when its health is
+  next seen; past the host's restart limit it stays down, every call to it
+  failing retryably (`COORDINATOR_REASON_HANDLER_UNAVAILABLE`), as a call
+  to a child that is not running does.
+- **In flight.** A call in flight on a child the host stops fails
+  retryably, and the host never sends it again: a restart neither loses
+  nor duplicates a command; its caller decides whether to retry.
+- **Configuration** is the host's: angzarr-embedded's `angzarr.yaml`
+  gains `supervision.health_check_interval_ms`,
+  `health_check_deadline_ms`, `unhealthy_grace_ms` and
+  `unhealthy_restart_limit`, each with a default, at the config's
+  `schema_version` 2. A child that exits by itself is restarted as the
+  host chooses, outside the limit.
+- **`parity/host/supervision.feature`**, C-0763 to C-0768: the first
+  host-tier scenarios, run by every host with its clock in the test's
+  hands; no client binds them.
+- Why: the ruling. A watch alone misses a child that is wedged but whose
+  health service still answers, and a host that only withdrew an
+  unhealthy child's calls left it down for good.
+- Cost: none on the wire; a host keeps a timer per child, and a child's
+  health service answers a `Check` every interval.
+
 ## Corrections
 
 Facts the earlier passes or the design note got wrong:
