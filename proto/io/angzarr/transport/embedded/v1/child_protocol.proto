@@ -22,13 +22,12 @@ option ruby_package = "Angzarr::Transport::Embedded";
 // reasons.proto's (reason)), so the constants are a typed message set as
 // this file's option, read the same way, and nothing else on the wire.
 message ChildProtocol {
-  // The handshake line's first word (section 2): `angzarr-handshake`.
-  string handshake_prefix = 1;
-  // The handshake line's format version (section 2): `v1`.
-  string protocol_version = 2;
-  // The address scheme of a handshake's socket path (section 2): `unix:`,
-  // the path following it.
-  string address_scheme = 3;
+  // Fields 1 (handshake_prefix), 2 (protocol_version) and 3
+  // (address_scheme) were the handshake line's words, retired with the line
+  // by decision 14.80 (DRAFT): readiness is grpc.health SERVING on the path
+  // the host chose.
+  reserved 1, 2, 3;
+  reserved "handshake_prefix", "protocol_version", "address_scheme";
   // The environment variable the host names the socket path in (section 1):
   // `ANGZARR_SOCKET`.
   string socket_env = 4;
@@ -44,9 +43,6 @@ extend google.protobuf.FileOptions {
 }
 
 option (child_protocol) = {
-  handshake_prefix: "angzarr-handshake"
-  protocol_version: "v1"
-  address_scheme: "unix:"
   socket_env: "ANGZARR_SOCKET"
   max_socket_path_bytes: 107
 };

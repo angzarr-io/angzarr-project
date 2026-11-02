@@ -11,8 +11,8 @@ option ruby_package = "Angzarr::Transport::Embedded";
 
 // The local-process transport's reason keys (decision 14.64): what
 // whatever runs a child process answers when the child breaks the launch
-// protocol (docs/design/child-protocol.md, section 7): its handshake, its
-// health once handshaken, its exit, and a conformance probe's input. The
+// protocol (docs/design/child-protocol.md, section 7): its readiness (health
+// SERVING on the host's path), its exit, and a conformance probe's input. The
 // rules of core's reasons.proto hold here: a key travels as its value's full
 // name, prefix included, each carries its (io.angzarr.v1.reason) args, its
 // English is reasons.en-US.ftl beside this file, and the enum reserves every
@@ -22,44 +22,16 @@ option ruby_package = "Angzarr::Transport::Embedded";
 // Keys whatever runs a child answers.
 enum HostReason {
   HOST_REASON_UNSPECIFIED = 0;
-  // A child's stdout line whose first word is `angzarr-handshake` but which is
-  // not a v1 handshake naming an absolute UTF-8 Unix socket path
-  // (`angzarr-handshake v1 unix:<path>`): another version, another transport,
-  // a relative path, a path that is not UTF-8, a missing address. `line` is
-  // the line as read, its line ending removed; a line that is not UTF-8 is
-  // given with each byte outside printable ASCII, and each backslash, written
-  // `\xhh`. Refused, never skipped: the host that reads it fails to start the
-  // child, and a client's handshake parser refuses it with the same key.
-  // Answered by whatever reads a child's handshake
-  // (docs/design/child-protocol.md; C-0756, C-0760; decisions 14.59 and
-  // 14.62).
-  HOST_REASON_HANDSHAKE_MALFORMED = 1 [(io.angzarr.v1.reason) = {
-    args: ["line"]
-    status: REASON_STATUS_INTERNAL
-  }];
-  // No handshake within the host's time limit for one
-  // (`timeout_ms`, in milliseconds): the child never wrote it, or wrote
-  // only lines that are not handshakes. The host fails to start the child,
-  // and stops it (docs/design/child-protocol.md, section 7; decision
-  // 14.62).
-  HOST_REASON_HANDSHAKE_TIMEOUT = 2 [(io.angzarr.v1.reason) = {
-    args: ["timeout_ms"]
-    status: REASON_STATUS_INTERNAL
-  }];
-  // The child's stdout ended (it exited, or closed it) before
-  // a handshake. The host fails to start the child; its stderr says why
-  // (child-protocol.md, sections 3 and 7; decision 14.62).
-  HOST_REASON_HANDSHAKE_CLOSED = 3 [(io.angzarr.v1.reason) = {
-    status: REASON_STATUS_INTERNAL
-  }];
-  // A child whose overall server (service `""`) reported other
-  // than SERVING on grpc.health.v1 once it had handshaken, when a child
-  // handshakes only once SERVING: `component` its name in the host's
-  // configuration, `status` the health status by its name (`NOT_SERVING`,
-  // `SERVICE_UNKNOWN`), or its number when it has none. The host fails to
-  // start the child (child-protocol.md, sections 4 and 7; decision 14.62).
+  // A child whose overall server (service `""`) did not report SERVING on
+  // grpc.health.v1, on the socket path the host chose, within the host's
+  // time limit for a start (`timeout_ms`, in milliseconds), or that exited
+  // first: `component` its name in the host's configuration, `status` the
+  // last health status it answered by its name (`NOT_SERVING`,
+  // `SERVICE_UNKNOWN`), or its number when it has none, or `none` when no
+  // check was answered. The host fails to start the child (child-protocol.md,
+  // sections 2 and 7; decisions 14.62 and 14.80).
   HOST_REASON_CHILD_NOT_SERVING = 4 [(io.angzarr.v1.reason) = {
-    args: ["component", "status"]
+    args: ["component", "status", "timeout_ms"]
     status: REASON_STATUS_INTERNAL
   }];
   // A child that exited on its stdin's end with a status other
@@ -88,6 +60,15 @@ enum HostReason {
     args: ["component", "kind"]
     status: REASON_STATUS_INVALID_ARGUMENT
   }];
+
+  // Retired by 14.80 (DRAFT): there is no handshake line, so nothing
+  // malformed, late or cut short to refuse; a child that never reports
+  // SERVING is HOST_REASON_CHILD_NOT_SERVING.
+  reserved 1, 2, 3;
+  reserved
+    "HOST_REASON_HANDSHAKE_MALFORMED",
+    "HOST_REASON_HANDSHAKE_TIMEOUT",
+    "HOST_REASON_HANDSHAKE_CLOSED";
 
   // Retired by 14.37.
   reserved

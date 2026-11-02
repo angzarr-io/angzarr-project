@@ -25,7 +25,7 @@ option ruby_package = "Angzarr";
 //
 //   io.angzarr.transport.embedded.v1.HostReason
 //       (transport/embedded/v1/reasons.proto) whatever runs a child
-//       process: its handshake, health and exit (parity/client/child.feature)
+//       process: its readiness, health and exit (parity/client/child.feature)
 //   io.angzarr.transport.distributed.v1.CoordinatorReason
 //       (transport/distributed/v1/reasons.proto) only a distributed
 //       coordinator: registration by Describe, a query server, a claim
