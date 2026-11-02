@@ -3,7 +3,8 @@
 The handler-contract tier is every router's complete contract (decision
 14.42): the Rust router (angzarr-router, the reference) and the Python
 router (client-python) both run every feature in `..` against these
-fixtures, from this directory, in CI. The fixtures came from
+fixtures, from this directory, in CI; `compensation.feature` is the client
+libraries' process-manager tooling instead (14.74). The fixtures came from
 angzarr-router's own `conformance/`, which this replaces.
 
 - [`counter.proto`](counter.proto): the CounterAggregate (domain `counter`,
@@ -19,6 +20,13 @@ angzarr-router's own `conformance/`, which this replaces.
   received. The Fulfillment process manager is a domain: `StartFulfillment`
   records `FulfillmentStarted` (or nothing). The OrderFulfillment policy
   translates `OrderPlaced` into `ReserveStock` for `inventory`.
+- [`compensation.proto`](compensation.proto): the shipment process
+  manager of `compensation.feature` (14.74): its state (the journal, folded),
+  its two steps' completing and undoing events, ShipmentFailed and
+  CompensationFailed, and what the undos become, as their destinations
+  declare them: ReleaseStock and RefundPayment facts, RestockItems a
+  command. Bound by the client libraries' compensation tooling
+  (angzarr-embedded's markup, client-python), not by a router.
 - [`txtpb/`](txtpb/): orthogonal envelopes the step definitions fill in.
 
 ## CounterAggregate

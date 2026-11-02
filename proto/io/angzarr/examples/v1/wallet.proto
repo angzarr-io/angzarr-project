@@ -40,10 +40,10 @@ option ruby_package = "Angzarr::Examples";
 // base STRICT and AGGREGATE_HANDLES, and STRICT is its default. The earlier
 // spec's commutative deposit and manually reviewed withdrawal wait on the
 // merge-strategy ruling.
-// Policy commands (HoldFunds, CaptureFunds, ReleaseHold, RecordRoundResult,
-// AwardLoyaltyPoints) are reaction commands: they carry
-// no Handling, the wallet stamps its own head, and redelivery is
-// deduplicated on their derived command id.
+// Policy outputs (HoldFunds, a command; CaptureFunds, ReleaseHold,
+// RecordRoundResult and AwardLoyaltyPoints, facts its policies emit as
+// facts, decision 14.69) carry no Handling, the wallet stamps its own
+// head, and redelivery is deduplicated on their derived id.
 
 // -----------------------------------------------------------------------------
 // Commands — client
@@ -142,35 +142,43 @@ message InsufficientFunds {
 }
 
 // Spend an open buy-in hold: bankroll and the hold both drop by its amount.
+// A fact (decision 14.69): the buy-in seated its player, so the wallet
+// records it and never refuses it.
 message CaptureFunds {
   option (io.angzarr.v1.command) = {
     component: "io.angzarr.examples.v1.WalletState"
     emits: "io.angzarr.examples.v1.FundsCaptured"
+    fact: true
   };
   bytes hold_id = 1;
 }
 
-// Close an open hold without spending it. policy-buy-in-wallet sends it on
-// BuyInSeatLost (the table refused ConfirmSeat; see buy_in.proto).
+// Close an open hold without spending it. A fact (decision 14.69): the
+// buy-in's compensation of its held funds, which the wallet records and
+// never refuses. policy-buy-in-wallet sends it on BuyInSeatLost (the table
+// refused ConfirmSeat; see buy_in.proto).
 message ReleaseHold {
   option (io.angzarr.v1.command) = {
     component: "io.angzarr.examples.v1.WalletState"
     emits: "io.angzarr.examples.v1.HoldReleased"
+    fact: true
   };
   bytes hold_id = 1;
   string reason = 2;
 }
 
 // -----------------------------------------------------------------------------
-// Commands — round reactions from the table (reaction commands)
+// Facts — round reactions from the table (reaction facts)
 // -----------------------------------------------------------------------------
 
-// From policy-table-wallet, one per settled seat. Recording the same
-// (table_root, round) twice succeeds with no events.
+// From policy-table-wallet, one per settled seat: a fact (decision 14.69),
+// a round that is already settled. Recording the same (table_root, round)
+// twice records nothing.
 message RecordRoundResult {
   option (io.angzarr.v1.command) = {
     component: "io.angzarr.examples.v1.WalletState"
     emits: "io.angzarr.examples.v1.RoundResultRecorded"
+    fact: true
   };
   bytes table_root = 1;
   uint32 round = 2;
@@ -178,15 +186,16 @@ message RecordRoundResult {
   int64 net = 4; // returned - wager; negative on a loss
 }
 
-// From policy-table-wallet, one per settled seat. Awarding the same
-// (table_root, round) twice succeeds with no events. What an award for a
-// wallet that never enrolled does waits on a ruling (it was refused with
-// LOYALTY_NOT_ENROLLED, which under the latest contract dead-letters the
-// policy's command).
+// From policy-table-wallet, one per settled seat: a fact (decision 14.69),
+// a round that is already settled. Awarding the same (table_root, round)
+// twice records nothing. An award for a wallet that never enrolled cannot
+// be refused (it was refused with LOYALTY_NOT_ENROLLED): the wallet flags
+// it with an event, as a fact handler flags input it cannot use.
 message AwardLoyaltyPoints {
   option (io.angzarr.v1.command) = {
     component: "io.angzarr.examples.v1.WalletState"
     emits: "io.angzarr.examples.v1.LoyaltyPointsAwarded"
+    fact: true
   };
   bytes table_root = 1;
   uint32 round = 2;

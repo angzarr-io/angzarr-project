@@ -1,8 +1,9 @@
 # Allocated: EU-1530 .. EU-1549
 Feature: Translations between wallet and table
   The wallet and the table never call each other. When something happens on
-  one side that the other must act on, a translator turns it into a request
-  for the other side.
+  one side that the other must act on, a translator turns it into what the
+  other side declares: a request it may refuse, or news it records and
+  cannot refuse (decision 14.69).
 
   Why this matters:
   - one settled round feeds two follow-ups on each player: their round
@@ -14,7 +15,8 @@ Feature: Translations between wallet and table
 
   The table-to-wallet translator (policy-table-wallet) turns a settled round
   into, for each seat, a round result and loyalty points (one point per
-  chip wagered).
+  chip wagered): news for the wallet, which cannot refuse a round that is
+  already settled.
 
   The top-up translator (wallet top-ups become requests to add chips, with
   refusals undone in the wallet) and the settlement translator (chips added
@@ -32,7 +34,7 @@ Feature: Translations between wallet and table
       | 0    | Alice  | 20    | win     | 40       |
       | 1    | Bob    | 30    | lose    | 0        |
     When the table-to-wallet translator handles the settlement
-    Then the wallets are asked to record round 1 at table "Main" as:
+    Then the wallets are told, as news they cannot refuse, round 1 at table "Main" as:
       | player | wager | net |
       | Alice  | 20    | 20  |
       | Bob    | 30    | -30 |
@@ -44,7 +46,7 @@ Feature: Translations between wallet and table
       | 0    | Alice  | 20    | win     | 40       |
       | 1    | Bob    | 30    | lose    | 0        |
     When the table-to-wallet translator handles the settlement
-    Then the wallets are asked to award loyalty points for round 1 at table "Main" as:
+    Then the wallets are told, as news they cannot refuse, to award loyalty points for round 1 at table "Main" as:
       | player | points |
       | Alice  | 20     |
       | Bob    | 30     |

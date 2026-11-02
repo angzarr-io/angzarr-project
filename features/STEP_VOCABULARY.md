@@ -58,7 +58,7 @@ Keep the style consistent within one feature file.
 - `has` — observable state reflects this
 - `triggers` — cross-domain chain occurred (acceptance)
 
-- Good: `Then the policy emits a RecordRoundResult command`, `Then Alice has stack 495`
+- Good: `Then the policy emits a RecordRoundResult fact`, `Then Alice has stack 495`
 - Bad: `Then Alice emits stack 495`, `Then the policy has a RecordRoundResult`
 
 ## 7. Tables use `|` with a key column first

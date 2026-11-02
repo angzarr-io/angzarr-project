@@ -68,10 +68,10 @@ option ruby_package = "Angzarr::Examples";
 //                         from the same view exactly one lands; the other is
 //                         refused ABORTED (retryable) and is re-decided
 //                         against the new state.
-// ConfirmSeat and ReleaseSeat are reaction commands from policy-buy-in-table,
-// built from pmg-buy-in's events (a PM sends no commands): they carry no
-// Handling, the table stamps its own head, and redelivery is
-// deduplicated on their derived command id. A driver with no buy-in
+// ConfirmSeat (a command) and ReleaseSeat (a fact) are policy-buy-in-table's
+// reaction outputs, built from pmg-buy-in's events (a PM sends nothing
+// itself): they carry no Handling, the table stamps its own head, and
+// redelivery is deduplicated on their derived id. A driver with no buy-in
 // deployed (the angzarr-embedded demo) sends ConfirmSeat itself, as a
 // client command, after RequestSeat; nothing then holds or captures the
 // wallet's funds, so ledger rule L3 does not hold for that table.
@@ -240,15 +240,17 @@ message SeatNotConfirmable {
   string reason = 1; // SEAT_HOLD_NOT_FOUND or PLAYER_ALREADY_SEATED
 }
 
-// Free a held seat (SeatReleased). Releasing a hold that no longer exists
-// succeeds with no events; it never refuses. policy-buy-in-table sends it
-// on BuyInFailed (the wallet refused HoldFunds; see the refusal flow in
-// buy_in.proto).
+// Free a held seat (SeatReleased). A fact (decision 14.69): the buy-in's
+// compensation of its held seat, which the table records and never
+// refuses. Releasing a hold that no longer exists records nothing.
+// policy-buy-in-table sends it on BuyInFailed (the wallet refused
+// HoldFunds; see the refusal flow in buy_in.proto).
 message ReleaseSeat {
   option (io.angzarr.v1.command) = {
     component: "io.angzarr.examples.v1.TableState"
     emits: "io.angzarr.examples.v1.SeatReleased"
     emits_cardinality: EMITS_CARDINALITY_OPTIONAL
+    fact: true
   };
   bytes buy_in_id = 1;
   string reason = 2;

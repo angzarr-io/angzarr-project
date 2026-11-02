@@ -1,4 +1,4 @@
-# Allocated: EU-1550 .. EU-1564
+# Allocated: EU-1550 .. EU-1564, EU-1610 .. EU-1619
 Feature: Buying in
   A buy-in needs two things from two places: a seat at the table and money
   from the wallet. Neither side can decide alone, so a buy-in process holds
@@ -23,6 +23,13 @@ Feature: Buying in
   14.31). Two failures are specified: the wallet cannot fund the buy-in,
   so the buy-in fails and the held seat is released; and the table cannot
   confirm the seat, so the buy-in fails and the held money is released.
+
+  A failed buy-in rolls back (decision 14.74): it undoes each step it
+  completed, newest first, and each undo is news its side records and
+  cannot refuse, so undoing can never fail or loop. A step that completes
+  after the buy-in failed is undone at once. What the buy-in hears from
+  the table and the wallet is news too: neither refuses a buy-in's
+  report, and the buy-in never refuses one (decision 14.69).
   Which refusals are business refusals, and which are bugs, waits on the
   buy-in refusal ruling in docs/design/blackjack-latest-proto-rulings.md.
 
@@ -50,7 +57,7 @@ Feature: Buying in
     Given buy-in "B1" for "Alice" at seat 0 of table "Main" is waiting for the seat
     When "Alice" is seated at seat 0 of table "Main" through buy-in "B1" with a stack of 500
     Then buy-in "B1" is waiting for the money to be spent
-    And the wallet of "Alice" is asked to spend the hold for buy-in "B1"
+    And the wallet of "Alice" is told to spend the hold for buy-in "B1"
 
   @EU-1553
   Scenario: Spent money completes the buy-in
@@ -70,7 +77,7 @@ Feature: Buying in
     When the wallet of "Alice" refuses to hold 500 for buy-in "B1"
     Then the wallet of "Alice" records nothing for buy-in "B1"
     And buy-in "B1" has failed because the funds were insufficient
-    And table "Main" is asked to release seat 0 for buy-in "B1"
+    And table "Main" is told to release seat 0 for buy-in "B1"
 
   @EU-1563
   Scenario: A table that cannot confirm the seat fails the buy-in and frees the money
@@ -79,7 +86,31 @@ Feature: Buying in
     When table "Main" refuses to confirm buy-in "B1"
     Then table "Main" records nothing for buy-in "B1"
     And buy-in "B1" has failed because the seat could not be confirmed
-    And the wallet of "Alice" is asked to release the hold for buy-in "B1"
+    And the wallet of "Alice" is told to release the hold for buy-in "B1"
+
+  @EU-1610
+  Scenario: A failed buy-in undoes every step it completed, newest first
+    Given buy-in "B1" for "Alice" at seat 0 of table "Main" is waiting for the seat
+    When table "Main" refuses to confirm buy-in "B1"
+    Then buy-in "B1" has failed because the seat could not be confirmed
+    And the wallet of "Alice" is told to release the hold for buy-in "B1"
+    And then table "Main" is told to release seat 0 for buy-in "B1"
+    And neither can refuse what it is told
+
+  @EU-1611
+  Scenario: Money held after the buy-in failed is released at once
+    Given buy-in "B1" for "Alice" at seat 0 of table "Main" has failed because the funds were insufficient
+    When the wallet of "Alice" holds 500 for buy-in "B1"
+    Then buy-in "B1" has still failed
+    And the wallet of "Alice" is told to release the hold for buy-in "B1"
+    And table "Main" is not asked to confirm buy-in "B1"
+
+  @EU-1612
+  Scenario: A seat released twice is released once
+    Given buy-in "B1" for "Alice" at seat 0 of table "Main" has failed because the seat could not be confirmed
+    And table "Main" was told to release seat 0 for buy-in "B1"
+    When table "Main" is told again to release seat 0 for buy-in "B1"
+    Then table "Main" records nothing more for buy-in "B1"
 
   # ==========================================================================
   # Robustness

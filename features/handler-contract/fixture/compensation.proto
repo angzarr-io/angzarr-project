@@ -1,0 +1,79 @@
+syntax = "proto3";
+
+package test.compensation;
+
+import "io/angzarr/v1/options.proto";
+
+// The handler-contract tier's compensation vocabulary (compensation.feature,
+// decision 14.74). Plain messages, with the (command) declarations the
+// tooling reads: the harness builds the shipment process manager's steps by
+// hand, with each language's compensation tooling, and runs its rollback.
+//
+// The shipment process manager (domain "shipment") has two steps, in order:
+//   reserve stock  - completed by StockReserved, undone by StockReleaseDue,
+//                    which its outbound policy turns into ReleaseStock;
+//   charge payment - completed by PaymentCharged, undone by RefundDue, which
+//                    its outbound policy turns into RefundPayment.
+// ShipmentFailed is its failed event; CompensationFailed records an undo
+// its destination refused.
+
+// --- the process manager's state and events ---
+
+// The journal is the PM's own events, folded: a step is completed when its
+// reply is (reservation_id, charge_id set), and the PM has rolled back once
+// ShipmentFailed is folded (failed).
+message ShipmentState {
+  string reservation_id = 1;
+  string charge_id = 2;
+  bool failed = 3;
+  string failure_reason = 4;
+}
+
+message StockReserved {
+  string reservation_id = 1;
+}
+message PaymentCharged {
+  string charge_id = 1;
+}
+message ShipmentFailed {
+  string reason = 1;
+}
+message StockReleaseDue {
+  string reservation_id = 1;
+}
+message RefundDue {
+  string charge_id = 1;
+}
+// An undo its destination refused (a command, so refusable): the step it
+// undid, by name.
+message CompensationFailed {
+  string step = 1;
+}
+
+// --- what the undos become, as their destinations declare them ---
+
+// The inventory's: a fact, so an undo to it can never be refused.
+message ReleaseStock {
+  option (io.angzarr.v1.command) = {
+    component: "test.compensation.InventoryState"
+    fact: true
+  };
+  string reservation_id = 1;
+}
+
+// The inventory's: a command, so an undo to it may be refused.
+message RestockItems {
+  option (io.angzarr.v1.command) = {
+    component: "test.compensation.InventoryState"
+  };
+  string reservation_id = 1;
+}
+
+// The payment domain's: a fact.
+message RefundPayment {
+  option (io.angzarr.v1.command) = {
+    component: "test.compensation.PaymentState"
+    fact: true
+  };
+  string charge_id = 1;
+}

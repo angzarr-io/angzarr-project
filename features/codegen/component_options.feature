@@ -263,6 +263,43 @@ Feature: Component declarations - lint warnings and errors
       | StartBuyIn  | false |
       | BuyInLapsed | true  |
 
+  @C-0794
+  Scenario Outline: A policy's generated code sends each output in the arm its destination declares
+    # Decision 14.69: business code never picks the arm; the policy's
+    # generated code reads the destination's (command).fact, in every
+    # language the generator writes (decision 14.73).
+    Given an aggregate "WalletState" owning domain "wallet"
+    And a process manager "BuyInState" owning domain "buy-in" with input "buy-in.<input>"
+    And the input "buy-in.<input>" for "BuyInState" has (command).fact <fact>
+    And a POLICY component "WalletToBuyIn" triggered by domain "wallet" with output_domain "buy-in"
+    And an (event) entry for "wallet.FundsHeld" naming "WalletToBuyIn" with domain "wallet"
+    When the handler interfaces are generated
+    Then the reaction of "WalletToBuyIn" to "wallet.FundsHeld" may return "buy-in.<input>"
+    And the generated code of "WalletToBuyIn" sends "buy-in.<input>" as a <arm>
+
+    Examples:
+      | input                   | fact  | arm     |
+      | RecordFundsHeld         | false | Command |
+      | SeatConfirmationRefused | true  | Fact    |
+
+  @C-0795
+  Scenario Outline: A domain is given a refusal handler only for a sent command that declares refuses
+    # Decision 14.73 (the owner's ruling, 2026-11-01: "only commands that
+    # declare refuses"): a command whose (command).refuses is empty has no
+    # typed refusal to hand over, and gets no on_refused_<command>.
+    Given an aggregate "InventoryState" owning domain "inventory" with command "inventory.ReserveStock"
+    And "inventory.ReserveStock" <refuses>
+    And an aggregate "OrderState" owning domain "order" with fact "order.StockUnavailable"
+    And a POLICY component "OrderToInventory" triggered by domain "order" with output_domain "inventory"
+    And an (event) entry for "order.OrderPlaced" naming "OrderToInventory" with domain "order"
+    When the handler interfaces are generated
+    Then "OrderState" <given> a handler of the refusal of "inventory.ReserveStock"
+
+    Examples:
+      | refuses                             | given        |
+      | refuses with "inventory.OutOfStock" | is given     |
+      | declares no refuses                 | is not given |
+
   # C-0664 (a policy names a process manager's root only by implementing a
   # root callback) is retired: there is no root callback; a policy always
   # names its command's root (decision 14.36, as amended).

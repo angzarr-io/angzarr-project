@@ -25,9 +25,10 @@ option ruby_package = "Angzarr::Examples";
 //
 // The buy-in's four policies are declared beside the PM, in buy_in.proto:
 // policy-buy-in-wallet and policy-buy-in-table (from the PM's "buy-in"
-// domain, emitting commands) and policy-table-buy-in and policy-wallet-buy-in
-// (into "buy-in", emitting commands to the PM, which is a domain and
-// subscribes to nothing; decision 14.31).
+// domain, emitting commands and facts) and policy-table-buy-in and
+// policy-wallet-buy-in (into "buy-in", emitting facts to the PM, which is a
+// domain and subscribes to nothing; decision 14.31). Each emits what its
+// destination declares (decision 14.69).
 //
 // Two reactions of the earlier spec are not part of this port:
 // policy-wallet-table (top-ups, whose refusal was compensated back to the
@@ -40,9 +41,8 @@ option ruby_package = "Angzarr::Examples";
 // RoundSettled, for each outcome in seat order, it emits to that outcome's
 // player_root (the wallet's root) one RecordRoundResult{table_root, round,
 // wager, net} followed by one AwardLoyaltyPoints{table_root, round, points
-// = wager}. What the wallet does with an award for a wallet that never
-// enrolled waits on a ruling: under the latest contract a refused reaction
-// command is dead-lettered.
+// = wager}, both facts (the wallet declares them so; decision 14.69): the
+// round is settled, so the wallet records them and never refuses them.
 message TableWalletPolicy {
   option (io.angzarr.v1.component) = {
     kind: COMPONENT_KIND_POLICY
