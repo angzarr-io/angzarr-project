@@ -118,42 +118,38 @@ Feature: Component declarations - lint warnings and errors
     And lint exits with status 0
 
   @C-0612
-  Scenario Outline: The generator gives each refusal mode its handler
-    # Decision 14.31: pass-through generates the policy's CommandRefused
-    # builder and, in the source domain, the dispatch to the
-    # on_refused_<Command> handlers it defines; translate requires the
-    # policy's callback.
+  Scenario: The generator requires a policy's refusal callback for every command of its target
+    # Decision 14.76 ("all commands must declare a refusal path"): a
+    # generated policy always translates; its callback answers a fact of its
+    # source or a Bug, and cannot decline.
     Given an aggregate "InventoryState" owning domain "inventory" with command "inventory.ReserveStock"
+    And "inventory.ReserveStock" refuses with "inventory.OutOfStock"
     And an aggregate "OrderState" owning domain "order" with fact "order.StockUnavailable"
     And a POLICY component "OrderToInventory" triggered by domain "order" with output_domain "inventory"
-    When the handler interfaces are generated with ReserveStock in <mode> mode for "OrderToInventory"
-    Then <generated>
-
-    Examples:
-      | mode         | generated                                                                                                                   |
-      | pass-through | "OrderToInventory" answers a refusal with a generated CommandRefused, and "OrderState" may define on_refused_ReserveStock   |
-      | translate    | "OrderToInventory" must implement on_refused_ReserveStock taking a Refusal and returning a fact of "order"                 |
+    When the handler interfaces are generated
+    Then "OrderToInventory" must implement on_refused_ReserveStock taking a Refusal and returning a fact of "order"
+    And the callback cannot decline the refusal
 
   # C-0620 (exactly one refusal path per sent command) is retired: nothing
   # declares what a policy sends (decision 14.31), so coverage is checked at
   # run time (policy_refusal.feature, C-0618).
 
   @C-0623
-  Scenario Outline: The CLI's refusal switch selects the mode at generation time, and nothing else does
-    # "cli may have to have that switch, as it's compile time" (the owner,
-    # 2026-10-28). No proto option carries the mode; pass-through is the
-    # CLI's default.
+  Scenario Outline: The CLI's translate switch names the fact a refusal callback's scaffold returns
+    # Decision 14.76: the callback is always required, so the switch no
+    # longer selects a mode; it names the source fact the scaffold's stub
+    # returns. A command naming no refuses type fails generation (C-0798).
     Given an aggregate "InventoryState" owning domain "inventory" with command "inventory.ReserveStock"
-    And an aggregate "OrderState" owning domain "order" with fact "order.StockUnavailable"
-    And a POLICY component "OrderToInventory" triggered by domain "order" with output_domain "inventory" <callback>
-    When the handler interfaces are generated with the refusal switch <switch>
-    Then <outcome>
+    And "inventory.ReserveStock" refuses with "inventory.OutOfStock"
+    And an aggregate "OrderState" owning domain "order" with facts "order.StockUnavailable" and "order.OrderHeld"
+    And a POLICY component "OrderToInventory" triggered by domain "order" with output_domain "inventory"
+    When the policy is scaffolded with the refusal switch <switch>
+    Then its on_refused_ReserveStock stub returns <returns>
 
     Examples:
-      | callback                                         | switch                                                     | outcome                                                                         |
-      | and no on_refused_ReserveStock callback          | unset                                                      | ReserveStock's refusals pass through as CommandRefused                          |
-      | with an on_refused_ReserveStock callback         | translate for command "inventory.ReserveStock" of the policy | ReserveStock's refusals are translated by the callback                          |
-      | and no on_refused_ReserveStock callback          | translate for policy "OrderToInventory"                      | generation fails naming "inventory.ReserveStock": translate needs its callback |
+      | switch                                                                          | returns                                        |
+      | unset                                                                           | any fact of "order"                            |
+      | translate for command "inventory.ReserveStock" of the policy into "order.StockUnavailable" | "order.StockUnavailable"              |
 
   @C-0625
   Scenario: A command's refuses annotation shapes its generated handler
@@ -283,22 +279,58 @@ Feature: Component declarations - lint warnings and errors
       | SeatConfirmationRefused | true  | Fact    |
 
   @C-0795
-  Scenario Outline: A domain is given a refusal handler only for a sent command that declares refuses
+  Scenario: A domain is given a refusal handler for each command its policies send
     # Decision 14.73 (the owner's ruling, 2026-11-01: "only commands that
-    # declare refuses"): a command whose (command).refuses is empty has no
-    # typed refusal to hand over, and gets no on_refused_<command>.
+    # declare refuses"), as amended by 14.76: every command a policy sends
+    # declares refuses (C-0798), so each gets one. A generated policy
+    # always translates, so the handler serves a hand-written policy's
+    # pass-through.
     Given an aggregate "InventoryState" owning domain "inventory" with command "inventory.ReserveStock"
-    And "inventory.ReserveStock" <refuses>
+    And "inventory.ReserveStock" refuses with "inventory.OutOfStock"
     And an aggregate "OrderState" owning domain "order" with fact "order.StockUnavailable"
     And a POLICY component "OrderToInventory" triggered by domain "order" with output_domain "inventory"
     And an (event) entry for "order.OrderPlaced" naming "OrderToInventory" with domain "order"
     When the handler interfaces are generated
-    Then "OrderState" <given> a handler of the refusal of "inventory.ReserveStock"
+    Then "OrderState" is given a handler of the refusal of "inventory.ReserveStock"
+
+  @C-0797
+  Scenario Outline: A handler returns a list of its component's events
+    # Decision 14.75: there is no emits cardinality; a handling returns a
+    # list of events, empty, one or many, in every language the generator
+    # writes.
+    Given an aggregate "OrderState" owning domain "order" with <input> "order.<message>" whose (command).emits lists "order.OrderPlaced"
+    When the handler interfaces are generated
+    Then the <message> handler returns a list of the component's events
+    And it may return an empty list
 
     Examples:
-      | refuses                             | given        |
-      | refuses with "inventory.OutOfStock" | is given     |
-      | declares no refuses                 | is not given |
+      | input   | message        |
+      | command | PlaceOrder     |
+      | fact    | RecordPayment  |
+
+  @C-0798
+  Scenario: A command a policy may send that declares no refuses fails generation
+    # Decision 14.76: every command a policy sends has a refusal path. A
+    # policy may send any command of its target, so each must declare one.
+    Given an aggregate "InventoryState" owning domain "inventory" with command "inventory.ReserveStock"
+    And "inventory.ReserveStock" declares no refuses
+    And an aggregate "OrderState" owning domain "order" with fact "order.StockUnavailable"
+    And a POLICY component "OrderToInventory" triggered by domain "order" with output_domain "inventory"
+    When the protos are linted
+    Then lint reports an error naming "OrderToInventory" and "inventory.ReserveStock": it declares no refusal path
+    And lint exits with a non-zero status
+
+  @C-0799
+  Scenario: A policy that may send a command to a source taking no fact fails generation
+    # Decision 14.76: the policy's refusal callback answers a fact of its
+    # source, so its source must take one.
+    Given an aggregate "InventoryState" owning domain "inventory" with command "inventory.ReserveStock"
+    And "inventory.ReserveStock" refuses with "inventory.OutOfStock"
+    And an aggregate "OrderState" owning domain "order" that takes no fact
+    And a POLICY component "OrderToInventory" triggered by domain "order" with output_domain "inventory"
+    When the protos are linted
+    Then lint reports an error naming "OrderToInventory" and its source domain "order": no fact to translate a refusal into
+    And lint exits with a non-zero status
 
   # C-0664 (a policy names a process manager's root only by implementing a
   # root callback) is retired: there is no root callback; a policy always

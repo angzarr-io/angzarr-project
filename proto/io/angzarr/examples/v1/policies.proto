@@ -21,7 +21,9 @@ option ruby_package = "Angzarr::Examples";
 // event, never from a lookup, for every target (decision 14.36, as
 // amended), and emits reaction commands: they carry no Handling, the
 // destination stamps its own head, and redelivery is deduplicated on the
-// command id derived from the triggering event.
+// command id derived from the triggering event. Every command a policy
+// sends has a refusal path (decision 14.76): the policy translates its
+// refusal into a fact of its source.
 //
 // The buy-in's four policies are declared beside the PM, in buy_in.proto:
 // policy-buy-in-wallet and policy-buy-in-table (from the PM's "buy-in"
@@ -42,7 +44,9 @@ option ruby_package = "Angzarr::Examples";
 // player_root (the wallet's root) one RecordRoundResult{table_root, round,
 // wager, net} followed by one AwardLoyaltyPoints{table_root, round, points
 // = wager}, both facts (the wallet declares them so; decision 14.69): the
-// round is settled, so the wallet records them and never refuses them.
+// round is settled, so the wallet records them and never refuses them. It
+// sends no command, so each refusal callback its generated interface
+// requires (decision 14.76) answers a Bug.
 message TableWalletPolicy {
   option (io.angzarr.v1.component) = {
     kind: COMPONENT_KIND_POLICY
@@ -56,7 +60,9 @@ message TableWalletPolicy {
 // player, root = TurnStarted.player_root, carrying table_root (the event's
 // own stream root), round, seat, the hand's cards, total and soft,
 // dealer_up, can_double, stack and wager, unchanged. It forwards nothing
-// else: never the dealer's hole card or the shoe (R8).
+// else: never the dealer's hole card or the shoe (R8). A refusal of
+// DecideMove is translated into the table's RecordMoveUndecided{round,
+// seat, reason} (decision 14.76).
 message TablePlayerPolicy {
   option (io.angzarr.v1.component) = {
     kind: COMPONENT_KIND_POLICY
@@ -70,10 +76,9 @@ message TablePlayerPolicy {
 // one Hit{seat}, Stand{seat} or DoubleDown{seat}, by action
 // (MOVE_ACTION_HIT, _STAND, _DOUBLE_DOWN). An action it does not know
 // (MOVE_ACTION_UNSPECIFIED) is a player bug: the policy fails, and the
-// trigger is dead-lettered and alerted. A refusal of its command passes
-// through to the player as CommandRefused; the player defines no
-// on_refused handler for Hit, Stand or DoubleDown (a refused move is a bug,
-// table.proto), so it is dead-lettered and alerted.
+// trigger is dead-lettered and alerted. A refusal of its command is
+// translated into the player's RecordMoveRefused{seat, action, reason}
+// (decision 14.76), so the player hears of it.
 message PlayerTablePolicy {
   option (io.angzarr.v1.component) = {
     kind: COMPONENT_KIND_POLICY

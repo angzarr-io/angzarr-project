@@ -37,7 +37,12 @@ option ruby_package = "Angzarr::Examples";
 // aggregate decides on an empty stream as on any other), so nothing has to
 // open it before it is seated.
 //
-// Rejections: none. A player always decides; DecideMove names no refuses.
+// Rejections: a player always decides, but DecideMove names a refuses type,
+// DecideMoveRefused, as every command a policy sends must (decision 14.76),
+// and policy-table-player translates such a refusal into the table's
+// RecordMoveUndecided. The table's refusal of the move a player decided
+// comes back as the player's RecordMoveRefused fact, translated by
+// policy-player-table.
 // Conflict resolution: PlayerState lists no COMMUTATIVE; DecideMove is a
 // reaction command (no Handling; the player stamps its own head), so it is
 // never stale.
@@ -53,6 +58,7 @@ message DecideMove {
   option (io.angzarr.v1.command) = {
     component: "io.angzarr.examples.v1.PlayerState"
     emits: "io.angzarr.examples.v1.MoveDecided"
+    refuses: "io.angzarr.examples.v1.DecideMoveRefused"
   };
   bytes table_root = 1; // The table asking (TurnStarted's own stream root)
   uint32 round = 2;
@@ -64,6 +70,31 @@ message DecideMove {
   bool can_double = 8; // First two cards and a stack at least the wager (AHR-10)
   int64 stack = 9; // The seat's stack, wager excluded
   int64 wager = 10; // The seat's wager this round
+}
+
+// The player's typed refusal of DecideMove (DecideMove's refuses): a
+// refusal object, never an event (decision 14.31).
+message DecideMoveRefused {
+  string reason = 1;
+}
+
+// -----------------------------------------------------------------------------
+// Facts — from policy-player-table
+// -----------------------------------------------------------------------------
+
+// The table refused the move this player decided: the DOMESTIC fact that
+// policy-player-table's refusal callback returns from the table's
+// TableRefused (decision 14.76), so the player hears of it without the
+// table's protos. The player records MoveRefused.
+message RecordMoveRefused {
+  option (io.angzarr.v1.command) = {
+    component: "io.angzarr.examples.v1.PlayerState"
+    emits: "io.angzarr.examples.v1.MoveRefused"
+    fact: true
+  };
+  int32 seat = 1; // The refused move's seat
+  MoveAction action = 2; // The refused move
+  string reason = 3; // The table's TableRefused reason, e.g. NOT_YOUR_TURN
 }
 
 // -----------------------------------------------------------------------------
@@ -98,6 +129,14 @@ message MoveDecided {
   uint32 total = 6; // As DecideMove.total
   bool soft = 7; // As DecideMove.soft
   Card dealer_up = 8; // As DecideMove.dealer_up
+}
+
+// The table refused a move this player decided (RecordMoveRefused).
+message MoveRefused {
+  option (io.angzarr.v1.event) = {component: "io.angzarr.examples.v1.PlayerState"};
+  int32 seat = 1;
+  MoveAction action = 2;
+  string reason = 3;
 }
 
 // -----------------------------------------------------------------------------

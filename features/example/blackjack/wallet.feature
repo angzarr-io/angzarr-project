@@ -163,10 +163,15 @@ Feature: Wallet
     And "Alice" has a bankroll of 500 with 500 available
 
   @EU-1419
-  Scenario: A hold that was never placed cannot be captured
+  Scenario: Capturing a hold that was never placed records nothing
+    # CaptureFunds is a fact (decision 14.69): the wallet never refuses it.
+    # A capture of a hold the wallet does not have is a bug of whoever sent
+    # it: the wallet records nothing (decision 14.75), and the bug is
+    # dead-lettered (decision 14.72).
     Given wallet "Alice" is registered with 1000 deposited
     When the hold "B9" of "Alice" is captured
-    Then the capture is refused because there is no hold "B9"
+    Then the wallet of "Alice" records nothing
+    And "Alice" has a bankroll of 1000 with 1000 available
 
   @EU-1420
   Scenario: Releasing a hold restores what is available

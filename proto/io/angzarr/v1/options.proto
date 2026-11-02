@@ -156,9 +156,11 @@ message CommandOptions {
   // against the compiled descriptor set; generation fails on an unknown or
   // ambiguous reference.
   string component = 1;
-  // Fully-qualified event type(s) this command emits. When set, the generated
-  // handler returns the typed events; when empty, it returns raw payloads
-  // (google.protobuf.Any), for multi-type emission. Either way business
+  // Fully-qualified event type(s) this command emits. A handling returns a
+  // list of its component's events, empty, one or many (decision 14.75):
+  // when set, the generated handler's list is of these typed events; when
+  // empty, of any of the component's events (or raw payloads,
+  // google.protobuf.Any, where a language has no typed choice). Either way business
   // output is payloads, plus the post-command state the client library adds
   // to every response, nothing more: the
   // framework builds the EventBook, uses the command's cover, and stamps
@@ -192,7 +194,10 @@ message CommandOptions {
   // RefusalResponse.refusal (types.proto). Generation fails on a refuses
   // type that does not resolve, or that is not a message of the command's
   // own domain (the refusals region). Set on a FACT (fact, below),
-  // generation fails: a fact cannot be refused.
+  // generation fails: a fact cannot be refused. A command of a domain some
+  // policy targets (a policy may send any of its target's commands) must
+  // name at least one (decision 14.76): every command a policy sends has a
+  // refusal path, so one naming none fails generation and lint.
   repeated string refuses = 4;
   // Whether this input is a FACT (decision 14.34, the owner's ruling of
   // 2026-10-28). Unset (false): a COMMAND, which its handler decides and
@@ -210,32 +215,12 @@ message CommandOptions {
   // a policy's fact is never refused, and only its commands have a
   // refusal path (policy.proto, PolicyService).
   bool fact = 5;
-  // How many events one handling of this input emits, of its emits types
-  // (decision 14.50). Unset is EMITS_CARDINALITY_ONE. The generated
-  // handler's return type follows it in each language; see
-  // EmitsCardinality. Applies to commands and facts alike. Set with no
-  // emits (raw payloads), only MANY is accepted (the raw form is already a
-  // list); ONE or OPTIONAL there fails generation.
-  EmitsCardinality emits_cardinality = 6;
-}
-
-// The emits cardinality of a command or fact (CommandOptions.emits_cardinality).
-enum EmitsCardinality {
-  // Unset: EMITS_CARDINALITY_ONE.
-  EMITS_CARDINALITY_UNSPECIFIED = 0;
-  // Exactly one event of each emits type, in the listed order: one event
-  // for one type, a fixed tuple for several (e.g. CreateTable's
-  // TableCreated + ShoeShuffled). The default.
-  EMITS_CARDINALITY_ONE = 1;
-  // That, or nothing: a handling may emit no events (e.g. a repeated
-  // ConfirmSeat already applied). Generated as an optional value (Rust
-  // Option, Python None).
-  EMITS_CARDINALITY_OPTIONAL = 2;
-  // Any number of events, each of one of the emits types, in any order,
-  // none included (e.g. Hit: CardDealt, then TurnStarted or DealerPlayed +
-  // RoundSettled). Generated as a sequence of the emits types' choice (the
-  // event enum).
-  EMITS_CARDINALITY_MANY = 3;
+  // Field 6 was emits_cardinality (decision 14.50), with its enum
+  // EmitsCardinality; removed by decision 14.75: every handling of a
+  // command or a fact returns a list of its component's events, so there
+  // is no cardinality to declare. Its number and name are reserved.
+  reserved 6;
+  reserved "emits_cardinality";
 }
 
 // Marks a message as an EVENT consumed by ONE component. The extension is
@@ -573,8 +558,9 @@ extend google.protobuf.EnumValueOptions {
 //     };
 //     ...
 //   }
-// The generated handler returns its events or one of the refuses types
-// (a typed choice the generator builds in each language). The client
+// The generated handler returns its events (a list, decision 14.75) or one
+// of the refuses types (a typed choice the generator builds in each
+// language). The client
 // library packs the chosen refusal object, the concrete message, into the
 // rejection's status details as a google.protobuf.Any, and the coordinator
 // hands it on as RefusalResponse.refusal (types.proto). The refusing
@@ -609,42 +595,42 @@ extend google.protobuf.EnumValueOptions {
 // coordinator calls PolicyService.OnRefused, and ONE fact of the refusal is
 // delivered to the policy's own source domain, by one of two paths
 // (decision 14.42):
-//   - PASS-THROUGH (the default): the generated code has no callback and
-//     answers "no translation"; the coordinator builds the standard
-//     CommandRefused { command, refusal (the typed refusal object, as an
-//     Any), trigger } and sends it. The source domain
-//     handles it by a generated dispatch on the refused command's type,
-//       on_refused_<Command>(refusal: CommandRefused, state) -> events,
-//     where its author writes the reaction (unpacking the typed refusal
-//     object, whose proto it imports with the foreign command's).
 //   - TRANSLATE: the policy's own callback,
-//       on_refused_<Command>(Refusal { event, command, response })
-//         -> <a fact type of the source domain>,
+//       <command>_refused(command, refusal, ctx)
+//         -> <a fact of the source domain>, or a Bug,
 //     reads the typed refusal object and returns a DOMESTIC fact, so the
 //     source never refers to the foreign protos (the policy already does).
-//     That is why translate exists: CommandRefused carries only the
-//     foreign object, so a domain that does not want to unpack it, or
-//     import the foreign protos, has the policy unpack it and hand over a
-//     domestic fact.
+//   - PASS-THROUGH: a policy that answers "no translation"; the
+//     coordinator builds the standard CommandRefused { command, refusal
+//     (the typed refusal object, as an Any), trigger } and sends it. The
+//     source domain handles it by a dispatch on the refused command's
+//     type, on_refused_<Command>(refusal: CommandRefused, state) -> events,
+//     which may decline it.
 //
-// The switch is angzarr-cli's ONLY ("cli may have to have that switch, as
-// it's compile time": the owner, 2026-10-28). The CLI selects pass-through
-// or translate per policy or per policy command, as a flag and as a
-// build-config entry; pass-through is its default. Selecting translate
-// makes the generated policy interface require on_refused_<Command> for that
-// command, so a missing callback fails generation (or the build). No proto
-// option carries the mode, and nothing about it is visible at run time
-// beyond which fact type arrives.
+// A generated policy always translates (decision 14.76, the owner's ruling
+// of 2026-11-02: "all commands must declare a refusal path"; "the
+// compensation *must* execute to tell the source domain of the business
+// failure"). Its interface REQUIRES the callback for every command of its
+// target, in every language the generator writes (a missing one does not
+// compile in Rust, and is an abstract method of the Python base class),
+// and the callback answers one of its source's facts or a Bug: it cannot
+// decline. So generation fails, as does lint, for a policy whose target
+// has a command naming no refuses type, and for a policy that may send a
+// command whose source takes no fact to translate its refusal into. A
+// generated policy therefore never answers a refusal with CommandRefused,
+// and ROUTER_REASON_NO_REFUSAL_HANDLER is unreachable for the commands it
+// sends. PASS-THROUGH stays the protocol's (PolicyService.OnRefused) for a
+// policy written by hand, and the source's on_refused_<Command> stays
+// generated for it (decision 14.73).
 //
 // No declaration of what a policy sends ("declaring commands it may send is
 // a mistake, period": the owner, 2026-10-28), and none of which refusals a
 // domain handles: the source domain's on_refused_<Command> dispatch is
-// inferred from the handlers it defines, as fact handlers are (the
-// handler registration is the declaration). Consequence: the generator
-// cannot check refusal coverage against what a policy sends; a refusal with
-// no path (a pass-through CommandRefused whose command type the source has
-// no handler for) is caught at RUN time: the source answers
-// ROUTER_REASON_NO_REFUSAL_HANDLER (decision 14.37), and the fact is dead-lettered and alerted. What the
-// generator still checks: the refuses diagnostics above, and that a
-// command selected for translate has its callback.
+// inferred from the handlers it defines, as fact handlers are (the handler
+// registration is the declaration). So the generator holds every command of
+// a policy's target to the rule above, sent or not. What the
+// generator checks: the refuses diagnostics above, every target command's
+// refuses, and its policy's source's facts. angzarr-cli's --translate
+// names, for a policy's command, the source fact its scaffolded callback
+// returns; it no longer selects a mode.
 // endregion

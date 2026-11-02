@@ -86,46 +86,48 @@ option ruby_package = "Angzarr";
 //     sent, and the target's RefusalResponse { refusal | diagnostic },
 //     whose refusal is the typed refusal object as an Any (types.proto).
 //     It calls it in both modes, because only the policy's business process
-//     knows whether it translates that command.
-//   - PASS-THROUGH (the default): the business process has no callback for
-//     the refused command's type and answers an EMPTY OnRefusedResponse
-//     ("no translation"). The coordinator then builds the standard
+//     knows whether it translates that command (a generated one always
+//     does, decision 14.76).
+//   - PASS-THROUGH: the business process has no callback for the refused
+//     command's type and answers an EMPTY OnRefusedResponse ("no
+//     translation"). The coordinator then builds the standard
 //     CommandRefused { command, refusal (the typed refusal object, still
 //     packed), trigger (the triggering event's EventRef) } (types.proto,
 //     the refusal_facts region), addressed to the stream of the triggering
 //     event. The source
-//     domain's command handler has a generated dispatch by the refused
+//     domain's command handler has a dispatch by the refused
 //     (foreign) command's type,
 //       on_refused_<Command>(refusal, state) -> events,
 //     where its author writes the reaction and unpacks the typed refusal
 //     object; it is an ordinary, infallible fact handler, and the source
 //     imports the foreign command's and refusal object's protos.
 //   - TRANSLATE: the policy's own callback,
-//       on_refused_<Command>(Refusal { event, command, response })
+//       <command>_refused(command, refusal, ctx)
 //         -> <a fact type of the source domain>,
 //     reads the typed refusal object and returns a DOMESTIC fact, which the
 //     business process answers as the fact's payload alone, so the
 //     source never refers to the foreign protos (the policy already does).
-//     This is WHY translate exists: CommandRefused carries only the
-//     foreign object, so a domain that does not want to unpack it, or
-//     import the foreign protos, has the policy unpack it there and hand
-//     over a domestic fact. Refusal is one struct, so a field can be
-//     added later without breaking policy code; no context object rides
-//     with the command (considered and deferred, decision 14.31).
-//   - The mode is chosen per policy or per policy command by angzarr-cli's
-//     refusal switch, at code generation, and nowhere else (no proto
-//     option); pass-through is the CLI's default, and selecting translate
-//     makes the callback required, so a missing one fails generation (or
-//     the build). Nothing about the mode is decided or visible at run
-//     time beyond which fact type arrives (options.proto, the refusals
-//     region).
+//     CommandRefused carries only the foreign object, so a domain that
+//     does not want to unpack it, or import the foreign protos, has the
+//     policy unpack it there and hand over a domestic fact. Refusal is one
+//     struct, so a field can be added later without breaking policy code;
+//     no context object rides with the command (considered and deferred,
+//     decision 14.31).
+//   - A policy angzarr-cli generates always translates (decision 14.76:
+//     "all commands must declare a refusal path"). Its interface requires
+//     the callback for every command of its target, which answers a fact
+//     of its source or a Bug and cannot decline; a target command naming
+//     no refuses type, or a source taking no fact, fails generation
+//     (options.proto, the refusals region). Pass-through stays this
+//     protocol's for a policy written by hand.
 //   - Nothing declares which commands a policy sends, or which refusals a
 //     domain handles: the source's on_refused_<Command> dispatch is
-//     inferred from the handlers it defines. So the generator cannot check
-//     that every refusal has a path; one with none (a pass-through
-//     CommandRefused whose command type the source has no handler for) is
-//     caught at RUN time: answered ROUTER_REASON_NO_REFUSAL_HANDLER (decision 14.37:
-//     its own key, metadata command_type), dead-lettered and alerted.
+//     inferred from the handlers it defines. So a hand-written policy's
+//     refusal with no path (a pass-through CommandRefused whose command
+//     type the source has no handler for) is caught at RUN time: answered
+//     ROUTER_REASON_NO_REFUSAL_HANDLER (decision 14.37: its own key,
+//     metadata command_type), dead-lettered and alerted. A generated
+//     policy never reaches it (decision 14.76).
 // Mechanics, the same in both modes:
 //   - The coordinator builds or takes the fact and addresses it (decision
 //     14.42). The fact's identity is the REFUSED COMMAND'S: its command_id is the

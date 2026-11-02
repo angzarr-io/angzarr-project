@@ -95,12 +95,12 @@ Each `CommandBook` targets a different root. The framework delivers them indepen
 
 When a target **refuses** one of a policy's commands, the target records nothing and may return a typed refusal object of its own domain (one of the command's `refuses` types). The refusal comes back to the policy, and the policy's coordinator builds one **refusal fact** for the exact stream of the triggering event; its id is the refused command's id.
 
-- **Pass-through** (the default): the coordinator builds the standard `CommandRefused { command, refusal, trigger }`, the typed refusal object packed, and the source domain handles it in its `on_refused_<Command>(refusal, state)`, unpacking the foreign object.
-- **Translate** (selected by the `angzarr` CLI per policy or per command, at code generation): the policy's callback reads `Refusal { event, command, response }` and returns a fact of the source domain, so a source that does not want to unpack a foreign object, or import foreign protos, gets a domestic fact.
+- **Translate**: the policy's callback reads the refused command and its typed refusal and returns a fact of the source domain, so a source that does not want to unpack a foreign object, or import foreign protos, gets a domestic fact. A policy the `angzarr` CLI generates always translates (decision 14.76): the callback is required for every command of its target, and answers a fact of the source or a bug.
+- **Pass-through** (a policy written by hand only): the coordinator builds the standard `CommandRefused { command, refusal, trigger }`, the typed refusal object packed, and the source domain handles it in its `on_refused_<Command>(refusal, state)`, unpacking the foreign object.
 
 The refusal fact is unrefusable. A policy's facts for its destination are never refused at all, so only its commands come back this way. The source decides what the refusal means and records its own events. There is no compensation side channel: the refusal is an ordinary fact in the source's own stream.
 
-A refusal with no path (a pass-through `CommandRefused` whose command type the source has no handler for) is answered `ROUTER_REASON_NO_REFUSAL_HANDLER`, dead-lettered and alerted. See [Error Recovery](/operations/error-recovery#policy-refusals).
+Every command of a domain a policy targets names a `refuses` type, and the generator refuses one that names none. A hand-written policy's refusal with no path (a pass-through `CommandRefused` whose command type the source has no handler for) is answered `ROUTER_REASON_NO_REFUSAL_HANDLER`, dead-lettered and alerted; a generated policy never reaches it. See [Error Recovery](/operations/error-recovery#policy-refusals).
 
 ---
 

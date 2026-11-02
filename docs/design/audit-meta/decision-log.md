@@ -3908,7 +3908,9 @@ that does not enforce it never answers it.
 the proto; the host config is strict.** Owner rulings, 2026-10-31 (the
 overnight generator and app-generation rulings). Follows 14.31, 14.37 and
 14.38.
-- **Emits cardinality.** `CommandOptions.emits_cardinality` (field 6, enum
+- **Emits cardinality.** REVERSED by 14.75: there is no cardinality; every
+  handling returns a list of events. As first ruled:
+  `CommandOptions.emits_cardinality` (field 6, enum
   `EmitsCardinality`): `EMITS_CARDINALITY_ONE` (the default, and what
   unset means), `EMITS_CARDINALITY_OPTIONAL`, `EMITS_CARDINALITY_MANY`.
   ONE is one event of each emits type, a fixed tuple; OPTIONAL is that or
@@ -4837,6 +4839,9 @@ declare `refuses`"). Amends 14.31's generated pass-through handlers.
   (one per command a policy's target takes).
 - Cost: a domain that wants a command's refusal handed to it names a
   `refuses` type for that command.
+- Amended by 14.76: every command a policy sends names a `refuses` type, and
+  a generated policy always translates, so a generated policy never passes
+  a refusal through.
 
 **14.74 A process manager's compensation is code, kept by its client
 library.** Ruled by the owner, 2026-11-01, on decision 28's design
@@ -4855,7 +4860,7 @@ descriptor at startup"). Cites 2.2 (no compensation channel) and 2.3 (no
   declares, a fact where it can (14.69).
 - **Rollback.** `rollback(state, reason)` returns the PM's failed event,
   then the undo of each completed step, newest first: one handling, the
-  PM's events (EMITS_CARDINALITY_MANY). The failed event's fold marks the
+  PM's events (a list, as every handling's, 14.75). The failed event's fold marks the
   PM rolled back.
 - **A late reply.** A reply for a step that arrives after the rollback is
   recorded and undone at once: the tooling returns the step's record, then
@@ -4889,6 +4894,108 @@ descriptor at startup"). Cites 2.2 (no compensation channel) and 2.3 (no
   it, and an undo that is a fact cannot loop.
 - Cost: a PM author declares each step's undo in code; the generator
   checks nothing of it.
+
+**14.75 Every handling returns a list of events; there is no emits
+cardinality.** Ruled by the owner, 2026-11-02 (the 2026-10-31 run's
+decision 45: "why the heck is emit cardinality a thing at all? it should
+return an array/list/vector of events, always. that can be empty, singular,
+or many"). Reverses 14.50's emits-cardinality bullet; supersedes that run's
+decision 43 (no OPTIONAL annotations needed).
+- **The rule.** A command handler and a fact handler, in every language the
+  generator writes, return a list of the component's events: empty, one or
+  many. A command's `emits` types that list when it names them; with none,
+  any of the component's events. A command may still refuse, as before.
+- **The option.** `CommandOptions.emits_cardinality` (field 6) is removed,
+  its number and name `reserved`, and the enum `EmitsCardinality` deleted.
+  table.proto drops its seven uses. `buf breaking` (14.54) passes: its
+  WIRE_JSON rules accept a field removed with its number and name
+  reserved, and an enum's deletion, so no exception (14.70) is needed.
+- **The wire is unchanged.** A handling was always a list on the wire
+  (`EventBook.pages`); the cardinality only typed the generated handler.
+  No runtime read it.
+- **Facts may record nothing.** A fact whose effect is already recorded, or
+  that is stale for its stream, records nothing (an empty list), where it
+  used to record an event of no effect. The blackjack wallet's repeated
+  capture, release, round result and award (EU-1418, EU-1421, EU-1434,
+  EU-1435) and a hold never placed (EU-1419) record nothing; so does the
+  buy-in for another buy-in's news (EU-1557).
+- **Scenarios.** C-0797 (`codegen/component_options.feature`).
+- Why: the ruling. A handling's events are a list on the wire; a second
+  declaration of how many, which a repeat or a variable subset contradicts,
+  bought only a compile-time check.
+- Cost: the compile-time "exactly these events" check on a handler that
+  always emits one is lost, and every handler's signature changes in both
+  languages.
+
+**14.76 Every command a policy sends has a refusal path, and a generated
+policy always translates.** Ruled by the owner, 2026-11-02 (the 2026-10-31
+run's decision 42, on item S's escalations S-2 and S-4: "all commands must
+declare a refusal path"; "the compensation *must* execute to tell the
+source domain of the business failure"). Amends 14.73 and 14.31's refusal
+modes; rewrites C-0612, C-0623 and C-0795.
+- **Every sent command declares `refuses`.** Nothing declares what a policy
+  sends (14.31), and a policy may send any command of its target, so every
+  command (not fact) of a domain some policy targets names at least one
+  `refuses` type. One that names none is a coded generation and lint
+  error naming the policy and the command.
+- **The source takes a fact.** A policy's refusal callback answers a fact
+  of its source, so a policy whose target has a command and whose source
+  takes no fact is a coded generation and lint error.
+- **The policy's callback is required.** A generated policy's interface has
+  `<command>_refused` for every command of its target, required in every
+  language: in Rust a trait method with no default (a missing one does not
+  compile), in Python an abstract method of the generated base class. It
+  returns the source's fact choice or a Bug (Rust `Result<<Source>Fact,
+  Bug>`), and cannot decline: a refusal of a command the policy never sends
+  is answered with a Bug.
+- **The domain's handler may still decline.** A source domain's generated
+  `on_refused_<command>` (14.73) is unchanged and may decline. A generated
+  policy never passes a refusal through, so for its commands the handler
+  is not reached; it stays for a policy written by hand, for which
+  pass-through stays the protocol's (PolicyService.OnRefused).
+- **NO_REFUSAL_HANDLER.** `ROUTER_REASON_NO_REFUSAL_HANDLER` is unreachable
+  for the commands a generated policy sends; it stays for a hand-written
+  policy's pass-through.
+- **The CLI's switch.** `--translate <policy>:<command>=<fact>` no longer
+  selects a mode: it names the source fact the scaffolded callback
+  returns.
+- **The examples.** DecideMove refuses with DecideMoveRefused, translated
+  into the table's RecordMoveUndecided; Hit, Stand and DoubleDown's
+  TableRefused is translated into the player's RecordMoveRefused; HoldFunds'
+  InsufficientFunds into the buy-in's FundsHoldRefused (EU-1562); the
+  wallet's client commands refuse with WalletRefused.
+- **Scenarios.** C-0612, C-0623 and C-0795 rewritten; C-0798 and C-0799
+  (`codegen/component_options.feature`).
+- Why: the rulings. A refusal that nothing handles leaves the business
+  process that sent the command unaware it failed; a compensation must run.
+- Cost: every command of a targeted domain names a refusal type; each
+  generated policy implements a callback per target command, the ones it
+  never sends answering a Bug.
+
+**14.77 The blackjack buy-in compensates as 14.74 shapes it.** Ruled by the
+owner, 2026-11-02 (the 2026-10-31 run's decision 44, option (a)).
+- **Failed events trigger nothing.** BuyInFailed (the wallet refused
+  HoldFunds) and BuyInSeatLost (the table refused ConfirmSeat) are the
+  rollback's failed events, folded by the PM alone.
+- **Undo events.** SeatReleaseDue (policy-buy-in-table sends ReleaseSeat)
+  undoes the held seat, recorded by BuyInStarted; HoldReleaseDue
+  (policy-buy-in-wallet sends ReleaseHold) undoes the held funds, recorded
+  by BuyInFundsHeld. Both undos are facts.
+- **CompensationFailed** is the PM's alert for a refused undo (14.74,
+  decision 38 (a)); both undos are facts, so the buy-in never records it
+  today.
+- **A late hold.** Funds held after the buy-in failed are recorded as
+  BuyInLateFundsHeld, distinct from BuyInFundsHeld, which would ask the
+  table to confirm the seat, and undone at once with HoldReleaseDue
+  (EU-1611).
+- **The refusals' facts.** FundsHoldRefused (new, from 14.76) and
+  SeatConfirmationRefused each roll the buy-in back.
+- **Scenarios.** EU-1562, EU-1610 and EU-1611 (blackjack-framework
+  `process_manager.feature`) are bound by examples-rust, its buy-in rebuilt
+  on angzarr-embedded's `Compensation`.
+- Why: the ruling; the example shows 14.74's tooling end to end.
+- Cost: no wire change beyond new messages; BuyInFailed and BuyInSeatLost
+  no longer feed a policy.
 
 ## Corrections
 

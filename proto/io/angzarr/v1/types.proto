@@ -761,7 +761,8 @@ message Diagnostic {
 // region refusal_facts
 // The standard refusal fact (decision 14.31; PolicyService in policy.proto,
 // Refusals). The policy's COORDINATOR builds it (decision 14.42): in
-// PASS-THROUGH mode, the default chosen by angzarr-cli, the policy's
+// PASS-THROUGH mode, which only a hand-written policy takes (a policy
+// angzarr-cli generates always translates, decision 14.76), the policy's
 // business process answers PolicyService.OnRefused with no translation, and
 // the coordinator builds this fact, addressed to the exact stream of the
 // policy's triggering event (domain, root and edition). The source domain handles it by a generated dispatch on the

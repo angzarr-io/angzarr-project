@@ -174,27 +174,16 @@ On restart, the PM rebuilds state by replaying its own events.
 
 A PM tracks the replies to the steps it starts. Its event carries the instance's correlation ID, so the policy's command built from it carries that correlation, and so do the target's events. The policy from the target's domain to the PM's domain turns the replies the PM needs into commands to the instance under that correlation.
 
-A target that **refuses** a policy's command records nothing, and may return a **typed refusal object** of its own domain (e.g. the wallet's `InsufficientFunds { available, requested }`). The command names it in its annotation, as it names its events with `emits`: `refuses: "examples.v1.InsufficientFunds"` on `HoldFunds`, so the generated handler returns its events or an `InsufficientFunds` refusal. The refusal goes back to the policy, which builds one **refusal fact** for the exact stream of its triggering event (domain, root and edition); when that source is the PM, the PM decides the next step from its own state. The fact's id is the refused command's id. Two modes, chosen per policy or per command by the `angzarr` CLI when the code is generated (pass-through is its default; no proto option carries the mode):
+A target that **refuses** a policy's command records nothing, and may return a **typed refusal object** of its own domain (e.g. the wallet's `InsufficientFunds { available, requested }`). The command names it in its annotation, as it names its events with `emits`: `refuses: "examples.v1.InsufficientFunds"` on `HoldFunds`, so the generated handler returns its events or an `InsufficientFunds` refusal. The refusal goes back to the policy, which builds one **refusal fact** for the exact stream of its triggering event (domain, root and edition); when that source is the PM, the PM decides the next step from its own state. The fact's id is the refused command's id. A policy the `angzarr` CLI generates always **translates** (decision 14.76: every command a policy sends has a refusal path): its callback reads the typed refusal object and returns a domestic fact, so the PM never refers to the foreign protos. The callback is required for every command of the policy's target, and it answers a fact of the source or a bug; it cannot decline:
 
-- **Pass-through (default).** The policy's generated code builds the standard `CommandRefused { command, refusal, trigger }`, and nothing else, with the typed refusal object packed in `refusal`. The PM defines a handler for the foreign command's refusal, and its generated dispatch routes to it:
+```python title="illustrative"
+def confirm_seat_refused(command: ConfirmSeat, refusal: SeatNotConfirmable | None,
+                         ctx: CommandContext) -> SeatConfirmationRefused:
+    return SeatConfirmationRefused(buy_in_id=command.buy_in_id,
+                                   reason=refusal.reason if refusal else "")
+```
 
-  ```python title="illustrative"
-  def on_refused_hold_funds(refusal: CommandRefused, state: BuyInState):
-      funds = refusal.refusal.unpack(InsufficientFunds)
-      return BuyInFailed(buy_in_id=state.buy_in_id, reason="INSUFFICIENT_FUNDS",
-                         available=funds.available, requested=funds.requested)
-  ```
-
-- **Translate (selected per command in the CLI).** The policy's callback reads the typed refusal object and returns a domestic fact, so the PM never refers to the foreign protos. This is why translate exists: `CommandRefused` carries only the foreign object, so a domain that does not want to unpack it, or import the foreign protos, has the policy unpack it and hand over a domestic fact:
-
-  ```python title="illustrative"
-  def on_refused_confirm_seat(refusal: Refusal) -> SeatConfirmationRefused:
-      seat = refusal.response.refusal.unpack(SeatNotConfirmable)
-      return SeatConfirmationRefused(buy_in_id=refusal.command.buy_in_id,
-                                     reason=seat.reason)
-  ```
-
-Nothing declares which commands a policy sends, so a refusal with no handler at its source is found at run time: it is dead-lettered and alerted.
+So every command of a domain a policy targets names a `refuses` type, and a policy's source takes at least one fact; the generator refuses either missing. A policy written by hand may still pass a refusal through as the standard `CommandRefused { command, refusal, trigger }`, which the source handles by its `on_refused_<command>`; a pass-through with no such handler is found at run time, dead-lettered and alerted.
 
 The refusal fact is unrefusable, so a refusal cannot loop. There is no separate notification channel: the refusal is an ordinary fact in the PM's own stream. A hard failure of the policy's command (anything but a business rejection) is retried when retryable and otherwise dead-lettered, as for any policy command.
 

@@ -50,10 +50,9 @@ option ruby_package = "Angzarr::Examples";
 //   INVALID_ARGUMENT: INVALID_TABLE_CONFIG, SEAT_OUT_OF_RANGE,
 //     BUY_IN_OUT_OF_RANGE, BET_OUT_OF_RANGE, BET_NOT_EVEN.
 //
-// Emits cardinality (CommandOptions.emits_cardinality): RequestSeat,
-// ConfirmSeat and ReleaseSeat are OPTIONAL (a repeat emits nothing);
-// DealRound, Hit, Stand and DoubleDown are MANY (a variable subset of their
-// emits); the rest are the default ONE.
+// Every handling returns a list of the table's events (decision 14.75): a
+// repeated RequestSeat, ConfirmSeat or ReleaseSeat emits none; DealRound,
+// Hit, Stand and DoubleDown a variable subset of their emits.
 //
 // Conflict resolution (io.angzarr.v1.ConflictResolution). TableState lists
 // no COMMUTATIVE, so it supports the base STRICT and AGGREGATE_HANDLES, and
@@ -115,7 +114,6 @@ message RequestSeat {
     component: "io.angzarr.examples.v1.TableState"
     emits: "io.angzarr.examples.v1.SeatHeld"
     refuses: "io.angzarr.examples.v1.TableRefused"
-    emits_cardinality: EMITS_CARDINALITY_OPTIONAL
   };
   bytes player_root = 1;
   int32 seat = 2;
@@ -159,7 +157,6 @@ message DealRound {
     emits: "io.angzarr.examples.v1.DealerPlayed"
     emits: "io.angzarr.examples.v1.RoundSettled"
     refuses: "io.angzarr.examples.v1.TableRefused"
-    emits_cardinality: EMITS_CARDINALITY_MANY
   };
 }
 
@@ -167,11 +164,12 @@ message DealRound {
 // action that leaves a decision to make also emits TurnStarted; the action
 // that finishes the last hand also emits DealerPlayed + RoundSettled. Sent
 // by a client, or by policy-player-table from a player's MoveDecided. They
-// refuse with TableRefused, for a client: the table asks only the seat on
-// turn, and DecideMove's can_double says when doubling is allowed, so a
-// refused move from a player (NOT_YOUR_TURN, NO_ROUND_IN_PROGRESS,
-// DOUBLE_NOT_ALLOWED) is a bug; the player defines no on_refused handler
-// for them, so it is dead-lettered and alerted.
+// refuse with TableRefused. The table asks only the seat on turn, and
+// DecideMove's can_double says when doubling is allowed, so a refused move
+// from a player (NOT_YOUR_TURN, NO_ROUND_IN_PROGRESS, DOUBLE_NOT_ALLOWED)
+// should not happen; when one does, policy-player-table translates it into
+// the player's RecordMoveRefused (decision 14.76), so the player hears of
+// it.
 message Hit {
   option (io.angzarr.v1.command) = {
     component: "io.angzarr.examples.v1.TableState"
@@ -180,7 +178,6 @@ message Hit {
     emits: "io.angzarr.examples.v1.DealerPlayed"
     emits: "io.angzarr.examples.v1.RoundSettled"
     refuses: "io.angzarr.examples.v1.TableRefused"
-    emits_cardinality: EMITS_CARDINALITY_MANY
   };
   int32 seat = 1;
 }
@@ -193,7 +190,6 @@ message Stand {
     emits: "io.angzarr.examples.v1.DealerPlayed"
     emits: "io.angzarr.examples.v1.RoundSettled"
     refuses: "io.angzarr.examples.v1.TableRefused"
-    emits_cardinality: EMITS_CARDINALITY_MANY
   };
   int32 seat = 1;
 }
@@ -206,7 +202,6 @@ message DoubleDown {
     emits: "io.angzarr.examples.v1.DealerPlayed"
     emits: "io.angzarr.examples.v1.RoundSettled"
     refuses: "io.angzarr.examples.v1.TableRefused"
-    emits_cardinality: EMITS_CARDINALITY_MANY
   };
   int32 seat = 1;
 }
@@ -228,7 +223,6 @@ message ConfirmSeat {
     component: "io.angzarr.examples.v1.TableState"
     emits: "io.angzarr.examples.v1.PlayerSeated"
     refuses: "io.angzarr.examples.v1.SeatNotConfirmable"
-    emits_cardinality: EMITS_CARDINALITY_OPTIONAL
   };
   bytes buy_in_id = 1;
 }
@@ -243,17 +237,35 @@ message SeatNotConfirmable {
 // Free a held seat (SeatReleased). A fact (decision 14.69): the buy-in's
 // compensation of its held seat, which the table records and never
 // refuses. Releasing a hold that no longer exists records nothing.
-// policy-buy-in-table sends it on BuyInFailed (the wallet refused
-// HoldFunds; see the refusal flow in buy_in.proto).
+// policy-buy-in-table sends it on SeatReleaseDue, the buy-in's undo of its
+// held seat when it rolls back (decision 14.74; buy_in.proto).
 message ReleaseSeat {
   option (io.angzarr.v1.command) = {
     component: "io.angzarr.examples.v1.TableState"
     emits: "io.angzarr.examples.v1.SeatReleased"
-    emits_cardinality: EMITS_CARDINALITY_OPTIONAL
     fact: true
   };
   bytes buy_in_id = 1;
   string reason = 2;
+}
+
+// The player could not decide a move: the DOMESTIC fact that
+// policy-table-player's refusal callback returns from the player's
+// DecideMoveRefused (decision 14.76: every command a policy sends has a
+// refusal path, translated into a fact of its source). The table records
+// MoveUndecided and changes nothing else: the seat stays on turn, and
+// what the table does then (a timeout, standing the hand) waits on a
+// ruling. A player always decides (player.proto), so it is never sent in
+// play.
+message RecordMoveUndecided {
+  option (io.angzarr.v1.command) = {
+    component: "io.angzarr.examples.v1.TableState"
+    emits: "io.angzarr.examples.v1.MoveUndecided"
+    fact: true
+  };
+  uint32 round = 1; // The refused DecideMove's round
+  int32 seat = 2; // The refused DecideMove's seat
+  string reason = 3; // The player's DecideMoveRefused reason
 }
 
 // -----------------------------------------------------------------------------
@@ -558,6 +570,15 @@ message RoundSettled {
   repeated SeatOutcome outcomes = 2; // Ascending by seat
   int64 house_delta = 3;
   int64 house_result_after = 4;
+}
+
+// The seat's player could not decide (RecordMoveUndecided): recorded, and
+// nothing else changes.
+message MoveUndecided {
+  option (io.angzarr.v1.event) = {component: "io.angzarr.examples.v1.TableState"};
+  uint32 round = 1;
+  int32 seat = 2;
+  string reason = 3;
 }
 
 // -----------------------------------------------------------------------------

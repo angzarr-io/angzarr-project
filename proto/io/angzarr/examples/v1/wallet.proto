@@ -27,14 +27,22 @@ option ruby_package = "Angzarr::Examples";
 //   bankroll >= sum(open holds) >= 0, every open hold > 0, and
 //   bankroll = total_deposited - total_withdrawn - total_to_tables + total_from_tables.
 //
-// Rejections (gRPC status, ErrorInfo.reason code):
+// Rejections: the typed refusal WalletRefused (below; decision 14.50), its
+// Reason the ErrorInfo.reason code, named by every client command (each
+// command of a domain a policy targets names one, decision 14.76);
+// HoldFunds refuses with InsufficientFunds. Each code's status is its
+// value's (io.angzarr.v1.refusal_status), unset FAILED_PRECONDITION:
 //   FAILED_PRECONDITION: WALLET_ALREADY_EXISTS, WALLET_NOT_FOUND,
-//     INSUFFICIENT_AVAILABLE_FUNDS, HOLD_NOT_FOUND, HOLD_CONFLICT.
+//     INSUFFICIENT_AVAILABLE_FUNDS.
 //   INVALID_ARGUMENT: AMOUNT_NOT_POSITIVE, DISPLAY_NAME_REQUIRED, EMAIL_REQUIRED.
+// A hold for no wallet, of nothing, or reusing a hold id for another hold
+// (HOLD_CONFLICT) is the buy-in's bug.
 //
-// Repeating a hold-lifecycle command (HoldFunds / CaptureFunds / ReleaseHold)
-// whose effect is already recorded with an identical payload succeeds with
-// no events: redelivery is harmless.
+// Repeating HoldFunds whose hold is already open with an identical payload
+// succeeds with no events; a fact whose effect is already recorded
+// (CaptureFunds or ReleaseHold of a closed hold, a round result or award
+// already recorded) records nothing (decision 14.75): redelivery is
+// harmless.
 //
 // Conflict resolution: WalletState lists no COMMUTATIVE, so it supports the
 // base STRICT and AGGREGATE_HANDLES, and STRICT is its default. The earlier
@@ -56,6 +64,7 @@ message RegisterWallet {
   option (io.angzarr.v1.command) = {
     component: "io.angzarr.examples.v1.WalletState"
     emits: "io.angzarr.examples.v1.WalletRegistered"
+    refuses: "io.angzarr.examples.v1.WalletRefused"
   };
   string display_name = 1;
   string email = 2;
@@ -67,6 +76,7 @@ message ImportWallet {
   option (io.angzarr.v1.command) = {
     component: "io.angzarr.examples.v1.WalletState"
     emits: "io.angzarr.examples.v1.WalletImported"
+    refuses: "io.angzarr.examples.v1.WalletRefused"
   };
   string display_name = 1;
   string email = 2;
@@ -79,6 +89,7 @@ message UpdateProfile {
   option (io.angzarr.v1.command) = {
     component: "io.angzarr.examples.v1.WalletState"
     emits: "io.angzarr.examples.v1.ProfileUpdated"
+    refuses: "io.angzarr.examples.v1.WalletRefused"
   };
   string display_name = 1;
 }
@@ -87,6 +98,7 @@ message DepositFunds {
   option (io.angzarr.v1.command) = {
     component: "io.angzarr.examples.v1.WalletState"
     emits: "io.angzarr.examples.v1.FundsDeposited"
+    refuses: "io.angzarr.examples.v1.WalletRefused"
   };
   int64 amount = 1;
 }
@@ -96,6 +108,7 @@ message WithdrawFunds {
   option (io.angzarr.v1.command) = {
     component: "io.angzarr.examples.v1.WalletState"
     emits: "io.angzarr.examples.v1.FundsWithdrawn"
+    refuses: "io.angzarr.examples.v1.WalletRefused"
   };
   int64 amount = 1;
 }
@@ -104,6 +117,7 @@ message EnrollLoyalty {
   option (io.angzarr.v1.command) = {
     component: "io.angzarr.examples.v1.WalletState"
     emits: "io.angzarr.examples.v1.LoyaltyEnrolled"
+    refuses: "io.angzarr.examples.v1.WalletRefused"
   };
 }
 
@@ -111,16 +125,14 @@ message EnrollLoyalty {
 // Commands — the buy-in (reaction commands from policy-buy-in-wallet)
 // -----------------------------------------------------------------------------
 
-// Earmark funds for a buy-in. hold_id is the buy_in_id. How a hold the
-// wallet cannot fund (INSUFFICIENT_AVAILABLE_FUNDS) or that reuses a hold
-// id for another amount (HOLD_CONFLICT) is answered: the wallet refuses it
-// (FAILED_PRECONDITION) and records nothing, and policy-buy-in-wallet
-// passes the refusal, with its typed InsufficientFunds, through as the
-// standard CommandRefused fact to the buy-in instance, whose
-// on_refused_HoldFunds records BuyInFailed (decision 14.31; the refusal
-// flows in buy_in.proto).
-// Whether HOLD_CONFLICT is a refusal or a bug is still the buy-in refusal
-// ruling (R2).
+// Earmark funds for a buy-in. hold_id is the buy_in_id. A hold the wallet
+// cannot fund (INSUFFICIENT_AVAILABLE_FUNDS) is refused
+// (FAILED_PRECONDITION) with its typed InsufficientFunds, and the wallet
+// records nothing; policy-buy-in-wallet translates the refusal into the
+// buy-in's FundsHoldRefused fact, and the buy-in rolls back (decision
+// 14.76; the refusal flows in buy_in.proto). A hold that reuses a hold id
+// for another amount (HOLD_CONFLICT) is the buy-in's bug; whether it is a
+// refusal instead is still the buy-in refusal ruling (R2).
 message HoldFunds {
   option (io.angzarr.v1.command) = {
     component: "io.angzarr.examples.v1.WalletState"
@@ -130,6 +142,36 @@ message HoldFunds {
   bytes hold_id = 1;
   bytes table_root = 2;
   int64 amount = 3;
+}
+
+// The wallet's typed refusal of every client command (their refuses;
+// decision 14.50): a refusal object, never an event. reason is the code;
+// the ErrorInfo.reason on the wire is its name without the REASON_ prefix
+// (WALLET_NOT_FOUND). The other fields are the args, each set only for the
+// codes that name it. The three marked (io.angzarr.v1.refusal_status)
+// INVALID_ARGUMENT are refused with that status, the rest
+// FAILED_PRECONDITION (decision 14.52).
+message WalletRefused {
+  enum Reason {
+    REASON_UNSPECIFIED = 0;
+    // RegisterWallet or ImportWallet for a wallet that exists.
+    REASON_WALLET_ALREADY_EXISTS = 1;
+    // Any client command but RegisterWallet and ImportWallet before either.
+    REASON_WALLET_NOT_FOUND = 2;
+    // WithdrawFunds beyond what is available (the bankroll minus open
+    // holds). Args: available, requested.
+    REASON_INSUFFICIENT_AVAILABLE_FUNDS = 3;
+    // DepositFunds or WithdrawFunds of nothing or less. Args: amount.
+    REASON_AMOUNT_NOT_POSITIVE = 4 [(io.angzarr.v1.refusal_status) = REFUSAL_STATUS_INVALID_ARGUMENT];
+    // RegisterWallet, ImportWallet or UpdateProfile with no display name.
+    REASON_DISPLAY_NAME_REQUIRED = 5 [(io.angzarr.v1.refusal_status) = REFUSAL_STATUS_INVALID_ARGUMENT];
+    // RegisterWallet or ImportWallet with no email.
+    REASON_EMAIL_REQUIRED = 6 [(io.angzarr.v1.refusal_status) = REFUSAL_STATUS_INVALID_ARGUMENT];
+  }
+  Reason reason = 1;
+  optional int64 amount = 2; // The amount that is not positive
+  optional int64 available = 3; // Funds available
+  optional int64 requested = 4; // The amount asked for
 }
 
 // The wallet's typed refusal of HoldFunds when available funds fall short
@@ -143,7 +185,8 @@ message InsufficientFunds {
 
 // Spend an open buy-in hold: bankroll and the hold both drop by its amount.
 // A fact (decision 14.69): the buy-in seated its player, so the wallet
-// records it and never refuses it.
+// records it and never refuses it. A hold that is not open (already
+// captured or released, or never placed) records nothing (decision 14.75).
 message CaptureFunds {
   option (io.angzarr.v1.command) = {
     component: "io.angzarr.examples.v1.WalletState"
@@ -155,8 +198,9 @@ message CaptureFunds {
 
 // Close an open hold without spending it. A fact (decision 14.69): the
 // buy-in's compensation of its held funds, which the wallet records and
-// never refuses. policy-buy-in-wallet sends it on BuyInSeatLost (the table
-// refused ConfirmSeat; see buy_in.proto).
+// never refuses. policy-buy-in-wallet sends it on HoldReleaseDue, the
+// buy-in's undo of its held funds when it rolls back (decision 14.74; see
+// buy_in.proto). A hold that is not open records nothing (decision 14.75).
 message ReleaseHold {
   option (io.angzarr.v1.command) = {
     component: "io.angzarr.examples.v1.WalletState"
@@ -173,7 +217,7 @@ message ReleaseHold {
 
 // From policy-table-wallet, one per settled seat: a fact (decision 14.69),
 // a round that is already settled. Recording the same (table_root, round)
-// twice records nothing.
+// twice records nothing (decision 14.75).
 message RecordRoundResult {
   option (io.angzarr.v1.command) = {
     component: "io.angzarr.examples.v1.WalletState"
@@ -188,7 +232,7 @@ message RecordRoundResult {
 
 // From policy-table-wallet, one per settled seat: a fact (decision 14.69),
 // a round that is already settled. Awarding the same (table_root, round)
-// twice records nothing. An award for a wallet that never enrolled cannot
+// twice records nothing (decision 14.75). An award for a wallet that never enrolled cannot
 // be refused (it was refused with LOYALTY_NOT_ENROLLED): the wallet flags
 // it with an event, as a fact handler flags input it cannot use.
 message AwardLoyaltyPoints {
