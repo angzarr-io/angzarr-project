@@ -71,7 +71,9 @@ option ruby_package = "Angzarr";
 // ComponentDescriptor.output_domain (see PolicyResponse in policy.proto;
 // decision 14.42).
 //
-// There are no compensation declarations. A refusal in a choreographed flow
+// There are no compensation declarations: a process manager pairs each
+// step with its undo in code, with its client library's compensation
+// tooling (decision 14.74). A refusal in a choreographed flow
 // is a rejection plus a fact: the target refuses a policy's command and
 // records nothing, the policy delivers one refusal fact to its own source
 // domain, and that domain's fact handler decides what it means (decision

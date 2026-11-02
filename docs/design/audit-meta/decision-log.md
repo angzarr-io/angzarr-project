@@ -4814,6 +4814,74 @@ implementation's reading that such a fact's step simply fails.
   fact is no answer a sender can act on.
 - Cost: none on the wire.
 
+**14.73 The generator emits each policy output's arm, and refusal handlers
+only where a command declares `refuses`.** Ruled by the owner: decision 28
+of the 2026-10-31 run, as re-ruled 2026-11-01 (14.69: "the policy's
+generated code reads the declaration; business code never picks the
+arm"), and decision 3 of that run's report, 2026-11-01 ("only commands that
+declare `refuses`"). Amends 14.31's generated pass-through handlers.
+- **The arm.** A policy's generated code, in every language, sends each
+  output its reaction returns in the arm its destination's
+  `(command).fact` declares: a Fact for a fact type, a Command otherwise.
+  A reaction returns any input of its destination, command or fact, and
+  never names the arm.
+- **Refusal handlers.** A domain's generated `on_refused_<command>` (a
+  stub in the scaffold, and its registration in the dispatch) exists only
+  for a command its policies send whose `(command).refuses` names a type:
+  one with no typed refusal has nothing for a handler to read, and its
+  refusal, if any, is dead-lettered as one with no handler
+  (`ROUTER_REASON_NO_REFUSAL_HANDLER`). A fact has no refusal at all.
+- **Scenarios.** C-0794 and C-0795 (`codegen/component_options.feature`).
+- Why: the rulings. A reaction that picked its own arm could contradict
+  its destination; a handler for a refusal no command types was noise
+  (one per command a policy's target takes).
+- Cost: a domain that wants a command's refusal handed to it names a
+  `refuses` type for that command.
+
+**14.74 A process manager's compensation is code, kept by its client
+library.** Ruled by the owner, 2026-11-01, on decision 28's design
+(`policy-facts.plan.md`, section 7: ruling 5, "a code-level step/undo
+pairing plus a `rollback(state, reason)` helper per language, with its
+journal in the PM's own events, kept equal across languages by
+handler-contract scenarios"; ruling 6, "a refused undo makes the PM record
+CompensationFailed"), and on the scaffold design's Q10 (2026-11-02: "the
+client library's step registration checks each undo's target against the
+descriptor at startup"). Cites 2.2 (no compensation channel) and 2.3 (no
+`undoes` or `compensates` annotation): nothing of it is in proto.
+- **A step** pairs, in code, the PM event that records it done (its
+  reply, folded into the state: the journal is the PM's own events) with
+  its undo: an event of the PM's own, built from the step's record, that
+  the PM's outbound policy turns into what the step's destination
+  declares, a fact where it can (14.69).
+- **Rollback.** `rollback(state, reason)` returns the PM's failed event,
+  then the undo of each completed step, newest first: one handling, the
+  PM's events (EMITS_CARDINALITY_MANY). The failed event's fold marks the
+  PM rolled back.
+- **A late reply.** A reply for a step that arrives after the rollback is
+  recorded and undone at once: the tooling returns the step's record, then
+  its undo.
+- **An undo that may be refused.** Which event undoes which step is known
+  only in code, so the client library checks it when the step is
+  registered, at startup, against the descriptor: an undo whose target its
+  destination declares a command, not a fact, is warned of (a warning,
+  not a refusal: some undos really can be refused). A refused undo's
+  refusal reaching the PM records CompensationFailed for its step.
+- **Per language.** angzarr-embedded's markup (Rust) and client-python
+  each offer the pairing and the helper; the handler-contract tier's
+  `compensation.feature` (C-0787 to C-0793) is bound by both, so they
+  agree.
+- **Not in it.** Deadlines (ruling 7): a timeout stays an outside fact
+  addressed to the PM.
+- **Open.** Ruling 6 also says the refused undo's input "is dead-lettered
+  and alerted". A handling either records events or is dead-lettered,
+  never both, so how one input does both waits on the owner; until then
+  the tooling records CompensationFailed, and C-0793 pins that half only.
+- Why: the rulings. Temporal's `Saga` and MassTransit's routing slips keep
+  the same journal; here it is the PM's own events, so a rebuild replays
+  it, and an undo that is a fact cannot loop.
+- Cost: a PM author declares each step's undo in code; the generator
+  checks nothing of it.
+
 ## Corrections
 
 Facts the earlier passes or the design note got wrong:

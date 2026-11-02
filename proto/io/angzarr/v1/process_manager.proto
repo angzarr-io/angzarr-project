@@ -114,7 +114,12 @@ option ruby_package = "Angzarr";
 // policy delivers a refusal fact to the PM (the policy's source domain), and
 // the PM's fact handler decides the next step
 // (decision 2.2, as amended by 14.31; PolicyService in policy.proto,
-// Refusals). There is no compensation or notification channel.
+// Refusals). There is no compensation or notification channel: a PM's
+// rollback is its own events, which its client library's compensation
+// tooling builds (decision 14.74): the failed event, then one undo event
+// per completed step, newest first, each turned by its outbound policy into
+// what the destination declares, a fact where it can, so an undo is never
+// refused and compensation cannot loop.
 //
 // Handlers. A PM's handlers follow the aggregate's: a command handler may
 // refuse; a fact handler is infallible, and a failing one is a bug (the
