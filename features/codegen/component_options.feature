@@ -263,10 +263,12 @@ Feature: Component declarations - lint warnings and errors
   Scenario Outline: A policy's generated code sends each output in the arm its destination declares
     # Decision 14.69: business code never picks the arm; the policy's
     # generated code reads the destination's (command).fact, in every
-    # language the generator writes (decision 14.73).
-    Given an aggregate "WalletState" owning domain "wallet"
+    # language the generator writes (decision 14.73). A command it may send
+    # declares refuses, and its source takes a fact (decision 14.76).
+    Given an aggregate "WalletState" owning domain "wallet" with fact "wallet.RecordBuyInRefused"
     And a process manager "BuyInState" owning domain "buy-in" with input "buy-in.<input>"
     And the input "buy-in.<input>" for "BuyInState" has (command).fact <fact>
+    And "buy-in.<input>" <refuses>
     And a POLICY component "WalletToBuyIn" triggered by domain "wallet" with output_domain "buy-in"
     And an (event) entry for "wallet.FundsHeld" naming "WalletToBuyIn" with domain "wallet"
     When the handler interfaces are generated
@@ -274,9 +276,9 @@ Feature: Component declarations - lint warnings and errors
     And the generated code of "WalletToBuyIn" sends "buy-in.<input>" as a <arm>
 
     Examples:
-      | input                   | fact  | arm     |
-      | RecordFundsHeld         | false | Command |
-      | SeatConfirmationRefused | true  | Fact    |
+      | input                   | fact  | refuses                              | arm     |
+      | RecordFundsHeld         | false | refuses with "buy-in.BuyInRefused"   | Command |
+      | SeatConfirmationRefused | true  | declares no refuses                  | Fact    |
 
   @C-0795
   Scenario: A domain is given a refusal handler for each command its policies send
