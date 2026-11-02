@@ -79,10 +79,6 @@ DRAFT_BRANCH := "spec/20261019-draft"
 # manual check against some other line); empty in every gate.
 BREAKING_AGAINST := env_var_or_default("BREAKING_AGAINST", "")
 
-# The one recorded exception to the gate (decision 14.70), read by
-# `proto-breaking`.
-BREAKING_EXCEPTION := "proto/breaking.exception"
-
 # Lint the protos under proto/ with the repo's buf.yaml
 proto-lint:
     #!/usr/bin/env bash
@@ -102,13 +98,6 @@ proto-lint:
 # draft gained after it forked. A removed field, value or message needs a
 # `reserved` statement; an incompatible change needs a new message
 # version and an upcaster. Run by `contracts`, CI and the pre-push hook.
-#
-# The one exception (decision 14.70) is BREAKING_EXCEPTION's: while its
-# commit is in what is checked and not yet in what it is checked against,
-# buf's findings must be exactly the ones the file lists, no more and no
-# fewer (each without its file and line, which move). Once the commit is in
-# the base, as it is for anything forked after it lands, nothing is
-# excepted. The file names one commit, never a list.
 proto-breaking ref="" base=("origin/" + DRAFT_BRANCH):
     #!/usr/bin/env bash
     set -euo pipefail
@@ -139,23 +128,6 @@ proto-breaking ref="" base=("origin/" + DRAFT_BRANCH):
             breaking "$input" --against "$gitdir#ref=$against,subdir=proto"
     }
     checked="${ref:-the working tree} against $(git rev-parse --short "$against")"
-    exception="$root/{{BREAKING_EXCEPTION}}"
-    excepted=$(sed -n 's/^commit //p' "$exception")
-    if git rev-parse --verify --quiet "$excepted^{commit}" > /dev/null \
-        && git merge-base --is-ancestor "$excepted" "${ref:-HEAD}" \
-        && ! git merge-base --is-ancestor "$excepted" "$against"; then
-        rc=0; found=$(buf 2>&1) || rc=$?
-        [ "$rc" = 0 ] || [ "$rc" = 100 ] || { echo "$found" >&2; exit "$rc"; }
-        found=$(sed -E 's/^[^:]*:[0-9]+:[0-9]+://' <<< "$found" | sed '/^$/d' | sort)
-        listed=$(grep -vE '^(#|commit |$)' "$exception" | sort)
-        if [ "$found" != "$listed" ]; then
-            echo "proto-breaking: $checked: buf's findings are not exactly the ones {{BREAKING_EXCEPTION}} excepts (decision 14.70)" >&2
-            diff <(echo "$listed") <(echo "$found") | sed 's/^< /excepted, not found: /; s/^> /found, not excepted: /' | grep -E '^(excepted|found)' >&2
-            exit 1
-        fi
-        echo "ok   proto-breaking ($checked; only the exception of {{BREAKING_EXCEPTION}}, $(git rev-parse --short "$excepted"))"
-        exit 0
-    fi
     buf
     echo "ok   proto-breaking ($checked)"
 

@@ -848,9 +848,11 @@ message EventMeta {
 // The default rule: strip ONE leading "v" or "V" from each version, then
 // both parse as SemVer 2.0.0 and their major and minor numbers are equal
 // (patch, pre-release and build metadata are ignored), so "v1.4.2" and
-// "1.4.7" are compatible. If either version, so stripped, does not parse as
-// SemVer 2.0.0, the default rule is exact string equality of the versions
-// as recorded.
+// "1.4.7" are compatible. Every registered version parses as SemVer 2.0.0
+// once so stripped: a descriptor whose rules_version does not is refused at
+// registration (COORDINATOR_REASON_RULES_VERSION_NOT_SEMVER; decision 14.88,
+// DRAFT), so there is no string-equality fallback. A stored snapshot whose
+// recorded version does not parse is simply not offered.
 // Nothing replaces the default rule: no configuration of a domain accepts
 // or rejects snapshot versions by pattern (decision 14.66).
 // A snapshot that fails either check is simply not offered: the delivery
@@ -1474,7 +1476,8 @@ enum ComponentKind {
 // holds exactly what that kind has, so no field is set on a kind that may
 // not have it. The COORDINATOR validates what a type cannot hold to, and
 // refuses (see ComponentService, Refusal) a descriptor that has: an empty
-// rules_version (COORDINATOR_REASON_MISSING_RULES_VERSION); no kind, the
+// rules_version (COORDINATOR_REASON_MISSING_RULES_VERSION), or one that is
+// not SemVer (COORDINATOR_REASON_RULES_VERSION_NOT_SEMVER); no kind, the
 // oneof unset (COORDINATOR_REASON_DESCRIPTOR_NO_KIND); an aggregate or a
 // process manager with no state (COORDINATOR_REASON_MISSING_STATE_TYPE); a
 // policy with no input_domain (COORDINATOR_REASON_POLICY_NO_INPUT_DOMAIN)

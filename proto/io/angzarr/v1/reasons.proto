@@ -56,9 +56,9 @@ option ruby_package = "Angzarr";
 // (decision 14.65). A key
 // whose answerers differ declares every name any of them gives (the
 // comment says which gives which), and an answer gives none it does not
-// declare. A key whose status is REASON_STATUS_READINESS never travels as a
-// status: it is a readiness refusal, logged and alerted
-// (component/v1/component.proto). A `cause` arg flattens a
+// declare. A key whose option sets readiness never travels as a status: it
+// is a readiness refusal, logged and alerted (component/v1/component.proto),
+// and declares no status (decision 14.88, DRAFT). A `cause` arg flattens a
 // wrapped key and its args as `cause` and `cause.<arg>` (types.proto, the
 // diagnostic region). Which class a status is (decision 14.37's four
 // classes) is the coordinator's to decide, not listed here. English for a
@@ -95,18 +95,23 @@ message ReasonOptions {
   // `cause.<arg>` names it flattens to; no other dotted name is declared.
   repeated string args = 1;
   // The gRPC status the key travels with (decision 14.65). Every live key
-  // sets it: unset is no declaration, which `just check-reason-keys`
-  // refuses. The key's comment says when an answerer may pick another (a
-  // retryable bug's status, C-0678).
+  // but a readiness key sets it: unset is no declaration, which `just
+  // check-reason-keys` refuses. The key's comment says when an answerer may
+  // pick another (a retryable bug's status, C-0678).
   ReasonStatus status = 2;
+  // A readiness refusal (decision 14.88, DRAFT, replacing the pseudo-status
+  // REASON_STATUS_READINESS): the key never travels as a status; it is
+  // logged and alerted as the coordinator's readiness
+  // (component/v1/component.proto). Such a key sets no status.
+  bool readiness = 3;
 }
 
 // The status a reason key travels with (decision 14.65). Each value's
 // number is its google.rpc.Code number, so the status on the wire is the
-// value's number, read without a table; READINESS alone is no
-// google.rpc.Code: a key with it never travels as a status (a readiness
-// refusal, logged and alerted; component/v1/component.proto). It holds
-// the statuses the keys travel with, and grows when a key needs another.
+// value's number, read without a table. It holds only google.rpc.Codes:
+// the statuses the keys travel with, and grows when a key needs another. A
+// readiness key, which travels as no status, says so with
+// ReasonOptions.readiness.
 enum ReasonStatus {
   // No status declared; never a live key's.
   REASON_STATUS_UNSPECIFIED = 0;
@@ -117,7 +122,10 @@ enum ReasonStatus {
   REASON_STATUS_INTERNAL = 13;
   REASON_STATUS_UNAVAILABLE = 14;
   REASON_STATUS_DATA_LOSS = 15;
-  REASON_STATUS_READINESS = 100;
+  // 100 was REASON_STATUS_READINESS, no google.rpc.Code; retired by decision
+  // 14.88 for ReasonOptions.readiness.
+  reserved 100;
+  reserved "REASON_STATUS_READINESS";
 }
 
 extend google.protobuf.EnumValueOptions {
@@ -196,12 +204,14 @@ enum RouterReason {
   ROUTER_REASON_NO_HANDLERS_REGISTERED = 13 [(reason) = {
     status: REASON_STATUS_INTERNAL
   }];
-  // The router answers it with component and component_kind;
-  // the component host with registered and refused instead, naming the
-  // component already registered and the one refused (C-0579; decision
-  // 14.44, amended).
+  // A second component registered where one already is: one business
+  // process hosts one component. ONE owner and one arg set (decision 14.88,
+  // DRAFT): the router answers it, naming the component already registered
+  // (`registered`) and the one refused (`refused`), each by its component
+  // name. The component host does not check it again: it registers through
+  // the router (C-0579; decision 14.44, amended).
   ROUTER_REASON_DUPLICATE_COMPONENT = 14 [(reason) = {
-    args: ["component", "component_kind", "registered", "refused"]
+    args: ["registered", "refused"]
     status: REASON_STATUS_INTERNAL
   }];
   // A limit a router may enforce: where a client library lets a handler's
@@ -390,15 +400,15 @@ enum CoordinatorReason {
   }];
   COORDINATOR_REASON_MISSING_RULES_VERSION = 13 [(reason) = {
     args: ["component"]
-    status: REASON_STATUS_READINESS
+    readiness: true
   }];
   COORDINATOR_REASON_MISSING_STATE_TYPE = 14 [(reason) = {
     args: ["component", "component_kind"]
-    status: REASON_STATUS_READINESS
+    readiness: true
   }];
   COORDINATOR_REASON_POLICY_NO_OUTPUT_DOMAIN = 18 [(reason) = {
     args: ["component"]
-    status: REASON_STATUS_READINESS
+    readiness: true
   }];
   // STRICT only. The command, under STRICT, set
   // Command.handling.expected_sequence (`expected`) behind the stream's
@@ -577,7 +587,7 @@ enum CoordinatorReason {
   // descriptor rule's (decision 14.65).
   COORDINATOR_REASON_STATE_RESOLUTIONS_INVALID = 40 [(reason) = {
     args: ["component"]
-    status: REASON_STATUS_READINESS
+    readiness: true
   }];
   // A policy's reaction, a command or a fact, addressed to its trigger's own
   // stream (`stream`: the trigger's domain and root, and its edition, which
@@ -600,14 +610,14 @@ enum CoordinatorReason {
   // source is a single field, so "more than one" cannot be said.
   COORDINATOR_REASON_POLICY_NO_INPUT_DOMAIN = 42 [(reason) = {
     args: ["component"]
-    status: REASON_STATUS_READINESS
+    readiness: true
   }];
   // A descriptor whose kind (the ComponentDescriptor.kind oneof) is unset,
   // or an arm this coordinator does not know. Readiness (decision 14.65,
   // 14.78).
   COORDINATOR_REASON_DESCRIPTOR_NO_KIND = 43 [(reason) = {
     args: ["component"]
-    status: REASON_STATUS_READINESS
+    readiness: true
   }];
   // A command handler's answer (io.angzarr.handler.v1.DecideResponse) whose
   // result is unset: neither decided, refused nor aborted (decision 46, Q2).
@@ -618,6 +628,15 @@ enum CoordinatorReason {
   COORDINATOR_REASON_DECISION_NO_RESULT = 44 [(reason) = {
     args: ["stream"]
     status: REASON_STATUS_INTERNAL
+  }];
+  // A descriptor whose rules_version (`rules_version`), less one leading
+  // "v" or "V", does not parse as SemVer 2.0.0: the snapshot rule compares
+  // versions by major and minor only (types.proto, Snapshot), so it has no
+  // other version to judge by. Readiness, as every descriptor rule's
+  // (decision 14.88, DRAFT, dropping the string-equality fallback).
+  COORDINATOR_REASON_RULES_VERSION_NOT_SEMVER = 45 [(reason) = {
+    args: ["component", "rules_version"]
+    readiness: true
   }];
 
   // Moved to io.angzarr.transport.distributed.v1 (decision 14.64), each

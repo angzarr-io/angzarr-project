@@ -15,8 +15,8 @@ lint:
 # 14.54): `just proto-breaking` runs in `just contracts`, the Contracts
 # workflow and the pre-push hook, against the merge base with the spec
 # draft (the justfile's DRAFT_BRANCH).
-# One exception is recorded, scoped to one commit and its findings
-# (decision 14.70; proto/breaking.exception).
+# No exception mechanism (decision 14.88, DRAFT, retiring 14.70's
+# proto/breaking.exception once its one commit, c5a2ae3, was in the draft).
 #
 # Reservation policy (decision D6, pass 6, in force since 14.54): the
 # first production event any store keeps was taskloom's, on 2026-10-31.
