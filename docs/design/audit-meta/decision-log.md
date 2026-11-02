@@ -4633,6 +4633,23 @@ delivery).
 - Cost: a domain that configured snapshot patterns (none does) loses them;
   nothing on the wire changes.
 
+**14.67 A component's restart count clears after a healthy window.**
+Ruled by the owner, 2026-11-01, on the 2026-10-31 run's decision 24:
+"reset after a healthy window". Amends 14.63.
+- **The rule** (`docs/design/child-protocol.md`, section 8): a host counts
+  a component's restarts for its child's health against its restart limit
+  until the child has been healthy for the whole reset window, unbroken;
+  then the count clears. A child seen unhealthy within the window starts
+  it over.
+- **Configuration** is the host's: angzarr-embedded's `angzarr.yaml` gains
+  `supervision.unhealthy_reset_ms` (default 600000, 10 minutes) at the
+  config's `schema_version` 3; a version-2, version-1 or unstamped file
+  reads with the default.
+- **`parity/host/supervision.feature`**, C-0769 and C-0770.
+- Why: the ruling. A long-running host otherwise gave up, in time, on a
+  child that wedges only now and then.
+- Cost: none on the wire.
+
 ## Corrections
 
 Facts the earlier passes or the design note got wrong:

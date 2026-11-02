@@ -204,12 +204,19 @@ Once a child has handshaken, its host supervises it (decision 14.63):
   stops the child once its grace has passed again and starts no other:
   the component stays down, and every call to it fails retryably, until
   the host itself is restarted.
+- **The reset window.** The count of a component's restarts clears once
+  its child has been healthy for the whole reset window, unbroken: a child
+  that wedges only now and then is never given up for restarts long past
+  (decision 14.67). The host judges the window when it sees the child's
+  health, as it judges the grace; a child seen unhealthy within it starts
+  it over the next time it is healthy.
 - **In flight.** A call in flight on a child the host stops fails
   retryably; the host never sends it again by itself, to that child or the
   next. Whether it is retried is its caller's to decide.
 
-The interval, the deadline, the grace and the limit are the host's
-configuration (angzarr-embedded: `angzarr.yaml`'s `supervision`). A child
+The interval, the deadline, the grace, the limit and the reset window are
+the host's configuration (angzarr-embedded: `angzarr.yaml`'s `supervision`,
+the window `unhealthy_reset_ms`, 10 minutes by default). A child
 that exits by itself is the host's to restart as it chooses
 (angzarr-embedded: at once, then with a backoff while restarts fail); its
 restarts are not counted against the restart limit.

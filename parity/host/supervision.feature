@@ -59,6 +59,25 @@ Feature: Child supervision - how a host keeps its children healthy
     Then the host has stopped the child and launched none
     And a command for domain "order" fails retryably
 
+  @C-0769
+  Scenario: A child healthy for the whole reset window clears its component's restart count
+    Given a host supervising a child serving an aggregate component for domain "order", its restart limit 1
+    And every child of it answers no health Check
+    When the grace passes, a check at a time
+    Then the host has stopped the child and launched another
+    When the new child answers every health Check SERVING for the whole reset window, a check at a time
+    And it answers no health Check again, and the grace passes, a check at a time
+    Then the host has stopped the child and launched another
+
+  @C-0770
+  Scenario: A child unhealthy within the reset window keeps its component's restart count
+    Given a host supervising a child serving an aggregate component for domain "order", its restart limit 1
+    And every child of it answers no health Check
+    When the grace passes, a check at a time
+    Then the host has stopped the child and launched another
+    When the new child answers SERVING for less than the reset window, then no health Check, and the grace passes, a check at a time
+    Then the host has stopped the child and launched none
+
   @C-0768
   Scenario: A command in flight on a child the host restarts fails retryably and is not sent again
     Given a host supervising a child serving an aggregate component for domain "order"
