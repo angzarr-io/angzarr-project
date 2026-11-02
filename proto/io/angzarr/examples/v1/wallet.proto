@@ -416,8 +416,8 @@ message RoundResult {
 // The WalletAggregate.
 message WalletState {
   option (io.angzarr.v1.component) = {
+    component_name: "wallet"
     aggregate: { domain: "wallet" }
-    name: "WalletAggregate"
   };
   string display_name = 1;
   string email = 2;

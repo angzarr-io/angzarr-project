@@ -86,34 +86,27 @@ option ruby_package = "Angzarr";
 // whose component is the PM's state message; they say which inputs may
 // start an instance (CommandOptions.starts).
 //
-//   option (io.angzarr.v1.component) = { aggregate: { domain: "table" } };
-//   option (io.angzarr.v1.component) = { policy: { output_domain: "wallet" } };
-//   option (io.angzarr.v1.component) = { name: "LedgerProjector" projector: {} };
+//   option (io.angzarr.v1.component) = {
+//     component_name: "table" aggregate: { domain: "table" } };
+//   option (io.angzarr.v1.component) = {
+//     component_name: "policy-table-wallet" policy: { output_domain: "wallet" } };
+//   option (io.angzarr.v1.component) = {
+//     component_name: "projector-ledger-projection" projector: {} };
 message ComponentOptions {
-  // Generated handler/dispatch base name: a CODE identifier. Optional;
-  // defaults to the anchor message name (e.g. a "CounterState" anchor named
-  // "Counter" emits CounterHandler / NewCounterDispatch). Not the
-  // component's name in an application: that is component_name.
-  string name = 4;
-  // The component's NAME in an application (decision 14.50): what the
-  // host config's [[component]] entry, the generated registration and
-  // hand-written code call it, all through the one public helper that
-  // computes it from these options and the derived sources. Optional; when
-  // empty it defaults by kind:
-  //   aggregate        its domain                          "table"
-  //   process_manager  "pmg-" + its domain                 "pmg-buy-in"
-  //   policy           "policy-" + its derived source      "policy-table-player"
-  //                    + "-" + output_domain (unique: one
-  //                    policy per pair)
-  //   projector        "projector-" + the anchor message   "projector-ledger-projection"
-  //                    name in kebab case
-  // Kebab case: a "-" before each capital that follows a lower-case letter
-  // or a digit, or that is followed by a lower-case letter and follows a
-  // capital, then all lower-case ("HTTPServerView" -> "http-server-view").
-  // A name is lower-case ASCII letters, digits and "-", starting with a
-  // letter; anything else fails generation. Two components of one
-  // application with one name is a lint (`angzarr lint app`).
+  // The component's ONE name (decision 14.87, DRAFT; the owner's ruling F8
+  // of 2026-11-02, amending 14.50): what the host config's [[component]]
+  // entry, the generated registration, hand-written code and the derived
+  // reaction ids (a policy's name seeds them) call it. REQUIRED: a
+  // declaration with an empty one fails generation. There is no default and
+  // no per-kind formula. A name is lower-case ASCII letters, digits and
+  // "-", starting with a letter; anything else fails generation. Two
+  // components of one application with one name is a lint (`angzarr lint
+  // app`). Generated code is named after the anchor message.
   string component_name = 9;
+  // Field 4 was name, the generated code's base name beside this one,
+  // retired by decision 14.87: one name per component.
+  reserved 4;
+  reserved "name";
   // Which kind of component, and what it declares. Required: a
   // declaration with no kind fails generation.
   oneof kind {

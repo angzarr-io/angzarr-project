@@ -72,8 +72,8 @@ message LedgerTotals {
 // Anchor of the LedgerProjector.
 message LedgerProjection {
   option (io.angzarr.v1.component) = {
+    component_name: "projector-ledger-projection"
     projector: {}
-    name: "LedgerProjector"
   };
   map<string, WalletLedgerRow> wallets = 1; // key = hex(player_root)
   map<string, TableLedgerRow> tables = 2; // key = hex(table_root)

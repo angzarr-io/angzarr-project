@@ -647,8 +647,8 @@ message TableSeatHold {
 // The TableAggregate.
 message TableState {
   option (io.angzarr.v1.component) = {
+    component_name: "table"
     aggregate: { domain: "table" }
-    name: "TableAggregate"
   };
   enum Phase {
     PHASE_UNSPECIFIED = 0; // Table not created

@@ -147,8 +147,8 @@ message MoveRefused {
 // needs them.
 message PlayerState {
   option (io.angzarr.v1.component) = {
+    component_name: "player"
     aggregate: { domain: "player" }
-    name: "PlayerAggregate"
   };
   uint64 decisions = 1; // MoveDecided events recorded
   uint64 hands_seen = 2; // Decisions taken on a two-card hand: one per hand played

@@ -351,8 +351,8 @@ message HoldReleaseDue {
 // policy-buy-in-wallet and policy-buy-in-table.
 message BuyInState {
   option (io.angzarr.v1.component) = {
+    component_name: "pmg-buy-in"
     process_manager: { domain: "buy-in" }
-    name: "BuyInProcessManager"
   };
   enum Phase {
     PHASE_UNSPECIFIED = 0; // No buy-in started under this correlation
@@ -400,6 +400,7 @@ message BuyInState {
 // CaptureFunds; HoldReleaseDue -> ReleaseHold.
 message BuyInWalletPolicy {
   option (io.angzarr.v1.component) = {
+    component_name: "policy-buy-in-wallet"
     policy: { output_domain: "wallet" }
   };
 }
@@ -408,6 +409,7 @@ message BuyInWalletPolicy {
 // ReleaseSeat.
 message BuyInTablePolicy {
   option (io.angzarr.v1.component) = {
+    component_name: "policy-buy-in-table"
     policy: { output_domain: "table" }
   };
 }
@@ -429,6 +431,7 @@ message BuyInTablePolicy {
 // RecordPlayerSeated.
 message TableBuyInPolicy {
   option (io.angzarr.v1.component) = {
+    component_name: "policy-table-buy-in"
     policy: { output_domain: "buy-in" }
   };
 }
@@ -437,6 +440,7 @@ message TableBuyInPolicy {
 // RecordFundsCaptured.
 message WalletBuyInPolicy {
   option (io.angzarr.v1.component) = {
+    component_name: "policy-wallet-buy-in"
     policy: { output_domain: "buy-in" }
   };
 }
