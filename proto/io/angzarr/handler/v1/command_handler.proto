@@ -134,7 +134,7 @@ message Decided {
 message Refusal {
   // Which of the business statuses the rejection travels as (the
   // refusal_status region of options.proto): a typed refusal's is its
-  // Reason value's (io.angzarr.v1.refusal_status), an untyped one's the
+  // message's (io.angzarr.v1.refusal_status) option, an untyped one's the
   // handler's choice. UNSPECIFIED is FAILED_PRECONDITION. Only business
   // statuses are representable: a bug or a retryable status cannot be a
   // refusal.

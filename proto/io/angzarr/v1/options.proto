@@ -196,7 +196,7 @@ message CommandOptions {
   // InsufficientFunds { available, requested }), business-specific, never
   // events. The parallel of emits, in the same form (decision 14.31, the
   // owner's ruling). A command may name several (decision 14.50), e.g. a
-  // domain-wide refusal with a Reason enum beside a command's own. When
+  // refusal several commands share beside a command's own (one message per refusal, decision 14.82). When
   // set, the generated handler returns its typed events or one of these
   // typed refusals; when empty, it may refuse with a
   // raw refusal payload (google.protobuf.Any), or with a message only.
@@ -513,26 +513,22 @@ extend google.protobuf.FieldOptions {
 // endregion
 
 // region refusal_status
-// The status a refusal code is refused with (decision 14.52). A typed
-// refusal with a nested Reason enum (the refusals region, below) is a
-// business rejection, fatal (decision 14.37); which of the six business
-// statuses it travels as is a property of each code, so it is marked on
-// the Reason value:
-//   message TableRefused {
-//     enum Reason {
-//       REASON_UNSPECIFIED = 0;
-//       REASON_SEAT_TAKEN = 4;                    // FAILED_PRECONDITION
-//       REASON_BET_NOT_EVEN = 17
-//         [(io.angzarr.v1.refusal_status) = REFUSAL_STATUS_INVALID_ARGUMENT];
-//     }
-//     ...
+// The status a typed refusal is refused with (decision 14.52, as amended by
+// 14.82, DRAFT). Each refusal is its own message (the refusals region,
+// below), a business rejection, fatal (decision 14.37); which of the six
+// business statuses it travels as is a property of the message, marked on
+// it:
+//   message SeatTaken {                          // FAILED_PRECONDITION
+//     int32 seat = 1;
+//   }
+//   message BetNotEven {
+//     option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_INVALID_ARGUMENT;
 //   }
 // Unset (REFUSAL_STATUS_UNSPECIFIED) is FAILED_PRECONDITION, the default
 // for a business rejection. The generated refusal is refused under the
 // marked status, and a hand-written handler's helper reads the same
 // option, so the two agree. Generation fails when the option is set on a
-// value of any enum other than the nested Reason of a message some
-// command's refuses names, or on that Reason's zero value.
+// message no command's refuses names.
 //
 // RefusalStatus holds the business statuses only, so a bug's or a
 // retryable status (INTERNAL, UNAVAILABLE, ABORTED, ...) cannot be marked:
@@ -552,9 +548,14 @@ enum RefusalStatus {
   REFUSAL_STATUS_OUT_OF_RANGE = 11;
 }
 
-extend google.protobuf.EnumValueOptions {
-  // On a refusal Reason's value: the status its code is refused with.
-  RefusalStatus refusal_status = 50108;
+extend google.protobuf.MessageOptions {
+  // On a typed refusal message: the status it is refused with. A MESSAGE
+  // option since decision 14.82 (DRAFT): it was 50108 on EnumValueOptions,
+  // on a nested Reason value, and that number stays unused there (an
+  // extension number of another message cannot be reserved here). 50111:
+  // after reasons.proto's (reason) (50109) and the child protocol's
+  // (child_protocol) (50110).
+  RefusalStatus refusal_status = 50111;
 }
 // endregion
 
@@ -564,7 +565,7 @@ extend google.protobuf.EnumValueOptions {
 //
 // The refusing side. A command handler refuses with a business rejection,
 // answered in band (io.angzarr.handler.v1.DecideResponse.refused; decision
-// 46, Q2) under FAILED_PRECONDITION or the status a Reason value marks (the
+// 46, Q2) under FAILED_PRECONDITION or the status its refusal message marks (the
 // refusal_status region), carrying either a diagnostic code and its args
 // (never text; decision 14.37) or a TYPED refusal object of its own domain, named by the command's annotation,
 // exactly as emits names its events (the owner's ruling, for
@@ -588,27 +589,25 @@ extend google.protobuf.EnumValueOptions {
 // command's own domain, fails generation. A command may name several
 // refuses types (decision 14.50).
 //
-// Rejection codes as a typed refusal (decision 14.50). A domain whose
-// commands refuse with codes declares them as one typed refusal message
-// with a nested Reason enum and one field per argument the codes carry:
-//   message TableRefused {
-//     enum Reason {
-//       REASON_UNSPECIFIED = 0;
-//       REASON_ALREADY_BET = 1;
-//       ...
-//     }
-//     Reason reason = 1;
-//     optional int32 seat = 2;   // the args, set only where the code names one
+// One message per refusal (decision 14.82, DRAFT; the owner's ruling F3 of
+// 2026-11-02, amending 14.50). A domain whose commands refuse for several
+// reasons declares one message per reason, its args its fields, and names
+// each in the refuses of every command that refuses with it:
+//   message PlaceBet {
+//     option (io.angzarr.v1.command) = {
+//       component: "examples.v1.TableState"
+//       refuses: "examples.v1.AlreadyBet"
+//       refuses: "examples.v1.BetNotEven"
+//     };
 //     ...
 //   }
-// named in each refusing command's refuses. The ErrorInfo.reason on the
-// wire is the value's name without the enum's prefix (`ALREADY_BET`), and
-// its status the value's (io.angzarr.v1.refusal_status), FAILED_PRECONDITION
-// unset (the refusal_status region; decision 14.52). The
-// generated refusal's diagnostic key is the generator's, from the
-// refusal's full name and the reason, and its args are the message's set
-// fields (the reason among them); a public helper of the client library
-// reproduces the key, so hand-written code refuses identically.
+//   message AlreadyBet { int32 seat = 1; }
+// Every typed refusal travels under one wire key: ROUTER_REASON_COMMAND_REFUSED,
+// its refusal_type the message's fully-qualified name, the object in the
+// status details (types.proto, the diagnostic region). Its status is the
+// message's (io.angzarr.v1.refusal_status), FAILED_PRECONDITION unset (the
+// refusal_status region). There is no nested code enum and no second
+// keying by a code's name.
 //
 // The policy's side: ONE path (decision 46 #5, amending 14.31, 14.42, 14.73
 // and 14.76). When a policy's command is refused, the policy's coordinator

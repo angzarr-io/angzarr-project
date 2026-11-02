@@ -84,7 +84,7 @@ message DecideMoveRefused {
 
 // The table refused the move this player decided: the DOMESTIC fact that
 // policy-player-table's refusal callback returns from the table's
-// TableRefused (decision 14.76), so the player hears of it without the
+// refusal (decision 14.76), so the player hears of it without the
 // table's protos. The player records MoveRefused.
 message RecordMoveRefused {
   option (io.angzarr.v1.command) = {
@@ -94,7 +94,7 @@ message RecordMoveRefused {
   };
   int32 seat = 1; // The refused move's seat
   MoveAction action = 2; // The refused move
-  string reason = 3; // The table's TableRefused reason, e.g. NOT_YOUR_TURN
+  string reason = 3; // The table's refusal, by its type's name, e.g. NotYourTurn
 }
 
 // -----------------------------------------------------------------------------
