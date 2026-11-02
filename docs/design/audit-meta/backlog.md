@@ -400,10 +400,8 @@ dead-lettering from core is PR-6.
   and its `rules_version` against the registered version under the
   domain's compatibility rule: by default, after stripping one leading
   `v`/`V`, equal major.minor when both parse as SemVer 2.0.0, otherwise
-  exact equality; or the domain's configured accept pattern and optional
-  reject pattern, which replace the default (RE2, full match, a reject
-  match wins; a pattern outside RE2 refused at configuration load). A
-  snapshot that fails is not used: deliver or return every page from
+  exact equality; nothing replaces that rule (no accept or reject
+  patterns: decision 14.66). A snapshot that fails is not used: deliver or return every page from
   sequence 0. A query is judged against the answering coordinator's own
   registration, and uses no snapshot while that coordinator holds none.
   Count snapshots passed
@@ -411,7 +409,7 @@ dead-lettering from core is PR-6.
   and pass 12's refuse-and-redeliver path.
 - Why: decisions 14.1, 14.3, 14.4 and 14.21 (review T13 is settled by the
   registered state type).
-- Settled when: scenarios C-0522 to C-0530, C-0553 to C-0556 and C-0560 pass: a
+- Settled when: scenarios C-0522 to C-0526, C-0553 to C-0556 and C-0560 pass: a
   version or state-type change makes the next delivery or query carry no
   snapshot, and the replayed state equals a full replay.
 

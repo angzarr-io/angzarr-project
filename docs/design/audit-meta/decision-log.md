@@ -4581,6 +4581,41 @@ check it before the handler runs"). Amends 14.60.
 - Cost: a new arg on ten keys (none removed); every runtime's raised
   statuses now come from the generated table.
 
+**14.66 The E2 divergences, settled.** Ruled by the owner, 2026-11-01, on
+the 2026-10-31 run's decision 26, group by group. Amends 14.32 (the main
+timeline's spellings), 14.40 (snapshot selection) and 14.42 (COMMUTATIVE's
+delivery).
+- **The head-of-stream shortcut is normative (C-0149).** A COMMUTATIVE
+  command at the head has no window and nothing to compare: it is
+  delivered as STRICT (`Handling.conflict_resolution` STRICT, no nonce)
+  and handled as STRICT handles it (types.proto, ConflictResolution and
+  `ContextualCommand.conflict_nonce`). The runtimes already did.
+- **The main timeline is unset only (C-0409).** An empty edition is
+  malformed, and `"angzarr"` names an edition like any other, as
+  types.proto's `Cover.edition` says; the scenario that read `""`,
+  `"angzarr"` and unset as one timeline is rewritten to the rule.
+- **No edition override (C-0140).** policy.proto's PolicyResponse holds: a
+  policy's command into any other edition than its trigger's is refused
+  `COORDINATOR_REASON_POLICY_COMMAND_OUTSIDE_EDITION`, a policy bug; the
+  scenario that had the coordinator override it is rewritten to the rule.
+- **No snapshot patterns (C-0527 to C-0530 retired).** A snapshot passes
+  the default rule (types.proto, the snapshot region) or is not offered; no
+  domain configures accept or reject patterns, and no pattern is refused
+  at load, since none is read. The scenario IDs stay reserved.
+- **Kept as the spec says**, the runtimes moving to it: a policy command to
+  a domain no coordinator can route dead-letters its triggering event, not
+  the command (C-0736); a fact whose handler fails is parked and answered
+  OK, PARKED (C-0599); a failing policy handler is retried under the retry
+  policy before it is dead-lettered (C-0444); a translating refusal
+  callback that fails is dead-lettered (C-0619); a dead letter's
+  `occurred_at` is the runtime's clock, the source of `recorded_at`, in
+  UTC. The codegen tier's five errors are refused and its warnings are
+  `lint app`'s (C-0582, C-0604 to C-0606, C-0626; C-0514 to C-0517,
+  C-0611).
+- Why: the rulings. Each scenario and its runtime now say one thing.
+- Cost: a domain that configured snapshot patterns (none does) loses them;
+  nothing on the wire changes.
+
 ## Corrections
 
 Facts the earlier passes or the design note got wrong:

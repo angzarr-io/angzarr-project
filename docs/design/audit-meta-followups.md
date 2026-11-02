@@ -223,8 +223,8 @@ deleted outright, with no `reserved` statements.
     bug.
   - **The coordinator selects snapshots**, and queries use the same rule:
     registered state type, then the domain's compatibility rule
-    (major.minor after one leading `v`; exact for non-semver; RE2
-    accept/reject patterns replacing it, reject wins). With no registered
+    (major.minor after one leading `v`; exact for non-semver; nothing
+    replaces it, decision 14.66). With no registered
     component a query uses no snapshot; with several versions registered, it must pass them all. `snapshot_refused` deleted,
     unreserved (policy 6.6).
   - **Unknown type after upcasting**: the message names the sent type URL,

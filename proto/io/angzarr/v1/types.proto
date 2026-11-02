@@ -363,8 +363,13 @@ message Cover {
 // COMMUTATIVE: the client library resolves the window automatically, so
 // business code writes no conflict logic (and the coordinator never answers
 // COORDINATOR_REASON_EXPECTED_SEQUENCE_STALE: an overlap is
-// COORDINATOR_REASON_CONFLICT_OVERLAP). The window and the nonce are
-// delivered exactly as under AGGREGATE_HANDLES, and the same snapshot rule
+// COORDINATOR_REASON_CONFLICT_OVERLAP). Behind the head, the window and
+// the nonce are delivered exactly as under AGGREGATE_HANDLES, and the same
+// snapshot rule applies. At the head there is no window and nothing to
+// compare: the command is delivered as STRICT (Handling.conflict_resolution
+// STRICT, no nonce) and handled as STRICT handles it, its events persisted
+// at the head (the head-of-stream shortcut, normative; C-0149, decision
+// 14.66). Otherwise the same snapshot rule
 // applies (the delivered snapshot is at or below expected_sequence-1, so
 // the window arrives as pages). The library, not the handler, then computes
 // CONFLICT UNITS (the conflict_units region of options.proto, which defines
@@ -888,14 +893,8 @@ message EventMeta {
 // "1.4.7" are compatible. If either version, so stripped, does not parse as
 // SemVer 2.0.0, the default rule is exact string equality of the versions
 // as recorded.
-// Coordinator configuration may replace the default rule for a domain with
-// an accept pattern and an optional reject pattern, each matched against
-// the snapshot's rules_version. The snapshot passes iff the accept pattern
-// matches and the reject pattern, when set, does not: a reject match wins.
-// A pattern matches only the WHOLE version (full-match semantics, as if
-// anchored at both ends). Patterns use the RE2 syntax, which runs in linear
-// time and has no lookaround and no backreferences; a pattern outside that
-// syntax is refused when the configuration is loaded.
+// Nothing replaces the default rule: no configuration of a domain accepts
+// or rejects snapshot versions by pattern (decision 14.66).
 // A snapshot that fails either check is simply not offered: the delivery
 // carries no snapshot and every page from sequence 0, and business code
 // folds the full history. The business logic declares no snapshot
@@ -1345,8 +1344,12 @@ message ContextualCommand {
   // same instant as EventMeta.recorded_at is open; see 14.37.)
   google.protobuf.Timestamp recorded_at = 4;
   // The conflict nonce. Set when, and only when, the resolved
-  // conflict_resolution is AGGREGATE_HANDLES or COMMUTATIVE (including an
-  // empty window, so the handler path is uniform); empty under STRICT.
+  // conflict_resolution is AGGREGATE_HANDLES (including an empty window, so
+  // the handler path is uniform) or COMMUTATIVE behind the head; empty
+  // under STRICT. A COMMUTATIVE command at the head has no window, and is
+  // delivered as STRICT (Handling.conflict_resolution STRICT), with no
+  // nonce: the head-of-stream shortcut (see ConflictResolution; decision
+  // 14.66).
   // Under COMMUTATIVE the client library's own resolver reports the unit
   // sets instead (see ConflictResolution); the handler never sees it. An opaque value
   // minted by the coordinator per delivery and never persisted. It comes
@@ -1566,6 +1569,10 @@ message AngzarrDeadLetter {
   // distributed transport's DeadLetterEnvelope (decision 14.64).
   reserved 8, 14;
   reserved "metadata", "payload_retrieval_failed";
+  // When the runtime dead-lettered it: read from the runtime's clock, the
+  // one EventMeta.recorded_at is read from, as a UTC instant (a Timestamp
+  // has no zone); rendered, it is RFC 3339 in UTC, ending `Z`, never a local
+  // time (decision 14.66).
   google.protobuf.Timestamp occurred_at = 7;
   string source_component = 10; // Which component sent to DLQ
   ComponentKind source_component_kind = 15; // Its kind
