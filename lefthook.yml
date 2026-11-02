@@ -1,7 +1,8 @@
 # Lefthook configuration
 # https://github.com/evilmartians/lefthook
 #
-# Setup: lefthook install (again after a hook is added or removed here: pre-push was)
+# Setup: lefthook install (again after a hook is added or removed here:
+# pre-push was, then pre-merge-commit)
 # Bypass: none — fix the finding instead.
 
 pre-commit:
@@ -9,6 +10,20 @@ pre-commit:
     # Refuse commits whose staged files contain secrets (gitleaks).
     scan-secrets:
       run: just scan-secrets
+    # What push-check holds a pushed commit to, on the working tree: every
+    # test, then buf breaking against the draft. Red is committed off the
+    # protected branches (the default one and the justfile's
+    # PROTECTED_BRANCHES, the spec drafts) with a warning (RED) and refused
+    # on them or a detached HEAD (`just test-commit`).
+    tests:
+      run: just test-commit
+
+# A merge commit is checked as a commit is: one bringing red onto a
+# protected branch is refused, one onto another branch is warned.
+pre-merge-commit:
+  commands:
+    tests:
+      run: just test-commit
 
 # No mutation testing in any hook. This repository has no Rust: the crates
 # (angzarr-proto, angzarr-ports) moved to angzarr-core, whose scheduled CI
