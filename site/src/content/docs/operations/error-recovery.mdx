@@ -191,8 +191,9 @@ A target that refuses a policy's command (a business rejection, optionally with 
 | A policy's command names no root, whatever its target | Refused `INTERNAL`, `COORDINATOR_REASON_POLICY_COMMAND_NO_ROOT` (with `domain` and `command_type`); dead-lettered and alerted, never delivered |
 | A policy's command carries a correlation other than its trigger's | Refused `INTERNAL`, `COORDINATOR_REASON_POLICY_COMMAND_OTHER_CORRELATION`; dead-lettered and alerted, never delivered |
 | A policy's command sets a `command_id` or `causation_id` other than the one its coordinator stamps | Refused `INTERNAL`, `COORDINATOR_REASON_POLICY_COMMAND_OTHER_IDENTITY` (with `domain`, `command_type` and `field`); dead-lettered and alerted, never delivered |
-| A policy's reaction is a Fact | Refused `INTERNAL`, `COORDINATOR_REASON_POLICY_COMMAND_IS_FACT`; dead-lettered and alerted, never delivered |
-| A policy's command carries a `fact_origin` | Refused `INTERNAL`, `COORDINATOR_REASON_POLICY_COMMAND_FACT_ORIGIN`; dead-lettered and alerted, never delivered |
+| A policy's command or fact carries a `fact_origin` of its own | Refused `INTERNAL`, `COORDINATOR_REASON_POLICY_COMMAND_FACT_ORIGIN`; dead-lettered and alerted, never delivered |
+| A policy's fact whose handler fails at its destination | Dead-lettered and alerted there, answered `OK`, `PARKED`; the policy's step completes |
+| A policy's command or fact of an arm its destination does not declare | Refused `INTERNAL` by the destination (`ROUTER_REASON_UNKNOWN_COMMAND_TYPE`, `ROUTER_REASON_NO_FACT_HANDLER`); dead-lettered and alerted |
 
 ## Process Manager Failures
 

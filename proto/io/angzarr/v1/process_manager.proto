@@ -28,7 +28,7 @@ option ruby_package = "Angzarr";
 // - You need to query workflow status independently ("show all pending fulfillments")
 // - Timeout/scheduling logic is complex enough to merit its own aggregate
 // - The workflow gathers what happened in SEVERAL domains (each reaches
-//   the PM as commands, through a policy from that domain)
+//   the PM as commands or facts, through a policy from that domain)
 // - You must track the replies to the steps you start (see below)
 //
 // Inputs. Like any domain, a PM takes:
@@ -38,7 +38,9 @@ option ruby_package = "Angzarr";
 //     that domain's events into commands to the PM. A client may also
 //     command it (an operator's cancel, say).
 //   - FACTS, which it never refuses: timeouts, webhooks, other external
-//     inputs, and the refusal facts that the policies whose source is the
+//     inputs, the facts a policy emits for the types the PM declares facts
+//     (a reply it records and cannot refuse; decision 14.69), and the
+//     refusal facts that the policies whose source is the
 //     PM's domain deliver when their commands are refused (PolicyService in
 //     policy.proto, Refusals): the standard CommandRefused, handled by a
 //     generated on_refused_<Command> (inferred from its handlers), or a
@@ -49,8 +51,9 @@ option ruby_package = "Angzarr";
 //
 // Outputs. A PM's only output is its own events, on its own stream (ruling
 // P1): it sends NO commands and no facts. To act on another domain it
-// records an event carrying the data that domain's command needs, and the
-// policy for (the PM's domain, that domain) builds the command. Its events
+// records an event carrying the data that domain's input needs, and the
+// policy for (the PM's domain, that domain) builds the command, or the fact
+// that domain declares (decision 14.69). Its events
 // are ordinary stored events, published like an aggregate's.
 //
 // Stream. A PM instance's stream is (the PM's domain, an edition, a
@@ -87,8 +90,10 @@ option ruby_package = "Angzarr";
 // (decisions 14.25, 14.39), matching the fully-qualified name its type URL
 // ends in against ComponentDescriptor.starting_types, which lists type
 // names (decision 14.41):
-//   - a FACT is skipped, silently: nothing is recorded, dead-lettered or
-//     alerted, and the sender is answered OK, APPLIED, with no events;
+//   - a FACT is dead-lettered (owner's ruling; decision 14.69), with reason
+//     COORDINATOR_REASON_PM_NO_INSTANCE, and alerted, recording nothing; a
+//     fact is never refused, so its sender is answered OK, PARKED, with no
+//     events;
 //   - a COMMAND is refused (owner's ruling; decision 14.31):
 //     FAILED_PRECONDITION, with a google.rpc.ErrorInfo of reason
 //     COORDINATOR_REASON_PM_NO_INSTANCE, recording nothing, as any business rejection. A
@@ -104,8 +109,8 @@ option ruby_package = "Angzarr";
 // its event carries the instance's correlation_id, so the policy's command
 // built from it carries that correlation, so the target's events carry it
 // too, and the policy from the target's domain to the PM's domain turns the
-// replies the PM needs into commands to the instance that correlation
-// names. A target that REFUSES the policy's command records nothing; the
+// replies the PM needs into commands or facts to the instance that
+// correlation names. A target that REFUSES the policy's command records nothing; the
 // policy delivers a refusal fact to the PM (the policy's source domain), and
 // the PM's fact handler decides the next step
 // (decision 2.2, as amended by 14.31; PolicyService in policy.proto,

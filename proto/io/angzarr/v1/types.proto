@@ -82,10 +82,11 @@ message UUID {
 //   compute_root("player", "alice@example.com")
 //     = cfe936c0-2912-5ca9-96e6-f37c0b441759
 //
-// Reaction command ids (see the command_identity region). The command a
-// policy emits as the index-th command (0-based, in emission order) of its
-// reaction to the trigger event T has (a process manager emits no
-// commands; decision 14.31)
+// Reaction command ids (see the command_identity region). The command or
+// fact a policy emits as the index-th output (0-based, in emission order,
+// commands and facts counted together; decision 14.69) of its reaction to
+// the trigger event T has (a process manager emits no commands; decision
+// 14.31)
 //   command_id = UUIDv5(ANGZARR_COMMAND_NAMESPACE, name)
 //   ANGZARR_COMMAND_NAMESPACE = e2c9f744-9fe1-4b4b-bfee-ae514dde293b
 // where name is six netstrings, concatenated:
@@ -117,6 +118,10 @@ message UUID {
 // see the command_identity region). The namespace keeps its pass-9 name and
 // value, so pass-9 fact correlations are unchanged. Example: external_id
 // "pi_1234" = 917f26ae-ea2e-58af-86de-77013a69617e.
+//
+// A policy's fact for its destination takes the reaction command id above,
+// not the fact derivation below it, so a type its destination turns from a
+// command into a fact keeps its id (decision 14.69).
 //
 // Refusal facts take no derivation (decision 14.31): a refusal fact's
 // command_id IS the refused command's command_id, which is already a
@@ -200,9 +205,10 @@ message Cover {
   //   - Creating X forks an origin stream (EditionAdminService.ForkStream,
   //     transport/distributed/v1/meta.proto).
   //   - The fork TRAVELS WITH THE DATA (the owner's ruling): when a policy's
-  //     command in X reaches a stream with no fork in X, that arrival is
-  //     the propagation; the angzarr system layer forks the stream then,
-  //     at the main head it reads, and the command is handled
+  //     command or fact in X reaches a stream with no fork in X (decision
+  //     14.69), that arrival is the propagation; the angzarr system layer
+  //     forks the stream then, at the main head it reads, and the input is
+  //     handled
   //     (meta.EditionCreated, Propagation). Streams X's activity
   //     never touches are never forked.
   //   - A command or fact from outside (not a policy's) addressed in X to a
@@ -483,12 +489,15 @@ message EventRef {
 //                   CommandBooks, e.g. one API call fanning out) uses one
 //                   command id per command and may group them by a shared
 //                   correlation_id it sets itself.
-//   reaction        derived: UUIDv5 of (trigger EventRef, reacting
-//                   component, index in the reaction's output); the exact
-//                   name encoding and worked values are in the derived_ids
-//                   region. Stamped by the reactor's coordinator, never by
-//                   the reactor.
-//   Fact            derived: UUIDv5(ANGZARR_FACT_CORRELATION_NAMESPACE,
+//   reaction        a policy's Command or Fact (decision 14.69): derived,
+//                   UUIDv5 of (trigger EventRef, reacting component, index
+//                   in the reaction's output, commands and facts in one
+//                   index space); the exact name encoding and worked values
+//                   are in the derived_ids region. Stamped by the reactor's
+//                   coordinator, never by the reactor, which on a Fact also
+//                   stamps fact_origin: external_id that id's canonical
+//                   text, description naming the type and the policy.
+//   Fact            from outside: derived, UUIDv5(ANGZARR_FACT_CORRELATION_NAMESPACE,
 //                   fact_origin.external_id) (derived_ids region). A sender
 //                   may set it only to that value (an SDK may compute it);
 //                   any other value is malformed.
@@ -499,8 +508,9 @@ message EventRef {
 // UUID of any version). When absent, the coordinator sets it, before
 // business code: a client Command's correlation is its command_id (client
 // or minted), so every retry of a client-keyed command lands in one
-// correlation; a Fact's is its derived command_id. A reaction command's is
-// its trigger's correlation, stamped by the coordinator; a reactor that sets
+// correlation; a Fact's is its derived command_id. A reaction's (a
+// policy's command or fact) is its trigger's correlation, stamped by the
+// coordinator; a reactor that sets
 // a different one is a reactor bug. A refusal fact takes the refused
 // command's correlation (its trigger's) the same way: every command or
 // fact a policy sends, to any target, carries its trigger's correlation
@@ -523,8 +533,8 @@ message EventRef {
 // defines it: the EventRef of the event a policy reacted to, always the
 // triggering event (a process manager emits nothing but its own events,
 // so it stamps no causation_id; decision 14.31). Set by a policy's
-// coordinator only: on reaction commands, where it is the input the
-// reaction command_id is derived from, and on refusal facts, where it is
+// coordinator only: on reaction commands and facts, where it is the input
+// the reaction command_id is derived from, and on refusal facts, where it is
 // the refused command's own causation_id, so it names the very stream the
 // fact is addressed to (PolicyService in policy.proto, Refusals).
 // It is transport and trace metadata, NOT persisted on the events the
@@ -548,16 +558,27 @@ message EventRef {
 // Validation (refused before deduplication; see Handling for the full list):
 //   Fact      requires fact_origin with a non-empty external_id; never
 //             any Handling field; a set command_id must equal the
-//             derivation; never causation_id. The one exception is a
-//             refusal fact (decision 14.31), the only Fact with a
-//             causation_id: it is accepted only by the exact stream
-//             causation_id names, domain, root and edition alike (the
-//             stream of the policy's triggering event); its command_id is
-//             the refused command's, not a derivation, and its
-//             fact_origin.external_id is that command_id's canonical
-//             text. The same id is thus in two
-//             streams by design: never applied in the refusing (target)
-//             stream, and recorded as the refusal in the source stream.
+//             derivation; never causation_id. A policy's output is the
+//             exception (decision 14.69): a Fact with a causation_id,
+//             accepted only from the runtime that delivers a policy's
+//             output (a framework component, over the distributed
+//             transport), its command_id taken as stamped, not re-derived,
+//             and its fact_origin.external_id that command_id's canonical
+//             text. It is one of two kinds, told apart by payload alone,
+//             with no marker:
+//               - a policy's fact for its destination (14.69): its
+//                 command_id the reaction command id, accepted by the
+//                 stream it is addressed to;
+//               - a refusal fact (decision 14.31): its command_id the
+//                 refused command's, for the exact stream of the policy's
+//                 triggering event. A CommandRefused is accepted only by
+//                 the exact stream its trigger names, domain, root and
+//                 edition alike, which the receiver checks; a translated
+//                 refusal fact's address is its issuing coordinator's to
+//                 check (decision 14.42). The same id is thus in two
+//                 streams by design: never applied in the refusing
+//                 (target) stream, and recorded as the refusal in the
+//                 source stream.
 //   Command   never fact_origin.
 // A client's malformed command is answered INVALID_ARGUMENT; a reaction
 // command has no caller to answer, so it is dead-lettered and alerted as a
@@ -1058,8 +1079,9 @@ message Projection {
 //     causation_id names (domain, root and edition: a policy's refusal fact
 //     goes only to the stream of its triggering event);
 //   - a Fact without fact_origin, or with an empty external_id, or with a
-//     command_id other than its derivation (a refusal fact excepted: its
-//     command_id is the refused command's); a Command with fact_origin
+//     command_id other than its derivation (a policy's output excepted: a
+//     policy's fact's command_id is its reaction id, a refusal fact's the
+//     refused command's; decision 14.69); a Command with fact_origin
 //     (see the command_identity region);
 //   - a set UUID that is not 16 bytes, or a set empty Cover.edition.
 // One more is malformed but needs the head, so it is refused at step 4,
@@ -1078,8 +1100,8 @@ message Projection {
 // COORDINATOR_REASON_POLICY_COMMAND_WITH_HANDLING, and one that carries
 // fact_origin, with reason COORDINATOR_REASON_POLICY_COMMAND_FACT_ORIGIN.
 //
-// Reaction commands (emitted by policies; a process manager emits none) carry
-// NO Handling at all: expected_sequence and conflict_resolution are both
+// Reaction commands and facts (emitted by policies; a process manager emits
+// none) carry NO Handling at all: expected_sequence and conflict_resolution are both
 // forbidden. A reactor never knows the destination's state, so the
 // destination always stamps expected_sequence, and with a stamped sequence
 // conflict resolution can never apply. How a reaction command is delivered
@@ -1166,13 +1188,15 @@ message Handling {
 //
 // The arm says what kind of payload this is; fact_origin says where a fact
 // came from. They must agree: a Fact requires fact_origin, and a Command
-// never has one. A policy's business code never injects a fact: it emits
-// Commands with a causation_id, and one that emits a Fact is refused
-// (dead-lettered and alerted). The one fact a policy delivers is the
+// never has one. A policy emits what its destination declares (decision
+// 14.69): a Command for a declared command type, a Fact for a declared
+// fact type, each with a causation_id, the arm chosen by its generated
+// code from the destination's (command).fact; one the destination does not
+// declare is refused by its router, as above. A policy also delivers the
 // refusal fact of a refused command (the standard CommandRefused, or a
-// domestic fact its callback translates the refusal into), and only to
-// the policy's own source domain (decision 14.31, amending 2.2;
-// PolicyService in policy.proto, Refusals).
+// domestic fact its callback translates the refusal into), to the exact
+// stream of its trigger (decision 14.31, amending 2.2; PolicyService in
+// policy.proto, Refusals).
 message CommandPage {
   oneof body {
     Command command = 3; // Asks the aggregate to decide; may be rejected
@@ -1186,14 +1210,15 @@ message CommandPage {
   // The workflow correlation; set by the coordinator when absent. Copied
   // onto every event (EventMeta.correlation_id).
   UUID correlation_id = 9;
-  // A policy's output only (reaction commands, and refusal facts): the
-  // command's own causation, its triggering event. Core, not transport:
+  // A policy's output only (its commands and facts, and refusal facts):
+  // the input's own causation, its triggering event. Core, not transport:
   // the runtime that delivers a policy's output sets it (core's
   // coordinator, or the angzarr-embedded kernel, whose own checks read it),
   // and over the distributed transport it is accepted only from
   // framework-authenticated callers. The reaction command_id is derived
   // from it, and a refusal fact must be addressed to the exact stream it
-  // names (domain, root and edition). NOT persisted on the events the
+  // names (domain, root and edition), which a receiver checks of a
+  // CommandRefused (decision 14.69). NOT persisted on the events the
   // command produces (their causation is this command; see the
   // command_identity region).
   EventRef causation_id = 10;
@@ -1507,7 +1532,9 @@ message AngzarrDeadLetter {
   //     the retries, arg attempts less the first run, is_transient true.
   //   - An untyped business, fatal refusal of an asynchronous command
   //     (COORDINATOR_REASON_PM_NO_INSTANCE, a handler's own business key;
-  //     14.37): retry_count 0, is_transient false.
+  //     14.37), and a non-starting fact for a process manager's root with
+  //     no instance (COORDINATOR_REASON_PM_NO_INSTANCE, as rejected_command;
+  //     decision 14.69): retry_count 0, is_transient false.
   //   - A fatal bug (INTERNAL, UNKNOWN, DATA_LOSS):
   //     ROUTER_REASON_UNHANDLED_HANDLER_ERROR, ROUTER_REASON_FOLD_FAILED,
   //     ROUTER_REASON_FOLD_FAILED_EMITTED,
@@ -1527,7 +1554,6 @@ message AngzarrDeadLetter {
   //     COORDINATOR_REASON_POLICY_COMMAND_NO_ROOT,
   //     COORDINATOR_REASON_POLICY_COMMAND_OTHER_CORRELATION,
   //     COORDINATOR_REASON_POLICY_COMMAND_OTHER_IDENTITY,
-  //     COORDINATOR_REASON_POLICY_COMMAND_IS_FACT,
   //     COORDINATOR_REASON_POLICY_COMMAND_UNKNOWN_DOMAIN,
   //     COORDINATOR_REASON_CHAIN_TOO_DEEP,
   //     COORDINATOR_REASON_POLICY_COMMAND_FACT_ORIGIN and

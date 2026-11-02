@@ -21,8 +21,9 @@ runs buf in its pinned container):
 - every live key is ``<PREFIX><SCREAMING_SNAKE>``, and no key is in two
   enums, in any file: a key's string is what travels;
 - every enum reserves exactly RETIRED under its prefix and, in core's file,
-  the names of the keys MOVED from it to a transport, reserving a number only
-  for a moved key, and answers no retired key;
+  the names of the keys MOVED from it to a transport; each key
+  RETIRED_NUMBERED, by its name in its own file's enum; a number only for a
+  moved key or a key retired by number; and answers no retired key;
 - every MOVED key is live in its transport's file, and the two HostReasons
   hold exactly their keys (HOST_KEYS);
 - the owners' keys pinned by decisions 14.45 to 14.49 are there;
@@ -109,6 +110,14 @@ RETIRED = (
     "NULL_ABI_POINTER",
 )
 
+# The keys retired after the prefix (decision 14.44), each answered under its
+# full name and a number: its own file's enum reserves both, and no enum
+# answers it again.
+RETIRED_NUMBERED = {
+    # 14.69: a policy emits the facts its destination declares.
+    "COORDINATOR_REASON_POLICY_COMMAND_IS_FACT": CORE,
+}
+
 # The keys decision 14.64 moved from core's file to a transport's, each
 # string unchanged, by the file it now lives in. Core's enum reserves each
 # one's name and number.
@@ -164,7 +173,6 @@ PINNED = (
     "COORDINATOR_REASON_POLICY_COMMAND_WITH_HANDLING",
     "COORDINATOR_REASON_EDITION_REMOVAL_FAILED",
     "COORDINATOR_REASON_POLICY_COMMAND_OTHER_IDENTITY",
-    "COORDINATOR_REASON_POLICY_COMMAND_IS_FACT",
     "COORDINATOR_REASON_POLICY_COMMAND_FACT_ORIGIN",
     # 14.49
     "COORDINATOR_REASON_POLICY_COMMAND_UNKNOWN_DOMAIN",
@@ -306,12 +314,14 @@ def _check_enum(path: str, e: dict[str, Any], problems: list[str]) -> list[str]:
             problems.append(f"{name}: {key} does not carry the prefix {prefix}")
         if not SCREAMING_SNAKE.match(key):
             problems.append(f"{name}: {key} is not SCREAMING_SNAKE")
-        if rest in RETIRED:
+        if rest in RETIRED or key in RETIRED_NUMBERED:
             problems.append(f"{name}: {key} is retired")
         if path == CORE and key in MOVED:
             problems.append(f"{name}: {key} moved to {MOVED[key]}")
     retired = {f"{prefix}{k}" for k in RETIRED}
     moved = {k for k in MOVED if k.startswith(prefix)} if path == CORE else set()
+    numbered = {k for k, p in RETIRED_NUMBERED.items() if p == path and k.startswith(prefix)}
+    retired |= numbered
     reserved = set(e.get("reservedName", []))
     for key in sorted(retired - reserved):
         problems.append(f"{name}: retired key {key} is not reserved")
@@ -319,9 +329,11 @@ def _check_enum(path: str, e: dict[str, Any], problems: list[str]) -> list[str]:
         problems.append(f"{name}: moved key {key} is not reserved")
     for key in sorted(reserved - retired - moved):
         problems.append(f"{name}: {key} is reserved but not retired")
-    if len(reserved_numbers) != len(moved):
+    if len(reserved_numbers) != len(moved) + len(numbered):
         problems.append(
-            f"{name}: reserves {len(reserved_numbers)} numbers, for {len(moved)} moved keys; numbers are bookkeeping"
+            f"{name}: reserves {len(reserved_numbers)} numbers, for {len(moved)} moved keys"
+            f" and {len(numbered)} key{'' if len(numbered) == 1 else 's'} retired by number;"
+            " numbers are bookkeeping"
         )
     return live
 

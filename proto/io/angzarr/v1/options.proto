@@ -61,7 +61,7 @@ option ruby_package = "Angzarr";
 // A policy is a translator between exactly two domains: one source
 // (input_domain) and one destination (output_domain). There is one policy per
 // (source domain, destination domain) pair: every reaction that translates
-// events of one domain into commands for another belongs to that pair's
+// events of one domain into commands and facts for another belongs to that pair's
 // one policy, however many event types it reacts to; its destination may be
 // an aggregate's domain or a process manager's. Anything that needs
 // several destinations is a process manager, whose events the policies for
@@ -167,8 +167,8 @@ message CommandOptions {
   // PROCESS_MANAGER only: this command or fact type may START an
   // instance. An input for a correlation with no PM instance starts one
   // only if its entry sets starts; any other is not delivered: a fact is
-  // skipped silently, and a command refused (ruling B1, adapted; decision
-  // 14.31, owner's ruling; see process_manager.proto,
+  // dead-lettered (decision 14.69), and a command refused (ruling B1,
+  // adapted; decision 14.31, owner's ruling; see process_manager.proto,
   // Starting an instance). The generator advertises the starting inputs
   // in the PM's descriptor (ComponentDescriptor.starting_types). Setting
   // starts on an aggregate's entry fails generation. A PM that declares no
@@ -202,7 +202,11 @@ message CommandOptions {
   // generation). A fact is delivered as a CommandPage whose body is a Fact,
   // a command as one whose body is a Command (types.proto). refuses on a
   // fact fails generation; starts applies to both (a process manager may
-  // start from a command or from a fact); emits applies to both.
+  // start from a command or from a fact); emits applies to both. A policy
+  // emits what this declares (decision 14.69): its generated code sends a
+  // Fact for a type that sets it and a Command for one that does not, so
+  // a policy's fact is never refused, and only its commands have a
+  // refusal path (policy.proto, PolicyService).
   bool fact = 5;
   // How many events one handling of this input emits, of its emits types
   // (decision 14.50). Unset is EMITS_CARDINALITY_ONE. The generated

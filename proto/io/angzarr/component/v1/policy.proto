@@ -15,8 +15,9 @@ option ruby_package = "Angzarr::Component";
 // and its outbox are core's (io/angzarr/v1/policy.proto), as are its
 // messages (decision 14.64).
 service PolicyService {
-  // Translate source events into commands for the destination domain (an
-  // aggregate's or a process manager's).
+  // Translate source events into the commands and facts the destination
+  // domain declares (an aggregate's or a process manager's; decision
+  // 14.69).
   rpc Handle(io.angzarr.v1.EventBook) returns (io.angzarr.v1.PolicyResponse);
 
   // One refusal of the policy's command (Refusals, above): the translated

@@ -55,7 +55,7 @@ flowchart LR
 
 *The dashed domain represents the policy's one destination domain.*
 
-The business code checks nothing and stamps nothing. The policy's coordinator checks every command it returns (destination, edition, root, correlation, no `Handling`, no identity of its own, a Command and never a Fact) and stamps its identity. Any failed check is a policy bug: the whole answer is refused `INTERNAL`, nothing is delivered, and the trigger is dead-lettered and alerted (`PolicyResponse` in `io/angzarr/v1/policy.proto`; the keys are listed in [Error Recovery](/operations/error-recovery)).
+The business code checks nothing and stamps nothing. The policy's coordinator checks every command and fact it returns (destination, edition, root, correlation, no `Handling`, no identity or `fact_origin` of its own) and stamps its identity. Any failed check is a policy bug: the whole answer is refused `INTERNAL`, nothing is delivered, and the trigger is dead-lettered and alerted (`PolicyResponse` in `io/angzarr/v1/policy.proto`; the keys are listed in [Error Recovery](/operations/error-recovery)).
 
 ---
 
@@ -98,7 +98,7 @@ When a target **refuses** one of a policy's commands, the target records nothing
 - **Pass-through** (the default): the coordinator builds the standard `CommandRefused { command, refusal, trigger }`, the typed refusal object packed, and the source domain handles it in its `on_refused_<Command>(refusal, state)`, unpacking the foreign object.
 - **Translate** (selected by the `angzarr` CLI per policy or per command, at code generation): the policy's callback reads `Refusal { event, command, response }` and returns a fact of the source domain, so a source that does not want to unpack a foreign object, or import foreign protos, gets a domestic fact.
 
-The refusal fact is unrefusable, and it is the only fact a policy delivers: a policy's business code emits Commands only. The source decides what the refusal means and records its own events. There is no compensation side channel: the refusal is an ordinary fact in the source's own stream.
+The refusal fact is unrefusable. A policy's facts for its destination are never refused at all, so only its commands come back this way. The source decides what the refusal means and records its own events. There is no compensation side channel: the refusal is an ordinary fact in the source's own stream.
 
 A refusal with no path (a pass-through `CommandRefused` whose command type the source has no handler for) is answered `ROUTER_REASON_NO_REFUSAL_HANDLER`, dead-lettered and alerted. See [Error Recovery](/operations/error-recovery#policy-refusals).
 
@@ -131,7 +131,7 @@ CQRS/ES architectures **cannot provide distributed ACID transactions**. Instead:
 2. **Handle refusals**: the source handles the refusal fact for the rare refused command
 3. **Eventual consistency**: cross-domain operations settle over time
 
-A policy's commands, and its refusal facts, go through a transactional outbox stored with the policy's position, so a crash re-sends the recorded commands with their original ids rather than re-running the policy.
+A policy's commands and facts, and its refusal facts, go through a transactional outbox stored with the policy's position, so a crash re-sends the recorded commands with their original ids rather than re-running the policy.
 
 **If a policy's commands are frequently refused, reconsider your domain boundaries.**
 

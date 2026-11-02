@@ -142,7 +142,7 @@ Angzarr "domain" is **not** equivalent to DDD "bounded context." A bounded conte
 
 | Situation | DDD Says | CQRS/ES Says | Angzarr Does |
 |-----------|----------|--------------|--------------|
-| **Policy output** | N/A | Events (typically) | Commands only (the destination stamps its head; a refusal comes back to the source as a refusal fact) |
+| **Policy output** | N/A | Events (typically) | The commands and facts its destination declares (the destination stamps its head; a refused command comes back to the source as a refusal fact) |
 | **Cross-context calls** | Avoid synchronous | Avoid synchronous | Supported but discouraged; indicates boundary debt |
 | **Aggregate size** | "Just big enough" | Small, enforce one invariant | Decision-containing; can be larger if cohesive |
 | **Domain events** | Stay in context | May cross contexts | Integration events cross; domain events are internal |

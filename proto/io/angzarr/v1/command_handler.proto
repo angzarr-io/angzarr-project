@@ -91,9 +91,9 @@ message ConflictReport {
 // Impact ordering (lowest to highest): ASYNC < DECISION < SIMPLE.
 //
 // No mode waits for reactions. Policies always run asynchronously, after the
-// command's events are persisted; the commands policies emit (to aggregates
-// and process managers alike), and their refusal facts, are separate
-// commands with their own outcomes (a process manager reacts to nothing
+// command's events are persisted; the commands and facts policies emit (to
+// aggregates and process managers alike), and their refusal facts, are
+// separate inputs with their own outcomes (a process manager reacts to nothing
 // directly and emits no commands; decision 14.31). Every mode
 // publishes the persisted events downstream: there is no mode that writes
 // silently, so replay, migration and recovery tooling either lets reactions

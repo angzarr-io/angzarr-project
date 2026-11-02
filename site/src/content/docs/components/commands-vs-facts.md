@@ -179,9 +179,9 @@ Downstream consumers (policies, projectors, process managers) see the events a f
 
 ---
 
-## Policies Send Commands, Not Facts
+## Policies Send What the Destination Declares
 
-A policy's business code emits Commands only. The one fact a policy delivers is a **refusal fact**: when a target refuses one of its commands, the policy's coordinator builds a fact of the refusal for the stream of the triggering event (see [Policies: Refusals](/components/policy#refusals)). A policy that returns a Fact, or a Command carrying `fact_origin`, is a policy bug (`COORDINATOR_REASON_POLICY_COMMAND_IS_FACT`, `COORDINATOR_REASON_POLICY_COMMAND_FACT_ORIGIN`).
+A policy emits, for each type, the arm its destination declares: a **Command** for a type declared a command, which the destination may refuse, and a **Fact** for a type declared a fact (`fact: true` on its `(command)` entry), which the destination records and never refuses. The policy's generated code picks the arm; business code never does. Its coordinator stamps either arm the same identity (the reaction's derived id, commands and facts counted together), and a fact's `fact_origin`, so a policy that sets `fact_origin` itself is a policy bug (`COORDINATOR_REASON_POLICY_COMMAND_FACT_ORIGIN`). When a target refuses one of its commands, the policy's coordinator builds a **refusal fact** for the stream of the triggering event (see [Policies: Refusals](/components/policy#refusals)).
 
 ---
 
@@ -189,7 +189,7 @@ A policy's business code emits Commands only. The one fact a policy delivers is 
 
 - [Command](/glossary/command) — Requests that may be rejected
 - [Event](/glossary/event) — Immutable records of what happened
-- [Policy](/glossary/policy) — Domain bridges that emit commands
+- [Policy](/glossary/policy) — Domain bridges that emit commands and facts
 - [Sequence](/glossary/sequence) — Optimistic concurrency for commands
 
 ---

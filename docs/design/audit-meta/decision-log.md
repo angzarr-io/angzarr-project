@@ -4684,6 +4684,69 @@ positions on its stream).
 - Cost: the positions of a purged stream stay until its driver forgets it;
   a store's `ListPositions` becomes `Processed`.
 
+**14.69 A policy emits what its destination declares.** Ruled by the
+owner, 2026-11-01, on the 2026-10-31 run's decision 28, as re-ruled ("a
+policy emits what the destination declares. Facts: the destination's
+declared fact types are emitted as facts, with no refusal path. Commands:
+command types stay refusable, and a refused command returns as a fact to
+the policy's source stream"), and on the design's questions
+(`policy-facts.plan.md`, section 7). Amends 14.31 (the one exception to
+"a policy never delivers a fact"), 14.32 (the arrival rule), 14.33's
+translation into commands and 14.42 (a policy's output checks); decision
+26's C-0139 rewrite is this one's.
+- **The arm.** For a type its destination declares a fact
+  (`CommandOptions.fact`), a policy emits a Fact, which is recorded and
+  never refused; for a command type, a Command, refusable as ever, its
+  refusal path unchanged. The policy's generated code reads the
+  declaration; business code never picks the arm. One reaction
+  (`PolicyReaction`) holds both, in the order returned.
+- **Identity** (ruling 1: "the same id as a reaction command
+  (policy_command_id), with external_id as its canonical text and the
+  trigger's causation. Commands and facts share one index space"). A
+  type turned from command to fact keeps its id, so a re-run across the
+  change is answered DUPLICATE. The coordinator stamps the fact's
+  `fact_origin`; business code that sets one on either arm is a policy
+  bug, `COORDINATOR_REASON_POLICY_COMMAND_FACT_ORIGIN` (reworded).
+  `COORDINATOR_REASON_POLICY_COMMAND_IS_FACT` (26) is retired, its name
+  and number reserved.
+- **The arm unchecked at the source** (ruling 2: "a mismatched arm is
+  refused by the destination's router as a bug and dead-lettered. No
+  descriptor change"): `ROUTER_REASON_NO_FACT_HANDLER` or
+  `ROUTER_REASON_UNKNOWN_COMMAND_TYPE`, at the destination.
+- **Two kinds of causation-bearing fact** (ruling 3: "told apart by
+  payload, with no marker. The exact-stream check applies only to
+  CommandRefused"). A Fact with a `causation_id` is a policy's output,
+  accepted only from the runtime that delivers it, its `command_id` taken
+  as stamped; the receiver holds a `CommandRefused` to its trigger's exact
+  stream, and a translated refusal fact's address stays its issuing
+  coordinator's (14.42).
+- **Delivery.** A policy's fact whose handler fails is dead-lettered and
+  alerted at its destination and answered OK, PARKED, which completes the
+  policy's step (C-0599's rule). A policy's fact in edition X forks the
+  stream it reaches on arrival, as its command does (14.32, "a policy's
+  command or fact"). C-0139: a policy's facts and commands keep the source
+  edition; a policy still emits no event.
+- **A same-domain policy** (ruling 8: "allowed, as long as a policy never
+  addresses its trigger's exact stream"): a policy may address its own
+  domain at another root (C-0780).
+- **A fact for a process manager with no instance** (ruling 10: "a fact for
+  a missing PM instance (non-starting) is DEAD-LETTERED, like a command.
+  This amends C-0593's silent skip"): dead-lettered with
+  `COORDINATOR_REASON_PM_NO_INSTANCE` and alerted, recording nothing;
+  never refused, so its sender is answered OK, PARKED.
+- **Scenarios.** `features/coordinator-contract/policy_facts.feature`,
+  C-0775 to C-0780; C-0781 (`edition_forks.feature`); C-0782 and C-0610
+  rewritten (`fact_flow.feature`); C-0139 rewritten; C-0593 rewritten;
+  C-0734's Fact row now the fact-origin key; C-0783 (handler-contract
+  `handling.feature`, the router passing a reaction's facts through).
+  C-0184, C-0188, C-0189 and C-0493 stay retired.
+- Why: the rulings. A process manager is composed of policies (14.31): a
+  step whose destination cannot refuse it (a reply recorded, an undo) is
+  a fact, so it needs no refusal path and compensation cannot loop.
+- Cost: no wire change. A fact type's validation moves into its fact
+  handler, which flags with an event; a non-starting fact for an absent
+  process manager instance now reaches a human.
+
 ## Corrections
 
 Facts the earlier passes or the design note got wrong:

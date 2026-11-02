@@ -12,12 +12,14 @@ option java_package = "io.angzarr.transport.distributed";
 option ruby_package = "Angzarr::Transport::Distributed";
 
 // PolicyCoordinatorService: orchestrates policy execution.
-// Checks every emitted command (see PolicyResponse; decision 14.42), stamps
-// its edition when unset, and stamps its identity: causation_id (the
-// triggering event's EventRef: the page its PolicyReaction names),
-// command_id (UUIDv5 of the trigger, the policy's registered name and the
-// command's index within its reaction; derived_ids region) and
-// correlation_id (the trigger's). Records them in the
+// Checks every emitted command and fact (see PolicyResponse; decisions
+// 14.42, 14.69), stamps its edition when unset, and stamps its identity:
+// causation_id (the triggering event's EventRef: the page its
+// PolicyReaction names), command_id (UUIDv5 of the trigger, the policy's
+// registered name and the output's index within its reaction, commands and
+// facts in one index space; derived_ids region), correlation_id (the
+// trigger's) and, on a fact, fact_origin (external_id the command_id's
+// canonical text). Records them in the
 // transient outbox (see PolicyResponse), delivers them through the
 // destination's coordinator (CommandHandlerCoordinatorService) as a
 // framework component, and retries retryable failures. On a business
@@ -25,7 +27,8 @@ option ruby_package = "Angzarr::Transport::Distributed";
 // it answers, through the outbox, to the policy's own source domain
 // (PolicyService, Refusals).
 service PolicyCoordinatorService {
-  // Execute policy: translate source events → commands, deliver to targets.
+  // Execute policy: translate source events → commands and facts, deliver
+  // to targets.
   // The request is the source EventBook; the policy's configuration, not the
   // request, sets how its commands are delivered. A trigger entry point:
   // callers authenticated as framework components only; a client is

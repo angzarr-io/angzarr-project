@@ -519,24 +519,14 @@ enum CoordinatorReason {
     args: ["domain", "command_type", "field"]
     status: REASON_STATUS_INTERNAL
   }];
-  // `command_type` is the Fact's payload type. A policy's reaction that is a
-  // Fact (CommandPage.body = Fact): a policy's business code emits Commands
-  // only, and its refusal facts come from OnRefused (policy.proto,
-  // PolicyService, Refusals). Refused by the policy's coordinator
-  // (PolicyResponse.reactions), its trigger dead-lettered with this key as its
-  // AngzarrDeadLetter.reason, and alerted. Never delivered. (Decision 14.48,
-  // amended.)
-  COORDINATOR_REASON_POLICY_COMMAND_IS_FACT = 26 [(reason) = {
-    args: ["domain", "command_type"]
-    status: REASON_STATUS_INTERNAL
-  }];
-  // A reaction command (a policy's) that carries fact_origin, which only a
-  // Fact carries (types.proto, the command_identity region): refused by the
-  // policy's coordinator (PolicyResponse.reactions), its trigger
-  // dead-lettered, or, if one reaches its destination, refused there before
-  // business code and dead-lettered as a reactor bug, with this key as its
-  // AngzarrDeadLetter.reason, and alerted. Never delivered. (Decision 14.48,
-  // amended.)
+  // A policy's reaction, a command or a fact, whose business code set
+  // fact_origin: the policy's coordinator stamps a fact's (decision 14.69;
+  // types.proto, the command_identity region), and a command never carries
+  // one. Refused by the policy's coordinator (PolicyResponse.reactions), its
+  // trigger dead-lettered, or, if a command carrying one reaches its
+  // destination, refused there before business code and dead-lettered as a
+  // reactor bug, with this key as its AngzarrDeadLetter.reason, and alerted.
+  // Never delivered. (Decision 14.48, amended.)
   COORDINATOR_REASON_POLICY_COMMAND_FACT_ORIGIN = 27 [(reason) = {
     args: ["domain", "command_type"]
     status: REASON_STATUS_INTERNAL
@@ -688,6 +678,11 @@ enum CoordinatorReason {
     "COORDINATOR_REASON_COMPONENT_NOT_REGISTERED",
     "COORDINATOR_REASON_COMMANDS_NOT_SERVED",
     "COORDINATOR_REASON_PAYLOAD_UNAVAILABLE";
+
+  // Retired by 14.69: a policy emits the facts its destination declares.
+  reserved 26;
+  reserved
+    "COORDINATOR_REASON_POLICY_COMMAND_IS_FACT";
 
   // Retired by 14.37.
   reserved

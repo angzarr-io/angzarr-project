@@ -10,7 +10,8 @@ option java_multiple_files = true;
 option java_package = "io.angzarr";
 option ruby_package = "Angzarr";
 
-// Policies: stateless translation from source events to commands. The
+// Policies: stateless translation from source events to the commands and
+// facts their destination declares. The
 // business logic's service is the component contract's
 // (io.angzarr.component.v1.PolicyService,
 // io/angzarr/component/v1/policy.proto) and the coordinator's the
@@ -18,31 +19,54 @@ option ruby_package = "Angzarr";
 // io/angzarr/transport/distributed/v1/policy.proto); what follows, and
 // the messages, are every runtime's (decision 14.64).
 //
-// PolicyService: stateless translation from source events to commands.
+// PolicyService: stateless translation from source events to commands and
+// facts.
 //
 // A policy translates between exactly two domains: events of its one source
-// domain (input_domain) into commands for its one destination domain
-// (output_domain). One policy per (source domain, destination domain) pair:
-// every reaction from one domain's events to another domain's commands is
-// part of that pair's single policy, and anything needing several
+// domain (input_domain) into commands and facts for its one destination
+// domain (output_domain). One policy per (source domain, destination domain)
+// pair: every reaction from one domain's events to another domain's inputs
+// is part of that pair's single policy, and anything needing several
 // destinations is a process manager (see ComponentOptions in
 // options.proto).
 //
 // The destination may be an aggregate's domain or a process manager's: a
-// process manager is a domain (decision 14.31), so a policy's commands reach
-// it like any other domain's. Policies are how other domains' events reach a
+// process manager is a domain (decision 14.31), so a policy's commands and
+// facts reach it like any other domain's. The destination may be the
+// policy's own source domain, at another root than its trigger's (decision
+// 14.69). Policies are how other domains' events reach a
 // process manager (a PM subscribes to nothing), and how a PM's decisions
 // reach other domains (a PM sends no commands: it records events carrying
-// the data each command needs, and the policy for (the PM's domain, the
-// target domain) builds the commands from those events).
+// the data each input needs, and the policy for (the PM's domain, the
+// target domain) builds the commands and facts from those events).
 //
-// Every command a policy's business code emits is a Command (never a Fact).
-// Its coordinator stamps CommandPage.causation_id (the event being reacted
-// to), the derived command_id and the trigger's correlation_id
-// (types.proto, the command_identity region). It carries no Handling (see
-// Handling): the destination always stamps its head before business code,
-// conflict resolution never applies, and delivery mode (which coordinator
-// RPC delivers it) comes from the policy's configuration.
+// A policy emits what its destination declares (decision 14.69): for a type
+// the destination declares a command, a Command, which it may refuse
+// (Refusals, below); for one it declares a fact (CommandOptions.fact,
+// options.proto), a Fact, which it records and never refuses. The arm is
+// the declaration's, which the policy's generated code reads; business code
+// never picks it. Its coordinator stamps either arm alike:
+// CommandPage.causation_id (the event being reacted to), the derived
+// command_id (commands and facts counted in one index space) and the
+// trigger's correlation_id, and on a Fact its fact_origin, whose
+// external_id is that command_id's canonical text and whose description
+// names the type and the policy (types.proto, the command_identity region).
+// So a type its destination turns from a command into a fact keeps its id,
+// and a re-run across the change is answered DUPLICATE. It carries no
+// Handling (see Handling): the destination always stamps its head before
+// business code, conflict resolution never applies, and delivery mode
+// (which coordinator RPC delivers it) comes from the policy's
+// configuration.
+//   - A Fact is never refused. One whose handler fails at its destination
+//     is dead-lettered and alerted there and its sender answered OK, PARKED
+//     (command_handler.proto, status codes): to the policy, PARKED is its
+//     step done, and its position moves on.
+//   - The descriptor names no fact types, so the policy's coordinator
+//     cannot check the arm: one its destination does not declare (a Fact
+//     of a command type, a Command of a fact type: deployed versions
+//     skewed) is a bug, refused INTERNAL by the destination's router
+//     (ROUTER_REASON_NO_FACT_HANDLER, ROUTER_REASON_UNKNOWN_COMMAND_TYPE),
+//     dead-lettered and alerted.
 //
 // Refusals (decision 2.2, as amended by 14.31; plan ruling 7, "REFUSAL
 // WIRING", and the owner's rulings of 2026-10-28). A target, an aggregate
@@ -142,17 +166,19 @@ option ruby_package = "Angzarr";
 //     FAILS (an error status, or a malformed fact) is a policy bug,
 //     dead-lettered and alerted; a fact whose handler fails at the source
 //     is dead-lettered and alerted there.
-//   - This is the one exception to "a policy never delivers a fact": a
-//     policy's business code emits Commands only, and the one fact each
-//     refusal yields goes only to its own source domain.
+//   - A refusal fact is the one output a policy delivers to its own
+//     source's stream; what its business code emits goes to its
+//     destination. Only a command is refused, so only a command takes
+//     this path.
 
-// Policies are pure translators: source events → commands. The request is the
-// source EventBook and carries no destination state or sequences.
+// Policies are pure translators: source events → commands and facts. The
+// request is the source EventBook and carries no destination state or
+// sequences.
 
-// Response from policy - commands for other aggregates.
+// Response from policy - the commands and facts for its destination.
 //
-// Transient outbox. A policy's commands, and its refusal facts, go through
-// the transient outbox
+// Transient outbox. A policy's commands and facts, and its refusal facts,
+// go through the transient outbox
 // (decision 5.6, as amended by 14.31). The outbox is not a policy mechanism:
 // it is ONE transactional outbox, a capability that names no component
 // kind. Any component whose output leaves its own stream (output that is
@@ -175,9 +201,10 @@ option ruby_package = "Angzarr";
 // Refusals), and dispatched and retried the same way.
 message PolicyResponse {
   // One reaction per source page whose event type the policy handles, in
-  // page order: the commands business code returned for that page, as it
-  // returned them (decision 14.42). The business process checks nothing
-  // and stamps nothing; the policy's coordinator does, per command:
+  // page order: the commands and facts business code returned for that
+  // page, as it returned them (decisions 14.42, 14.69). The business
+  // process checks nothing and stamps nothing; the policy's coordinator
+  // does, per command or fact alike:
   //   - destination: its cover's domain must be the policy's one
   //     destination (ComponentDescriptor.output_domain); otherwise
   //     COORDINATOR_REASON_POLICY_COMMAND_OUTSIDE_DESTINATION (metadata expected_domain,
@@ -197,11 +224,8 @@ message PolicyResponse {
   //   - identity: no command_id or causation_id that differs from the
   //     stamp; otherwise COORDINATOR_REASON_POLICY_COMMAND_OTHER_IDENTITY
   //     (domain, command_type, field);
-  //   - a Command: a policy's business code emits Commands only, and its
-  //     refusal facts come from OnRefused (PolicyService, Refusals); a Fact
-  //     is COORDINATOR_REASON_POLICY_COMMAND_IS_FACT (domain, command_type),
-  //     and a Command carrying fact_origin
-  //     COORDINATOR_REASON_POLICY_COMMAND_FACT_ORIGIN (domain,
+  //   - no fact_origin, on either arm: the coordinator stamps a Fact's;
+  //     otherwise COORDINATOR_REASON_POLICY_COMMAND_FACT_ORIGIN (domain,
   //     command_type).
   // Any failed check is a policy bug: the whole answer is refused INTERNAL,
   // nothing is delivered, and the trigger is dead-lettered and alerted
@@ -213,11 +237,12 @@ message PolicyResponse {
 // What a policy's business code returned for one source page.
 message PolicyReaction {
   // The sequence of the triggering page in the source book (its
-  // EventPage.sequence): the event the commands react to, which the
-  // coordinator stamps as each command's causation_id.
+  // EventPage.sequence): the event the outputs react to, which the
+  // coordinator stamps as each one's causation_id.
   uint64 trigger_sequence = 1;
-  // The commands, in the order business code returned them; their index
-  // here is the index in the reaction's output (derived_ids region).
+  // The outputs, commands and facts (CommandPage.body), in the order
+  // business code returned them; their index here is the index in the
+  // reaction's output (derived_ids region), one index space for both arms.
   repeated CommandBook commands = 2;
 }
 

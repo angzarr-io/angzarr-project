@@ -78,8 +78,7 @@ COORDINATOR_REASON_EDITION_REMOVAL_FAILED = the rows of { $stream } in deleted e
        *[other] { $attempts } attempts
     }: dead-lettered
 COORDINATOR_REASON_POLICY_COMMAND_OTHER_IDENTITY = a policy sent a { $command_type } to domain { $domain } naming a { $field } other than the one its trigger stamps: a bug in the policy
-COORDINATOR_REASON_POLICY_COMMAND_IS_FACT = a policy sent a { $command_type } fact to domain { $domain }, where it sends commands only: a bug in the policy, whose refusal facts come from its refusal handler
-COORDINATOR_REASON_POLICY_COMMAND_FACT_ORIGIN = a policy sent a { $command_type } to domain { $domain } carrying a fact origin, which only a fact carries: a bug in the policy
+COORDINATOR_REASON_POLICY_COMMAND_FACT_ORIGIN = a policy sent a { $command_type } to domain { $domain } carrying a fact origin of its own, which its coordinator stamps: a bug in the policy
 COORDINATOR_REASON_POLICY_COMMAND_UNKNOWN_DOMAIN = a policy sent a { $command_type } to domain { $domain }, which this coordinator cannot route: a bug in the deployment
 COORDINATOR_REASON_HANDLER_UNAVAILABLE = the handler of domain { $domain } could not be reached for { $stream }: run it again
 COORDINATOR_REASON_CHAIN_TOO_DEEP = the command chain went deeper than its limit of { $limit }
