@@ -186,10 +186,11 @@ enum RouterReason {
     args: ["type_url", "upcast_type_url"]
     status: REASON_STATUS_INTERNAL
   }];
-  // A POLICY's router handed a refusal (PolicyService.Translate) of a
-  // command type (`command_type`) it has no refusal callback for: only a
-  // policy written by hand, outside Rust, can (a generated policy has every
-  // callback, decision 14.76, and a Rust one fails to compile without it).
+  // A POLICY's router handed a refusal (PolicyService.Translate), of a
+  // command type (`command_type`), with no refusal callback: only a policy
+  // written by hand, outside Rust, can (a generated policy has its one
+  // callback, decisions 14.76 and 14.89, and a Rust one fails to compile
+  // without it).
   // Re-scoped by decision 14.78 (decision 46, Q6) from the source domain's
   // router, which no longer dispatches refusals (the one refusal path).
   // Bug, fatal (decision 14.37): the policy step is dead-lettered and
@@ -619,13 +620,14 @@ enum CoordinatorReason {
     args: ["component"]
     readiness: true
   }];
-  // A command handler's answer (io.angzarr.handler.v1.DecideResponse) whose
-  // result is unset: neither decided, refused nor aborted (decision 46, Q2).
-  // Bug, fatal (decision 14.37): refused, nothing persisted; a caller of
-  // Handle or HandleSync is answered it, an asynchronous or reaction
+  // A command handler's answer whose result is unset: a DecideResponse
+  // neither decided, refused nor aborted (decision 46, Q2), or an
+  // IngestResponse neither ingested nor aborted (decision 14.89). Bug, fatal
+  // (decision 14.37): refused, nothing persisted; a caller of Handle or
+  // HandleSync is answered it (a fact's sender, OK PARKED), and any other
   // delivery dead-lettered with it as its AngzarrDeadLetter.reason and
-  // alerted. (Decision 14.78.)
-  COORDINATOR_REASON_DECISION_NO_RESULT = 44 [(reason) = {
+  // alerted. (Decisions 14.78, 14.89.)
+  COORDINATOR_REASON_ANSWER_NO_RESULT = 44 [(reason) = {
     args: ["stream"]
     status: REASON_STATUS_INTERNAL
   }];

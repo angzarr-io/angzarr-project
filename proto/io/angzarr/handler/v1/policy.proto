@@ -79,7 +79,8 @@ message TranslateRequest {
   io.angzarr.v1.EventBook trigger = 1;
   // The refused command, exactly as it was delivered (decision 14.79): its
   // cover (the destination and root), the identity the coordinator
-  // stamped, and its payload, whose type picks the policy's callback.
+  // stamped, and its payload, which the policy's one refusal callback
+  // receives as its target's command choice (decision 14.89).
   io.angzarr.v1.ReactionDelivery command = 2;
   // The target's refusal, exactly its DecideResponse.refused.
   Refusal refusal = 3;
@@ -95,9 +96,9 @@ message TranslateRequest {
 //
 // A fact with no payload (no type URL) is delivered like any other, and the
 // source's router refuses it ROUTER_REASON_NO_FACT_HANDLER: dead-lettered
-// and alerted at the source. A policy's router with no callback for the
-// refused command's type answers ROUTER_REASON_NO_REFUSAL_HANDLER (a policy
-// written by hand: a generated one has every callback, decision 14.76).
+// and alerted at the source. A policy's router with no refusal callback
+// answers ROUTER_REASON_NO_REFUSAL_HANDLER (a policy written by hand: a
+// generated one has its one callback, decisions 14.76 and 14.89).
 message TranslateResponse {
   google.protobuf.Any fact = 1;
 }

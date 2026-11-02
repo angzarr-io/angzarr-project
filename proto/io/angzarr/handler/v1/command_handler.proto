@@ -78,7 +78,7 @@ message DecideRequest {
 // bug keys; io/angzarr/v1/command_handler.proto, status codes).
 //
 // A response whose result is unset is a handler bug: the coordinator
-// refuses it, persists nothing, and answers COORDINATOR_REASON_DECISION_NO_RESULT
+// refuses it, persists nothing, and answers COORDINATOR_REASON_ANSWER_NO_RESULT
 // (a caller of Handle or HandleSync) or dead-letters it with that key (any
 // other delivery), and alerts.
 message DecideResponse {
@@ -191,18 +191,33 @@ message IngestRequest {
   io.angzarr.v1.EventRef causation = 4;
 }
 
-// What Ingest answers. A fact is never refused, so there is no refusal and
-// no abort: any error status from Ingest is a bug by construction, the fact
-// dead-lettered and alerted and its sender answered OK, PARKED (decision
-// 14.72). There is no conflict report: no conflict resolution applies to a
-// fact.
+// What Ingest answers: exactly one result, and the rules version (decision
+// 14.89, DRAFT). A fact is never refused, so there is NO refusal arm. An
+// abort is the handler's own report that it could not record the fact: a
+// bug, never a business outcome, so the fact is dead-lettered under the
+// abort's key and args and alerted, and its sender answered OK, PARKED, as
+// any failing fact handler's (decision 14.72). A handler's error status is
+// the same bug. There is no conflict report: no conflict resolution applies
+// to a fact. A response whose result is unset is refused as
+// COORDINATOR_REASON_ANSWER_NO_RESULT.
 message IngestResponse {
+  oneof result {
+    // The fact is recorded: these are its events.
+    Ingested ingested = 1;
+    // The handler could not record it: its key and args (a bug,
+    // dead-lettered; decision 14.72).
+    io.angzarr.v1.Diagnostic aborted = 2;
+  }
+  // As DecideResponse.rules_version.
+  string rules_version = 3;
+}
+
+// A recorded fact's result: payloads and the post-ingest state.
+message Ingested {
   // The events, payloads only, in order; may be empty (decision 14.75).
   // Wrapped as Decided.events are, with EventMeta.fact the fact's origin.
   repeated google.protobuf.Any events = 1;
   // The post-ingest state, filled by the client library, as
   // Decided.state.
   google.protobuf.Any state = 2;
-  // As DecideResponse.rules_version.
-  string rules_version = 3;
 }

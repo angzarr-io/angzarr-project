@@ -880,7 +880,7 @@ message Snapshot {
   //
   // Where snapshots come from. The client library returns the post-command
   // state on EVERY accepted answer (io.angzarr.handler.v1.Decided.state and
-  // IngestResponse.state, for an aggregate or a process manager alike);
+  // Ingested.state, for an aggregate or a process manager alike);
   // business code never decides when. The coordinator persists it per the
   // domain's storage policy (default: keep the newest only), setting
   // sequence (the last event folded in) and rules_version (the response's,

@@ -604,26 +604,32 @@ extend google.protobuf.MessageOptions {
 //
 // The policy's side: ONE path (decision 46 #5, amending 14.31, 14.42, 14.73
 // and 14.76). When a policy's command is refused, the policy's coordinator
-// calls PolicyService.Translate, whose callback,
-//     <command>_refused(command, refusal, ctx)
+// calls PolicyService.Translate, whose ONE callback (decision 14.89,
+// DRAFT),
+//     refused(command, refusal, ctx)
 //       -> <a fact of the source domain>, or a Bug,
-// reads the refusal and returns a DOMESTIC fact, so the source never refers
+// takes the refused command and the refusal as a choice of the target's
+// refusal messages (one arm per refusal message the target's commands
+// name, and one arm for an untyped refusal), reads it and returns a DOMESTIC fact, so the source never refers
 // to the foreign protos (the policy already does). The coordinator delivers
 // it to the trigger's exact stream. There is no pass-through: no standard
 // refusal fact, no source-domain dispatch by the refused command's type,
 // and no policy that declines.
 //
-// A generated policy has the callback for every command of its target
-// (decision 14.76, the owner's ruling of 2026-11-02: "all commands must
-// declare a refusal path"; "the compensation *must* execute to tell the
-// source domain of the business failure"), required in every language the
-// generator writes (a missing one does not compile in Rust, and is an
-// abstract method of the Python base class); it answers one of its
-// source's facts or a Bug, and cannot decline. So generation fails, as does
+// A generated policy has the one callback (decision 14.76, the owner's
+// ruling of 2026-11-02: "all commands must declare a refusal path"; "the
+// compensation *must* execute to tell the source domain of the business
+// failure"; amended by 14.89: "it only needs the reversal/compensation for
+// the commands its sending, not every possible command"), required in
+// every language the generator writes (a missing one does not compile in
+// Rust, and is an abstract method of the Python base class). Its author
+// handles the refusals of the commands the policy sends and answers every
+// other arm with a Bug; it answers one of its source's facts or a Bug, and
+// cannot decline. So generation fails, as does
 // lint, for a policy whose target has a command naming no refuses type,
 // and for a policy that may send a command whose source takes no fact to
 // translate its refusal into. A policy written by hand whose router has no
-// callback for a refused command's type answers
+// refusal callback answers
 // ROUTER_REASON_NO_REFUSAL_HANDLER (decision 46, Q6).
 //
 // No declaration of what a policy sends ("declaring commands it may send is

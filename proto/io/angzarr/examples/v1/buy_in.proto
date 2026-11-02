@@ -392,8 +392,9 @@ message BuyInState {
 //     its refusal callback translates (decision 14.76): HoldFunds'
 //     InsufficientFunds as FundsHoldRefused, ConfirmSeat's
 //     SeatNotConfirmable as SeatConfirmationRefused; the refusal flows
-//     above. Each policy's generated interface requires a callback for
-//     every command of its target; the ones it never sends answer a Bug;
+//     above. Each policy's generated interface requires its one refusal
+//     callback (decision 14.89), which handles the refusals of the commands
+//     it sends; every other arm answers a Bug;
 //   - type URLs come from generated code only.
 
 // policy-buy-in-wallet: BuyInStarted -> HoldFunds; BuyInSeated ->

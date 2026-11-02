@@ -23,8 +23,8 @@ service PolicyService {
   // Translate one refusal of the policy's command into one fact of its own
   // source (the one refusal path, decision 46 #5). Called by the policy's
   // coordinator only, for every business rejection of one of its commands.
-  // The business process runs the callback for the refused command's type
-  // and answers the fact's payload. An error status is a policy bug
+  // The business process runs the policy's one refusal callback (decision
+  // 14.89) and answers the fact's payload. An error status is a policy bug
   // (dead-lettered and alerted).
   rpc Translate(io.angzarr.handler.v1.TranslateRequest) returns (io.angzarr.handler.v1.TranslateResponse);
 }

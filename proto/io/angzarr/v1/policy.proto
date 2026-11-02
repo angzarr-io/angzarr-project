@@ -95,19 +95,24 @@ option ruby_package = "Angzarr";
 // policy's OWN source: the exact stream of its triggering event.
 //   - The policy's coordinator calls PolicyService.Translate with the
 //     triggering event, the command as delivered and the target's refusal
-//     (TranslateRequest). The policy's callback for the refused command's
-//     type,
-//       <command>_refused(command, refusal, ctx)
+//     (TranslateRequest). The policy's ONE refusal callback (decision
+//     14.89, DRAFT),
+//       refused(command, refusal, ctx)
 //         -> <a fact type of the source domain>, or a Bug,
-//     reads the refusal and returns a DOMESTIC fact, which the business
-//     process answers as the fact's payload alone (TranslateResponse), so
-//     the source never refers to the foreign protos (the policy already
-//     does).
-//   - A policy angzarr-cli generates has the callback for every command of
-//     its target, required (decision 14.76): a target command naming no
-//     refuses type, or a source taking no fact, fails generation
-//     (options.proto, the refusals region). A policy written by hand whose
-//     router has no callback for the refused command's type answers
+//     takes the refused command (its target's command choice) and the
+//     refusal as a choice of its target's refusal messages (one arm per
+//     refusal message its target's commands name, and one for an untyped
+//     refusal's code and args), reads it and returns a DOMESTIC fact,
+//     which the business process answers as the fact's payload alone
+//     (TranslateResponse), so the source never refers to the foreign
+//     protos (the policy already does). The author handles the refusals of
+//     the commands it sends; every other arm answers a Bug (the owner,
+//     2026-11-02: "it only needs the reversal/compensation for the commands
+//     its sending, not every possible command").
+//   - A policy angzarr-cli generates has that one callback, required
+//     (decision 14.76, as amended by 14.89): a source taking no fact fails
+//     generation (options.proto, the refusals region). A policy written by
+//     hand whose router has no callback answers
 //     ROUTER_REASON_NO_REFUSAL_HANDLER (metadata command_type; decision
 //     46, Q6), and the step is dead-lettered and alerted at the policy.
 //   - There is no other path: no standard refusal fact built by the
