@@ -190,9 +190,6 @@ enum RouterReason {
     args: ["command_type"]
     status: REASON_STATUS_INTERNAL
   }];
-  ROUTER_REASON_CONFLICT_RESOLUTION_UNSUPPORTED = 11 [(reason) = {
-    status: REASON_STATUS_INTERNAL
-  }];
   ROUTER_REASON_NO_COMPONENT_OF_KIND = 12 [(reason) = {
     status: REASON_STATUS_UNIMPLEMENTED
   }];
@@ -223,6 +220,11 @@ enum RouterReason {
     args: ["limit"]
     status: REASON_STATUS_INTERNAL
   }];
+
+  // Retired by 14.81 (DRAFT): the state declares the conflict resolution,
+  // so no command or configuration asks a router for one it lacks.
+  reserved 11;
+  reserved "ROUTER_REASON_CONFLICT_RESOLUTION_UNSUPPORTED";
 
   // Retired by 14.37.
   reserved
@@ -299,15 +301,6 @@ enum HostReason {
     args: ["domain", "upcaster"]
     status: REASON_STATUS_INTERNAL
   }];
-  // Configuration naming a conflict resolution (`resolution`, its name)
-  // the component's state does not support: COMMUTATIVE for a state with
-  // no conflict units, or UNSPECIFIED; for one command (`command_type`, its
-  // full type name) or, with no `command_type`, the component's default.
-  // Refused at registration, and nothing is registered (decision 14.65).
-  HOST_REASON_RESOLUTION_UNSUPPORTED = 14 [(reason) = {
-    args: ["component", "resolution", "command_type"]
-    status: REASON_STATUS_INTERNAL
-  }];
   // A policy or projector here (`component`) reading the events of
   // `domain`, which a coordinator elsewhere handles: its events are never
   // written or read here, so the component would never run. Refused at
@@ -329,6 +322,10 @@ enum HostReason {
   // Moved to io.angzarr.transport.embedded.v1 (decision 14.64), each
   // key's string unchanged: a key lives in the package whose code raises it.
   reserved 5 to 11;
+  // Retired by 14.81 (DRAFT): no configuration names a conflict
+  // resolution.
+  reserved 14;
+  reserved "HOST_REASON_RESOLUTION_UNSUPPORTED";
   reserved
     "HOST_REASON_HANDSHAKE_MALFORMED",
     "HOST_REASON_HANDSHAKE_TIMEOUT",

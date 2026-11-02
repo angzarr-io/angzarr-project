@@ -46,8 +46,9 @@ message DecideRequest {
   // The command as the coordinator holds it: its cover (the stream), its
   // page (command_id, correlation_id) and its Handling
   // (page.command.handling), resolved: expected_sequence provided or
-  // stamped, conflict_resolution never UNSPECIFIED. The page's body is
-  // the Command arm.
+  // stamped. The page's body is the Command arm. The resolution is the
+  // component's state's (decision 14.81), which the client library knows
+  // from its own generated state, so it is not sent.
   //
   // The window boundary is page.command.handling.expected_sequence (E). Under
   // AGGREGATE_HANDLES and COMMUTATIVE the pages of history with sequences

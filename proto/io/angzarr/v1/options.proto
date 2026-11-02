@@ -270,7 +270,9 @@ extend google.protobuf.MessageOptions {
   // and AGGREGATE_HANDLES (StateOptions, in types.proto). No option means
   // exactly the base. Listing CONFLICT_RESOLUTION_COMMUTATIVE turns on the
   // conflict-unit markers ((conflict), below) on its fields and makes
-  // COMMUTATIVE the component's default. See the conflict_units region.
+  // COMMUTATIVE the component's resolution; without it the resolution is
+  // STRICT (decision 14.81, DRAFT: the state declares it, and nothing
+  // overrides it). See the conflict_units region.
   //   message ListState {
   //     option (io.angzarr.v1.state) = {
   //       conflict_resolutions: [CONFLICT_RESOLUTION_COMMUTATIVE]
@@ -434,10 +436,9 @@ extend google.protobuf.MessageOptions {
 // affects resolutions from its deployment on, never history.
 //
 // COMMUTATIVE is supported only by a state message whose (state) option
-// lists it; the registered StateDescriptor says so, so the coordinator
-// (domain-blind: it reads only that list) refuses a command or
-// configuration naming COMMUTATIVE for any other state, and where the state
-// supports it COMMUTATIVE is the default.
+// lists it; the registered StateDescriptor says so, and the coordinator
+// (domain-blind: it reads only that list) resolves a stale command of that
+// component as COMMUTATIVE, and of any other as STRICT (decision 14.81).
 //
 // Generation diagnostics. Each names the file, the message and the field;
 // the exact texts and their fixes are in the developer guide.

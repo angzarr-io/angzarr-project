@@ -258,7 +258,7 @@ message Cover {
 // Conflict resolution: how the aggregate coordinator treats a command whose
 // expected sequence (Handling.expected_sequence) is behind the stream's
 // head (a stale command). An expected sequence AHEAD of the head is no
-// conflict at all, under any resolution: it is malformed (below). Carried by Handling.conflict_resolution. Three
+// conflict at all, under any resolution: it is malformed (below). Three
 // resolutions: STRICT, AGGREGATE_HANDLES and COMMUTATIVE. (Renamed from
 // MergeStrategy: Axon calls the same choice conflict resolution.)
 //
@@ -269,20 +269,20 @@ message Cover {
 // state supports STRICT and AGGREGATE_HANDLES (the implicit base); COMMUTATIVE is supported only
 // where the state lists it and marks its conflict units.
 //
-// The DEFAULT is COMMUTATIVE where the state supports it, and STRICT
-// otherwise. The coordinator learns which from the registered
-// StateDescriptor (a list of enum values, never the state's schema, so it
-// stays domain-blind). Configuration and Handling may choose another
-// supported resolution (see Handling for the precedence).
+// The STATE declares the resolution (decision 14.81, DRAFT; the owner's
+// ruling F2 of 2026-11-02): a command handler's resolution is COMMUTATIVE
+// where its state's (state) option lists it, and STRICT otherwise. Nothing
+// else chooses: no command carries a resolution, no configuration sets one
+// per command type or per component, and nothing permits an override. The
+// coordinator learns which from the registered StateDescriptor (a list of
+// enum values, never the state's schema, so it stays domain-blind), and the
+// client library from its own generated state. (So no resolution reaches
+// AGGREGATE_HANDLES today: decision 14.81 leaves which state declares it
+// to the owner.)
 //
-// CONFLICT_RESOLUTION_UNSPECIFIED (the zero value) means "not specified":
-// the configured default applies (see Handling). After the coordinator
-// resolves Handling, conflict_resolution is never UNSPECIFIED. A command,
-// or configuration, that names a resolution the component's state does not
-// support is malformed: the command is refused INVALID_ARGUMENT before
-// deduplication, and the configuration is refused when it is loaded or
-// when the coordinator receives the component's descriptor (see
-// ComponentService in component/v1/component.proto).
+// CONFLICT_RESOLUTION_UNSPECIFIED (the zero value) is proto3's zero and
+// names no resolution; it is never declared (a generation error) and never
+// chosen.
 //
 // The strategy matters only for commands whose sender provided
 // expected_sequence. A command without one is stamped by the framework with
@@ -366,8 +366,8 @@ message Cover {
 // COORDINATOR_REASON_CONFLICT_OVERLAP). Behind the head, the window is
 // delivered exactly as under AGGREGATE_HANDLES, and the same snapshot rule
 // applies. At the head there is no window and nothing to
-// compare: the command is delivered as STRICT (Handling.conflict_resolution
-// STRICT) and handled as STRICT handles it, its events persisted
+// compare: the command is delivered as STRICT (an empty window) and
+// handled as STRICT handles it, its events persisted
 // at the head (the head-of-stream shortcut, normative; C-0149, decision
 // 14.66). Otherwise the same snapshot rule
 // applies (the delivered snapshot is at or below expected_sequence-1, so
@@ -407,7 +407,7 @@ message Cover {
 // locally over the events delivered with the command; there is no
 // framework RPC for conflict resolution.
 enum ConflictResolution {
-  CONFLICT_RESOLUTION_UNSPECIFIED = 0; // Not specified: the configured default applies (COMMUTATIVE if the state supports it, else STRICT)
+  CONFLICT_RESOLUTION_UNSPECIFIED = 0; // proto3's zero: no resolution; never declared, never chosen
   CONFLICT_RESOLUTION_COMMUTATIVE = 1; // Accepted iff the window and the command change disjoint conflict units (options.proto): the client library reports them, the coordinator judges
   CONFLICT_RESOLUTION_STRICT = 2; // Reject a command behind the head, ABORTED (optimistic concurrency); one ahead is malformed under every resolution
   CONFLICT_RESOLUTION_AGGREGATE_HANDLES = 3; // decide receives the window and applies its own conflict rule
@@ -939,26 +939,15 @@ message Projection {
 // command_handler.proto).
 //
 // As sent, then resolved. Before the coordinator, Handling holds what the
-// sender asked for, and any field may be unset. An empty Handling (no field
-// set) is the same as an unset one. Before business code runs, the
-// coordinator resolves it in place: it stamps expected_sequence when
-// absent, and fills conflict_resolution from configuration when
-// unspecified. From then on (io.angzarr.handler.v1.DecideRequest, business
-// code) every field
-// is concrete. A dead letter stores Handling as sent (see
+// sender asked for, and its expected_sequence may be unset. An empty
+// Handling (no field set) is the same as an unset one. Before business code
+// runs, the coordinator resolves it in place: it stamps expected_sequence
+// when absent. From then on (io.angzarr.handler.v1.DecideRequest, business
+// code) it is concrete. A dead letter stores Handling as sent (see
 // AngzarrDeadLetter).
 //
-// Defaults come from configuration. The conflict resolution is configured
-// per command type and per component (the aggregate; a command to a process
-// manager carries no Handling, below).
-// Precedence, highest first:
-//   1. Handling, when the field is set and configuration allows the override
-//   2. configuration for the command type (its payload's type URL)
-//   3. configuration for the component
-//   4. the built-in default: COMMUTATIVE when the component's registered
-//      state supports it (the descriptor's StateDescriptor), otherwise STRICT
-// Whatever is chosen must be supported by the component's state (see
-// ConflictResolution).
+// The conflict resolution is not Handling's: the component's state declares
+// it (ConflictResolution; decision 14.81, DRAFT).
 //
 // The pipeline. The coordinator's order, NORMATIVE in every runtime and
 // every mode:
@@ -975,7 +964,7 @@ message Projection {
 //                    component's upcaster sidecar (decision 14.39; see
 //                    upcaster.proto) before anything below judges them;
 //   4. resolve       stamp or check expected_sequence against the head
-//                    step 3 loaded, and resolve conflict_resolution
+//                    step 3 loaded, under the state's resolution
 //                    (STRICT's ABORTED happens here, and the refusal of
 //                    an expected_sequence ahead of the head, below);
 //   5. business code CommandHandlerService.Decide for a command, Ingest
@@ -1005,9 +994,6 @@ message Projection {
 //
 // Violations are refused loudly, never silently ignored. Each of these is
 // malformed, refused at step 1, before deduplication or business code:
-//   - a field that configuration forbids overriding for the command type or
-//     component;
-//   - a conflict_resolution the component's state does not support;
 //   - a policy's output with no root, whatever its target (INTERNAL,
 //     google.rpc.ErrorInfo reason COORDINATOR_REASON_POLICY_COMMAND_NO_ROOT, metadata domain
 //     and command_type; decision 14.36, as amended), refused by the
@@ -1052,7 +1038,7 @@ message Handling {
   //
   // If provided and BEHIND the head, the command is rejected before
   // business code (ABORTED, COORDINATOR_REASON_EXPECTED_SEQUENCE_STALE,
-  // args expected and actual) unless the resolved conflict resolution is
+  // args expected and actual) unless the state's conflict resolution is
   // AGGREGATE_HANDLES or COMMUTATIVE, in which case the events since
   // expected_sequence are delivered with the command and a conflict rule is
   // applied: under AGGREGATE_HANDLES decide receives them and applies its
@@ -1078,9 +1064,11 @@ message Handling {
   // ConflictResolution; decisions 14.45 and 14.46). Ordering is per stream: no other stream's writes
   // matter.
   optional uint64 expected_sequence = 1;
-  // What to do with a stale expected_sequence (see ConflictResolution).
-  // Unspecified: the configured default.
-  ConflictResolution conflict_resolution = 2;
+  // Field 2 was conflict_resolution, a per-call choice under a permission
+  // setting, over per-command-type and per-component configuration;
+  // retired by decision 14.81 (DRAFT): the state declares the resolution.
+  reserved 2;
+  reserved "conflict_resolution";
 }
 // endregion
 
@@ -1575,7 +1563,7 @@ message StateDescriptor {
   // The FULL resolved list of supported resolutions: the implicit base
   // (STRICT, AGGREGATE_HANDLES) plus whatever the state's (state) option
   // lists, deduplicated, in enum-number order. Never empty. The coordinator
-  // takes the built-in default from it (COMMUTATIVE if listed, else STRICT)
-  // and refuses a command or configuration naming a resolution it lacks.
+  // takes the component's resolution from it: COMMUTATIVE if listed, else
+  // STRICT (decision 14.81).
   StateOptions options = 2;
 }

@@ -24,7 +24,6 @@ ROUTER_REASON_ANY_DECODE_FAILED = a payload did not decode as a { $message_type 
 ROUTER_REASON_UNKNOWN_COMMAND_TYPE = no handler takes the command type { $type_url }, after upcasting: a bug in the sender
 ROUTER_REASON_NO_FACT_HANDLER = no handler takes the fact type { $type_url }: register one, or stop sending it
 ROUTER_REASON_NO_REFUSAL_HANDLER = the policy has no refusal callback for a { $command_type }: give it one
-ROUTER_REASON_CONFLICT_RESOLUTION_UNSUPPORTED = the domain does not support the conflict resolution asked for: ask for another
 ROUTER_REASON_NO_COMPONENT_OF_KIND = the business process hosts no component of the kind dispatched to
 ROUTER_REASON_NO_HANDLERS_REGISTERED = no component is registered: register one
 ROUTER_REASON_DUPLICATE_COMPONENT = a router hosts one component: register the other in its own
@@ -38,7 +37,6 @@ HOST_REASON_DESCRIPTOR_RULES_VERSION_MISMATCH = component "{ $component }" descr
 HOST_REASON_PROJECTOR_NO_INPUT_DOMAIN = projector "{ $component }" names no domain it reads: name one
 HOST_REASON_UPCASTER_UNKNOWN_DOMAIN = an upcaster is given for domain { $domain }, which no component here handles
 HOST_REASON_UPCASTER_OTHER_DOMAIN = the upcaster registered for domain { $domain } upcasts { $upcaster }'s payloads
-HOST_REASON_RESOLUTION_UNSUPPORTED = component { $component } is configured { $resolution }, which its state does not support
 HOST_REASON_REMOTE_SOURCE = { $component } reads the events of domain { $domain }, which a coordinator elsewhere handles: they are never written or read here
 HOST_REASON_STATE_TYPE_MISMATCH = component { $component }'s state descriptor names { $type_url }, but its snapshots are { $state_type_url }: they would never be offered back
 
