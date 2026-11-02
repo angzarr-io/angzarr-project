@@ -16,19 +16,20 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import check_reason_keys as crk  # noqa: E402
 
 
-def _enum(name: str, keys: list[str], moved: tuple[str, ...] = ()) -> dict[str, Any]:
-    """A key enum of `keys`, numbered from 1, then reserving `moved` by name
-    and by the numbers after them."""
+def _enum(name: str, keys: list[str], moved: tuple[str, ...] = (), path: str = crk.CORE) -> dict[str, Any]:
+    """A key enum of `keys`, numbered from 1, then reserving `moved` and the
+    keys of `path` retired by number by name and by the numbers after them."""
     prefix = crk.PREFIXES[name]
     values = [{"name": f"{prefix}UNSPECIFIED", "number": 0}]
     values += [{"name": k, "number": n, "options": {crk.REASON_OPTION: _option(k)}} for n, k in enumerate(keys, start=1)]
+    numbered = tuple(k for k, p in crk.RETIRED_NUMBERED.items() if p == path and k.startswith(prefix))
     enum: dict[str, Any] = {
         "name": name,
         "value": values,
-        "reservedName": [f"{prefix}{k}" for k in crk.RETIRED] + list(moved),
+        "reservedName": [f"{prefix}{k}" for k in crk.RETIRED] + list(moved) + list(numbered),
     }
-    if moved:
-        enum["reservedRange"] = [{"start": len(keys) + 1, "end": len(keys) + len(moved)}]
+    if moved or numbered:
+        enum["reservedRange"] = [{"start": len(keys) + 1, "end": len(keys) + len(moved) + len(numbered)}]
     return enum
 
 
@@ -62,8 +63,8 @@ def _good() -> dict[str, Any]:
                     {"name": "ReasonStatus", "value": [{"name": "REASON_STATUS_UNSPECIFIED", "number": 0}]},
                 ],
             },
-            {"name": crk.EMBEDDED, "enumType": [_enum("HostReason", list(crk.HOST_KEYS[crk.EMBEDDED]))]},
-            {"name": crk.DISTRIBUTED, "enumType": [_enum("CoordinatorReason", list(to_distributed))]},
+            {"name": crk.EMBEDDED, "enumType": [_enum("HostReason", list(crk.HOST_KEYS[crk.EMBEDDED]), path=crk.EMBEDDED)]},
+            {"name": crk.DISTRIBUTED, "enumType": [_enum("CoordinatorReason", list(to_distributed), path=crk.DISTRIBUTED)]},
         ]
     }
 
@@ -192,6 +193,40 @@ class CheckReasonKeysTest(unittest.TestCase):
         d = _good()
         _enum_of(d, "HostReason", crk.EMBEDDED)["reservedRange"] = [{"start": 8, "end": 8}]
         self.assertProblem(d, "HostReason: reserves 1 numbers, for 0 moved keys")
+
+    def test_decision_14_69_retires_the_policy_fact_key_by_name_and_number(self) -> None:
+        # A policy emits the facts its destination declares: the key that
+        # refused a policy's fact is retired, its name and number reserved.
+        self.assertEqual(crk.RETIRED_NUMBERED, {"COORDINATOR_REASON_POLICY_COMMAND_IS_FACT": crk.CORE})
+        self.assertNotIn("COORDINATOR_REASON_POLICY_COMMAND_IS_FACT", crk.PINNED)
+        self.assertEqual(crk.check(_good()), [])
+
+    def test_a_key_retired_by_number_answered_again(self) -> None:
+        d = _good()
+        values = _enum_of(d, "CoordinatorReason")["value"]
+        values.append({"name": "COORDINATOR_REASON_POLICY_COMMAND_IS_FACT", "number": len(values) + 4})
+        self.assertProblem(d, "CoordinatorReason: COORDINATOR_REASON_POLICY_COMMAND_IS_FACT is retired")
+
+    def test_a_key_retired_by_number_not_reserved(self) -> None:
+        d = _good()
+        _enum_of(d, "CoordinatorReason")["reservedName"].remove("COORDINATOR_REASON_POLICY_COMMAND_IS_FACT")
+        self.assertProblem(d, "CoordinatorReason: retired key COORDINATOR_REASON_POLICY_COMMAND_IS_FACT is not reserved")
+
+    def test_a_key_retired_by_number_keeps_its_number(self) -> None:
+        # Core's CoordinatorReason reserves four numbers: three moved keys'
+        # and the retired key's; one fewer is a number left unreserved.
+        e = _enum_of(_good(), "CoordinatorReason")
+        (r,) = e["reservedRange"]
+        self.assertEqual(r["end"] - r["start"] + 1, 4)
+        d = _good()
+        r = _enum_of(d, "CoordinatorReason")["reservedRange"][0]
+        r["end"] -= 1
+        self.assertProblem(d, "CoordinatorReason: reserves 3 numbers, for 3 moved keys and 1 key retired by number")
+
+    def test_a_key_retired_by_number_reserved_outside_its_file(self) -> None:
+        d = _good()
+        _enum_of(d, "CoordinatorReason", crk.DISTRIBUTED)["reservedName"].append("COORDINATOR_REASON_POLICY_COMMAND_IS_FACT")
+        self.assertProblem(d, "CoordinatorReason: COORDINATOR_REASON_POLICY_COMMAND_IS_FACT is reserved but not retired")
 
     def test_a_moved_key_not_reserved_in_core(self) -> None:
         d = _good()
