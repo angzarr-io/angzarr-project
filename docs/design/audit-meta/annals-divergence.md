@@ -27,6 +27,12 @@ process, with no HTTP layer into annals. angzarr appends one stream per
 write and runs reactions asynchronously (decision 2.1), so the same domain
 behaves differently under the two runtimes. This is accepted.
 
+annals is angzarr-embedded now, and as built its chain is not one
+transaction: a command commits on its own stream and each policy step after
+it is its own atomic write to one stream, run before the call returns and
+resumed by position. Where it parts from the coordinator contract, and why,
+is recorded once, below.
+
 ## What follows from the divergence
 
 - **No claims, no fingerprints, no `record_command`** (pass 12). annals
@@ -38,19 +44,13 @@ behaves differently under the two runtimes. This is accepted.
   - **Webhook facts**: the fact's derived `command_id` (UUIDv5 of
     `external_id`) is found on the stream when the source redelivers.
   - **HTTP retries**: a client-supplied `command_id`, reused on retry.
-- **No transient outbox.** Reactions commit in the same transaction as their
-  trigger, so there is nothing to re-send. Their command ids are still the
-  derived ones, so the audit record is identical.
-- **Causation is never accepted from outside.** No caller outside the
-  process can deliver a reaction. annals' own in-process chain stamps
-  `causation_id` on the reaction command (it is not persisted on events,
-  pass 13) and the derived `command_id`. angzarr needs mTLS-identified
-  framework components for the same guarantee (decision 12.10).
-- **The "DLQ" is a logger.** annals has no dead-letter store or replay.
-  Whatever angzarr would dead-letter (a failing fact ingest, a reactor bug, a
-  malformed reaction command), annals writes to its log. Every such entry is
-  prefixed with a warning that anything arriving there almost certainly
-  indicates a problem.
+- **The runtime's divergences are recorded once**, as the tags on the
+  coordinator-contract scenarios angzarr-embedded's conformance runner does
+  not run: angzarr-embedded's
+  `crates/angzarr-embedded-conformance/src/tags.test.rs`, each
+  `divergence_*` tag with its reason (the in-process chain, no outbox, no
+  causation from outside, the waiting caller, editions). That file is the
+  list; this one does not repeat it.
 - **`rules_version` means different things.** In angzarr it is the
   business binary's full build version (e.g. `"1.4.2+build.7"`), baked in at
   build time, reported with every response and at registration
