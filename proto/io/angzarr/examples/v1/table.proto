@@ -105,7 +105,7 @@ message CreateTable {
 }
 
 // Hold a seat for a buy-in (SeatHeld), which starts pmg-buy-in through
-// policy-table-buy-in's StartBuyIn command.
+// policy-table-buy-in's StartBuyIn fact.
 // buy_in_id = request_id. Refused when the seat is seated or held, the player
 // is already seated at this table, or amount is outside
 // [min_buy_in, max_buy_in]. A player may have buy-ins pending for several
@@ -354,7 +354,7 @@ message ShoeShuffled {
 }
 
 // A seat is held for a buy-in. policy-table-buy-in turns it into the
-// StartBuyIn command that starts pmg-buy-in (see buy_in.proto).
+// StartBuyIn fact that starts pmg-buy-in (see buy_in.proto).
 message SeatHeld {
   option (io.angzarr.v1.event) = {component: "io.angzarr.examples.v1.TableState"};
   option (io.angzarr.v1.event) = {
