@@ -331,6 +331,18 @@ Feature: Handling a delivered command - versions, unknown types and conflict rep
     Then the answer's one reaction carries that ShipOrder command unchanged
     And the answer is not refused
 
+  @policy
+  @C-0783
+  Scenario: A policy's facts come back beside its commands, in the order business code returned them
+    # A policy emits what its destination declares (decision 14.69): the
+    # router passes either arm through as returned; the coordinator checks
+    # and stamps both.
+    Given an "OrderFulfillment" policy translating "order" events into "inventory" commands
+    And its business code answers an OrderPlaced event with a ReserveStock command and then a StockHoldRequested fact
+    When the OrderPlaced event is handled
+    Then the answer's one reaction carries the ReserveStock command and then the StockHoldRequested fact, unchanged
+    And the answer is not refused
+
   @policy @policy_refusal
   @C-0691
   Scenario: A policy with a translating callback answers the refusal with the domestic fact's payload alone
