@@ -61,7 +61,6 @@ COORDINATOR_REASON_EDITION_REMOVAL_FAILED = the rows of { $stream } in deleted e
 COORDINATOR_REASON_POLICY_COMMAND_UNKNOWN_DOMAIN = a policy sent a { $command_type } to domain { $domain }, which this coordinator cannot route: a bug in the deployment
 COORDINATOR_REASON_HANDLER_UNAVAILABLE = the handler of domain { $domain } could not be reached for { $stream }: run it again
 COORDINATOR_REASON_CHAIN_TOO_DEEP = the command chain went deeper than its limit of { $limit }
-COORDINATOR_REASON_STORE_CONFLICT = another write to { $stream } landed first, at { $actual }, not the { $expected } this write was stamped with: send it again
 COORDINATOR_REASON_STORE_UNAVAILABLE = the event store did not answer: send it again
 COORDINATOR_REASON_UPCASTER_UNAVAILABLE = the upcaster sidecar of domain { $domain } is not serving: send it again
 COORDINATOR_REASON_RULES_VERSION_MISMATCH = component "{ $component }" answered as rules version "{ $reported }", not "{ $registered }", the version it is registered at, for { $stream }: a bug in the component; nothing was kept

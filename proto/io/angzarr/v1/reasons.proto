@@ -434,10 +434,8 @@ enum CoordinatorReason {
   // this key, with the same args, as its AngzarrDeadLetter.reason, whether or
   // not a caller was waiting. (Decision 14.46.) The key is for write races
   // only: a retryable bug dead-lettered at its cap records its own key, as
-  // last answered (decision 14.48, amended). A race re-run cap of 0 never
-  // reaches this key: a lost race then goes back to its caller as the store's
-  // write conflict (command_handler.proto, the status codes; decision 14.46,
-  // amended), COORDINATOR_REASON_STORE_CONFLICT (decision 14.51).
+  // last answered (decision 14.48, amended). The race re-run cap is at least
+  // 1 (decision 14.84).
   COORDINATOR_REASON_RETRY_CAP_EXHAUSTED = 21 [(reason) = {
     args: ["stream", "attempts", "cap"]
     status: REASON_STATUS_INTERNAL
@@ -518,25 +516,6 @@ enum CoordinatorReason {
     args: ["limit"]
     status: REASON_STATUS_INTERNAL
   }];
-  // A race re-run cap of 0 (decision 14.46, amended): a stamped command or
-  // fact (no expected sequence, so the coordinator stamped the head it loaded,
-  // `expected`) lost a race at its write to another write to the same stream,
-  // now at `actual`, and the coordinator, opted out of re-running it, hands it
-  // back at once, with no wait. Nothing is persisted. Bug, retryable (decision
-  // 14.37): UNAVAILABLE means resend, and a resend is safe, since nothing was
-  // written; the consumer that owns its retries resends, and if its own
-  // retries are spent, this key is what it reports. The coordinator never
-  // dead-letters, parks or alerts on it: a fact is answered this, never
-  // PARKED, and a policy step that fails with it holds its position at its
-  // trigger, so the next catch-up runs it again (C-0740 to C-0742). Never
-  // answered at a race re-run cap above 0, where a lost race is re-run and, at
-  // the cap, COORDINATOR_REASON_RETRY_CAP_EXHAUSTED; never a STRICT command's,
-  // whose lost race is COORDINATOR_REASON_EXPECTED_SEQUENCE_STALE. (Decision
-  // 14.51.)
-  COORDINATOR_REASON_STORE_CONFLICT = 31 [(reason) = {
-    args: ["stream", "expected", "actual"]
-    status: REASON_STATUS_UNAVAILABLE
-  }];
   // The coordinator's event store failed to answer (I/O, a timeout, a dropped
   // connection, a busy or locked database: `cause`, the store's failure, a
   // third-party driver's text as `cause.ext_err_txt`); a write may or may not
@@ -546,8 +525,8 @@ enum CoordinatorReason {
   // is dead-lettered with this key and its args, as last answered, as its
   // AngzarrDeadLetter.reason (transient, by its status), and alerted; a
   // waiting caller is answered this key. A write that lost a race
-  // is never this: the store was sure (COORDINATOR_REASON_STORE_CONFLICT at a
-  // race re-run cap of 0, a re-run otherwise). (Decision 14.51.)
+  // is never this: the store was sure, and the coordinator re-runs it.
+  // (Decision 14.51.)
   COORDINATOR_REASON_STORE_UNAVAILABLE = 32 [(reason) = {
     args: ["cause"]
     status: REASON_STATUS_UNAVAILABLE
@@ -688,6 +667,12 @@ enum CoordinatorReason {
   reserved
     "COORDINATOR_REASON_POLICY_COMMAND_WITH_HANDLING",
     "COORDINATOR_REASON_POLICY_COMMAND_FACT_ORIGIN";
+
+  // Retired by 14.84 (DRAFT; the owner's ruling F5): the race re-run cap of
+  // 0, whose lost race this key handed back, is retired; the cap is at
+  // least 1.
+  reserved 31;
+  reserved "COORDINATOR_REASON_STORE_CONFLICT";
 
   // Retired by 14.37.
   reserved

@@ -291,13 +291,8 @@ message Cover {
 // re-runs it on the new head (optimistic concurrency, per stream only;
 // decision 14.45). Re-runs are capped by the race re-run cap (default 10
 // runs), with exponential backoff and jitter between them (the status
-// codes in command_handler.proto; decision 14.46). A race re-run cap of 0
-// opts out, for a consumer that owns its retries: the lost race is never
-// re-run, parked or dead-lettered, and goes back to its caller at once as
-// the store's write conflict, retryable, UNAVAILABLE
-// COORDINATOR_REASON_STORE_CONFLICT (args expected, actual; decision
-// 14.51); a policy step's position holds at its trigger
-// (command_handler.proto, the status codes; decision 14.46, amended).
+// codes in command_handler.proto; decision 14.46). The cap is at least 1
+// (decision 14.84, DRAFT): there is no opt-out.
 //
 // COORDINATOR_REASON_EXPECTED_SEQUENCE_STALE is STRICT's alone: under
 // STRICT, a stream that has moved, found at load or because another write
@@ -1398,7 +1393,6 @@ message AngzarrDeadLetter {
   // ROUTER_REASON_NO_HANDLERS_REGISTERED, ROUTER_REASON_DUPLICATE_COMPONENT
   // and ROUTER_REASON_HANDLER_PANICKED (only ever a cause); and the
   // retryable keys the coordinator only answers, never dead-letters:
-  // COORDINATOR_REASON_STORE_CONFLICT (a race re-run cap of 0),
   // COORDINATOR_REASON_UPCASTER_UNAVAILABLE and the distributed
   // transport's COORDINATOR_REASON_COMPONENT_NOT_REGISTERED (queued work
   // waits) and COORDINATOR_REASON_COMMANDS_NOT_SERVED (decision 14.51).

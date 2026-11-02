@@ -120,8 +120,9 @@ option ruby_package = "Angzarr";
 // race at its write to another write to the same stream, and both are
 // configuration, like the retry cap above: the retry cap bounds an
 // AGGREGATE_HANDLES or COMMUTATIVE command's re-deliveries, and the race
-// re-run cap, a count of runs (the first included, default 10), bounds a
-// stamped command's re-runs on the new head; between runs the coordinator
+// re-run cap, a count of runs (the first included, default 10; at least 1,
+// and a configuration of 0 is refused when it is loaded: decision 14.84,
+// DRAFT), bounds a stamped command's re-runs on the new head; between runs the coordinator
 // waits with the exponential backoff and jitter above, never re-running at
 // once. At either cap the command is dead-lettered and alerted, nothing is
 // persisted, and a caller waiting on Handle or HandleSync is answered
@@ -135,19 +136,9 @@ option ruby_package = "Angzarr";
 // outcome.delivery PARKED, no events), never the key. Either way the dead
 // letter's reason (AngzarrDeadLetter.reason) is
 // COORDINATOR_REASON_RETRY_CAP_EXHAUSTED with the same args.
-// A race re-run cap of 0 is the opt-out for a consumer that owns its
-// retries (decision 14.46, amended): a stamped command or fact that loses
-// a race at its write is never re-run, and the coordinator neither parks
-// nor dead-letters it nor raises an alert, whatever the retry cap says.
-// It goes back to its caller at once, with no wait, as the store's write
-// conflict, retryable: UNAVAILABLE COORDINATOR_REASON_STORE_CONFLICT (args
-// expected, the head it was stamped with, and actual, the stream's head;
-// decision 14.51), never COORDINATOR_REASON_RETRY_CAP_EXHAUSTED, and a
-// fact never PARKED (C-0740, C-0741). A policy step that loses such a race
-// fails with that key and nothing is persisted; its position holds at
-// its trigger, since a step's position moves past its trigger only after
-// the step is dead-lettered (decision 14.37), so the policy's next
-// catch-up runs the step again (C-0742).
+// There is no opt-out: the coordinator owns race re-runs (the owner's
+// ruling of 2026-10-30), and the race re-run cap of 0 that handed a lost
+// race back to its caller is retired with its key (decision 14.84).
 // ABORTED COORDINATOR_REASON_EXPECTED_SEQUENCE_STALE is STRICT's failed
 // test-and-set: the command's caller-provided expected_sequence is behind
 // the stream's head, found at load or at the write (decision 14.45,
