@@ -1,0 +1,32 @@
+syntax = "proto3";
+package io.angzarr.handler.v1;
+
+import "google/protobuf/any.proto";
+import "io/angzarr/v1/types.proto";
+
+option csharp_namespace = "Angzarr.Handler";
+option go_package = "github.com/benjaminabbitt/angzarr/client/go/proto/io/angzarr/handler/v1;angzarrhandler";
+option java_multiple_files = true;
+option java_package = "io.angzarr.handler";
+option ruby_package = "Angzarr::Handler";
+
+// An upcaster's rules (decision 14.78, DRAFT; what an upcaster is, where it
+// runs and who calls it are io/angzarr/v1/upcaster.proto's). The layer rule
+// is command_handler.proto's.
+
+// What an upcaster is handed: the pages to bring to their current shape,
+// with their sequences and EventMeta, read-only. For a command or a fact
+// the coordinator sends one page carrying only its payload.
+message UpcastRequest {
+  // The domain whose streams these pages belong to.
+  string domain = 1;
+  repeated io.angzarr.v1.EventPage events = 2;
+}
+
+// What an upcaster answers: the payloads, in current shape, one per page,
+// in the same order. A page's sequence and EventMeta are the coordinator's
+// and stay as stored, so an upcaster cannot rewrite them. An answer with
+// another count is a rule bug (an error from the upcaster).
+message UpcastResponse {
+  repeated google.protobuf.Any payloads = 1;
+}

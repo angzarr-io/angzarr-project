@@ -1,8 +1,7 @@
 syntax = "proto3";
 package io.angzarr.component.v1;
 
-import "io/angzarr/v1/command_handler.proto";
-import "io/angzarr/v1/types.proto";
+import "io/angzarr/handler/v1/command_handler.proto";
 
 option csharp_namespace = "Angzarr.Component";
 option go_package = "github.com/benjaminabbitt/angzarr/client/go/proto/io/angzarr/component/v1;angzarrcomponent";
@@ -13,93 +12,75 @@ option ruby_package = "Angzarr::Component";
 // The handler-side contract of an aggregate's (or a process manager's)
 // business logic: the one service its business process serves for it,
 // however the runtime reaches it (in process, a local child's socket, or the
-// network). Its messages are core's (io/angzarr/v1/command_handler.proto,
-// io/angzarr/v1/types.proto; decision 14.64).
+// network). Its messages are the handler layer's
+// (io/angzarr/handler/v1/command_handler.proto; decision 14.78, DRAFT):
+// each request carries the books, read-only, and each response only what
+// business code decides.
 //
 // CommandHandlerService: the business logic for one domain's aggregates,
-// implemented in a client library and called by the coordinator. Business code behaves the same in every
-// command mode.
+// implemented in a client library and called by the coordinator. Business
+// code behaves the same in every command mode. Two RPCs, one per input arm
+// (decision 46, Q3): the arm picks the RPC, so a command is never ingested
+// and a fact never decided.
+//
+// Before either is called the coordinator has run pipeline steps 1-4
+// (io/angzarr/v1/types.proto, Handling): validated the input, assigned its
+// command_id and correlation_id, deduplicated it, admitted it (a process
+// manager's start rule; decision 14.42), and resolved its Handling, so
+// decide always sees a concrete sequence. Which coordinator RPC the caller
+// used (the command mode) is not passed on. It has upcast every payload
+// through the component's upcaster sidecar (decision 14.39) and dropped the
+// pages the snapshot covers (decision 14.40). Every delivery is well formed
+// (the coordinator builds it): the client library guards no envelope
+// (decision 14.42).
+//
+// In the client library: the type URL picks the handler. A type URL no
+// registered handler claims is refused INTERNAL (a bug: decision 14.37)
+// with reason ROUTER_REASON_UNKNOWN_COMMAND_TYPE (ROUTER_REASON_NO_FACT_HANDLER
+// for a fact), which is also the status message (a key, never text); the
+// status details carry a google.rpc.ErrorInfo whose metadata key "type_url"
+// holds the type URL the library was given. The coordinator answers its
+// caller with "type_url" as sent and "upcast_type_url" as delivered (see
+// io/angzarr/v1/upcaster.proto). The state the handler sees is the
+// starting state (history.snapshot.state, when present) decoded, with
+// every delivered page folded in order.
+//
+// The coordinator persists nothing from an answer it refuses: a
+// rules_version other than the registered one
+// (COORDINATOR_REASON_RULES_VERSION_MISMATCH, decision 14.56) or, from
+// Decide, no result (COORDINATOR_REASON_DECISION_NO_RESULT). A caller of
+// Handle or HandleSync is answered INTERNAL; an asynchronous or reaction
+// delivery is dead-lettered and alerted. Neither is a business rejection.
 service CommandHandlerService {
-  // Process one command and return the events it produces, with the rules
-  // version that decided them. This is the only input path into an
-  // aggregate: facts arrive here too, in the Fact arm of CommandPage.body.
+  // Decide one command: its events, a refusal, or the handler's own abort,
+  // in band (decision 46, Q2), with the rules version that decided it.
   //
-  // By the time Handle is called the coordinator has already run pipeline
-  // steps 1-4 (io/angzarr/v1/types.proto, Handling): validated the command, assigned its
-  // command_id and correlation_id, deduplicated it, admitted it (a refusal
-  // fact's stream, a process manager's start rule; decision 14.42), and
-  // resolved its
-  // Handling (checked or stamped the expected sequence and resolved the
-  // conflict resolution), so decide always sees a concrete sequence. Which
-  // coordinator RPC the caller used (the command mode) is not passed on.
+  // Under AGGREGATE_HANDLES the handler is given the conflict window (the
+  // request's pages from handling.expected_sequence) and applies its own
+  // rule; nothing comes back about it, and the coordinator accepts what it
+  // decides. Under COMMUTATIVE behind the head the library computes the
+  // window's and the command's conflict units (Decided.conflict), and the
+  // coordinator judges them (decision 14.42; see ConflictResolution). The
+  // library never discards the handler's events for a conflict.
   //
-  // Before Handle, the coordinator has also upcast the payload through the
-  // component's upcaster sidecar (decision 14.39; see io/angzarr/v1/upcaster.proto) and
-  // dropped the pages the snapshot covers (decision 14.40), so the library
-  // sees only current shapes, the starting state and the pages after it.
-  // Every delivery is well formed (the coordinator builds it): the client
-  // library guards no envelope (decision 14.42).
-  //
-  // In the client library, in order:
-  //   1. reflective dispatch: the body arm picks the pipeline (Command ->
-  //      decide, which may reject; Fact -> ingest, which never rejects), and
-  //      the type URL picks the handler. A type URL no registered handler
-  //      claims is refused INTERNAL (a bug: decision 14.37) with reason
-  //      ROUTER_REASON_UNKNOWN_COMMAND_TYPE (ROUTER_REASON_NO_FACT_HANDLER for a fact), which is also
-  //      the status message (a key, never text); the status details carry a
-  //      google.rpc.ErrorInfo whose metadata key "type_url" holds the type
-  //      URL the library was given. The coordinator answers its caller with
-  //      "type_url" as sent and "upcast_type_url" as delivered (see
-  //      io/angzarr/v1/upcaster.proto). A failing fact handler is a bug,
-  //      not a business rejection: the fact is dead-lettered (and alerted)
-  //      and the sender answered PARKED, never a rejection. So is a fact
-  //      the business process answers with a business status: a fact
-  //      cannot be refused, and the coordinator dead-letters it, under the
-  //      key and args the process answered, as it does any input it
-  //      cannot deliver (C-0785, C-0786; decision 14.72).
-  //   2. under AGGREGATE_HANDLES the library reports the nonce the handler
-  //      resolved with, and under COMMUTATIVE it computes the window's and
-  //      the command's conflict units (CommandHandlerResponse.conflict).
-  //      It never discards the handler's events for a conflict: the
-  //      coordinator judges the report (decision 14.42; see
-  //      ConflictResolution).
-  // The state the handler sees is the starting state (events.snapshot.state,
-  // when present) decoded, with every delivered page folded in order; the
-  // library never compares a page's sequence with the snapshot's.
-  // The library never checks a delivered snapshot: the coordinator offers
-  // only snapshots that pass its validity checks (see Snapshot in
-  // io/angzarr/v1/types.proto), and the library folds whatever it is given.
-  //
-  // A rejection is answered as a gRPC error status, never as a response
-  // message, and the refusing domain records nothing. A business rejection
-  // (a status of the business set; see the status codes below, and
-  // FAILED_PRECONDITION for a typed refusal) carries a message and, optionally, a typed
-  // refusal object: one of the command's CommandOptions.refuses types
-  // (options.proto), which the client library packs into the status
-  // details as a google.protobuf.Any; the generated handler returns its
-  // events or one of those refusals (decision 14.31). The
-  // coordinator passes the status on unchanged, and a policy whose command
-  // was refused receives it as RefusalResponse (io/angzarr/v1/types.proto). There is no
-  // compensation input: when a policy's command is refused, the policy delivers
-  // a refusal fact to its own source domain, which decides how to respond
-  // (decision 14.31; PolicyService in io/angzarr/v1/policy.proto, Refusals).
-  //
-  // Business output is payloads, plus the post-command state, and nothing
-  // else. The returned EventBook carries pages with only a payload set, and
-  // on EVERY response snapshot.state: the aggregate's state with the
-  // command's events folded in, filled by the client library. Business code
-  // never decides whether or when a snapshot is taken, and the request
-  // carries no flag asking for one. The coordinator persists the state as a
-  // snapshot per the domain's storage policy (see Snapshot) and supplies the
-  // cover (the command's), every sequence and every EventMeta, stamping
-  // EventMeta.rules_version (and Snapshot.rules_version) in full from the
-  // response's rules_version. Output that sets page meta or a page sequence,
-  // or a cover other than the command's (empty counts as the command's), or
-  // a response whose rules_version differs from the registered one, is a
-  // handler bug: the coordinator refuses it and persists nothing. A caller
-  // of Handle or HandleSync is answered INTERNAL; an asynchronous or
-  // reaction delivery is dead-lettered and alerted. It is never treated as
-  // a business rejection. The version's refusal is keyed
-  // COORDINATOR_REASON_RULES_VERSION_MISMATCH (decision 14.56).
-  rpc Handle(io.angzarr.v1.ContextualCommand) returns (io.angzarr.v1.CommandHandlerResponse);
+  // A refusal (DecideResponse.refused) records nothing. Its status is a
+  // business status by type (RefusalStatus). The coordinator answers a
+  // client caller with it as a gRPC status, unchanged on the client's wire:
+  // the status, the reason (ROUTER_REASON_COMMAND_REFUSED with refusal_type
+  // for a typed refusal, the diagnostic's code otherwise) and the typed
+  // object packed in the status details. A refused HandleAsync command is
+  // dead-lettered (AngzarrDeadLetter.reason and .refusal), and a refused
+  // policy command reaches the policy's Translate (the one refusal path;
+  // io/angzarr/v1/policy.proto, Refusals). There is no compensation input:
+  // the policy delivers a fact of the refusal to its own source domain
+  // (decision 14.31).
+  rpc Decide(io.angzarr.handler.v1.DecideRequest) returns (io.angzarr.handler.v1.DecideResponse);
+
+  // Ingest one fact: its events. A fact is never refused (decision 14.34),
+  // so the answer has no refusal: a failing fact handler, or one that
+  // answers any error status, is a bug, never a business rejection. The
+  // fact is dead-lettered (and alerted) under the key and args the process
+  // answered, and its sender answered OK, PARKED (C-0785, C-0786; decision
+  // 14.72).
+  rpc Ingest(io.angzarr.handler.v1.IngestRequest) returns (io.angzarr.handler.v1.IngestResponse);
 }

@@ -1,0 +1,200 @@
+syntax = "proto3";
+package io.angzarr.handler.v1;
+
+import "google/protobuf/any.proto";
+import "google/protobuf/timestamp.proto";
+import "io/angzarr/v1/options.proto";
+import "io/angzarr/v1/types.proto";
+
+option csharp_namespace = "Angzarr.Handler";
+option go_package = "github.com/benjaminabbitt/angzarr/client/go/proto/io/angzarr/handler/v1;angzarrhandler";
+option java_multiple_files = true;
+option java_package = "io.angzarr.handler";
+option ruby_package = "Angzarr::Handler";
+
+// The handler layer (decision 14.78, DRAFT): what each kind of business
+// logic takes and returns, and nothing else. Between core (io.angzarr.v1,
+// the coordinator's records and envelopes) and the component services
+// (io.angzarr.component.v1, which bind these messages to gRPC). The
+// dependency direction is component -> handler -> core: this package
+// imports core, and core imports nothing of it.
+//
+// The rule that shapes every message here, one half per direction:
+//   - A request carries the full angzarr context, read-only: the books the
+//     coordinator built (CommandBook, EventBook), with every id, cover,
+//     sequence and EventMeta it stamped or loaded. Business logic gets what
+//     it needs (the owner's ruling on decision 46, Q1).
+//   - A response carries only what business code decides: payloads, the
+//     post-decision state, the rules version, a conflict report, a refusal.
+//     It has no field the coordinator stamps (a cover, a sequence, an id,
+//     EventMeta), so there is nothing for the coordinator to refuse.
+// The coordinator alone converts between this layer and core's: it wraps
+// each payload a response returns in core's EventPage, Snapshot or
+// CommandBook, under the input's cover, never transforming the payload.
+//
+// The command handler of an aggregate, and of a process manager (a domain
+// too, decision 14.31), is two calls, one per input arm (decision 46, Q3):
+// Decide for a command, which may be refused; Ingest for a fact, which
+// never is.
+
+// What Decide is handed: one command and the stream it addresses, after
+// the coordinator's pipeline steps 1-4 (io/angzarr/v1/types.proto,
+// Handling). The command is validated, its ids assigned, deduplicated,
+// admitted (a process manager's start rule) and its Handling resolved;
+// every payload is in its current shape (upcast, decision 14.39).
+message DecideRequest {
+  // The command as the coordinator holds it: its cover (the stream), its
+  // page (command_id, correlation_id, and causation_id for a policy's
+  // command) and its Handling, resolved: expected_sequence provided or
+  // stamped, conflict_resolution never UNSPECIFIED. The page's body is
+  // the Command arm.
+  //
+  // The window boundary is handling.expected_sequence (E). Under
+  // AGGREGATE_HANDLES and COMMUTATIVE the pages of history with sequences
+  // E .. history.next_sequence-1 are the conflict window, always delivered
+  // as pages: history.snapshot, when present, has sequence <= E-1 (and
+  // there is none when E is 0), so no part of the window is hidden inside
+  // snapshot state. Under STRICT, E is the head and the window is empty.
+  io.angzarr.v1.CommandBook command = 1;
+  // The stream as loaded: the starting state (a snapshot that passed the
+  // coordinator's validity checks, see Snapshot) and every page after it
+  // (decision 14.40), each with its sequence and EventMeta, and the head
+  // (next_sequence). The client library folds what it is given, in order,
+  // never checking the snapshot or comparing sequences with it.
+  io.angzarr.v1.EventBook history = 2;
+  // When the input was accepted: stamped by the runtime that accepted it
+  // before the handler runs, never by the caller (decision 14.37).
+  google.protobuf.Timestamp recorded_at = 3;
+}
+
+// What Decide answers: exactly one result, and the rules version that
+// decided it. A refusal travels here, in band, never as a gRPC status
+// (decision 46, Q2). A handler BUG is not an answer: it is an error status,
+// as before (ROUTER_REASON_UNHANDLED_HANDLER_ERROR and the router's other
+// bug keys; io/angzarr/v1/command_handler.proto, status codes).
+//
+// A response whose result is unset is a handler bug: the coordinator
+// refuses it, persists nothing, and answers COORDINATOR_REASON_DECISION_NO_RESULT
+// (a caller of Handle or HandleSync) or dead-letters it with that key (any
+// other delivery), and alerts.
+message DecideResponse {
+  oneof result {
+    // The command is accepted: these are its events.
+    Decided decided = 1;
+    // The command is refused, a business rejection (business, fatal;
+    // decision 14.37). The refusing domain records nothing.
+    Refusal refused = 2;
+    // The handler's own ABORTED, "re-read and re-decide", under its own
+    // key and args (decision 14.37). The coordinator answers its caller
+    // ABORTED with this key; a policy step is re-run under the capped
+    // backoff. Never a policy's Translate.
+    io.angzarr.v1.Diagnostic aborted = 3;
+  }
+  // The full version of the business binary that produced this answer
+  // (e.g. "1.4.2+build.7"), baked in when the binary is built, never a
+  // label chosen by hand: the same value the component registered
+  // (ComponentDescriptor.rules_version). The client library fills it on
+  // every answer, whatever its result. The coordinator stamps it in full
+  // onto every event (EventMeta.rules_version) and any snapshot written
+  // from this answer. One that differs from the registered version (an
+  // empty one included) is a handler bug: refused, nothing persisted,
+  // COORDINATOR_REASON_RULES_VERSION_MISMATCH (decision 14.56).
+  string rules_version = 4;
+}
+
+// An accepted command's result: payloads and the post-decision state,
+// nothing the coordinator stamps.
+message Decided {
+  // The events, payloads only, in order: empty, one or many (decision
+  // 14.75). The coordinator wraps event i as an EventPage under the
+  // command's cover, at sequence head + i, with one EventMeta for the
+  // write (causation.command_id and correlation_id from the command's
+  // page, recorded_at, rules_version from this answer).
+  repeated google.protobuf.Any events = 1;
+  // The state with the command's events folded in, filled by the client
+  // library on every accepted answer, never by business code. The
+  // coordinator persists it as a Snapshot (sequence, state, rules_version)
+  // per the domain's storage policy; business code never decides whether
+  // or when.
+  google.protobuf.Any state = 2;
+  // COMMUTATIVE behind the head only: the unit sets the coordinator judges
+  // (decision 14.42; ConflictResolution in io/angzarr/v1/types.proto).
+  // Unset under STRICT, under AGGREGATE_HANDLES, and for a COMMUTATIVE
+  // command at the head (delivered as STRICT, decision 14.66).
+  ConflictReport conflict = 3;
+}
+
+// A business rejection: business, fatal (decision 14.37). Exactly what the
+// refused policy's Translate receives (io/angzarr/handler/v1/policy.proto,
+// TranslateRequest.refusal).
+message Refusal {
+  // Which of the business statuses the rejection travels as (the
+  // refusal_status region of options.proto): a typed refusal's is its
+  // Reason value's (io.angzarr.v1.refusal_status), an untyped one's the
+  // handler's choice. UNSPECIFIED is FAILED_PRECONDITION. Only business
+  // statuses are representable: a bug or a retryable status cannot be a
+  // refusal.
+  io.angzarr.v1.RefusalStatus status = 1;
+  // Exactly one: the rejection's key and its map, never text (decision
+  // 14.37).
+  oneof reason {
+    // A typed refusal object: one of the command's CommandOptions.refuses
+    // types (options.proto), packed. Its type is the key and its fields
+    // the map. On the coordinator's wire to a client it travels as reason
+    // ROUTER_REASON_COMMAND_REFUSED with arg refusal_type, the object in
+    // the status details, as before.
+    google.protobuf.Any typed = 2;
+    // An untyped rejection: its code and args. On the coordinator's wire
+    // the code is the status message and the ErrorInfo reason.
+    io.angzarr.v1.Diagnostic diagnostic = 3;
+  }
+}
+
+// The client library's COMMUTATIVE resolver's report: the two unit sets of
+// the conflict_units region of options.proto. The coordinator accepts the
+// events iff they do not overlap (options.proto, Overlap); otherwise
+// ABORTED, COORDINATOR_REASON_CONFLICT_OVERLAP, args window_units and
+// command_units, and nothing is persisted. AGGREGATE_HANDLES reports
+// nothing: its handler receives the window with the command and applies
+// its own rule, and the coordinator accepts what it decides (decision 46,
+// Q5: no nonce and no acknowledgement; a re-delivered window is a new
+// Decide call).
+message ConflictReport {
+  // changed(state at expected_sequence, head): the units the window
+  // changed, as unit paths.
+  repeated string window_units = 1;
+  // changed(head, head with the command's events folded in): the units the
+  // command changed.
+  repeated string command_units = 2;
+}
+
+// What Ingest is handed: one fact and the stream it addresses, after the
+// same pipeline steps as Decide. A fact carries no Handling: the
+// coordinator always stamps the head, and no conflict resolution applies.
+message IngestRequest {
+  // The fact as the coordinator holds it: its cover, its page (command_id,
+  // correlation_id, fact_origin, and causation_id for a policy's fact or a
+  // refusal fact). The page's body is the Fact arm.
+  io.angzarr.v1.CommandBook fact = 1;
+  // The stream as loaded, as for Decide; next_sequence is the stamped
+  // head.
+  io.angzarr.v1.EventBook history = 2;
+  // When the input was accepted, as for Decide.
+  google.protobuf.Timestamp recorded_at = 3;
+}
+
+// What Ingest answers. A fact is never refused, so there is no refusal and
+// no abort: any error status from Ingest is a bug by construction, the fact
+// dead-lettered and alerted and its sender answered OK, PARKED (decision
+// 14.72). There is no conflict report: no conflict resolution applies to a
+// fact.
+message IngestResponse {
+  // The events, payloads only, in order; may be empty (decision 14.75).
+  // Wrapped as Decided.events are, with EventMeta.fact the fact's origin.
+  repeated google.protobuf.Any events = 1;
+  // The post-ingest state, filled by the client library, as
+  // Decided.state.
+  google.protobuf.Any state = 2;
+  // As DecideResponse.rules_version.
+  string rules_version = 3;
+}

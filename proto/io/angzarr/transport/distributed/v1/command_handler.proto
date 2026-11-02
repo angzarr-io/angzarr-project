@@ -98,7 +98,7 @@ service CommandHandlerCoordinatorService {
 //   - CommandPage.causation_id (with the derived command_id of a reaction
 //     command, or the refused command's id on a refusal fact; the
 //     receiving coordinator trusts them from this caller);
-//   - a caller-supplied trigger EventBook to PolicyCoordinatorService.Execute
+//   - a caller-supplied trigger EventBook to PolicyCoordinatorService.ExecuteStamped
 //     (whose stamping copies the trigger's correlation and EventRef onto
 //     the policy's commands and refusal facts).
 // Any other caller is a client. A client that sends a causation_id is

@@ -42,9 +42,8 @@ option ruby_package = "Angzarr";
 //     (a reply it records and cannot refuse; decision 14.69), and the
 //     refusal facts that the policies whose source is the
 //     PM's domain deliver when their commands are refused (PolicyService in
-//     policy.proto, Refusals): the standard CommandRefused, handled by a
-//     generated on_refused_<Command> (inferred from its handlers), or a
-//     domestic fact a policy translates the refusal into.
+//     policy.proto, Refusals): the domestic fact each such policy
+//     translates the refusal into (the one refusal path, decision 46 #5).
 // Its (command) entries name both (options.proto); the handler
 // registration says which is a command and which a fact, as for an
 // aggregate.
@@ -57,13 +56,13 @@ option ruby_package = "Angzarr";
 // are ordinary stored events, published like an aggregate's.
 //
 // Stream. A PM instance's stream is (the PM's domain, an edition, a
-// root): domain is the one the PM owns (ComponentOptions.domain), the
+// root): domain is the one the PM owns (ProcessManagerDecl.domain), the
 // edition is the input's cover's (a policy's command carries its trigger's
 // edition; see Cover.edition), and the root is the one the input's cover
 // names. A policy addressing a PM names that root, as it does for any
 // target (decision 14.36, as amended): nothing fills one in, and a policy
 // command with no root is a policy bug (COORDINATOR_REASON_POLICY_COMMAND_NO_ROOT;
-// PolicyReaction.outputs in policy.proto). By convention a policy may set
+// Output.root in handler/v1/policy.proto). By convention a policy may set
 // it to its trigger's correlation_id, unchanged (decision 14.30): no
 // derivation (no hash, no UUIDv5) and no text fallback, since a
 // correlation_id is always a 16-byte UUID (decision 9.1) and so a valid
@@ -83,12 +82,12 @@ option ruby_package = "Angzarr";
 // there). An input for a root with no instance starts one only if
 // the PM declares its type as STARTING ((command) entry with starts set,
 // options.proto; advertised to the coordinator as
-// ComponentDescriptor.starting_types). It is then delivered with an empty
+// ProcessManagerDescriptor.starting_types). It is then delivered with an empty
 // state. Any other input for a root with no instance is not
 // delivered; the coordinator decides, before the handler, by its type
 // after the coordinator has upcast it through the upcaster sidecar
 // (decisions 14.25, 14.39), matching the fully-qualified name its type URL
-// ends in against ComponentDescriptor.starting_types, which lists type
+// ends in against ProcessManagerDescriptor.starting_types, which lists type
 // names (decision 14.41):
 //   - a FACT is dead-lettered (owner's ruling; decision 14.69), with reason
 //     COORDINATOR_REASON_PM_NO_INSTANCE, and alerted, recording nothing; a
@@ -141,5 +140,4 @@ option ruby_package = "Angzarr";
 // No outbox needed. A PM's whole output is its own events, appended to its
 // own stream like any domain's, and it consumes no stream, so it has no
 // checkpoint. The outbox is one capability for any component whose output
-// leaves its own stream (see PolicyResponse in policy.proto, Transient
-// outbox); a PM would use that same outbox if it ever emitted such output.
+// leaves its own stream (see policy.proto, Transient outbox); a PM would use that same outbox if it ever emitted such output.

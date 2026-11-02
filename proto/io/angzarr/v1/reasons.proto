@@ -141,6 +141,12 @@ enum RouterReason {
   ROUTER_REASON_HANDLER_PANICKED = 2 [(reason) = {
     status: REASON_STATUS_INTERNAL
   }];
+  // The key a TYPED refusal travels under, arg refusal_type its object's
+  // full type name: on the coordinator's gRPC status to a caller (the
+  // object in the status details) and as a dead letter's reason (the object
+  // as AngzarrDeadLetter.refusal). The router itself answers a refusal in
+  // band (io.angzarr.handler.v1.DecideResponse.refused, decision 46, Q2);
+  // the coordinator puts this key on the status it answers.
   ROUTER_REASON_COMMAND_REFUSED = 3 [(reason) = {
     args: ["refusal_type"]
     status: REASON_STATUS_FAILED_PRECONDITION
@@ -172,6 +178,14 @@ enum RouterReason {
     args: ["type_url", "upcast_type_url"]
     status: REASON_STATUS_INTERNAL
   }];
+  // A POLICY's router handed a refusal (PolicyService.Translate) of a
+  // command type (`command_type`) it has no refusal callback for: only a
+  // policy written by hand, outside Rust, can (a generated policy has every
+  // callback, decision 14.76, and a Rust one fails to compile without it).
+  // Re-scoped by decision 14.78 (decision 46, Q6) from the source domain's
+  // router, which no longer dispatches refusals (the one refusal path).
+  // Bug, fatal (decision 14.37): the policy step is dead-lettered and
+  // alerted.
   ROUTER_REASON_NO_REFUSAL_HANDLER = 10 [(reason) = {
     args: ["command_type"]
     status: REASON_STATUS_INTERNAL
@@ -202,8 +216,8 @@ enum RouterReason {
   // decision emitted, and the command or fact fails as a handler's bug does.
   // Bug, fatal (decision 14.37): dead-lettered and alerted at once, never
   // retried (a retryable status would re-run business code to the cap for the
-  // same answer), never a policy's OnRefused (a business status would invite a
-  // compensating reaction to a bug). A router that offers no follow-on steps
+  // same answer), never a policy's Translate (a business status would invite
+  // a compensating reaction to a bug). A router that offers no follow-on steps
   // never answers it. (Decision 14.49.)
   ROUTER_REASON_TOO_MANY_STEPS = 15 [(reason) = {
     args: ["limit"]
@@ -251,8 +265,9 @@ enum HostReason {
     status: REASON_STATUS_INTERNAL
   }];
   // A component registered with a descriptor whose rules_version (`described`)
-  // is not the version its answers report (`reported`:
-  // CommandHandlerResponse.rules_version), generated or written by hand alike.
+  // is not the version its answers report (`reported`: the rules_version of
+  // io.angzarr.handler.v1.DecideResponse and IngestResponse), generated or
+  // written by hand alike.
   // Refused at registration, before anything is served, and nothing is
   // registered: the coordinator would refuse every answer the component gave
   // (types.proto, ComponentDescriptor; C-0743).
@@ -260,9 +275,9 @@ enum HostReason {
     args: ["component", "described", "reported"]
     status: REASON_STATUS_INTERNAL
   }];
-  // A projector that names no domain it reads: its descriptor's inputs are
-  // empty, as are its table's domains where the client builds the descriptor
-  // from the table. There is no wildcard domain (decision 14.53), so it would
+  // A projector that names no domain it reads: its descriptor's
+  // ProjectorDescriptor.input_domains is empty, as are its table's domains
+  // where the client builds the descriptor from the table. There is no wildcard domain (decision 14.53), so it would
   // fold nothing. Refused at registration, before anything is served, and
   // nothing is registered; a client's describe() of such a table refuses with
   // it too (C-0747; decision 14.55).
@@ -353,10 +368,12 @@ enum HostReason {
 // Keys core's coordinator and the angzarr-embedded kernel answer.
 enum CoordinatorReason {
   COORDINATOR_REASON_UNSPECIFIED = 0;
-  COORDINATOR_REASON_CONFLICT_UNRESOLVED = 1 [(reason) = {
-    args: ["stream"]
-    status: REASON_STATUS_ABORTED
-  }];
+  // COMMUTATIVE behind the head: the units the window changed
+  // (`window_units`) and the units the command changed (`command_units`)
+  // overlap (options.proto, Overlap), as the client library reported them
+  // (io.angzarr.handler.v1.Decided.conflict). Nothing is persisted.
+  // Business, immediate return (decision 14.37), as STRICT's stale command
+  // is.
   COORDINATOR_REASON_CONFLICT_OVERLAP = 2 [(reason) = {
     args: ["stream", "window_units", "command_units"]
     status: REASON_STATUS_ABORTED
@@ -365,36 +382,13 @@ enum CoordinatorReason {
     args: ["stream", "type_url"]
     status: REASON_STATUS_FAILED_PRECONDITION
   }];
-  COORDINATOR_REASON_REFUSAL_FACT_WRONG_STREAM = 4 [(reason) = {
-    args: ["domain"]
-    status: REASON_STATUS_INTERNAL
-  }];
-  COORDINATOR_REASON_POLICY_COMMAND_OUTSIDE_DESTINATION = 5 [(reason) = {
-    args: ["expected_domain", "actual_domain"]
-    status: REASON_STATUS_INTERNAL
-  }];
-  COORDINATOR_REASON_POLICY_COMMAND_OUTSIDE_EDITION = 6 [(reason) = {
-    args: ["expected_edition", "actual_edition"]
-    status: REASON_STATUS_INTERNAL
-  }];
+  // A policy's output (io.angzarr.handler.v1.Output) whose root is unset or
+  // not 16 bytes: nothing fills one in, for any destination (decision
+  // 14.36, as amended). Refused by the policy's coordinator, the trigger
+  // dead-lettered and alerted, nothing delivered. Bug, fatal (decision
+  // 14.37).
   COORDINATOR_REASON_POLICY_COMMAND_NO_ROOT = 7 [(reason) = {
     args: ["domain", "command_type"]
-    status: REASON_STATUS_INTERNAL
-  }];
-  COORDINATOR_REASON_POLICY_COMMAND_OTHER_CORRELATION = 8 [(reason) = {
-    args: ["domain", "command_type"]
-    status: REASON_STATUS_INTERNAL
-  }];
-  COORDINATOR_REASON_REFUSAL_FACT_ADDRESSED = 9 [(reason) = {
-    status: REASON_STATUS_INTERNAL
-  }];
-  COORDINATOR_REASON_REFUSAL_FACT_NO_PAGE = 10 [(reason) = {
-    status: REASON_STATUS_INTERNAL
-  }];
-  COORDINATOR_REASON_REFUSAL_FACT_NOT_A_FACT = 11 [(reason) = {
-    status: REASON_STATUS_INTERNAL
-  }];
-  COORDINATOR_REASON_REFUSAL_FACT_IDENTIFIED = 12 [(reason) = {
     status: REASON_STATUS_INTERNAL
   }];
   COORDINATOR_REASON_MISSING_RULES_VERSION = 13 [(reason) = {
@@ -405,24 +399,8 @@ enum CoordinatorReason {
     args: ["component", "component_kind"]
     status: REASON_STATUS_READINESS
   }];
-  COORDINATOR_REASON_STARTING_TYPES_ON_NON_PM = 15 [(reason) = {
-    args: ["component", "component_kind"]
-    status: REASON_STATUS_READINESS
-  }];
-  COORDINATOR_REASON_STATE_ON_STATELESS_KIND = 16 [(reason) = {
-    args: ["component", "component_kind"]
-    status: REASON_STATUS_READINESS
-  }];
-  COORDINATOR_REASON_POLICY_INPUT_COUNT = 17 [(reason) = {
-    args: ["component", "input_count"]
-    status: REASON_STATUS_READINESS
-  }];
   COORDINATOR_REASON_POLICY_NO_OUTPUT_DOMAIN = 18 [(reason) = {
     args: ["component"]
-    status: REASON_STATUS_READINESS
-  }];
-  COORDINATOR_REASON_OUTPUT_DOMAIN_ON_NON_POLICY = 19 [(reason) = {
-    args: ["component", "component_kind"]
     status: REASON_STATUS_READINESS
   }];
   // STRICT only. The command, under STRICT, set
@@ -487,13 +465,14 @@ enum CoordinatorReason {
     args: ["stream", "expected", "head"]
     status: REASON_STATUS_INVALID_ARGUMENT
   }];
-  // A reaction command (a policy's) that carries Handling (an
+  // A reaction command (a CommandBook with a causation_id, from a framework
+  // caller) that reaches its destination carrying Handling (an
   // expected_sequence or a conflict_resolution), which a reaction command
-  // never may (types.proto, Handling): refused by the policy's coordinator
-  // (PolicyResponse.reactions), its trigger dead-lettered, or, if one reaches
-  // its destination, refused there before business code and dead-lettered as a
-  // reactor bug, with this key as its AngzarrDeadLetter.reason. Never
-  // delivered. (Decision 14.48, amended.)
+  // never may (types.proto, Handling): refused there before business code
+  // and dead-lettered as a reactor bug, with this key as its
+  // AngzarrDeadLetter.reason. Never delivered. A policy's own answer cannot
+  // carry Handling (io.angzarr.handler.v1.Output), so its coordinator never
+  // raises it. (Decision 14.48, amended; 14.78.)
   COORDINATOR_REASON_POLICY_COMMAND_WITH_HANDLING = 23 [(reason) = {
     args: ["domain", "command_type"]
     status: REASON_STATUS_INTERNAL
@@ -509,35 +488,23 @@ enum CoordinatorReason {
     args: ["stream", "edition", "attempts", "cause"]
     status: REASON_STATUS_INTERNAL
   }];
-  // A reaction command (a policy's) that sets its own command_id or
-  // causation_id (`field`, the field's name) to a value other than the one its
-  // coordinator stamps (types.proto, the command_identity region): refused by
-  // the policy's coordinator (PolicyResponse.reactions), its trigger
-  // dead-lettered with this key as its AngzarrDeadLetter.reason, and alerted.
-  // Never delivered. (Decision 14.48, amended.)
-  COORDINATOR_REASON_POLICY_COMMAND_OTHER_IDENTITY = 25 [(reason) = {
-    args: ["domain", "command_type", "field"]
-    status: REASON_STATUS_INTERNAL
-  }];
-  // A policy's reaction, a command or a fact, whose business code set
-  // fact_origin: the policy's coordinator stamps a fact's (decision 14.69;
-  // types.proto, the command_identity region), and a command never carries
-  // one. Refused by the policy's coordinator (PolicyResponse.reactions), its
-  // trigger dead-lettered, or, if a command carrying one reaches its
-  // destination, refused there before business code and dead-lettered as a
-  // reactor bug, with this key as its AngzarrDeadLetter.reason, and alerted.
-  // Never delivered. (Decision 14.48, amended.)
+  // A reaction command (a Command arm with a causation_id, from a framework
+  // caller) that reaches its destination carrying a fact_origin, which a
+  // command never may (types.proto, the command_identity region): refused
+  // there before business code and dead-lettered as a reactor bug, with
+  // this key as its AngzarrDeadLetter.reason, and alerted. Never delivered.
+  // A policy's own answer cannot carry one (io.angzarr.handler.v1.Output),
+  // so its coordinator never raises it. (Decision 14.48, amended; 14.78.)
   COORDINATOR_REASON_POLICY_COMMAND_FACT_ORIGIN = 27 [(reason) = {
     args: ["domain", "command_type"]
     status: REASON_STATUS_INTERNAL
   }];
   // A reaction command (a policy's) addressed to a domain its coordinator
   // cannot route: no component of the domain is registered with it, and it
-  // knows no coordinator for the domain elsewhere. Found when the reactions
-  // are checked (PolicyResponse.reactions), after the destination check
-  // (COORDINATOR_REASON_POLICY_COMMAND_OUTSIDE_DESTINATION): refused, its
-  // trigger dead-lettered with this key as its AngzarrDeadLetter.reason
-  // (processing_failed), and alerted. Never delivered. Bug, fatal (decision
+  // knows no coordinator for the domain elsewhere. Found when the policy's
+  // answer is checked (io.angzarr.handler.v1.ReactResponse): refused, its
+  // trigger dead-lettered with this key as its AngzarrDeadLetter.reason,
+  // and alerted. Never delivered. Bug, fatal (decision
   // 14.37): a deployment that wires a policy to a domain it does not host is
   // fixed by its operator, not by a retry. A client's command for an unknown
   // domain is the client's malformed input, never this. (Decision 14.49.)
@@ -552,7 +519,7 @@ enum CoordinatorReason {
   // and nothing was written. Bug, retryable (decision 14.37): UNAVAILABLE
   // means resend, under the retry cap with backoff and jitter. At the cap the
   // input is dead-lettered with this key and its args, as last answered, as
-  // its AngzarrDeadLetter.reason (processing_failed, is_transient true), never
+  // its AngzarrDeadLetter.reason (transient, by its status), never
   // COORDINATOR_REASON_RETRY_CAP_EXHAUSTED, which is for write races only
   // (decision 14.48, amended), and alerted. A business process that is reached
   // and answers a retryable bug of its own answers
@@ -568,10 +535,10 @@ enum CoordinatorReason {
   // its chain depth limit (`limit`, configuration): a policy cycle that never
   // settles, or a cascade longer than allowed. The reaction is not delivered;
   // the trigger whose reaction it was is dead-lettered with this key as its
-  // AngzarrDeadLetter.reason (processing_failed, retry_count 0, is_transient
-  // false), and alerted. Bug, fatal (decision 14.37): the same chain runs as
-  // deep again, so a retry cannot help, and a business status would reach
-  // OnRefused, whose reaction deepens the chain. A coordinator that does not
+  // AngzarrDeadLetter.reason (retry_count 0), and alerted. Bug, fatal
+  // (decision 14.37): the same chain runs as deep again, so a retry cannot
+  // help, and a business status would reach Translate, whose reaction
+  // deepens the chain. A coordinator that does not
   // follow chains never answers it. (Decision 14.49.)
   COORDINATOR_REASON_CHAIN_TOO_DEEP = 30 [(reason) = {
     args: ["limit"]
@@ -603,8 +570,8 @@ enum CoordinatorReason {
   // with backoff and jitter, safe because a resend starts at deduplication (a
   // write that landed after all is answered DUPLICATE). At the cap the input
   // is dead-lettered with this key and its args, as last answered, as its
-  // AngzarrDeadLetter.reason (processing_failed, is_transient true), and
-  // alerted; a waiting caller is answered this key. A write that lost a race
+  // AngzarrDeadLetter.reason (transient, by its status), and alerted; a
+  // waiting caller is answered this key. A write that lost a race
   // is never this: the store was sure (COORDINATOR_REASON_STORE_CONFLICT at a
   // race re-run cap of 0, a re-run otherwise). (Decision 14.51.)
   COORDINATOR_REASON_STORE_UNAVAILABLE = 32 [(reason) = {
@@ -617,13 +584,14 @@ enum CoordinatorReason {
   // to upcast and reports NOT_SERVING (upcaster.proto, Failure). A waiting
   // caller and a query are answered this key, to resend; queued and reaction
   // deliveries stay queued until the sidecar is back, so it is never a dead
-  // letter's reason. A rule that fails (an error status from Upcast) is a
-  // handler bug, never this. (Decision 14.51.)
+  // letter's reason. A rule that fails (an error status from
+  // UpcastPayloads) is a handler bug, never this. (Decision 14.51.)
   COORDINATOR_REASON_UPCASTER_UNAVAILABLE = 33 [(reason) = {
     args: ["domain", "cause"]
     status: REASON_STATUS_UNAVAILABLE
   }];
-  // A CommandHandlerResponse whose rules_version (`reported`, an empty one
+  // A handler's answer (io.angzarr.handler.v1.DecideResponse or
+  // IngestResponse) whose rules_version (`reported`, an empty one
   // included) is not the version the component registered (`registered`: its
   // ComponentDescriptor.rules_version). Bug, fatal (decision 14.37): refused
   // and nothing persisted; a caller of Handle or HandleSync is answered it, an
@@ -632,20 +600,6 @@ enum CoordinatorReason {
   // C-0558, C-0559, C-0748). (Decision 14.56.)
   COORDINATOR_REASON_RULES_VERSION_MISMATCH = 37 [(reason) = {
     args: ["stream", "component", "registered", "reported"]
-    status: REASON_STATUS_INTERNAL
-  }];
-  // A handler's answer whose events book names another stream than the one
-  // it was handed (`stream`, the input's; `event_stream`, the stream the
-  // book's cover names, another edition's included): a domain's or a
-  // process manager's answer is payloads for its own stream alone. Refused
-  // before any write, so nothing is persisted; a waiting caller is answered
-  // it, and the input is dead-lettered as a handler bug with this key and
-  // its args as its AngzarrDeadLetter.reason, and alerted. Bug, fatal
-  // (decision 14.37): the same handler answers the same way again. A book
-  // with no cover, or the input's own, is the input's stream. (C-0590;
-  // decision 14.65.)
-  COORDINATOR_REASON_EVENTS_NOT_ITS_STREAM = 38 [(reason) = {
-    args: ["stream", "event_stream"]
     status: REASON_STATUS_INTERNAL
   }];
   // An outside input (a client's command or fact) to a stream in an
@@ -674,14 +628,40 @@ enum CoordinatorReason {
   // stream (`stream`: the trigger's domain and root, and its edition, which
   // every output is stamped with), of type `command_type`. A policy may
   // address its own domain at another root, never the stream that triggered
-  // it. Refused by the policy's coordinator (PolicyResponse.reactions), after
-  // the edition check: nothing is delivered, and the trigger is dead-lettered
-  // with this key as its AngzarrDeadLetter.reason (processing_failed,
-  // retry_count 0, is_transient false), and alerted. Bug, fatal (decision
+  // it. Refused by the policy's coordinator (io.angzarr.handler.v1.ReactResponse,
+  // the output stamped with the trigger's edition): nothing is delivered,
+  // and the trigger is dead-lettered with this key as its
+  // AngzarrDeadLetter.reason (retry_count 0), and alerted. Bug, fatal (decision
   // 14.37): the same policy answers the same way again. (C-0784; decision
   // 14.71.)
   COORDINATOR_REASON_POLICY_TARGETS_ITS_TRIGGER = 41 [(reason) = {
     args: ["stream", "command_type"]
+    status: REASON_STATUS_INTERNAL
+  }];
+  // A policy's descriptor (PolicyDescriptor) with no input_domain: its
+  // source, which angzarr-cli derives from the events it names (decision
+  // 14.78), is empty. Readiness, as every descriptor rule's (decision
+  // 14.65). Replaces the input count's one reachable case: a policy's
+  // source is a single field, so "more than one" cannot be said.
+  COORDINATOR_REASON_POLICY_NO_INPUT_DOMAIN = 42 [(reason) = {
+    args: ["component"]
+    status: REASON_STATUS_READINESS
+  }];
+  // A descriptor whose kind (the ComponentDescriptor.kind oneof) is unset,
+  // or an arm this coordinator does not know. Readiness (decision 14.65,
+  // 14.78).
+  COORDINATOR_REASON_DESCRIPTOR_NO_KIND = 43 [(reason) = {
+    args: ["component"]
+    status: REASON_STATUS_READINESS
+  }];
+  // A command handler's answer (io.angzarr.handler.v1.DecideResponse) whose
+  // result is unset: neither decided, refused nor aborted (decision 46, Q2).
+  // Bug, fatal (decision 14.37): refused, nothing persisted; a caller of
+  // Handle or HandleSync is answered it, an asynchronous or reaction
+  // delivery dead-lettered with it as its AngzarrDeadLetter.reason and
+  // alerted. (Decision 14.78.)
+  COORDINATOR_REASON_DECISION_NO_RESULT = 44 [(reason) = {
+    args: ["stream"]
     status: REASON_STATUS_INTERNAL
   }];
 
@@ -697,6 +677,34 @@ enum CoordinatorReason {
   reserved 26;
   reserved
     "COORDINATOR_REASON_POLICY_COMMAND_IS_FACT";
+
+  // Retired by 14.78 (decision 46, DRAFT). The conflict nonce and its
+  // acknowledgement (Q5): CONFLICT_UNRESOLVED. The one refusal path (#5):
+  // REFUSAL_FACT_WRONG_STREAM. Handler answers that hold only what business
+  // code decides (Q1), which cannot misaddress, misidentify or misplace an
+  // output: POLICY_COMMAND_OUTSIDE_DESTINATION, _OUTSIDE_EDITION,
+  // _OTHER_CORRELATION and _OTHER_IDENTITY, REFUSAL_FACT_ADDRESSED,
+  // _NO_PAGE, _NOT_A_FACT and _IDENTIFIED, EVENTS_NOT_ITS_STREAM. The kind
+  // oneof (#2): STARTING_TYPES_ON_NON_PM, STATE_ON_STATELESS_KIND,
+  // OUTPUT_DOMAIN_ON_NON_POLICY, and POLICY_INPUT_COUNT (a single source;
+  // POLICY_NO_INPUT_DOMAIN takes its one reachable case).
+  reserved 1, 4, 5, 6, 8 to 12, 15 to 17, 19, 25, 38;
+  reserved
+    "COORDINATOR_REASON_CONFLICT_UNRESOLVED",
+    "COORDINATOR_REASON_REFUSAL_FACT_WRONG_STREAM",
+    "COORDINATOR_REASON_POLICY_COMMAND_OUTSIDE_DESTINATION",
+    "COORDINATOR_REASON_POLICY_COMMAND_OUTSIDE_EDITION",
+    "COORDINATOR_REASON_POLICY_COMMAND_OTHER_CORRELATION",
+    "COORDINATOR_REASON_REFUSAL_FACT_ADDRESSED",
+    "COORDINATOR_REASON_REFUSAL_FACT_NO_PAGE",
+    "COORDINATOR_REASON_REFUSAL_FACT_NOT_A_FACT",
+    "COORDINATOR_REASON_REFUSAL_FACT_IDENTIFIED",
+    "COORDINATOR_REASON_STARTING_TYPES_ON_NON_PM",
+    "COORDINATOR_REASON_STATE_ON_STATELESS_KIND",
+    "COORDINATOR_REASON_POLICY_INPUT_COUNT",
+    "COORDINATOR_REASON_OUTPUT_DOMAIN_ON_NON_POLICY",
+    "COORDINATOR_REASON_POLICY_COMMAND_OTHER_IDENTITY",
+    "COORDINATOR_REASON_EVENTS_NOT_ITS_STREAM";
 
   // Retired by 14.37.
   reserved

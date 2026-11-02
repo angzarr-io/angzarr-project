@@ -235,7 +235,6 @@ message BuyInStarted {
   };
   option (io.angzarr.v1.event) = {
     component: "io.angzarr.examples.v1.BuyInWalletPolicy"
-    domain: "buy-in"
   };
   bytes buy_in_id = 1;
   bytes player_root = 2;
@@ -253,7 +252,6 @@ message BuyInFundsHeld {
   };
   option (io.angzarr.v1.event) = {
     component: "io.angzarr.examples.v1.BuyInTablePolicy"
-    domain: "buy-in"
   };
   bytes buy_in_id = 1;
   bytes table_root = 2; // The policy's target root (a policy never looks one up)
@@ -280,7 +278,6 @@ message BuyInSeated {
   };
   option (io.angzarr.v1.event) = {
     component: "io.angzarr.examples.v1.BuyInWalletPolicy"
-    domain: "buy-in"
   };
   bytes buy_in_id = 1;
   int64 stack = 2;
@@ -328,7 +325,6 @@ message SeatReleaseDue {
   };
   option (io.angzarr.v1.event) = {
     component: "io.angzarr.examples.v1.BuyInTablePolicy"
-    domain: "buy-in"
   };
   bytes buy_in_id = 1;
   bytes table_root = 2; // The policy's target root (a policy never looks one up)
@@ -343,7 +339,6 @@ message HoldReleaseDue {
   };
   option (io.angzarr.v1.event) = {
     component: "io.angzarr.examples.v1.BuyInWalletPolicy"
-    domain: "buy-in"
   };
   bytes buy_in_id = 1;
   bytes player_root = 2; // The policy's target root (a policy never looks one up)
@@ -369,8 +364,7 @@ message CompensationFailed {
 // policy-buy-in-wallet and policy-buy-in-table.
 message BuyInState {
   option (io.angzarr.v1.component) = {
-    kind: COMPONENT_KIND_PROCESS_MANAGER
-    domain: "buy-in"
+    process_manager: { domain: "buy-in" }
     name: "BuyInProcessManager"
   };
   enum Phase {
@@ -419,9 +413,7 @@ message BuyInState {
 // CaptureFunds; HoldReleaseDue -> ReleaseHold.
 message BuyInWalletPolicy {
   option (io.angzarr.v1.component) = {
-    kind: COMPONENT_KIND_POLICY
-    input_domain: "buy-in"
-    output_domain: "wallet"
+    policy: { output_domain: "wallet" }
   };
 }
 
@@ -429,9 +421,7 @@ message BuyInWalletPolicy {
 // ReleaseSeat.
 message BuyInTablePolicy {
   option (io.angzarr.v1.component) = {
-    kind: COMPONENT_KIND_POLICY
-    input_domain: "buy-in"
-    output_domain: "table"
+    policy: { output_domain: "table" }
   };
 }
 
@@ -452,9 +442,7 @@ message BuyInTablePolicy {
 // RecordPlayerSeated.
 message TableBuyInPolicy {
   option (io.angzarr.v1.component) = {
-    kind: COMPONENT_KIND_POLICY
-    input_domain: "table"
-    output_domain: "buy-in"
+    policy: { output_domain: "buy-in" }
   };
 }
 
@@ -462,8 +450,6 @@ message TableBuyInPolicy {
 // RecordFundsCaptured.
 message WalletBuyInPolicy {
   option (io.angzarr.v1.component) = {
-    kind: COMPONENT_KIND_POLICY
-    input_domain: "wallet"
-    output_domain: "buy-in"
+    policy: { output_domain: "buy-in" }
   };
 }

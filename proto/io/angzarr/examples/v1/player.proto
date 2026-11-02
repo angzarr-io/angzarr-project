@@ -119,7 +119,6 @@ message MoveDecided {
   option (io.angzarr.v1.event) = {component: "io.angzarr.examples.v1.PlayerState"};
   option (io.angzarr.v1.event) = {
     component: "io.angzarr.examples.v1.PlayerTablePolicy"
-    domain: "player"
   };
   bytes table_root = 1; // The policy's target root (a policy never looks one up)
   uint32 round = 2;
@@ -148,8 +147,7 @@ message MoveRefused {
 // needs them.
 message PlayerState {
   option (io.angzarr.v1.component) = {
-    kind: COMPONENT_KIND_AGGREGATE
-    domain: "player"
+    aggregate: { domain: "player" }
     name: "PlayerAggregate"
   };
   uint64 decisions = 1; // MoveDecided events recorded

@@ -2,7 +2,6 @@ syntax = "proto3";
 package io.angzarr.transport.distributed.v1;
 
 import "google/api/annotations.proto";
-import "io/angzarr/v1/policy.proto";
 import "io/angzarr/v1/types.proto";
 
 option csharp_namespace = "Angzarr.Transport.Distributed";
@@ -11,33 +10,43 @@ option java_multiple_files = true;
 option java_package = "io.angzarr.transport.distributed";
 option ruby_package = "Angzarr::Transport::Distributed";
 
-// PolicyCoordinatorService: orchestrates policy execution.
-// Checks every emitted command and fact (see PolicyResponse; decisions
-// 14.42, 14.69), stamps its edition when unset, and stamps its identity:
-// causation_id (the triggering event's EventRef: the page its
-// PolicyReaction names), command_id (UUIDv5 of the trigger, the policy's
-// registered name and the output's index within its reaction, commands and
-// facts in one index space; derived_ids region), correlation_id (the
-// trigger's) and, on a fact, fact_origin (external_id the command_id's
-// canonical text). Records them in the
-// transient outbox (see PolicyResponse), delivers them through the
-// destination's coordinator (CommandHandlerCoordinatorService) as a
-// framework component, and retries retryable failures. On a business
-// rejection it calls PolicyService.OnRefused and delivers the refusal fact
-// it answers, through the outbox, to the policy's own source domain
-// (PolicyService, Refusals).
+// PolicyCoordinatorService: orchestrates policy execution. Calls the
+// policy's PolicyService.React once per source event it handles (decision
+// 46, Q3), checks each answer's outputs (a root, not the trigger's own
+// stream, a routable destination, the chain depth; io/angzarr/v1/policy.proto),
+// and addresses and stamps each one: the destination
+// (PolicyDescriptor.output_domain), the trigger's edition, causation_id
+// (the triggering event's EventRef), command_id (UUIDv5 of the trigger,
+// the policy's registered name and the output's index within its
+// reaction, commands and facts in one index space; derived_ids region),
+// correlation_id (the trigger's) and, on a fact, fact_origin (external_id
+// the command_id's canonical text). Records them in the transient outbox
+// (io/angzarr/v1/policy.proto), delivers them through the destination's
+// coordinator (CommandHandlerCoordinatorService) as a framework component,
+// and retries retryable failures. On a business rejection it calls
+// PolicyService.Translate and delivers the fact it answers, through the
+// outbox, to the policy's own source stream (the one refusal path,
+// io/angzarr/v1/policy.proto, Refusals).
 service PolicyCoordinatorService {
-  // Execute policy: translate source events → commands and facts, deliver
-  // to targets.
-  // The request is the source EventBook; the policy's configuration, not the
-  // request, sets how its commands are delivered. A trigger entry point:
-  // callers authenticated as framework components only; a client is
-  // refused PERMISSION_DENIED (see the entry_points region of
-  // command_handler.proto).
-  rpc Execute(io.angzarr.v1.EventBook) returns (io.angzarr.v1.PolicyResponse) {
+  // Execute the policy over source events: React per event, then deliver
+  // the stamped outputs to their destinations. The request is the source
+  // EventBook; the policy's configuration, not the request, sets how its
+  // outputs are delivered. A trigger entry point: callers authenticated as
+  // framework components only; a client is refused PERMISSION_DENIED (see
+  // the entry_points region of command_handler.proto). A new name, not
+  // Execute retyped: Execute, which answered the policy's own
+  // PolicyResponse, is deleted (decision 14.78).
+  rpc ExecuteStamped(io.angzarr.v1.EventBook) returns (ExecuteResponse) {
     option (google.api.http) = {
       post: "/v1/policy/execute"
       body: "*"
     };
   }
+}
+
+// What ExecuteStamped answers: the outputs as the coordinator addressed and
+// stamped them, in trigger order and, per trigger, in the policy's order.
+// Never persisted.
+message ExecuteResponse {
+  repeated io.angzarr.v1.CommandBook outputs = 1;
 }

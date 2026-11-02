@@ -1,8 +1,7 @@
 syntax = "proto3";
 package io.angzarr.component.v1;
 
-import "io/angzarr/v1/policy.proto";
-import "io/angzarr/v1/types.proto";
+import "io/angzarr/handler/v1/policy.proto";
 
 option csharp_namespace = "Angzarr.Component";
 option go_package = "github.com/benjaminabbitt/angzarr/client/go/proto/io/angzarr/component/v1;angzarrcomponent";
@@ -12,21 +11,20 @@ option ruby_package = "Angzarr::Component";
 
 // PolicyService: a policy's business logic, the one service its business
 // process serves for it. What a policy is, its translation, its refusals
-// and its outbox are core's (io/angzarr/v1/policy.proto), as are its
-// messages (decision 14.64).
+// and its outbox are core's (io/angzarr/v1/policy.proto); its messages are
+// the handler layer's (io/angzarr/handler/v1/policy.proto; decision 14.78,
+// DRAFT).
 service PolicyService {
-  // Translate source events into the commands and facts the destination
-  // domain declares (an aggregate's or a process manager's; decision
-  // 14.69).
-  rpc Handle(io.angzarr.v1.EventBook) returns (io.angzarr.v1.PolicyResponse);
+  // React to one source event (decision 46, Q3): the commands and facts
+  // the destination domain declares (an aggregate's or a process
+  // manager's; decision 14.69). Called once per trigger event.
+  rpc React(io.angzarr.handler.v1.ReactRequest) returns (io.angzarr.handler.v1.ReactResponse);
 
-  // One refusal of the policy's command (Refusals, above): the translated
-  // fact, or no translation. Called by the policy's coordinator only, for
-  // every business rejection of one of its commands. The business process
-  // runs the translating callback for the refused command's type and
-  // answers its fact (payload only), or answers an empty response when it
-  // has none; the coordinator then builds the pass-through CommandRefused
-  // (decision 14.42). An error status, or a fact the coordinator refuses as
-  // malformed, is a policy bug (dead-lettered and alerted).
-  rpc OnRefused(io.angzarr.v1.Refusal) returns (io.angzarr.v1.OnRefusedResponse);
+  // Translate one refusal of the policy's command into one fact of its own
+  // source (the one refusal path, decision 46 #5). Called by the policy's
+  // coordinator only, for every business rejection of one of its commands.
+  // The business process runs the callback for the refused command's type
+  // and answers the fact's payload. An error status is a policy bug
+  // (dead-lettered and alerted).
+  rpc Translate(io.angzarr.handler.v1.TranslateRequest) returns (io.angzarr.handler.v1.TranslateResponse);
 }

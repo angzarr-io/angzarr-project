@@ -28,18 +28,11 @@ option java_multiple_files = true;
 option java_package = "io.angzarr.transport.distributed";
 option ruby_package = "Angzarr::Transport::Distributed";
 
-// Discriminator for `AngzarrDeadLetter.rejection_details` oneof, and
-// PAYLOAD_RETRIEVAL_FAILED for an envelope whose payload_retrieval_failed is
-// set.
-// Stored as a string in `dlq_entries.rejection_type` by the existing
-// publishers; surfaced typed here for filter ergonomics.
-enum RejectionType {
-  REJECTION_TYPE_UNSPECIFIED = 0;
-  REJECTION_TYPE_SEQUENCE_MISMATCH = 1;
-  REJECTION_TYPE_PROCESSING_FAILED = 2; // REJECTION_TYPE_EVENT_PROCESSING_FAILED until decision 14.48, amended
-  REJECTION_TYPE_PAYLOAD_RETRIEVAL_FAILED = 3;
-  REJECTION_TYPE_COMMAND_REFUSED = 4;
-}
+// RejectionType, which was here, is deleted (decision 14.78, from the
+// owner's ruling #4): it discriminated AngzarrDeadLetter's rejection_details
+// oneof, which is retired. What kind of failure a dead letter is, is its
+// reason's key. The publishers stop writing the `dlq_entries.rejection_type`
+// column.
 
 // One row from `dlq_entries`, surfaced via the API. The `payload`
 // bytes are the proto-encoded `DeadLetterEnvelope` exactly as the
@@ -50,7 +43,7 @@ enum RejectionType {
 // content in one round-trip without writing client-side decode logic.
 // Nested `Any` payloads (rejected_command.page.command.payload or
 // rejected_command.page.fact.payload, rejected_events.pages[].payload,
-// command_refused.refusal) are
+// refusal) are
 // recursively decoded via the
 // framework `DescriptorPool`. User-domain types not yet in the pool
 // stay as `{"@type": type_url, "value_b64": "..."}` placeholders.
@@ -62,10 +55,12 @@ message StoredDeadLetter {
   io.angzarr.v1.UUID correlation_id = 3;
   bytes payload = 4;
   // AngzarrDeadLetter.reason: a key and its args, never text (decision
-  // 14.37). The structured detail is the payload's rejection_details,
-  // rendered in payload_view.
+  // 14.37), and the one statement of why (decision 14.78). A typed
+  // refusal's object is the payload's refusal, rendered in payload_view.
   io.angzarr.v1.Diagnostic reason = 15;
-  RejectionType rejection_type = 6;
+  // Field 6 was rejection_type (a RejectionType), retired by decision 14.78.
+  reserved 6;
+  reserved "rejection_type";
   string source_component = 8;
   io.angzarr.v1.ComponentKind source_component_kind = 14; // AngzarrDeadLetter.source_component_kind
   google.protobuf.Timestamp occurred_at = 10;
@@ -121,12 +116,13 @@ message ProblemDetails {
 message ListDeadLettersRequest {
   // AIP-160 filter string. Grammar (simple AND-only for v1):
   //   field "=" string-literal { "AND" field "=" string-literal }
-  // Recognised fields: domain, correlation_id, rejection_type,
-  // source_component, occurred_after, occurred_before. The filter is text,
+  // Recognised fields: domain, correlation_id, reason_code (the reason's
+  // key, StoredDeadLetter.reason.code), source_component, occurred_after,
+  // occurred_before. The filter is text,
   // so it is an input boundary: a correlation_id literal is the UUID's
   // canonical text (hyphenated 8-4-4-4-12 hex, either case), parsed by the
   // server; one that does not parse is INVALID_ARGUMENT.
-  // Example: `domain = "player" AND rejection_type = "sequence_mismatch"`
+  // Example: `domain = "player" AND reason_code = "COORDINATOR_REASON_EXPECTED_SEQUENCE_STALE"`
   string filter = 1;
 
   // AIP-158 pagination. `page_size = 0` → server picks the default;

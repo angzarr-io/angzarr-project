@@ -1,7 +1,7 @@
 syntax = "proto3";
 package io.angzarr.component.v1;
 
-import "io/angzarr/v1/types.proto";
+import "io/angzarr/handler/v1/projector.proto";
 
 option csharp_namespace = "Angzarr.Component";
 option go_package = "github.com/benjaminabbitt/angzarr/client/go/proto/io/angzarr/component/v1;angzarrcomponent";
@@ -21,6 +21,8 @@ option ruby_package = "Angzarr::Component";
 // effects outside angzarr (see
 // io/angzarr/transport/distributed/v1/cloudevents.proto).
 service ProjectorService {
-  // Async projection - projector should persist and return
-  rpc Handle(io.angzarr.v1.EventBook) returns (io.angzarr.v1.Projection);
+  // Project a run of one stream's events (decision 14.78, DRAFT): the
+  // projector persists its read model and answers the projection; the
+  // coordinator builds core's Projection from it (ProjectResponse).
+  rpc Project(io.angzarr.handler.v1.ProjectRequest) returns (io.angzarr.handler.v1.ProjectResponse);
 }

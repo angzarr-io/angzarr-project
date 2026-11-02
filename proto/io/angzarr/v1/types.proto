@@ -152,9 +152,8 @@ message UUID {
 // Client-supplied identifiers are never inspected beyond their shape: a
 // command_id, correlation_id or root is any 16 bytes (see UUID); an
 // external_id is an opaque string the framework never parses or reformats.
-// Not identifiers, so not covered: the conflict nonce
-// (ContextualCommand.conflict_nonce, opaque per-delivery bytes) and
-// store-assigned row numbers (e.g. the DLQ's int64 entry ids).
+// Not identifiers, so not covered: store-assigned row numbers (e.g. the
+// DLQ's int64 entry ids).
 // endregion
 
 // region cover
@@ -266,9 +265,9 @@ message Cover {
 //
 // Which resolutions a component supports is a property of its state
 // message, declared with the (io.angzarr.v1.state) option (StateOptions,
-// below; options.proto) and carried at registration in
-// ComponentDescriptor.state. Every state supports STRICT and
-// AGGREGATE_HANDLES (the implicit base); COMMUTATIVE is supported only
+// below; options.proto) and carried at registration in the descriptor's
+// state (AggregateDescriptor.state, ProcessManagerDescriptor.state). Every
+// state supports STRICT and AGGREGATE_HANDLES (the implicit base); COMMUTATIVE is supported only
 // where the state lists it and marks its conflict units.
 //
 // The DEFAULT is COMMUTATIVE where the state supports it, and STRICT
@@ -310,8 +309,8 @@ message Cover {
 // own rule, below. If another write to the same stream lands after the
 // window is delivered and before the command's write (a race lost at the
 // write), the coordinator re-delivers the widened window (expected_sequence
-// .. the new head-1, with a fresh nonce) and the resolution's rule decides
-// again on it: AGGREGATE_HANDLES's nonce, COMMUTATIVE's unit overlap.
+// .. the new head-1), a new Decide call, and the resolution's rule decides
+// again on it: AGGREGATE_HANDLES's handler, COMMUTATIVE's unit overlap.
 // Re-deliveries are capped by the retry cap (the status codes in
 // command_handler.proto; decision 14.45).
 //
@@ -325,7 +324,8 @@ message Cover {
 // COORDINATOR_REASON_RETRY_CAP_EXHAUSTED with the same args.
 //
 // The concurrency window is the run of events the command did not see:
-// sequences handling.expected_sequence .. head-1 (see ContextualCommand).
+// sequences handling.expected_sequence .. head-1 (see
+// io.angzarr.handler.v1.DecideRequest).
 //
 // AHEAD of the head. A provided expected_sequence greater than the
 // stream's head (its next_sequence) names a state the stream never held:
@@ -351,29 +351,24 @@ message Cover {
 // since the expected sequence (the window) with the command and applies its
 // own conflict rule. The window is always delivered as pages: the snapshot
 // delivered with the command is at or below expected_sequence-1, never one
-// that has already folded part of the window (see ContextualCommand).
-//
-// Safety default (the nonce). Under AGGREGATE_HANDLES the handler cannot
-// silently ignore the window: the coordinator delivers a nonce with the
-// command (ContextualCommand.conflict_nonce), and the handler must call
-// resolve_conflicts(...) with that value before it returns. The client
-// library reports the value the handler resolved with
-// (CommandHandlerResponse.conflict.resolved_nonce; empty when it never
-// called it), and the coordinator compares it with the nonce it minted. A
-// handler that returns without doing so (or passes another value) fails the
-// command as stale (ABORTED, COORDINATOR_REASON_CONFLICT_UNRESOLVED), exactly as STRICT would
-// have, and nothing is persisted (decision 14.42).
-// (Axon's ConflictResolver likewise fails a command whose handler never
-// examined the conflicting events.)
+// that has already folded part of the window (see
+// io.angzarr.handler.v1.DecideRequest). Nothing comes back about the
+// window: the coordinator accepts what the handler decides. There is no
+// nonce and no acknowledgement (decision 46, Q5, the owner: "drop the
+// entire thing. if a second call is happening, we don't need it"): a
+// window widened by a lost race is re-delivered as a new Decide call, which
+// the handler decides again. (Decision 14.42's nonce, and the key that
+// refused a handler that never acknowledged the window, are retired by
+// 14.78.)
 //
 // COMMUTATIVE: the client library resolves the window automatically, so
 // business code writes no conflict logic (and the coordinator never answers
 // COORDINATOR_REASON_EXPECTED_SEQUENCE_STALE: an overlap is
-// COORDINATOR_REASON_CONFLICT_OVERLAP). Behind the head, the window and
-// the nonce are delivered exactly as under AGGREGATE_HANDLES, and the same
-// snapshot rule applies. At the head there is no window and nothing to
+// COORDINATOR_REASON_CONFLICT_OVERLAP). Behind the head, the window is
+// delivered exactly as under AGGREGATE_HANDLES, and the same snapshot rule
+// applies. At the head there is no window and nothing to
 // compare: the command is delivered as STRICT (Handling.conflict_resolution
-// STRICT, no nonce) and handled as STRICT handles it, its events persisted
+// STRICT) and handled as STRICT handles it, its events persisted
 // at the head (the head-of-stream shortcut, normative; C-0149, decision
 // 14.66). Otherwise the same snapshot rule
 // applies (the delivered snapshot is at or below expected_sequence-1, so
@@ -387,7 +382,7 @@ message Cover {
 // changed() is generated from the state message's (state) and (conflict)
 // markers, the current ones of the code running decide.
 // and answers window and mine with the events
-// (CommandHandlerResponse.conflict). The coordinator judges them (decision
+// (io.angzarr.handler.v1.Decided.conflict). The coordinator judges them (decision
 // 14.42). Disjoint (no overlap, as options.proto defines it): the command's
 // events are kept. Overlapping: the command fails as stale (ABORTED,
 // COORDINATOR_REASON_CONFLICT_OVERLAP), as under STRICT, and nothing is persisted. Unmarked
@@ -510,8 +505,8 @@ message EventRef {
 // or minted), so every retry of a client-keyed command lands in one
 // correlation; a Fact's is its derived command_id. A reaction's (a
 // policy's command or fact) is its trigger's correlation, stamped by the
-// coordinator; a reactor that sets
-// a different one is a reactor bug. A refusal fact takes the refused
+// coordinator: a policy's answer has no correlation to set
+// (io.angzarr.handler.v1.Output). A refusal fact takes the refused
 // command's correlation (its trigger's) the same way: every command or
 // fact a policy sends, to any target, carries its trigger's correlation
 // unchanged, so correlation traces the causal chain (decision 14.36). A
@@ -519,7 +514,7 @@ message EventRef {
 // correlation_id is given its cover's root; a set one is kept, whatever
 // the root. Nothing fills in a root: a policy names its command's root
 // for every target, and an unset one is a policy bug
-// (COORDINATOR_REASON_POLICY_COMMAND_NO_ROOT; PolicyReaction.outputs). A process
+// (COORDINATOR_REASON_POLICY_COMMAND_NO_ROOT; io.angzarr.handler.v1.Output.root). A process
 // manager's events carry their command's or fact's correlation, like any
 // domain's.
 // Correlation is never unset on a persisted event, and the framework never
@@ -571,14 +566,12 @@ message EventRef {
 //                 stream it is addressed to;
 //               - a refusal fact (decision 14.31): its command_id the
 //                 refused command's, for the exact stream of the policy's
-//                 triggering event. A CommandRefused is accepted only by
-//                 the exact stream its trigger names, domain, root and
-//                 edition alike, which the receiver checks; a translated
-//                 refusal fact's address is its issuing coordinator's to
-//                 check (decision 14.42). The same id is thus in two
-//                 streams by design: never applied in the refusing
-//                 (target) stream, and recorded as the refusal in the
-//                 source stream.
+//                 triggering event, which its issuing coordinator
+//                 addresses (decision 14.42): the policy answers a payload
+//                 only (io.angzarr.handler.v1.TranslateResponse). The same
+//                 id is thus in two streams by design: never applied in
+//                 the refusing (target) stream, and recorded as the
+//                 refusal in the source stream.
 //   Command   never fact_origin.
 // A client's malformed command is answered INVALID_ARGUMENT; a reaction
 // command has no caller to answer, so it is dead-lettered and alerted as a
@@ -758,70 +751,17 @@ message Diagnostic {
 }
 // endregion
 
-// region refusal_facts
-// The standard refusal fact (decision 14.31; PolicyService in policy.proto,
-// Refusals). The policy's COORDINATOR builds it (decision 14.42): in
-// PASS-THROUGH mode, which only a hand-written policy takes (a policy
-// angzarr-cli generates always translates, decision 14.76), the policy's
-// business process answers PolicyService.OnRefused with no translation, and
-// the coordinator builds this fact, addressed to the exact stream of the
-// policy's triggering event (domain, root and edition). The source domain handles it by a generated dispatch on the
-// refused command's type, on_refused_<Command>(refusal, state) -> events,
-// inferred from the handlers it defines; with none for that type it
-// answers ROUTER_REASON_NO_REFUSAL_HANDLER (metadata command_type; decision 14.37), and the fact is dead-lettered and alerted. Its
-// identity is the refused command's: its command_id is the refused
-// command's command_id, and its fact_origin.external_id that id's
-// canonical text (the command_identity region, Validation).
-//
-// It carries the refused command, the foreign domain's TYPED refusal
-// object (packed), and the trigger, and nothing else: no reason code or
-// message. A source that handles it unpacks the foreign object, so it
-// imports the foreign domain's protos. That is the REASON the policy's
-// translate mode exists: a domain that does not want to unpack a foreign
-// object, or import foreign protos, has angzarr-cli select translate for
-// that command, and the policy unpacks the object there and hands over a
-// domestic fact instead.
-message CommandRefused {
-  // The refused command, as it was delivered (identity stamped): its
-  // cover (the target domain and root) and its payload, whose type URL
-  // picks the source domain's on_refused_<Command> handler.
-  CommandBook command = 1;
-  // The foreign domain's TYPED refusal object, packed: one of the
-  // command's CommandOptions.refuses types (options.proto; e.g.
-  // InsufficientFunds { available, requested }),
-  // business-specific, unpacked by the source's handler. Unset when the
-  // target refused without one.
-  google.protobuf.Any refusal = 2;
-  // The policy's triggering event (the refused command's causation_id),
-  // which is also the stream this fact is addressed to.
-  EventRef trigger = 3;
-}
-
-// A target's refusal of a command, as the refused policy receives it
-// (Refusal.response in policy.proto), built by the policy's coordinator from
-// the business rejection (FAILED_PRECONDITION) the target answered. It
-// carries a key and a map, never text (decision 14.37): exactly one of
-// refusal and diagnostic is set.
-message RefusalResponse {
-  oneof reason {
-    // The typed refusal object the handler returned: one of the command's
-    // CommandOptions.refuses types, packed by the client library into the
-    // rejection's status details and handed on here. Its type is the key
-    // and its fields the map.
-    google.protobuf.Any refusal = 1;
-    // An untyped rejection: the rejection's ErrorInfo reason as the code
-    // and its metadata as the args. Never forwarded into CommandRefused: a
-    // domestic domain that wants it gets it through translate mode.
-    Diagnostic diagnostic = 3;
-  }
-}
-// endregion
+// The standard refusal fact (CommandRefused) and RefusalResponse, which
+// were here, are deleted (decision 14.78, the one refusal path of decision
+// 46 #5): a refusal reaches the policy's Translate as
+// io.angzarr.handler.v1.Refusal, and the policy answers its source's own
+// fact.
 
 // region event_meta
 // Provenance of one persisted event, stamped by the framework. Every
-// persisted event carries meta. Business code never sets meta: an EventBook
-// returned by business code whose pages carry meta is refused (see
-// CommandHandlerService.Handle).
+// persisted event carries meta. Business code cannot set meta: a handler
+// answers payloads only (io.angzarr.handler.v1, decision 14.78), and reads
+// meta on the pages it is handed.
 //
 // causation, correlation_id and recorded_at are always recorded. causation
 // is the event's DIRECT cause (see the command_identity region):
@@ -876,8 +816,9 @@ message EventMeta {
   // The full version of the business binary that decided (or ingested) the
   // event (e.g. "1.4.2+build.7"): baked in when the binary is built (e.g.
   // by versionator), never a label chosen by hand. Reported by the business
-  // logic with every response (CommandHandlerResponse.rules_version, a
-  // process manager's included) and stamped in full by the
+  // logic with every answer (io.angzarr.handler.v1.DecideResponse and
+  // IngestResponse rules_version, a process manager's included) and stamped
+  // in full by the
   // coordinator from that response, so during a rolling deployment each
   // event names the build that decided it. Business code never sets it on
   // an event. The framework reads it only to choose which snapshots to
@@ -903,10 +844,11 @@ message EventMeta {
 // URL of `state`) and the rules version reported with the response that
 // returned the state (rules_version, the business binary's full version).
 // The coordinator, never the business logic, decides whether a snapshot may
-// be used. It offers a snapshot with a delivery (ContextualCommand.events,
-// for an aggregate or a process manager alike) only if both hold:
+// be used. It offers a snapshot with a delivery (the history of
+// io.angzarr.handler.v1.DecideRequest and IngestRequest, for an aggregate
+// or a process manager alike) only if both hold:
 //   1. its state type URL equals the type_url of the StateDescriptor the
-//      component registered (ComponentDescriptor.state); and
+//      component registered (the descriptor's StateDescriptor); and
 //   2. its rules_version passes the domain's compatibility rule against the
 //      version the component registered (ComponentDescriptor.rules_version).
 // The default rule: strip ONE leading "v" or "V" from each version, then
@@ -941,14 +883,14 @@ message Snapshot {
   // prefix recorded by T (see TemporalQuery).
   //
   // Where snapshots come from. The client library returns the post-command
-  // state on EVERY response (CommandHandlerResponse.events.snapshot.state,
-  // for an aggregate or a process manager alike); business code never
-  // decides when. The coordinator persists it per the
+  // state on EVERY accepted answer (io.angzarr.handler.v1.Decided.state and
+  // IngestResponse.state, for an aggregate or a process manager alike);
+  // business code never decides when. The coordinator persists it per the
   // domain's storage policy (default: keep the newest only), setting
   // sequence (the last event folded in) and rules_version (the response's,
   // in full), and offers the stored bytes, unchanged, with the next
   // delivery to that stream, subject to the Validity checks above and the
-  // window bound (see ContextualCommand). Neither side asks: there is no
+  // window bound (see io.angzarr.handler.v1.DecideRequest). Neither side asks: there is no
   // request flag. The coordinator decides when to write one; the client
   // library never does. A delivery that offers a snapshot carries only the
   // pages after it: the coordinator drops the pages it covers, and the
@@ -958,8 +900,8 @@ message Snapshot {
   // snapshot and checked before the snapshot is offered (see Validity
   // above).
   google.protobuf.Any state = 3;
-  // The rules version reported with the response that returned `state`
-  // (CommandHandlerResponse.rules_version), stamped in full by the
+  // The rules version reported with the answer that returned `state`
+  // (io.angzarr.handler.v1.DecideResponse.rules_version), stamped in full by the
   // coordinator, never by business code. Checked by the coordinator before
   // the snapshot is offered (see Validity above).
   string rules_version = 5;
@@ -970,7 +912,7 @@ message Snapshot {
 // A run of events from one stream. Every page shares the book's Cover.
 message EventBook {
   Cover cover = 1;
-  Snapshot snapshot = 2; // Snapshot state; always set on a business response (see Snapshot)
+  Snapshot snapshot = 2; // The starting state a delivery offers, when one is valid (see Snapshot)
   repeated EventPage pages = 3;
   uint64 next_sequence = 6; // Computed on load, never stored: (last page seq OR snapshot seq if no pages) + 1
 }
@@ -1004,7 +946,8 @@ message Projection {
 // set) is the same as an unset one. Before business code runs, the
 // coordinator resolves it in place: it stamps expected_sequence when
 // absent, and fills conflict_resolution from configuration when
-// unspecified. From then on (ContextualCommand, business code) every field
+// unspecified. From then on (io.angzarr.handler.v1.DecideRequest, business
+// code) every field
 // is concrete. A dead letter stores Handling as sent (see
 // AngzarrDeadLetter).
 //
@@ -1016,7 +959,7 @@ message Projection {
 //   2. configuration for the command type (its payload's type URL)
 //   3. configuration for the component
 //   4. the built-in default: COMMUTATIVE when the component's registered
-//      state supports it (ComponentDescriptor.state), otherwise STRICT
+//      state supports it (the descriptor's StateDescriptor), otherwise STRICT
 // Whatever is chosen must be supported by the component's state (see
 // ConflictResolution).
 //
@@ -1038,12 +981,11 @@ message Projection {
 //                    step 3 loaded, and resolve conflict_resolution
 //                    (STRICT's ABORTED happens here, and the refusal of
 //                    an expected_sequence ahead of the head, below);
-//   5. business code CommandHandlerService.Handle (the client library
-//                    folds the delivered state, dispatches to decide or
-//                    ingest, and resolves AGGREGATE_HANDLES /
-//                    COMMUTATIVE), then
-//                    the append. A process manager's business code is
-//                    the same CommandHandlerService.Handle (a PM is a
+//   5. business code CommandHandlerService.Decide for a command, Ingest
+//                    for a fact (the client library folds the delivered
+//                    state, dispatches by type, and computes COMMUTATIVE's
+//                    units), then the append. A process manager's
+//                    business code is the same service (a PM is a
 //                    domain; decision 14.31).
 // The load comes before the lookup: under READ COMMITTED, a lookup first
 // could miss an original delivery that commits before the load, and the
@@ -1074,11 +1016,6 @@ message Projection {
 //   - a policy's command with no cover root, whatever its target (INTERNAL,
 //     google.rpc.ErrorInfo reason COORDINATOR_REASON_POLICY_COMMAND_NO_ROOT, metadata domain
 //     and command_type; decision 14.36, as amended);
-//   - a policy's command carrying a correlation_id other than its trigger
-//     page's (INTERNAL, reason COORDINATOR_REASON_POLICY_COMMAND_OTHER_CORRELATION);
-//   - a Fact with causation_id addressed to any stream but the one its
-//     causation_id names (domain, root and edition: a policy's refusal fact
-//     goes only to the stream of its triggering event);
 //   - a Fact without fact_origin, or with an empty external_id, or with a
 //     command_id other than its derivation (a policy's output excepted: a
 //     policy's fact's command_id is its reaction id, a refusal fact's the
@@ -1194,10 +1131,10 @@ message Handling {
 // fact type, each with a causation_id, the arm chosen by its generated
 // code from the destination's (command).fact; one the destination does not
 // declare is refused by its router, as above. A policy also delivers the
-// refusal fact of a refused command (the standard CommandRefused, or a
-// domestic fact its callback translates the refusal into), to the exact
-// stream of its trigger (decision 14.31, amending 2.2; PolicyService in
-// policy.proto, Refusals).
+// refusal fact of a refused command (the domestic fact its callback
+// translates the refusal into; the one refusal path, decision 46 #5), to
+// the exact stream of its trigger (decision 14.31, amending 2.2;
+// PolicyService in policy.proto, Refusals).
 message CommandPage {
   oneof body {
     Command command = 3; // Asks the aggregate to decide; may be rejected
@@ -1217,9 +1154,8 @@ message CommandPage {
   // coordinator, or the angzarr-embedded kernel, whose own checks read it),
   // and over the distributed transport it is accepted only from
   // framework-authenticated callers. The reaction command_id is derived
-  // from it, and a refusal fact must be addressed to the exact stream it
-  // names (domain, root and edition), which a receiver checks of a
-  // CommandRefused (decision 14.69). NOT persisted on the events the
+  // from it, and a refusal fact's coordinator addresses it to the exact
+  // stream it names (domain, root and edition). NOT persisted on the events the
   // command produces (their causation is this command; see the
   // command_identity region).
   EventRef causation_id = 10;
@@ -1335,111 +1271,22 @@ enum DeliveryOutcome {
 }
 // endregion
 
-message ContextualCommand {
-  // Passed by the runtime that handles the command (core's coordinator, or
-  // the angzarr-embedded kernel; "the coordinator" below means either) to
-  // the aggregate's business logic, in process or over
-  // CommandHandlerService; it consists of everything needed to
-  // execute/evaluate the command: the target stream's history (a
-  // snapshot plus pages up to the head) and the command, whose handling is
-  // always resolved by the time it arrives here (see Handling):
-  // expected_sequence provided by the caller or stamped by the coordinator
-  // (always stamped for a Fact), and conflict_resolution concrete.
-  //
-  // The window boundary is command.handling.expected_sequence (call it E).
-  // Under AGGREGATE_HANDLES and COMMUTATIVE (delivered identically) the
-  // pages with sequences E .. events.next_sequence-1 are the conflict
-  // window, and they are always delivered as pages: events.snapshot, when
-  // present, has sequence <= E-1 (and there is no snapshot when E is 0), so
-  // no part of the window is hidden inside snapshot state. Under STRICT, E
-  // is the head and the window is empty.
-  //
-  // The snapshot, when present, has passed the coordinator's validity
-  // checks (see Snapshot); it is the starting state. The coordinator has
-  // dropped every page it covers (sequence <= snapshot.sequence), so pages
-  // holds only the events after it (decision 14.40). The client library
-  // decodes the starting state without checking it again and folds every
-  // page it is given, in order, never comparing sequences with the
-  // snapshot's. Every page and the command's payload are in the current
-  // shape: the coordinator has upcast them (decision 14.39).
-  EventBook events = 1;
-  CommandBook command = 2;
-  // When the input was accepted: stamped by the runtime that accepted it
-  // (core's coordinator, or the angzarr-embedded kernel) before the
-  // handler runs, never by the caller (decision 14.37), so command and
-  // fact handlers can read it. (Whether the events of the write carry this
-  // same instant as EventMeta.recorded_at is open; see 14.37.)
-  google.protobuf.Timestamp recorded_at = 4;
-  // The conflict nonce. Set when, and only when, the resolved
-  // conflict_resolution is AGGREGATE_HANDLES (including an empty window, so
-  // the handler path is uniform) or COMMUTATIVE behind the head; empty
-  // under STRICT. A COMMUTATIVE command at the head has no window, and is
-  // delivered as STRICT (Handling.conflict_resolution STRICT), with no
-  // nonce: the head-of-stream shortcut (see ConflictResolution; decision
-  // 14.66).
-  // Under COMMUTATIVE the client library's own resolver reports the unit
-  // sets instead (see ConflictResolution); the handler never sees it. An opaque value
-  // minted by the coordinator per delivery and never persisted. It comes
-  // back only as the value a handler resolved with
-  // (CommandHandlerResponse.conflict.resolved_nonce).
-  //
-  // The client library passes it to the handler as a parameter, and the
-  // handler must call resolve_conflicts(window, nonce) with exactly this
-  // value before returning: that call is the handler's declaration that it
-  // examined the window. The library reports the value the handler passed
-  // (none if it never called it) with the handler's events, and the
-  // COORDINATOR judges it (decision 14.42): without it, or with another
-  // value, the coordinator discards the output and fails the command as
-  // stale (ABORTED, COORDINATOR_REASON_CONFLICT_UNRESOLVED, as STRICT would), persisting
-  // nothing. A value minted per delivery (rather than expected_sequence
-  // itself) means a handler cannot satisfy the check without receiving the
-  // parameter.
-  bytes conflict_nonce = 3;
-}
+// ContextualCommand, which was here, is deleted (decision 14.78): the
+// business logic is handed io.angzarr.handler.v1.DecideRequest or
+// IngestRequest, the same books with no conflict nonce (decision 46, Q5).
+// It was never stored.
 
 // ============================================================================
 // Dead Letter Queue (DLQ) Messages
 // ============================================================================
 
 // region dlq_details
-// Sequence mismatch details for DLQ entries.
-// Contains expected vs actual sequence for debugging and replay.
-message SequenceMismatchDetails {
-  uint64 expected_sequence = 1; // What the command expected (CommandBook.handling.expected_sequence)
-  uint64 actual_sequence = 2; // What the stream was at (its next_sequence)
-}
-
-// A typed business refusal of an asynchronous command, for DLQ entries
-// (decision 14.48, amended): the refusal object the handler answered, kept
-// whole, as the wire carries it in the status details. The dead letter's
-// reason is ROUTER_REASON_COMMAND_REFUSED with the same refusal_type.
-message CommandRefusedDetails {
-  // The refusal's fully-qualified type name, as the reason's refusal_type
-  // arg.
-  string refusal_type = 1;
-  // The refusal object itself (one of the command's `refuses` types).
-  google.protobuf.Any refusal = 2;
-}
-
-// Failure details for DLQ entries: why a handler, or the coordinator,
-// failed to process the dead letter's payload. Events a policy, process
-// manager or projector could not process, and every command, fact or
-// removal the mapping on AngzarrDeadLetter.rejection_details assigns here
-// (a bug, an untyped business, fatal refusal of an asynchronous command, a
-// retry cap; decision 14.48). Named EventProcessingFailedDetails until
-// 14.48's amendment; the field numbers are unchanged.
-message ProcessingFailedDetails {
-  Diagnostic failure = 5; // The handler's failure: its code and args, never its text (decision 14.37)
-  uint32 retry_count = 2; // Number of retry attempts before DLQ routing: the retries after the first attempt (0 when it was tried once)
-  bool is_transient = 3; // Whether the failure is considered transient
-  // Field 4 (stack_trace, sererr's captured cause chain) moved to the
-  // distributed transport's dead-letter envelope
-  // (io.angzarr.transport.distributed.v1.DeadLetterEnvelope.stack_trace;
-  // decision 14.64): core imports no sererr.
-  reserved 4;
-  reserved "stack_trace";
-}
-
+// SequenceMismatchDetails, CommandRefusedDetails and ProcessingFailedDetails,
+// which were here, are deleted (decision 14.78, from the owner's ruling #4):
+// each restated the dead letter's reason. What they held is the reason's
+// args (expected, actual, head), the reason itself, its declared status
+// (whether it is transient: ReasonOptions.status, reasons.proto), and two
+// fields of AngzarrDeadLetter's own (retry_count, refusal).
 // endregion
 
 // region dead_letter
@@ -1474,6 +1321,14 @@ message ProcessingFailedDetails {
 // The stream concerned is the payload's own cover (rejected_command.cover,
 // rejected_events.cover or failed_edition_removal.cover); the entry does not
 // repeat it.
+//
+// A dead letter is its payload, its reason and, for a typed refusal, the
+// refusal object (decision 14.78, from the owner's ruling #4). Everything
+// else about why is read from the reason: its key, its args and the key's
+// declared status (reasons.proto). Entries written before 14.78 still
+// decode (fields 12, 13 and 17 are skipped as unknown); they show
+// retry_count 0 and no refusal (the owner's waiver of stored data,
+// decision 46, Q7).
 message AngzarrDeadLetter {
   oneof payload {
     // Command that failed, stored with its ids assigned (command_id and
@@ -1494,92 +1349,35 @@ message AngzarrDeadLetter {
     EventBook failed_edition_removal = 18;
   }
   // Why it was dead-lettered: a key and its args, never text (decision
-  // 14.37). A typed business rejection is code ROUTER_REASON_COMMAND_REFUSED with arg
-  // refusal_type, as on the wire; the object itself rides in
-  // command_refused (CommandRefusedDetails). A command or fact the
-  // coordinator gave up on after losing write races, at the retry cap
-  // (AGGREGATE_HANDLES and COMMUTATIVE re-deliveries) or the race re-run
-  // cap, is code COORDINATOR_REASON_RETRY_CAP_EXHAUSTED with args attempts
-  // and cap, as answered to a waiting caller (decision 14.46); that key is
-  // for write races only. A retryable bug dead-lettered at its cap records
-  // the bug's own key and args, as last answered, never
-  // COORDINATOR_REASON_RETRY_CAP_EXHAUSTED (decision 14.48, amended). An
-  // asynchronous command (HandleAsync) refused by a business, fatal key,
-  // COORDINATOR_REASON_EXPECTED_SEQUENCE_AHEAD among them, records that
-  // key and its args (decision 14.47). Which rejection_details variant a
-  // reason carries is the mapping on rejection_details, below.
-  Diagnostic reason = 16;
-  // Exactly one variant on every dead letter, chosen by its reason
-  // (decision 14.48). This is the one statement of the mapping; the
-  // features and the decision log refer to it.
-  //
-  // sequence_mismatch: expected_sequence is the command's
-  // CommandBook.handling.expected_sequence, actual_sequence the stream's
-  // head (its next_sequence) when the command was refused.
-  //   - COORDINATOR_REASON_EXPECTED_SEQUENCE_STALE: args expected and
-  //     actual, as the two fields.
-  //   - COORDINATOR_REASON_EXPECTED_SEQUENCE_AHEAD: args expected and head,
-  //     head as actual_sequence.
-  //   - COORDINATOR_REASON_CONFLICT_UNRESOLVED,
-  //     COORDINATOR_REASON_CONFLICT_OVERLAP and a handler's own ABORTED
-  //     key, on an asynchronous command that carries its caller's
-  //     expected_sequence (command_handler.proto, status codes).
-  // command_refused: a typed business refusal of an asynchronous command.
-  //   - ROUTER_REASON_COMMAND_REFUSED: refusal_type is the reason's arg,
-  //     refusal the object. A typed refusal always travels as this key; a
-  //     handler's own business key is an untyped Diagnostic, below.
-  // processing_failed: failure is the same Diagnostic as reason.
-  //   - COORDINATOR_REASON_RETRY_CAP_EXHAUSTED, a command or fact at either
-  //     write-race cap, with or without an expected sequence: retry_count
-  //     the retries, arg attempts less the first run, is_transient true.
-  //   - An untyped business, fatal refusal of an asynchronous command
-  //     (COORDINATOR_REASON_PM_NO_INSTANCE, a handler's own business key;
-  //     14.37), and a non-starting fact for a process manager's root with
-  //     no instance (COORDINATOR_REASON_PM_NO_INSTANCE, as rejected_command;
-  //     decision 14.69): retry_count 0, is_transient false.
-  //   - A fatal bug (INTERNAL, UNKNOWN, DATA_LOSS):
-  //     ROUTER_REASON_UNHANDLED_HANDLER_ERROR, ROUTER_REASON_FOLD_FAILED,
-  //     ROUTER_REASON_FOLD_FAILED_EMITTED,
-  //     ROUTER_REASON_PERSISTED_EVENT_CORRUPT,
-  //     ROUTER_REASON_ANY_DECODE_FAILED, ROUTER_REASON_UNKNOWN_COMMAND_TYPE,
-  //     ROUTER_REASON_NO_FACT_HANDLER, ROUTER_REASON_NO_REFUSAL_HANDLER,
-  //     ROUTER_REASON_CONFLICT_RESOLUTION_UNSUPPORTED,
-  //     ROUTER_REASON_TOO_MANY_STEPS, and, with the
-  //     policy's trigger as rejected_events,
-  //     COORDINATOR_REASON_REFUSAL_FACT_WRONG_STREAM,
-  //     COORDINATOR_REASON_REFUSAL_FACT_ADDRESSED,
-  //     COORDINATOR_REASON_REFUSAL_FACT_NO_PAGE,
-  //     COORDINATOR_REASON_REFUSAL_FACT_NOT_A_FACT,
-  //     COORDINATOR_REASON_REFUSAL_FACT_IDENTIFIED,
-  //     COORDINATOR_REASON_POLICY_COMMAND_OUTSIDE_DESTINATION,
-  //     COORDINATOR_REASON_POLICY_COMMAND_OUTSIDE_EDITION,
-  //     COORDINATOR_REASON_POLICY_COMMAND_NO_ROOT,
-  //     COORDINATOR_REASON_POLICY_COMMAND_OTHER_CORRELATION,
-  //     COORDINATOR_REASON_POLICY_COMMAND_OTHER_IDENTITY,
+  // 14.37). The one statement of why (decision 14.78).
+  //   - A typed business refusal of an asynchronous command is
+  //     ROUTER_REASON_COMMAND_REFUSED with arg refusal_type, as on the
+  //     wire; the object itself is `refusal`, below. A handler's own
+  //     business key is an untyped refusal, its code and args here.
+  //   - A command or fact the coordinator gave up on after losing write
+  //     races, at the retry cap (AGGREGATE_HANDLES and COMMUTATIVE
+  //     re-deliveries) or the race re-run cap, is
+  //     COORDINATOR_REASON_RETRY_CAP_EXHAUSTED with args attempts and cap,
+  //     as answered to a waiting caller (decision 14.46); that key is for
+  //     write races only.
+  //   - A retryable bug dead-lettered at its cap records the bug's own key
+  //     and args, as last answered, never
+  //     COORDINATOR_REASON_RETRY_CAP_EXHAUSTED (decision 14.48, amended).
+  //   - An asynchronous command (HandleAsync) refused by a business, fatal
+  //     key, COORDINATOR_REASON_EXPECTED_SEQUENCE_AHEAD among them, records
+  //     that key and its args (decision 14.47); one ABORTED with its
+  //     caller's expected_sequence (COORDINATOR_REASON_EXPECTED_SEQUENCE_STALE,
+  //     COORDINATOR_REASON_CONFLICT_OVERLAP, a handler's own abort) records
+  //     that key and args, the sequences among them.
+  //   - A policy step's trigger (rejected_events) records the policy bug's
+  //     key: COORDINATOR_REASON_POLICY_COMMAND_NO_ROOT,
+  //     COORDINATOR_REASON_POLICY_TARGETS_ITS_TRIGGER,
   //     COORDINATOR_REASON_POLICY_COMMAND_UNKNOWN_DOMAIN,
-  //     COORDINATOR_REASON_CHAIN_TOO_DEEP,
-  //     COORDINATOR_REASON_POLICY_COMMAND_FACT_ORIGIN and
-  //     COORDINATOR_REASON_POLICY_COMMAND_WITH_HANDLING (the last two
-  //     also on a reaction command refused at its destination, as
-  //     rejected_command):
-  //     retry_count 0, is_transient false (a transport that captures the
-  //     stack trace carries it on its envelope).
-  //   - COORDINATOR_REASON_EDITION_REMOVAL_FAILED, with the
-  //     failed_edition_removal payload: retry_count the retries, arg
-  //     attempts less the first removal, is_transient as the store's
-  //     failure was judged.
-  //   - A retryable bug, or a policy step's ABORTED re-run, at its cap
-  //     (ROUTER_REASON_NO_COMPONENT_OF_KIND,
-  //     COORDINATOR_REASON_HANDLER_UNAVAILABLE,
-  //     COORDINATOR_REASON_STORE_UNAVAILABLE, a handler's retryable
-  //     bug), its reason the bug's own key as last answered: retry_count
-  //     the retries after the first attempt, is_transient true.
-  //   - The distributed transport's COORDINATOR_REASON_PAYLOAD_UNAVAILABLE
-  //     (a claim-checked payload that cannot be retrieved, at the retry
-  //     cap; args uri and cause): retry_count the retries, is_transient
-  //     true, its failure the same Diagnostic as reason; the retrieval's
-  //     details ride the transport's DeadLetterEnvelope
-  //     (payload_retrieval_failed; decisions 14.51 and 14.64).
+  //     COORDINATOR_REASON_CHAIN_TOO_DEEP, ROUTER_REASON_NO_REFUSAL_HANDLER
+  //     or a handler's bug.
+  // Whether the failure was transient is the key's declared status
+  // (ReasonOptions.status): UNAVAILABLE and the other retryable statuses
+  // are transient, every other status is not.
   // Never a dead letter's reason: the readiness keys, the HostReason keys,
   // ROUTER_REASON_NO_HANDLERS_REGISTERED, ROUTER_REASON_DUPLICATE_COMPONENT
   // and ROUTER_REASON_HANDLER_PANICKED (only ever a cause); and the
@@ -1588,15 +1386,25 @@ message AngzarrDeadLetter {
   // COORDINATOR_REASON_UPCASTER_UNAVAILABLE and the distributed
   // transport's COORDINATOR_REASON_COMPONENT_NOT_REGISTERED (queued work
   // waits) and COORDINATOR_REASON_COMMANDS_NOT_SERVED (decision 14.51).
-  oneof rejection_details {
-    SequenceMismatchDetails sequence_mismatch = 12; // Sequence conflict details
-    ProcessingFailedDetails processing_failed = 13; // Handler or coordinator failure details
-    CommandRefusedDetails command_refused = 17; // Typed business refusal
-  }
-  // Field 14 (payload_retrieval_failed) and field 8 (metadata) moved to the
-  // distributed transport's DeadLetterEnvelope (decision 14.64).
-  reserved 8, 14;
-  reserved "metadata", "payload_retrieval_failed";
+  Diagnostic reason = 16;
+  // The retries after the first attempt (0 when it was tried once): of a
+  // retryable bug, or a policy step's ABORTED re-run, at its cap, and of an
+  // edition removal (COORDINATOR_REASON_EDITION_REMOVAL_FAILED). Was
+  // ProcessingFailedDetails.retry_count (inside field 13); a new number,
+  // never 13's.
+  uint32 retry_count = 19;
+  // The typed refusal object, iff reason is ROUTER_REASON_COMMAND_REFUSED:
+  // one of the refused command's `refuses` types, packed, whose type is the
+  // reason's refusal_type arg. A new number, never 17's: 17 held a
+  // CommandRefusedDetails, whose bytes would misdecode as an Any.
+  google.protobuf.Any refusal = 20;
+  // Fields 12, 13 and 17 were the rejection_details oneof
+  // (sequence_mismatch, processing_failed, command_refused), retired by
+  // decision 14.78. Fields 14 (payload_retrieval_failed) and 8 (metadata)
+  // moved to the distributed transport's DeadLetterEnvelope (decision
+  // 14.64).
+  reserved 8, 12, 13, 14, 17;
+  reserved "metadata", "payload_retrieval_failed", "sequence_mismatch", "processing_failed", "command_refused";
   // When the runtime dead-lettered it: read from the runtime's clock, the
   // one EventMeta.recorded_at is read from, as a UTC instant (a Timestamp
   // has no zone); rendered, it is RFC 3339 in UTC, ending `Z`, never a local
@@ -1611,18 +1419,11 @@ message AngzarrDeadLetter {
 // Component Descriptors - Self-description for topology discovery
 // ============================================================================
 
-// Describes what a component subscribes to.
-// Topology edges derived from inputs: if A subscribes to domain X, edge
-// X→A exists.
-message Target {
-  string domain = 1;
-}
-
-// ComponentKind identifies a kind of dispatch component: in a component
-// declaration ((io.angzarr.v1.component) in options.proto), in a
-// registration (ComponentDescriptor.kind) and in a dead letter
-// (AngzarrDeadLetter.source_component_kind). Defined here, beside the
-// runtime messages; options.proto imports it.
+// ComponentKind names a kind of dispatch component as a bare tag: in a
+// dead letter (AngzarrDeadLetter.source_component_kind, stored), in the
+// DLQ admin's StoredDeadLetter, and as a reason's component_kind arg. A
+// declaration and a descriptor say their kind by the case of their `kind`
+// oneof (decision 14.78), and each language derives this tag from it.
 enum ComponentKind {
   COMPONENT_KIND_UNSPECIFIED = 0;
   COMPONENT_KIND_AGGREGATE = 1;
@@ -1634,73 +1435,107 @@ enum ComponentKind {
 // Component self-description: the one component a business process is.
 // The coordinator pulls it from the business process
 // (ComponentService.Describe in component/v1/component.proto); holding it
-// is what makes the component registered.
+// is what makes the component registered. Never stored.
 //
 // Generated or written by hand, then validated (decision 14.42, amended).
 // angzarr-cli generates the whole descriptor at build time from the
 // component's protos (its (component) declaration, its (command) and
 // (event) entries and its (state) message), with rules_version the build's
-// baked-in version. Generated code is hand-replaceable: business code may
-// write the descriptor itself instead, to this message's documented
-// schema (a client library may offer a builder for it, as client-python's
-// describe() does), and a hand-written descriptor is held to exactly the
-// rules a generated one is. Either way the business process answers
-// Describe with it unchanged, and the client library's router never builds
-// or checks it. The client library's component host checks one thing when
-// the component is registered: that rules_version is the version the
-// component's answers report (CommandHandlerResponse.rules_version), which
-// the coordinator would otherwise refuse on every answer; a descriptor of
-// any other version is refused at once, before anything is served
-// (HOST_REASON_DESCRIPTOR_RULES_VERSION_MISMATCH). The
-// COORDINATOR validates it and refuses (see ComponentService, Refusal) a
-// descriptor that has: an empty rules_version (COORDINATOR_REASON_MISSING_RULES_VERSION);
-// starting_types on a kind other than PROCESS_MANAGER
-// (COORDINATOR_REASON_STARTING_TYPES_ON_NON_PM); no state on an AGGREGATE or PROCESS_MANAGER
-// (COORDINATOR_REASON_MISSING_STATE_TYPE), or a state on a POLICY or PROJECTOR
-// (COORDINATOR_REASON_STATE_ON_STATELESS_KIND); for a POLICY, other than exactly one input
-// (COORDINATOR_REASON_POLICY_INPUT_COUNT) or no output_domain (COORDINATOR_REASON_POLICY_NO_OUTPUT_DOMAIN); an
-// output_domain on any other kind (COORDINATOR_REASON_OUTPUT_DOMAIN_ON_NON_POLICY).
+// baked-in version, and a policy's and a projector's sources derived from
+// the events they name (options.proto, decision 14.78). Generated code is
+// hand-replaceable: business code may write the descriptor itself instead,
+// to this message's documented schema (a client library may offer one
+// builder per kind for it), and a hand-written descriptor is held to
+// exactly the rules a generated one is. Either way the business process
+// answers Describe with it unchanged, and the client library's router never
+// builds or checks it. The client library's component host checks one thing
+// when the component is registered: that rules_version is the version the
+// component's answers report (DecideResponse.rules_version and
+// IngestResponse.rules_version, io/angzarr/handler/v1), which the
+// coordinator would otherwise refuse on every answer; a descriptor of any
+// other version is refused at once, before anything is served
+// (HOST_REASON_DESCRIPTOR_RULES_VERSION_MISMATCH).
+//
+// The kind is a oneof (decision 14.78, from the owner's ruling #2): each arm
+// holds exactly what that kind has, so no field is set on a kind that may
+// not have it. The COORDINATOR validates what a type cannot hold to, and
+// refuses (see ComponentService, Refusal) a descriptor that has: an empty
+// rules_version (COORDINATOR_REASON_MISSING_RULES_VERSION); no kind, the
+// oneof unset (COORDINATOR_REASON_DESCRIPTOR_NO_KIND); an aggregate or a
+// process manager with no state (COORDINATOR_REASON_MISSING_STATE_TYPE); a
+// policy with no input_domain (COORDINATOR_REASON_POLICY_NO_INPUT_DOMAIN)
+// or no output_domain (COORDINATOR_REASON_POLICY_NO_OUTPUT_DOMAIN); a
+// state whose resolutions are invalid
+// (COORDINATOR_REASON_STATE_RESOLUTIONS_INVALID). A projector with no
+// input_domains is refused by the component host
+// (HOST_REASON_PROJECTOR_NO_INPUT_DOMAIN, decision 14.55).
 message ComponentDescriptor {
   string name = 1;
-  ComponentKind kind = 5;
-  repeated Target inputs = 3; // Domains I subscribe to (event types I consume)
   // The business binary's full version, baked in when it is built: the same
-  // value the component reports on every response
-  // (CommandHandlerResponse.rules_version). Required: the coordinator
-  // refuses a descriptor with an empty rules_version, so a binary
-  // built without a version is never registered and never delivered to
-  // (see ComponentService for how the refusal surfaces). The coordinator
-  // checks snapshot
-  // versions against it before offering a snapshot (see Snapshot), and
-  // refuses a response that reports any other version (see
-  // CommandHandlerResponse.rules_version).
+  // value the component reports on every answer
+  // (io.angzarr.handler.v1.DecideResponse.rules_version). Required: the
+  // coordinator refuses a descriptor with an empty rules_version, so a
+  // binary built without a version is never registered and never delivered
+  // to (see ComponentService for how the refusal surfaces). The coordinator
+  // checks snapshot versions against it before offering a snapshot (see
+  // Snapshot), and refuses an answer that reports any other version.
   string rules_version = 4;
-  // The component's event-sourced state: set for AGGREGATE and
-  // PROCESS_MANAGER, unset for POLICY and PROJECTOR. Generated from the state
-  // message's descriptor by angzarr-cli, or written by hand to the same
-  // rules (see StateDescriptor).
-  StateDescriptor state = 6;
-  // PROCESS_MANAGER only: the fully-qualified type NAMES (no type URL
-  // prefix: "examples.v1.OpenTable", never "/examples.v1.OpenTable") of the
-  // command and fact types that are the PM's STARTING inputs, generated
-  // from its (command) entries with starts set (options.proto). The
-  // coordinator matches an input by the name its type URL ends in, after
-  // upcasting (decision 14.41). An input for a correlation
-  // with no PM instance is delivered only if its type is listed here;
-  // otherwise the coordinator skips a fact silently and refuses a command
-  // (ruling B1, adapted; decision 14.31; see
-  // process_manager.proto, Starting an instance). Empty for every other
-  // kind: a descriptor of another kind that sets it is refused, as one
-  // with an empty rules_version is (see ComponentService, Refusal).
-  // Generated by angzarr-cli (decision 14.42).
-  repeated string starting_types = 7;
-  // POLICY only: the one domain its commands go to
-  // (ComponentOptions.output_domain, options.proto; decision 14.24),
-  // generated by angzarr-cli. The policy's coordinator refuses a command
-  // for any other domain (PolicyResponse in policy.proto; decision 14.42).
-  // Required for a POLICY; set on any other kind, the descriptor is
-  // refused (see above).
-  string output_domain = 8;
+  // Which kind of component, and what that kind has.
+  oneof kind {
+    AggregateDescriptor aggregate = 9;
+    ProcessManagerDescriptor process_manager = 10;
+    PolicyDescriptor policy = 11;
+    ProjectorDescriptor projector = 12;
+  }
+  // Fields 3 (inputs), 5 (kind), 6 (state), 7 (starting_types) and 8
+  // (output_domain) were the flat shape, each refused on the kinds that may
+  // not have it; retired by decision 14.78 for the kind oneof. Never stored.
+  reserved 3, 5, 6, 7, 8;
+  reserved "inputs", "kind", "state", "starting_types", "output_domain";
+}
+
+// An aggregate's descriptor.
+message AggregateDescriptor {
+  // Its event-sourced state: generated from the state message's descriptor
+  // by angzarr-cli, or written by hand to the same rules (see
+  // StateDescriptor). Required.
+  StateDescriptor state = 1;
+}
+
+// A process manager's descriptor (a PM is a domain, decision 14.31).
+message ProcessManagerDescriptor {
+  // Its event-sourced state, as AggregateDescriptor.state. Required.
+  StateDescriptor state = 1;
+  // The fully-qualified type NAMES (no type URL prefix:
+  // "examples.v1.OpenTable", never "/examples.v1.OpenTable") of the command
+  // and fact types that are the PM's STARTING inputs, generated from its
+  // (command) entries with starts set (options.proto). The coordinator
+  // matches an input by the name its type URL ends in, after upcasting
+  // (decision 14.41). An input for a correlation with no PM instance is
+  // delivered only if its type is listed here; otherwise the coordinator
+  // dead-letters a fact and refuses a command (ruling B1, adapted; decision
+  // 14.31; see process_manager.proto, Starting an instance).
+  repeated string starting_types = 2;
+}
+
+// A policy's descriptor: its one source and its one destination.
+message PolicyDescriptor {
+  // The one domain whose events it reacts to: derived by angzarr-cli from
+  // the events it names (options.proto, decision 14.78). Required.
+  string input_domain = 1;
+  // The one domain its commands and facts go to (PolicyDecl.output_domain,
+  // options.proto; decision 14.24). Every Output is addressed to it
+  // (io.angzarr.handler.v1.Output). Required.
+  string output_domain = 2;
+}
+
+// A projector's descriptor: its sources.
+message ProjectorDescriptor {
+  // The domains whose events it projects: derived by angzarr-cli from the
+  // events it names (options.proto, decision 14.78). There is no wildcard
+  // domain (decision 14.53); an empty list is refused at registration
+  // (HOST_REASON_PROJECTOR_NO_INPUT_DOMAIN, decision 14.55).
+  repeated string input_domains = 1;
 }
 
 // A component's state message, as the domain-blind coordinator needs it:

@@ -49,9 +49,7 @@ option ruby_package = "Angzarr::Examples";
 // requires (decision 14.76) answers a Bug.
 message TableWalletPolicy {
   option (io.angzarr.v1.component) = {
-    kind: COMPONENT_KIND_POLICY
-    input_domain: "table"
-    output_domain: "wallet"
+    policy: { output_domain: "wallet" }
   };
 }
 
@@ -65,9 +63,7 @@ message TableWalletPolicy {
 // seat, reason} (decision 14.76).
 message TablePlayerPolicy {
   option (io.angzarr.v1.component) = {
-    kind: COMPONENT_KIND_POLICY
-    input_domain: "table"
-    output_domain: "player"
+    policy: { output_domain: "player" }
   };
 }
 
@@ -81,8 +77,6 @@ message TablePlayerPolicy {
 // (decision 14.76), so the player hears of it.
 message PlayerTablePolicy {
   option (io.angzarr.v1.component) = {
-    kind: COMPONENT_KIND_POLICY
-    input_domain: "player"
-    output_domain: "table"
+    policy: { output_domain: "table" }
   };
 }

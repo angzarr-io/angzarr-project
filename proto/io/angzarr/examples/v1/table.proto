@@ -342,7 +342,6 @@ message TableCreated {
   option (io.angzarr.v1.event) = {component: "io.angzarr.examples.v1.TableState"};
   option (io.angzarr.v1.event) = {
     component: "io.angzarr.examples.v1.LedgerProjection"
-    domain: "table"
   };
   string name = 1;
   int64 min_bet = 2;
@@ -371,7 +370,6 @@ message SeatHeld {
   option (io.angzarr.v1.event) = {component: "io.angzarr.examples.v1.TableState"};
   option (io.angzarr.v1.event) = {
     component: "io.angzarr.examples.v1.TableBuyInPolicy"
-    domain: "table"
   };
   bytes buy_in_id = 1;
   bytes player_root = 2;
@@ -392,11 +390,9 @@ message PlayerSeated {
   option (io.angzarr.v1.event) = {component: "io.angzarr.examples.v1.TableState"};
   option (io.angzarr.v1.event) = {
     component: "io.angzarr.examples.v1.TableBuyInPolicy"
-    domain: "table"
   };
   option (io.angzarr.v1.event) = {
     component: "io.angzarr.examples.v1.LedgerProjection"
-    domain: "table"
   };
   bytes buy_in_id = 1;
   bytes player_root = 2;
@@ -413,7 +409,6 @@ message PlayerCashedOut {
   option (io.angzarr.v1.event) = {component: "io.angzarr.examples.v1.TableState"};
   option (io.angzarr.v1.event) = {
     component: "io.angzarr.examples.v1.LedgerProjection"
-    domain: "table"
   };
   bytes cashout_id = 1;
   bytes player_root = 2;
@@ -425,7 +420,6 @@ message BetPlaced {
   option (io.angzarr.v1.event) = {component: "io.angzarr.examples.v1.TableState"};
   option (io.angzarr.v1.event) = {
     component: "io.angzarr.examples.v1.LedgerProjection"
-    domain: "table"
   };
   uint32 round = 1;
   int32 seat = 2;
@@ -476,7 +470,6 @@ message TurnStarted {
   option (io.angzarr.v1.event) = {component: "io.angzarr.examples.v1.TableState"};
   option (io.angzarr.v1.event) = {
     component: "io.angzarr.examples.v1.TablePlayerPolicy"
-    domain: "table"
   };
   uint32 round = 1;
   int32 seat = 2;
@@ -512,7 +505,6 @@ message HandDoubled {
   option (io.angzarr.v1.event) = {component: "io.angzarr.examples.v1.TableState"};
   option (io.angzarr.v1.event) = {
     component: "io.angzarr.examples.v1.LedgerProjection"
-    domain: "table"
   };
   int32 seat = 1;
   int64 added = 2;
@@ -560,11 +552,9 @@ message RoundSettled {
   option (io.angzarr.v1.event) = {component: "io.angzarr.examples.v1.TableState"};
   option (io.angzarr.v1.event) = {
     component: "io.angzarr.examples.v1.TableWalletPolicy"
-    domain: "table"
   };
   option (io.angzarr.v1.event) = {
     component: "io.angzarr.examples.v1.LedgerProjection"
-    domain: "table"
   };
   uint32 round = 1;
   repeated SeatOutcome outcomes = 2; // Ascending by seat
@@ -602,8 +592,7 @@ message TableSeatHold {
 // The TableAggregate.
 message TableState {
   option (io.angzarr.v1.component) = {
-    kind: COMPONENT_KIND_AGGREGATE
-    domain: "table"
+    aggregate: { domain: "table" }
     name: "TableAggregate"
   };
   enum Phase {

@@ -29,12 +29,12 @@ message DeadLetterEnvelope {
   // LAST element), matching Sentry's `exception.values` shape; linkage via
   // each entry's `mechanism.exception_id` / `mechanism.parent_id`. Empty
   // when no capture was attempted. See sererr.fyi/spec/proto for the schema
-  // rationale. Was ProcessingFailedDetails.stack_trace.
+  // rationale. Was the stack_trace of core's ProcessingFailedDetails
+  // (deleted by decision 14.78).
   repeated sererr.v1.CapturedError stack_trace = 2;
   map<string, string> metadata = 3; // Additional context; was AngzarrDeadLetter.metadata
   // Set, with reason COORDINATOR_REASON_PAYLOAD_UNAVAILABLE, when a
-  // claim-checked payload could not be retrieved (bus.proto); the core
-  // entry's rejection_details is then processing_failed. Was the core
+  // claim-checked payload could not be retrieved (bus.proto). Was the core
   // entry's payload_retrieval_failed variant.
   PayloadRetrievalFailedDetails payload_retrieval_failed = 4;
 }

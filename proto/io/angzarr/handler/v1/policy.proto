@@ -1,0 +1,103 @@
+syntax = "proto3";
+package io.angzarr.handler.v1;
+
+import "google/protobuf/any.proto";
+import "io/angzarr/handler/v1/command_handler.proto";
+import "io/angzarr/v1/types.proto";
+
+option csharp_namespace = "Angzarr.Handler";
+option go_package = "github.com/benjaminabbitt/angzarr/client/go/proto/io/angzarr/handler/v1;angzarrhandler";
+option java_multiple_files = true;
+option java_package = "io.angzarr.handler";
+option ruby_package = "Angzarr::Handler";
+
+// A policy's business logic: React to one event of its source, and
+// Translate one refusal of a command it sent (decision 14.78, DRAFT; what
+// a policy is, its outbox and its refusals are io/angzarr/v1/policy.proto).
+// The layer rule is command_handler.proto's: a request carries the books,
+// read-only; a response carries only what business code decides.
+
+// What React is handed: ONE trigger event (decision 46, Q3: a policy is a
+// function of one event, and is called once per trigger).
+message ReactRequest {
+  // A book of the source stream holding exactly the one trigger page: its
+  // cover (domain, root, edition) and the page with its payload (upcast),
+  // sequence and EventMeta (command_id, correlation_id, fact, recorded_at,
+  // rules_version).
+  io.angzarr.v1.EventBook trigger = 1;
+}
+
+// What React answers: the commands and facts for the policy's one
+// destination, in the order business code returned them.
+message ReactResponse {
+  // The outputs; output i's index is i in the reaction's output (the
+  // derived_ids region of types.proto), commands and facts in one index
+  // space (decision 14.69). Empty: the policy does nothing for this event.
+  repeated Output outputs = 1;
+}
+
+// One command or fact for the policy's destination. It names only the
+// destination stream's root, the payload and its arm. Everything else is
+// the coordinator's, so a policy cannot set it:
+//   - domain: the policy's one destination, PolicyDescriptor.output_domain;
+//   - edition: the trigger's;
+//   - command_id: derived from (trigger, policy, index) (derived_ids);
+//   - correlation_id: the trigger's;
+//   - causation: the trigger's EventRef;
+//   - a fact's origin: external_id the command_id's canonical text,
+//     description naming the type and the policy;
+//   - Handling: none; the destination stamps its head.
+// The coordinator still refuses a root that is unset or not 16 bytes
+// (COORDINATOR_REASON_POLICY_COMMAND_NO_ROOT), an output to the trigger's
+// own stream (COORDINATOR_REASON_POLICY_TARGETS_ITS_TRIGGER), a
+// destination it cannot route (COORDINATOR_REASON_POLICY_COMMAND_UNKNOWN_DOMAIN)
+// and a chain too deep (COORDINATOR_REASON_CHAIN_TOO_DEEP): each a policy
+// bug, the trigger dead-lettered and alerted, nothing delivered.
+message Output {
+  // The destination stream's root, for every destination, an aggregate's
+  // or a process manager's alike: nothing fills one in.
+  io.angzarr.v1.UUID root = 1;
+  // The destination's command or fact.
+  google.protobuf.Any payload = 2;
+  // Whether payload is a fact of the destination: its (command).fact
+  // (options.proto). Set by the policy's generated code from the
+  // declaration (decision 14.73), never by business code. A skewed arm (a
+  // fact sent as a command, or the reverse) is refused by the
+  // destination's router, as before (decision 14.69).
+  bool fact = 3;
+}
+
+// What Translate is handed: one business rejection of a command the policy
+// sent, and what it reacted to (the one refusal path, decision 46 #5).
+// Called by the policy's coordinator for every refused arm of the target's
+// DecideResponse, and for nothing else: an aborted arm re-runs the step,
+// and a bug is dead-lettered.
+message TranslateRequest {
+  // The triggering event: a book of the source stream holding the one
+  // event the policy reacted to (the refused command's causation). Its
+  // cover is also where the translated fact goes.
+  io.angzarr.v1.EventBook trigger = 1;
+  // The refused command, as it was delivered: its cover (the destination
+  // and root), its page with the identity the coordinator stamped, and its
+  // payload, whose type picks the policy's callback.
+  io.angzarr.v1.CommandBook command = 2;
+  // The target's refusal, exactly its DecideResponse.refused.
+  Refusal refusal = 3;
+}
+
+// What Translate answers: one fact of the policy's own source domain,
+// payload only. The coordinator builds the rest: a CommandBook addressed to
+// the trigger's exact stream, whose page is a Fact holding this payload,
+// with the refused command's command_id, the trigger's correlation_id,
+// causation_id the trigger, and fact_origin.external_id the command_id's
+// canonical text (io/angzarr/v1/policy.proto, Refusals). It is never
+// refused, so compensation cannot loop.
+//
+// A fact with no payload (no type URL) is delivered like any other, and the
+// source's router refuses it ROUTER_REASON_NO_FACT_HANDLER: dead-lettered
+// and alerted at the source. A policy's router with no callback for the
+// refused command's type answers ROUTER_REASON_NO_REFUSAL_HANDLER (a policy
+// written by hand: a generated one has every callback, decision 14.76).
+message TranslateResponse {
+  google.protobuf.Any fact = 1;
+}
