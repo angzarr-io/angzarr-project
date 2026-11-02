@@ -28,3 +28,9 @@ just proto-docs  # regenerate the Proto API reference page only
 Everything under `proto/` except the vendored `proto/google/` and `proto/sererr/` trees: Licensed under either of Apache License 2.0 or BSD 3-Clause, at your option ([proto/LICENSE-APACHE](proto/LICENSE-APACHE), [proto/LICENSE-BSD](proto/LICENSE-BSD)).
 The vendored third-party protos, `proto/google/` (Apache-2.0) and `proto/sererr/` (sererr's BSD-3-Clause or MIT), keep their own licences.
 Everything else is AGPL-3.0; see [LICENSE](LICENSE).
+
+Author: Benjamin Abbitt
+
+Commercial licensing: the AGPL-3.0 parts of this project (not the
+dual-licensed protos above) are also available under a commercial
+licence. The author is open to it; contact Benjamin Abbitt.
