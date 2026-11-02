@@ -243,7 +243,7 @@ message PolicyReaction {
   // The outputs, commands and facts (CommandPage.body), in the order
   // business code returned them; their index here is the index in the
   // reaction's output (derived_ids region), one index space for both arms.
-  repeated CommandBook commands = 2;
+  repeated CommandBook outputs = 2;
 }
 
 // The input to PolicyService.OnRefused, and the one argument of a

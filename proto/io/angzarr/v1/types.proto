@@ -519,7 +519,7 @@ message EventRef {
 // correlation_id is given its cover's root; a set one is kept, whatever
 // the root. Nothing fills in a root: a policy names its command's root
 // for every target, and an unset one is a policy bug
-// (COORDINATOR_REASON_POLICY_COMMAND_NO_ROOT; PolicyResponse.commands). A process
+// (COORDINATOR_REASON_POLICY_COMMAND_NO_ROOT; PolicyReaction.outputs). A process
 // manager's events carry their command's or fact's correlation, like any
 // domain's.
 // Correlation is never unset on a persisted event, and the framework never

@@ -63,7 +63,7 @@ option ruby_package = "Angzarr";
 // names. A policy addressing a PM names that root, as it does for any
 // target (decision 14.36, as amended): nothing fills one in, and a policy
 // command with no root is a policy bug (COORDINATOR_REASON_POLICY_COMMAND_NO_ROOT;
-// PolicyResponse.commands in policy.proto). By convention a policy may set
+// PolicyReaction.outputs in policy.proto). By convention a policy may set
 // it to its trigger's correlation_id, unchanged (decision 14.30): no
 // derivation (no hash, no UUIDv5) and no text fallback, since a
 // correlation_id is always a 16-byte UUID (decision 9.1) and so a valid
