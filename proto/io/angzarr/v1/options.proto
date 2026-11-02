@@ -158,9 +158,9 @@ message CommandOptions {
   string component = 1;
   // Fully-qualified event type(s) this command emits. A handling returns a
   // list of its component's events, empty, one or many (decision 14.75):
-  // when set, the generated handler's list is of these typed events; when
-  // empty, of any of the component's events (or raw payloads,
-  // google.protobuf.Any, where a language has no typed choice). Either way business
+  // when set, of these types (the generated list is typed by them, or by
+  // the component's event choice where a language types a list by one
+  // type); when empty, of any of the component's events. Either way business
   // output is payloads, plus the post-command state the client library adds
   // to every response, nothing more: the
   // framework builds the EventBook, uses the command's cover, and stamps
