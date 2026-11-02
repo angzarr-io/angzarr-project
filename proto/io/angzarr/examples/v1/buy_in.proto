@@ -245,7 +245,8 @@ message BuyInStarted {
 }
 
 // The wallet holds the funds: the second step done. policy-buy-in-table
-// sends ConfirmSeat{buy_in_id} to table_root.
+// sends ConfirmSeat{buy_in_id} to table_root. The step's undo,
+// HoldReleaseDue, is built from it, so it names whose funds are held.
 message BuyInFundsHeld {
   option (io.angzarr.v1.event) = {
     component: "io.angzarr.examples.v1.BuyInState"
@@ -256,6 +257,7 @@ message BuyInFundsHeld {
   };
   bytes buy_in_id = 1;
   bytes table_root = 2; // The policy's target root (a policy never looks one up)
+  bytes player_root = 3; // Whose funds are held: the undo's target root
 }
 
 // The wallet held the funds after the buy-in failed: a late reply,
