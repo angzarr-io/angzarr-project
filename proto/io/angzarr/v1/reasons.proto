@@ -301,6 +301,15 @@ enum HostReason {
     args: ["component", "domain"]
     status: REASON_STATUS_INTERNAL
   }];
+  // A component whose state's descriptor names one type (`type_url`) while
+  // the state it writes as its snapshot is another (`state_type_url`): its
+  // snapshots would never be offered back to it (the snapshot region of
+  // types.proto). Refused at registration, and nothing is registered
+  // (decision 14.65).
+  HOST_REASON_STATE_TYPE_MISMATCH = 16 [(reason) = {
+    args: ["component", "type_url", "state_type_url"]
+    status: REASON_STATUS_INTERNAL
+  }];
 
   // Moved to io.angzarr.transport.embedded.v1 (decision 14.64), each
   // key's string unchanged: a key lives in the package whose code raises it.

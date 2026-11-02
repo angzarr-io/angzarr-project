@@ -139,12 +139,12 @@ class CheckReasonKeysTest(unittest.TestCase):
         self.assertProblem(d, "RouterReason: live keys are not numbered densely from 1")
 
     def test_a_moved_keys_reserved_number_fills_its_place(self) -> None:
-        # The fixture's core HostReason: its eight live keys, then the
+        # The fixture's core HostReason: its nine live keys, then the
         # seven moved numbers.
         e = _enum_of(_good(), "HostReason")
-        self.assertEqual(e["reservedRange"], [{"start": 9, "end": 15}])
+        self.assertEqual(e["reservedRange"], [{"start": 10, "end": 16}])
         d = _good()
-        _enum_of(d, "HostReason")["reservedRange"] = [{"start": 10, "end": 16}]
+        _enum_of(d, "HostReason")["reservedRange"] = [{"start": 11, "end": 17}]
         self.assertProblem(d, "HostReason: live keys are not numbered densely from 1")
 
     def test_an_enum_with_no_keys(self) -> None:
@@ -409,6 +409,7 @@ class CheckReasonKeysTest(unittest.TestCase):
             "HOST_REASON_UPCASTER_OTHER_DOMAIN",
             "HOST_REASON_RESOLUTION_UNSUPPORTED",
             "HOST_REASON_REMOTE_SOURCE",
+            "HOST_REASON_STATE_TYPE_MISMATCH",
         ):
             with self.subTest(key=key):
                 self.assertIn(key, crk.PINNED)

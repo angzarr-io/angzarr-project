@@ -4586,7 +4586,9 @@ Amends 14.60.
   `domain`), `HOST_REASON_UPCASTER_OTHER_DOMAIN` (13; `domain`,
   `upcaster`), `HOST_REASON_RESOLUTION_UNSUPPORTED` (14; `component`,
   `resolution`, `command_type`), `HOST_REASON_REMOTE_SOURCE` (15;
-  `component`, `domain`), each INTERNAL, a refusal to start; and
+  `component`, `domain`), `HOST_REASON_STATE_TYPE_MISMATCH` (16;
+  `component`, `type_url`, `state_type_url`), each INTERNAL, a refusal to
+  start; and
   `COORDINATOR_REASON_STATE_RESOLUTIONS_INVALID` (40; `component`;
   readiness), a state listing a value that is no resolution or lacking the
   implicit base.

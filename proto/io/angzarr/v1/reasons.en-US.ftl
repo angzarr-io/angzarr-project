@@ -40,6 +40,7 @@ HOST_REASON_UPCASTER_UNKNOWN_DOMAIN = an upcaster is given for domain { $domain 
 HOST_REASON_UPCASTER_OTHER_DOMAIN = the upcaster registered for domain { $domain } upcasts { $upcaster }'s payloads
 HOST_REASON_RESOLUTION_UNSUPPORTED = component { $component } is configured { $resolution }, which its state does not support
 HOST_REASON_REMOTE_SOURCE = { $component } reads the events of domain { $domain }, which a coordinator elsewhere handles: they are never written or read here
+HOST_REASON_STATE_TYPE_MISMATCH = component { $component }'s state descriptor names { $type_url }, but its snapshots are { $state_type_url }: they would never be offered back
 
 ## CoordinatorReason: core's coordinator and the angzarr-embedded kernel.
 
