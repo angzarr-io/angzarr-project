@@ -239,6 +239,41 @@ test: test-check-feature-ids test-check-reason-keys
 # (bash globs): the dated spec drafts that land on it whole.
 PROTECTED_BRANCHES := "spec/*-draft"
 
+# lefthook's pre-commit and pre-merge-commit tests: what `push-check` holds
+# each pushed commit to, on the working tree: every test (`just test`), then
+# wire compatibility (`proto-breaking`) against the merge base of HEAD with
+# the draft. There is nothing to build: a checker that does not load fails as
+# a test. Red (either fails) is committed on a branch other than the
+# protected ones (origin's default branch and PROTECTED_BRANCHES), with a
+# warning that it cannot merge until it passes, and refused on a protected
+# branch or a detached HEAD.
+test-commit:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    cd '{{justfile_directory()}}'
+    # git exports repository-locating variables (GIT_DIR, ...) into a hook;
+    # with them, git run by a test would act on this checkout.
+    unset $(git rev-parse --local-env-vars)
+    red=
+    just --justfile '{{justfile_directory()}}/justfile' test || red="the tests fail"
+    if [ -z "$red" ]; then
+        just --justfile '{{justfile_directory()}}/justfile' proto-breaking || red="buf breaking fails"
+    fi
+    [ -z "$red" ] && exit 0
+    default=$(git symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null) && default=${default#origin/} || default=main
+    read -ra protected <<< "$default {{PROTECTED_BRANCHES}}"
+    branch=$(git symbolic-ref --quiet --short HEAD) || branch=
+    guarded=
+    for pattern in "${protected[@]}"; do
+        [[ $branch == $pattern ]] && guarded=1
+    done
+    if [ -n "$branch" ] && [ -z "$guarded" ]; then
+        echo "RED  tests: $red; committed on $branch, which is allowed off ${protected[*]}; $branch cannot merge into them (or be pushed to them) until it passes"
+        exit 0
+    fi
+    echo "FAIL tests: $red; that cannot be committed on ${branch:-a detached HEAD}. Commit it on a branch." >&2
+    exit 1
+
 # lefthook's pre-push step, given the remote's name and git's pushed refs on
 # stdin: every test (`just test`), in each pushed commit's tree checked out
 # alone (target/push-tree), so an unpushed edit cannot pass or fail it. No
