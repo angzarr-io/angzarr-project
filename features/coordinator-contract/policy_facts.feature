@@ -105,17 +105,17 @@ Feature: Policy facts - a policy emits what its destination declares
     # own domain at another root stays allowed (C-0780).
     Given "order" "order-1" is forked into edition "what-if"
     And a policy "OrderToOrder" translating from "order" to "order" that sends AddItem as a <arm> to "order" "order-1" on OrderPlaced
-    When an OrderPlaced event is recorded for order "order-1"<timeline>
+    When an OrderPlaced event is recorded for order "order-1" <timeline>
     Then the policy's answer is refused INTERNAL with reason COORDINATOR_REASON_POLICY_TARGETS_ITS_TRIGGER, naming the trigger's stream and command type AddItem
     And nothing is delivered and nothing is appended to stream "order" root "order-1"
     And the OrderPlaced trigger is dead-lettered with reason COORDINATOR_REASON_POLICY_TARGETS_ITS_TRIGGER as rejected_events, and an alert is raised
     And the dead letter's processing_failed details have failure code COORDINATOR_REASON_POLICY_TARGETS_ITS_TRIGGER, retry_count 0 and is_transient false
 
     Examples:
-      | arm     | timeline              |
-      | command |                       |
-      | fact    |                       |
-      | command | in edition "what-if"  |
+      | arm     | timeline             |
+      | command | on the main timeline |
+      | fact    | on the main timeline |
+      | command | in edition "what-if" |
 
   @policy_facts
   @C-0785
