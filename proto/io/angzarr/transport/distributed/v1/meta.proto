@@ -21,7 +21,7 @@ option ruby_package = "Angzarr::Transport::Distributed";
 // and deletes them (see Cover.edition in io/angzarr/v1/types.proto).
 service EditionAdminService {
   // Fork one origin stream into an edition at the sequence the request
-  // states (parent_sequence): append EditionCreated there to (the
+  // states (parent_sequence): append EditionCreated at that sequence to (the
   // stream's domain, edition, root), creating the edition if no fork event
   // of it exists yet. From there the fork travels with the data
   // (meta.EditionCreated). Forking more origin streams into an
@@ -83,7 +83,9 @@ message ForkStreamRequest {
   // (decisions 14.35 and 14.36).
   io.angzarr.v1.Cover stream = 1;
   // The fork point, always stated by the caller (decision 14.36): the
-  // EditionCreated's parent_sequence and sequence. 0 is a valid fork at
+  // sequence the EditionCreated is appended at, which is its own fork
+  // point (decision 14.86). Main is authoritative and is never written for
+  // it: the fork is the edition's alone. 0 is a valid fork at
   // the start of the stream; there is no "head when unset". Any sequence
   // at or below main's head (main's next sequence for the stream) is
   // taken; one above it is refused ABORTED (the store's conflict, the

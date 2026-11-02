@@ -191,8 +191,8 @@ message Cover {
   // An edition is a set of per-stream FORKS, and nothing else: there is no
   // edition registry and no separate metadata store. Stream (D, X, R)
   // exists in edition X from its creation: an EditionCreated meta-event
-  // (meta/events.proto) at the sequence it states (its parent_sequence),
-  // at or below main's head for (D, main, R), the sequence main would use
+  // (meta/events.proto) whose own sequence is its fork point (decision
+  // 14.86), at or below main's head for (D, main, R), the sequence main would use
   // next; above it is a conflict (decision 14.36). That event is the first
   // of X's version of the stream, and its sequence marks main's end and
   // X's start for that stream. The fork point is per stream: no
