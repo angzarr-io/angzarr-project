@@ -4773,6 +4773,47 @@ gate) and 14.69 (which kept the name).
   framework's own runtimes) read `outputs`; every runtime and generator
   renames its accessor.
 
+**14.71 A policy never addresses its trigger's own stream.** Ruled by the
+owner, 2026-11-02, on the escalation of 14.69's implementation: "Enforce:
+new key, rewrite C-0737". Enforces 14.69's ruling 8 ("allowed, as long as
+a policy never addresses its trigger's exact stream").
+- **The rule.** A policy's command or fact whose cover names its trigger's
+  domain and root, on the main timeline or in the trigger's edition (the
+  edition rule stamps every output with the trigger's, so no other
+  edition reaches this check), is a policy bug: the policy's coordinator
+  refuses the whole answer, delivers nothing, and dead-letters the
+  trigger, as for every other output check (`PolicyResponse.reactions`).
+  Its own domain at another root stays allowed (C-0780).
+- **`COORDINATOR_REASON_POLICY_TARGETS_ITS_TRIGGER`** (41; INTERNAL; args
+  `stream`, the trigger's stream text per 14.65's single-stream rule, and
+  `command_type`). Checked after the edition rule.
+- **Scenarios.** C-0784 (`policy_facts.feature`: a command and a fact on
+  the main timeline, a command in an edition). C-0737's chain now
+  addresses another order at each depth; it tested the depth limit, and
+  its same-order chain is refused by this rule at depth 1.
+- Why: the ruling. A policy that answers its own trigger's stream is an
+  aggregate deciding through a side door, and with a refusal path, a loop
+  on its own stream.
+- Cost: one more check per output, in each coordinator.
+
+**14.72 A fact its business process answers with a rejection is
+dead-lettered.** Ruled by the owner, 2026-11-02, on the escalation of
+14.69's implementation ("2 should dead-letter"), overturning that
+implementation's reading that such a fact's step simply fails.
+- **The rule.** A fact is never refused, so a business process that
+  answers one with a business status (a rejection: FAILED_PRECONDITION and
+  the rest of 14.37's business statuses) has a bug. The coordinator
+  dead-letters the fact (rejected_command), under the key and args the
+  process answered, and alerts, as for any input it cannot deliver; the
+  sender is answered OK, PARKED, with no events. A policy's fact so parked
+  is its step done (14.69), and nothing takes the refusal path: no
+  OnRefused, no refusal fact.
+- **Scenarios.** C-0785 (`policy_facts.feature`, a policy's fact) and
+  C-0786 (`fact_flow.feature`, a client's).
+- Why: the ruling. Only a command is refused (14.31); a rejection for a
+  fact is no answer a sender can act on.
+- Cost: none on the wire.
+
 ## Corrections
 
 Facts the earlier passes or the design note got wrong:

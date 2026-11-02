@@ -52,7 +52,11 @@ service CommandHandlerService {
   //      "type_url" as sent and "upcast_type_url" as delivered (see
   //      io/angzarr/v1/upcaster.proto). A failing fact handler is a bug,
   //      not a business rejection: the fact is dead-lettered (and alerted)
-  //      and the sender answered PARKED, never a rejection.
+  //      and the sender answered PARKED, never a rejection. So is a fact
+  //      the business process answers with a business status: a fact
+  //      cannot be refused, and the coordinator dead-letters it, under the
+  //      key and args the process answered, as it does any input it
+  //      cannot deliver (C-0785, C-0786; decision 14.72).
   //   2. under AGGREGATE_HANDLES the library reports the nonce the handler
   //      resolved with, and under COMMUTATIVE it computes the window's and
   //      the command's conflict units (CommandHandlerResponse.conflict).

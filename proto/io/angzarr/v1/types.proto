@@ -1317,7 +1317,8 @@ message Outcome {
 //              command_id: business code did not run, and the events are
 //              those, re-read from the stream.
 //   PARKED     a Fact whose ingest handler failed (a process manager's
-//              fact handler included), or that lost a race at every
+//              fact handler included, and one its business process
+//              answered with a business status), or that lost a race at every
 //              write until the race re-run cap: it was accepted
 //              and dead-lettered for an operator, with no events. Such a
 //              failure is a bug, never a rejection, so the sender is

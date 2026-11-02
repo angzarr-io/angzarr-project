@@ -89,3 +89,4 @@ COORDINATOR_REASON_RULES_VERSION_MISMATCH = component "{ $component }" answered 
 COORDINATOR_REASON_EVENTS_NOT_ITS_STREAM = the handler of { $stream } answered events for { $event_stream }, another stream: a bug in the handler; nothing was kept
 COORDINATOR_REASON_EDITION_NOT_FORKED = { $stream } is not forked into edition "{ $edition }": fork it, or let a policy propagate into it, then send it again
 COORDINATOR_REASON_STATE_RESOLUTIONS_INVALID = component { $component }'s state lists a value that is not a conflict resolution, or lacks STRICT or AGGREGATE_HANDLES
+COORDINATOR_REASON_POLICY_TARGETS_ITS_TRIGGER = a policy sent a { $command_type } to { $stream }, the stream whose event triggered it: a bug in the policy

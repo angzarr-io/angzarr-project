@@ -670,6 +670,20 @@ enum CoordinatorReason {
     args: ["component"]
     status: REASON_STATUS_READINESS
   }];
+  // A policy's reaction, a command or a fact, addressed to its trigger's own
+  // stream (`stream`: the trigger's domain and root, and its edition, which
+  // every output is stamped with), of type `command_type`. A policy may
+  // address its own domain at another root, never the stream that triggered
+  // it. Refused by the policy's coordinator (PolicyResponse.reactions), after
+  // the edition check: nothing is delivered, and the trigger is dead-lettered
+  // with this key as its AngzarrDeadLetter.reason (processing_failed,
+  // retry_count 0, is_transient false), and alerted. Bug, fatal (decision
+  // 14.37): the same policy answers the same way again. (C-0784; decision
+  // 14.71.)
+  COORDINATOR_REASON_POLICY_TARGETS_ITS_TRIGGER = 41 [(reason) = {
+    args: ["stream", "command_type"]
+    status: REASON_STATUS_INTERNAL
+  }];
 
   // Moved to io.angzarr.transport.distributed.v1 (decision 14.64), each
   // key's string unchanged: a key lives in the package whose code raises it.
