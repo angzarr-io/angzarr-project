@@ -43,10 +43,11 @@ option ruby_package = "Angzarr::Examples";
 // already recorded) records nothing (decision 14.75): redelivery is
 // harmless.
 //
-// Conflict resolution: WalletState lists no COMMUTATIVE, so it supports the
-// base STRICT and AGGREGATE_HANDLES, and STRICT is its default. The earlier
-// spec's commutative deposit and manually reviewed withdrawal wait on the
-// merge-strategy ruling.
+// Concurrency: the coordinator appends at the head it loaded and re-runs a
+// lost race on the new head, so every handler decides on the current state
+// (decision 14.92; there is no conflict resolution). The earlier spec's
+// commutative deposit and manually reviewed withdrawal are the wallet's
+// own business rules, if ever wanted.
 // Policy outputs (HoldFunds, a command; CaptureFunds, ReleaseHold,
 // RecordRoundResult and AwardLoyaltyPoints, facts its policies emit as
 // facts, decision 14.69) carry no Handling, the wallet stamps its own

@@ -57,9 +57,8 @@ option ruby_package = "Angzarr";
 // derived from them at the destination, external_id the command_id's
 // canonical text and description naming the type and the policy. So a type its destination turns from a command
 // into a fact keeps its id, and a re-run across the change is answered
-// DUPLICATE. It carries no Handling (see Handling): the destination always
-// stamps its head before business code, and conflict resolution never
-// applies. It is delivered through the one framework-only RPC, Deliver
+// DUPLICATE. It carries no Handling (see Handling): the destination appends
+// at the head it loaded, as for any input. It is delivered through the one framework-only RPC, Deliver
 // (decision 14.79).
 //   - A fact is never refused. One whose handler fails at its destination,
 //     or whose business process answers it with an error (decision 14.72),

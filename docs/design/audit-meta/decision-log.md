@@ -228,6 +228,8 @@ and it is never persisted.
 
 > **Amended by 14.81 (DRAFT, pending review):** the precedence chain is gone. A command handler's conflict resolution is its state's (COMMUTATIVE where its `(state)` option lists it, else STRICT); `Handling.conflict_resolution` is reserved, and there is no per-command-type or per-component configuration and no override permission.
 
+> **Superseded by 14.92 (DRAFT, pending review; the owner's decision 47):** the coordinator has no conflict-resolution concept. There is no resolution to configure or default.
+
 **3.3 Defaults come from configuration.** Precedence: Handling, then
 command-type config, then component config, then STRICT.
 - Why: operators set policy, and a caller may override it only where
@@ -536,6 +538,8 @@ the first production event any store keeps, every removal reserves its
 number and name in the same change. The policy is written in
 `proto/buf.yaml`. It ties to the gate-wire-compat trigger (backlog GAP-3).
 
+> **Superseded by 14.92 (DRAFT, pending review; the owner's decision 47):** the coordinator has no conflict-resolution concept.
+
 **6.7 The AGGREGATE_HANDLES nonce (D7).** `ContextualCommand.conflict_nonce`
 (bytes, field 3) is set when the resolved resolution is AGGREGATE_HANDLES or
 COMMUTATIVE, and empty under STRICT. The client library passes it to the
@@ -681,6 +685,8 @@ crate and these documents changed, and nothing is reserved (the 6.6 policy
 now covers passes up to and including 8; nothing was removed).
 
 > **Amended by 12.7 and 12.8 (pass 12):** `bool commutative_state` is replaced by `StateOptions state = 50106`; `ConflictUnit` gains `whole_state = 4`. The unit rules are unchanged.
+
+> **Superseded by 14.92 (DRAFT, pending review; the owner's decision 47):** the coordinator has no conflict-resolution concept. Conflict units, `(conflict)` and `(state)` are deleted.
 
 **8.1 COMMUTATIVE compares declared conflict units (replaces 6.12's
 "reflection diff").** `options.proto` gains
@@ -1225,6 +1231,8 @@ example `"v3"`), bumped when decide, ingest or apply semantics change.
   checked).
 
 > **Amended by 14.81 (DRAFT, pending review):** not a default: the state's declaration is the resolution, and nothing overrides it.
+
+> **Superseded by 14.92 (DRAFT, pending review; the owner's decision 47):** the coordinator has no conflict-resolution concept.
 
 **12.7 COMMUTATIVE is the default where the state declares conflict units;
 `StateOptions` replaces the bool.**
@@ -3538,6 +3546,8 @@ standard names.** Owner rulings, 2026-10-30. Amends 14.37 and 14.42.
   here: `describe()`, the client library's descriptor builder, raises it
   for an UNSPECIFIED conflict resolution before any host is involved.
 
+> **Superseded by 14.92 (DRAFT, pending review; the owner's decision 47):** the coordinator has no conflict-resolution concept. A client's expected sequence is data for its handler; `COORDINATOR_REASON_EXPECTED_SEQUENCE_STALE` is retired. The race re-run on the new head stays.
+
 **14.45 A stale expected sequence is STRICT's key; a command that loses
 a race at its write is re-run or re-delivered.** Owner ruling, 2026-10-30,
 amended twice the same day (below). Follows 14.35, 14.37, 14.42 and 14.44.
@@ -3687,6 +3697,8 @@ has its own cap.** Owner rulings, 2026-10-30. Follows 14.37 and 14.45.
   race goes back as at a cap of 0 is UNAVAILABLE
   `COORDINATOR_REASON_STORE_CONFLICT`, args `expected` and `actual`
   (14.51).
+
+> **Superseded by 14.92 (DRAFT, pending review; the owner's decision 47):** the coordinator has no conflict-resolution concept. The coordinator does not interpret an expected sequence; `COORDINATOR_REASON_EXPECTED_SEQUENCE_AHEAD` is retired.
 
 **14.47 An expected sequence ahead of the head is malformed, under every
 resolution.** Owner ruling, 2026-10-30. Amends 14.45; follows 14.37 and
@@ -5066,8 +5078,9 @@ layers/more proto ...") and its rulings Q1-Q3, Q5-Q7, #2-#5 (2026-11-02).
   ConflictReport, PolicyResponse, PolicyReaction, Refusal,
   OnRefusedResponse, RefusalResponse, CommandRefused, UpcastRequest,
   UpcastResponse and Target are deleted; none was stored.
-- **Q5.** The conflict nonce and any acknowledgement go (the owner: "drop
-  the entire thing. if a second call is happening, we don't need it").
+- **Q5** (superseded by 14.92: there is no conflict concept at all). The
+  conflict nonce and any acknowledgement go (the owner: "drop the entire
+  thing. if a second call is happening, we don't need it").
   AGGREGATE_HANDLES's handler decides on the window and nothing is
   reported; COMMUTATIVE still reports its two unit sets.
   `COORDINATOR_REASON_CONFLICT_UNRESOLVED` is retired.
@@ -5123,6 +5136,8 @@ the host's time limit. `HOST_REASON_HANDSHAKE_MALFORMED`, `_TIMEOUT` and
 SERVING in time (arg `timeout_ms` added). `ChildProtocol`'s handshake
 constants are reserved. `docs/design/child-protocol.md` follows. Amends
 14.59 and 14.62.
+
+> **Superseded by 14.92 (DRAFT):** there is no resolution for a state to declare.
 
 **14.81 (DRAFT) The state declares the conflict resolution.** The owner's
 ruling F2. COMMUTATIVE where the state's `(state)` option lists it, STRICT
@@ -5222,7 +5237,7 @@ bools are fine, as they implement fixed rules".
 - **Command OR fact is a oneof.** `io.angzarr.handler.v1.Output` and
   `ReactionDelivery` carry `oneof body { Any command; Any fact }` in place of
   a payload and `bool fact`. (`CommandPage` already had its oneof.)
-- **Conflict units.** `ConflictUnit`'s `descend`, `ordered` and
+- **Conflict units** (superseded by 14.92: `ConflictUnit` is deleted). `ConflictUnit`'s `descend`, `ordered` and
   `whole_state` switches (and `element_key`) are reserved for `oneof unit {
   Natural natural; Descend inner_fields; Keyed keyed; WholeState wildcard
   }`, with `Keyed { element_key; oneof order { order_ignored |
@@ -5237,6 +5252,36 @@ bools are fine, as they implement fixed rules".
 - **Kept bools**, each data with two states only: blackjack's (the owner),
   the wallet's `registered` and `loyalty_enrolled`, the compensation
   fixture's `failed`, and the vendored `sererr` and `google.api` messages.
+
+**14.92 (DRAFT) The coordinator has no conflict concept.** The owner's
+decision 47, 2026-11-02: "does the coordinator need to care, at all, about
+conflicts, or should we just delegate it?" ... "and let the business logic
+handle it". Supersedes F2 (14.81), Q5 (14.78) and the review guide's
+ConflictReport variants A/B; amends 3.3, 6.7, 8.1, 12.7, 14.42, 14.45, 14.47
+and 14.66.
+- **Removed:** `ConflictResolution` (STRICT, COMMUTATIVE, AGGREGATE_HANDLES);
+  `StateOptions` and the `(state)` option (50106); `ConflictUnit` and the
+  `(conflict)` option (FieldOptions 50107), with the 14.91 oneof built for
+  it; `ConflictReport` and `Decided.conflict`; the conflict window and its
+  snapshot bound; `StateDescriptor.options` (2, reserved);
+  `Handling.conflict_resolution` (already reserved).
+- **Reason keys retired:** `COORDINATOR_REASON_CONFLICT_OVERLAP` (2),
+  `_EXPECTED_SEQUENCE_STALE` (20), `_EXPECTED_SEQUENCE_AHEAD` (22),
+  `_STATE_RESOLUTIONS_INVALID` (40).
+- **What stays, and why it is not conflict handling:** the store's
+  per-stream optimistic append at the head the coordinator loaded, and the
+  coordinator re-running a lost race on the new head under the race re-run
+  cap (the kernel owns retries), so the handler always decides on current
+  state. A handler cannot see concurrent writers, so write atomicity cannot
+  be delegated to it.
+- **A client's expected sequence** stays as DATA in the command the handler
+  receives (`Handling.expected_sequence`); the coordinator does not
+  interpret, stamp or refuse on it. A handler that cares compares it with
+  its state and refuses with its own typed refusal. (A reading put to the
+  owner for confirmation in the review guide.)
+- **Not part of this proto draft:** embedded's `Catalog::supports` check and
+  `Malformed::{Unknown,Unsupported}ConflictResolution`, which go with the
+  implementation.
 
 ## Corrections
 

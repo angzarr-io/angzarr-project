@@ -17,9 +17,8 @@ option ruby_package = "Angzarr::Transport::Distributed";
 // 14.64).
 service CommandHandlerCoordinatorService {
   // DECISION. Process one command and answer with its decision. The
-  // CommandBook is the request: its handling says how to treat it (expected
-  // sequence, conflict resolution), with unspecified fields taken from
-  // configuration (see Handling). Facts (external realities) are injected
+  // CommandBook is the request; a command's handling carries the client's
+  // expected sequence, as data for its handler (see Handling). Facts (external realities) are injected
   // here too, in the Fact arm of CommandPage.body.
   //
   // Accepted: the response carries the persisted events, with
@@ -30,14 +29,11 @@ service CommandHandlerCoordinatorService {
   // every write until the race re-run cap, is answered OK with
   // outcome.delivery PARKED and no events ("accepted, parked"; it is
   // dead-lettered). outcome.projections and outcome.projector_failures are
-  // always empty. Rejected: a gRPC error status, and nothing is written (an
-  // expected sequence ahead of the head, under any resolution, is
-  // INVALID_ARGUMENT, COORDINATOR_REASON_EXPECTED_SEQUENCE_AHEAD; a stale
-  // one, behind the head, under STRICT is ABORTED,
-  // COORDINATOR_REASON_EXPECTED_SEQUENCE_STALE; a command that lost a race
-  // at every write until a cap is INTERNAL,
-  // COORDINATOR_REASON_RETRY_CAP_EXHAUSTED, and dead-lettered; see the
-  // status codes above).
+  // always empty. Rejected: a gRPC error status, and nothing is written (a
+  // handler's refusal, under its own key; a command that lost a race at
+  // every write until the race re-run cap is INTERNAL,
+  // COORDINATOR_REASON_RETRY_CAP_EXHAUSTED, and not dead-lettered: the
+  // caller holds it; see the status codes above).
   rpc Handle(io.angzarr.v1.CommandBook) returns (CommandResponse) {
     option (google.api.http) = {
       post: "/v1/ch/{cover.domain}/commands"
@@ -55,13 +51,11 @@ service CommandHandlerCoordinatorService {
   // itself retry the call should supply the command_id, as for Handle.
   //
   // Validation happens before enqueueing: a malformed command (see Handling)
-  // is refused here, never enqueued. An expected_sequence ahead of the head
-  // needs the head, so it is found only when the command is processed. A
-  // rejection happens later, with no caller to answer: like a reaction
+  // is refused here, never enqueued. A rejection happens later, with no caller to answer: like a reaction
   // command's, a retryable bug is retried up to its cap, and any other
   // failure is dead-lettered and alerted (status codes, above); a business,
-  // fatal refusal (COORDINATOR_REASON_EXPECTED_SEQUENCE_AHEAD among them)
-  // records its key and args as AngzarrDeadLetter.reason (decision 14.47).
+  // fatal refusal records its key and args as AngzarrDeadLetter.reason
+  // (decision 14.47).
   // A caller that needs the outcome
   // uses Handle, or follows the command's correlation_id
   // (EventStreamFilter).

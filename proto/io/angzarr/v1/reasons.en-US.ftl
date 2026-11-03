@@ -42,18 +42,15 @@ HOST_REASON_STATE_TYPE_MISMATCH = component { $component }'s state descriptor na
 
 ## CoordinatorReason: core's coordinator and the angzarr-embedded kernel.
 
-COORDINATOR_REASON_CONFLICT_OVERLAP = the command's change to { $command_units } of { $stream } overlaps the change to { $window_units } it did not see: re-read and re-issue
 COORDINATOR_REASON_PM_NO_INSTANCE = the process manager has no instance at { $stream }, and a { $type_url } does not start one: start it first
 COORDINATOR_REASON_POLICY_COMMAND_NO_ROOT = a policy sent a { $command_type } to domain { $domain } naming no root: a bug in the policy, which names the root of every command
 COORDINATOR_REASON_MISSING_RULES_VERSION = component "{ $component }": its descriptor has no rules version
 COORDINATOR_REASON_MISSING_STATE_TYPE = component "{ $component }": a { $component_kind } has no state type
 COORDINATOR_REASON_POLICY_NO_OUTPUT_DOMAIN = component "{ $component }": a policy has no output domain
-COORDINATOR_REASON_EXPECTED_SEQUENCE_STALE = stream { $stream } is at { $actual }, not the { $expected } expected: re-read and re-issue
 COORDINATOR_REASON_RETRY_CAP_EXHAUSTED = gave up after { $attempts ->
         [one] one run
        *[other] { $attempts } runs
     }, each losing its write to another write to stream { $stream }, at the cap of { $cap }: dead-lettered, nothing persisted
-COORDINATOR_REASON_EXPECTED_SEQUENCE_AHEAD = stream { $stream } is at { $head }, behind the { $expected } expected: the command names a sequence the stream never reached
 COORDINATOR_REASON_EDITION_REMOVAL_FAILED = the rows of { $stream } in deleted edition "{ $edition }" could not be removed, after { $attempts ->
         [one] one attempt
        *[other] { $attempts } attempts
@@ -65,7 +62,6 @@ COORDINATOR_REASON_STORE_UNAVAILABLE = the event store did not answer: send it a
 COORDINATOR_REASON_UPCASTER_UNAVAILABLE = the upcaster sidecar of domain { $domain } is not serving: send it again
 COORDINATOR_REASON_RULES_VERSION_MISMATCH = component "{ $component }" answered as rules version "{ $reported }", not "{ $registered }", the version it is registered at, for { $stream }: a bug in the component; nothing was kept
 COORDINATOR_REASON_EDITION_NOT_FORKED = { $stream } is not forked into edition "{ $edition }": fork it, or let a policy propagate into it, then send it again
-COORDINATOR_REASON_STATE_RESOLUTIONS_INVALID = component { $component }'s state lists a value that is not a conflict resolution, or lacks STRICT or AGGREGATE_HANDLES
 COORDINATOR_REASON_POLICY_TARGETS_ITS_TRIGGER = a policy sent a { $command_type } to { $stream }, the stream whose event triggered it: a bug in the policy
 COORDINATOR_REASON_POLICY_NO_INPUT_DOMAIN = component "{ $component }": a policy has no input domain
 COORDINATOR_REASON_DESCRIPTOR_NO_KIND = component "{ $component }": its descriptor names no kind

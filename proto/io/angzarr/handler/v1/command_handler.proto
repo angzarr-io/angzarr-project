@@ -25,7 +25,7 @@ option ruby_package = "Angzarr::Handler";
 //     sequence and EventMeta it stamped or loaded. Business logic gets what
 //     it needs (the owner's ruling on decision 46, Q1).
 //   - A response carries only what business code decides: payloads, the
-//     post-decision state, the rules version, a conflict report, a refusal.
+//     post-decision state, the rules version, a refusal.
 //     It has no field the coordinator stamps (a cover, a sequence, an id,
 //     EventMeta), so there is nothing for the coordinator to refuse.
 // The coordinator alone converts between this layer and core's: it wraps
@@ -38,24 +38,17 @@ option ruby_package = "Angzarr::Handler";
 // never is.
 
 // What Decide is handed: one command and the stream it addresses, after
-// the coordinator's pipeline steps 1-4 (io/angzarr/v1/types.proto,
-// Handling). The command is validated, its ids assigned, deduplicated,
-// admitted (a process manager's start rule) and its Handling resolved;
-// every payload is in its current shape (upcast, decision 14.39).
+// the coordinator's pipeline steps 1-3 (io/angzarr/v1/types.proto,
+// Handling). The command is validated, its ids assigned, deduplicated and
+// admitted (a process manager's start rule); every payload is in its current shape (upcast, decision 14.39).
 message DecideRequest {
   // The command as the coordinator holds it: its cover (the stream), its
   // page (command_id, correlation_id) and its Handling
-  // (page.command.handling), resolved: expected_sequence provided or
-  // stamped. The page's body is the Command arm. The resolution is the
-  // component's state's (decision 14.81), which the client library knows
-  // from its own generated state, so it is not sent.
-  //
-  // The window boundary is page.command.handling.expected_sequence (E). Under
-  // AGGREGATE_HANDLES and COMMUTATIVE the pages of history with sequences
-  // E .. history.next_sequence-1 are the conflict window, always delivered
-  // as pages: history.snapshot, when present, has sequence <= E-1 (and
-  // there is none when E is 0), so no part of the window is hidden inside
-  // snapshot state. Under STRICT, E is the head and the window is empty.
+  // (page.command.handling) as the client sent it: its expected_sequence,
+  // when set, is DATA (decision 14.92, DRAFT; the owner's decision 47). The
+  // coordinator does not interpret it; a handler that cares compares it
+  // with history.next_sequence and refuses with its own typed refusal. The
+  // page's body is the Command arm.
   io.angzarr.v1.CommandBook command = 1;
   // The stream as loaded: the starting state (a snapshot that passed the
   // coordinator's validity checks, see Snapshot) and every page after it
@@ -121,11 +114,9 @@ message Decided {
   // per the domain's storage policy; business code never decides whether
   // or when.
   google.protobuf.Any state = 2;
-  // COMMUTATIVE behind the head only: the unit sets the coordinator judges
-  // (decision 14.42; ConflictResolution in io/angzarr/v1/types.proto).
-  // Unset under STRICT, under AGGREGATE_HANDLES, and for a COMMUTATIVE
-  // command at the head (delivered as STRICT, decision 14.66).
-  ConflictReport conflict = 3;
+  // There is no conflict report: the coordinator has no conflict concept
+  // (decision 14.92, DRAFT). The events are appended at the head the
+  // coordinator loaded, and a lost race is re-run on the new head.
 }
 
 // A business rejection: business, fatal (decision 14.37). Exactly what the
@@ -154,35 +145,15 @@ message Refusal {
   }
 }
 
-// The client library's COMMUTATIVE resolver's report: the two unit sets of
-// the conflict_units region of options.proto. The coordinator accepts the
-// events iff they do not overlap (options.proto, Overlap); otherwise
-// ABORTED, COORDINATOR_REASON_CONFLICT_OVERLAP, args window_units and
-// command_units, and nothing is persisted. AGGREGATE_HANDLES reports
-// nothing: its handler receives the window with the command and applies
-// its own rule, and the coordinator accepts what it decides (decision 46,
-// Q5: no nonce and no acknowledgement; a re-delivered window is a new
-// Decide call).
-message ConflictReport {
-  // changed(state at expected_sequence, head): the units the window
-  // changed, as unit paths.
-  repeated string window_units = 1;
-  // changed(head, head with the command's events folded in): the units the
-  // command changed.
-  repeated string command_units = 2;
-}
-
 // What Ingest is handed: one fact and the stream it addresses, after the
-// same pipeline steps as Decide. A fact carries no Handling: the
-// coordinator always stamps the head, and no conflict resolution applies.
+// same pipeline steps as Decide. A fact carries no Handling.
 message IngestRequest {
   // The fact as the coordinator holds it: its cover, its page (command_id,
   // correlation_id) and its Fact (payload, origin). A policy's fact or a
   // refusal fact arrives as a ReactionDelivery, which the coordinator
   // turns into this book with its derived origin.
   io.angzarr.v1.CommandBook fact = 1;
-  // The stream as loaded, as for Decide; next_sequence is the stamped
-  // head.
+  // The stream as loaded, as for Decide.
   io.angzarr.v1.EventBook history = 2;
   // When the input was accepted, as for Decide.
   google.protobuf.Timestamp recorded_at = 3;
@@ -197,8 +168,7 @@ message IngestRequest {
 // bug, never a business outcome, so the fact is dead-lettered under the
 // abort's key and args and alerted, and its sender answered OK, PARKED, as
 // any failing fact handler's (decision 14.72). A handler's error status is
-// the same bug. There is no conflict report: no conflict resolution applies
-// to a fact. A response whose result is unset is refused as
+// the same bug. A response whose result is unset is refused as
 // COORDINATOR_REASON_ANSWER_NO_RESULT.
 message IngestResponse {
   oneof result {

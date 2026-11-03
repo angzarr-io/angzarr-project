@@ -23,11 +23,10 @@ option ruby_package = "Angzarr::Component";
 // (decision 46, Q3): the arm picks the RPC, so a command is never ingested
 // and a fact never decided.
 //
-// Before either is called the coordinator has run pipeline steps 1-4
+// Before either is called the coordinator has run pipeline steps 1-3
 // (io/angzarr/v1/types.proto, Handling): validated the input, assigned its
-// command_id and correlation_id, deduplicated it, admitted it (a process
-// manager's start rule; decision 14.42), and resolved its Handling, so
-// decide always sees a concrete sequence. Which coordinator RPC the caller
+// command_id and correlation_id, loaded and deduplicated it, and admitted
+// it (a process manager's start rule; decision 14.42). Which coordinator RPC the caller
 // used (the command mode) is not passed on. It has upcast every payload
 // through the component's upcaster sidecar (decision 14.39) and dropped the
 // pages the snapshot covers (decision 14.40). Every delivery is well formed
@@ -55,13 +54,10 @@ service CommandHandlerService {
   // Decide one command: its events, a refusal, or the handler's own abort,
   // in band (decision 46, Q2), with the rules version that decided it.
   //
-  // Under AGGREGATE_HANDLES the handler is given the conflict window (the
-  // request's pages from handling.expected_sequence) and applies its own
-  // rule; nothing comes back about it, and the coordinator accepts what it
-  // decides. Under COMMUTATIVE behind the head the library computes the
-  // window's and the command's conflict units (Decided.conflict), and the
-  // coordinator judges them (decision 14.42; see ConflictResolution). The
-  // library never discards the handler's events for a conflict.
+  // The handler always decides on the current state: the coordinator
+  // appends at the head it loaded and re-runs a lost race on the new head
+  // (types.proto, the concurrency region). A client's expected sequence is
+  // data the handler may compare and refuse on (decision 14.92, DRAFT).
   //
   // A refusal (DecideResponse.refused) records nothing. Its status is a
   // business status by type (RefusalStatus). The coordinator answers a

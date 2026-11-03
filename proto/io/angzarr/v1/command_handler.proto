@@ -55,7 +55,7 @@ option ruby_package = "Angzarr";
 // run or rebuilds projections afterwards.
 //
 // Every mode follows the one pipeline (types.proto, Handling: validate,
-// assign ids, deduplicate, resolve Handling, business code) and refuses a
+// assign ids, load and deduplicate, business code and the append) and refuses a
 // malformed command loudly, with the codes listed there, never ignoring the
 // offending field.
 //
@@ -74,10 +74,7 @@ option ruby_package = "Angzarr";
 //   Business, fatal: FAILED_PRECONDITION, INVALID_ARGUMENT, NOT_FOUND,
 //               ALREADY_EXISTS, OUT_OF_RANGE, PERMISSION_DENIED (among
 //               them a field or route reserved for framework components;
-//               see entry_points; and an expected_sequence ahead of the
-//               stream's head, under every resolution, INVALID_ARGUMENT
-//               COORDINATOR_REASON_EXPECTED_SEQUENCE_AHEAD, decision
-//               14.47). Final: never retried; a refused policy
+//               see entry_points). Final: never retried; a refused policy
 //               command reaches the policy's Translate (policy.proto,
 //               Refusals); a refused HandleAsync command, with no caller
 //               to answer, is dead-lettered with its key and args as
@@ -86,12 +83,10 @@ option ruby_package = "Angzarr";
 //               a business rejection in band (DecideResponse.refused,
 //               decision 46, Q2); the coordinator answers it as the
 //               status.
-//   Business, immediate return: ABORTED, "re-read and re-decide": the
-//               framework's conflicts (an expected_sequence behind the
-//               head under STRICT,
-//               COORDINATOR_REASON_EXPECTED_SEQUENCE_STALE; a COMMUTATIVE
-//               overlap), or a handler's own choice under its own key
-//               (DecideResponse.aborted). Returned at once to an outside caller, who re-reads
+//   Business, immediate return: ABORTED, "re-read and re-decide": a
+//               handler's own choice under its own key
+//               (DecideResponse.aborted). The coordinator has no conflict
+//               of its own to answer (decision 14.92, DRAFT). Returned at once to an outside caller, who re-reads
 //               and decides again; for a policy step the runtime is the
 //               caller, reloading and re-running the step under the capped
 //               backoff below, then dead-lettering it and alerting. Never a
@@ -116,24 +111,22 @@ option ruby_package = "Angzarr";
 // resending; ABORTED means re-read and re-decide. A policy step that
 // reaches the cap, or fails as a fatal bug, moves or keeps the policy's
 // position as its bug setting says (on_policy_bug).
-// Two caps bound the coordinator's own retries of a command that loses a
-// race at its write to another write to the same stream, and both are
-// configuration, like the retry cap above: the retry cap bounds an
-// AGGREGATE_HANDLES or COMMUTATIVE command's re-deliveries, and the race
-// re-run cap, a count of runs (the first included, default 10; at least 1,
-// and a configuration of 0 is refused when it is loaded: decision 14.84,
-// DRAFT), bounds a stamped command's re-runs on the new head; between runs the coordinator
+// One cap bounds the coordinator's own re-runs of an input that loses a
+// race at its write to another write to the same stream: the race re-run
+// cap, configuration, a count of runs (the first included, default 10; at
+// least 1, and a configuration of 0 is refused when it is loaded: decision
+// 14.84, DRAFT). Every input is re-run on the new head (the concurrency
+// region of types.proto; decision 14.92); between runs the coordinator
 // waits with the exponential backoff and jitter above, never re-running at
-// once. At either cap nothing is persisted. A caller waiting on Handle or
+// once. At the cap nothing is persisted. A caller waiting on Handle or
 // HandleSync is answered INTERNAL COORDINATOR_REASON_RETRY_CAP_EXHAUSTED
 // (args attempts, cap), and its command is NOT dead-lettered: the caller
 // holds it (the owner's ruling of 2026-10-31, "sync commands write no dead
 // letter at the retry cap"; decision 14.46 as corrected by 14.85, DRAFT).
 // Only work with no caller waiting is dead-lettered and alerted: a
 // HandleAsync command, and a reaction (Deliver) whose policy step then
-// follows on_policy_bug. A fact is always
-// stamped, so a lost race re-runs it under the race re-run cap too, but a
-// fact is never refused: at the cap it is dead-lettered and alerted,
+// follows on_policy_bug. A fact is re-run the same way, but a fact is
+// never refused: at the cap it is dead-lettered and alerted,
 // nothing is persisted, and its sender is answered "accepted, parked" (OK,
 // outcome.delivery PARKED, no events), never the key. Either way the dead
 // letter's reason (AngzarrDeadLetter.reason) is
@@ -141,29 +134,9 @@ option ruby_package = "Angzarr";
 // There is no opt-out: the coordinator owns race re-runs (the owner's
 // ruling of 2026-10-30), and the race re-run cap of 0 that handed a lost
 // race back to its caller is retired with its key (decision 14.84).
-// ABORTED COORDINATOR_REASON_EXPECTED_SEQUENCE_STALE is STRICT's failed
-// test-and-set: the command's caller-provided expected_sequence is behind
-// the stream's head, found at load or at the write (decision 14.45,
-// amended). One AHEAD of the head is no conflict under any resolution: it
-// is malformed, refused at load before business code, INVALID_ARGUMENT
-// COORDINATOR_REASON_EXPECTED_SEQUENCE_AHEAD (args expected, head), and
-// nothing is persisted (types.proto, ConflictResolution; decision 14.47).
-// Deduplication comes first: a command whose command_id the stream already
-// holds is answered DUPLICATE whatever its expected_sequence, ahead or
-// behind, and never this key or the ahead one.
-// Under AGGREGATE_HANDLES and COMMUTATIVE a moved stream is never answered
-// this key: the window is delivered and the resolution's own rule decides
-// (AGGREGATE_HANDLES's handler decides; a COMMUTATIVE overlap is
-// COORDINATOR_REASON_CONFLICT_OVERLAP); if another
-// write to the same stream lands after the window is delivered and before
-// the command's write, the coordinator re-delivers the widened window and
-// that rule decides again, under the retry cap (types.proto,
-// ConflictResolution; decision 14.45). Under STRICT re-reading and re-issuing is the caller's:
-// the coordinator re-runs on the new head only a command whose
-// expected_sequence it stamped, under the race re-run cap, and such a
-// command is never answered this key. A queued command with a caller-provided expected_sequence that is
-// ABORTED is dead-lettered under that key, its args the sequences, since
-// resending it verbatim cannot succeed.
+// A client's expected sequence (Handling.expected_sequence) is data for
+// its handler, which may refuse on it with its own typed refusal; the
+// coordinator answers nothing about it (decision 14.92, DRAFT).
 //
 // Reaction commands and refusal facts (policy output) are not delivered
 // through these RPCs: a policy's coordinator delivers each as a

@@ -43,9 +43,8 @@ option ruby_package = "Angzarr::Examples";
 // RecordMoveUndecided. The table's refusal of the move a player decided
 // comes back as the player's RecordMoveRefused fact, translated by
 // policy-player-table.
-// Conflict resolution: PlayerState lists no COMMUTATIVE; DecideMove is a
-// reaction command (no Handling; the player stamps its own head), so it is
-// never stale.
+// Concurrency: DecideMove is a reaction command (no Handling); the player
+// appends at the head it loaded and re-runs a lost race (decision 14.92).
 
 // -----------------------------------------------------------------------------
 // Commands — from policy-table-player

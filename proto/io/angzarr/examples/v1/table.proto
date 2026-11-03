@@ -49,22 +49,19 @@ option ruby_package = "Angzarr::Examples";
 // repeated RequestSeat, ConfirmSeat or ReleaseSeat emits none; DealRound,
 // Hit, Stand and DoubleDown a variable subset of their emits.
 //
-// Conflict resolution (io.angzarr.v1.ConflictResolution). TableState lists
-// no COMMUTATIVE, so it supports the base STRICT and AGGREGATE_HANDLES, and
-// STRICT is its default:
-//   PlaceBet            — CONFLICT_RESOLUTION_AGGREGATE_HANDLES: the handler
-//                         receives the window (the events since the
-//                         expected sequence) and refuses a second bet on the
-//                         same seat itself (ALREADY_BET); bets on different
+// Concurrency (decision 14.92: the coordinator has no conflict
+// resolution). The table appends at the head it loaded and re-runs a lost
+// race on the new head, so each handler decides on the current state:
+//   PlaceBet            — a second bet on the same seat is refused by the
+//                         handler itself (AlreadyBet); bets on different
 //                         seats prepared from the same view all land.
-//   Hit / Stand / DoubleDown — sent with an explicit expected sequence and
-//                         CONFLICT_RESOLUTION_STRICT: of two actions prepared
-//                         from the same view exactly one lands; the other is
-//                         refused ABORTED (retryable) and is re-decided
-//                         against the new state.
+//   Hit / Stand / DoubleDown — of two actions prepared from the same view,
+//                         the second is decided on the state the first left,
+//                         and refused by the rules when it no longer fits
+//                         (NotYourTurn, NoRoundInProgress).
 // ConfirmSeat (a command) and ReleaseSeat (a fact) are policy-buy-in-table's
 // reaction outputs, built from pmg-buy-in's events (a PM sends nothing
-// itself): they carry no Handling, the table stamps its own head, and
+// itself): they carry no Handling, the table appends at the head it loaded, and
 // redelivery is deduplicated on their derived id. A driver with no buy-in
 // deployed (the angzarr-embedded demo) sends ConfirmSeat itself, as a
 // client command, after RequestSeat; nothing then holds or captures the
@@ -134,8 +131,7 @@ message LeaveTable {
   int32 seat = 1;
 }
 
-// Wager on the next round (AHR-5). Sent with
-// CONFLICT_RESOLUTION_AGGREGATE_HANDLES.
+// Wager on the next round (AHR-5).
 message PlaceBet {
   option (io.angzarr.v1.command) = {
     component: "io.angzarr.examples.v1.TableState"

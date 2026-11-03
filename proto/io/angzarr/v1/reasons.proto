@@ -386,16 +386,6 @@ enum HostReason {
 // Keys core's coordinator and the angzarr-embedded kernel answer.
 enum CoordinatorReason {
   COORDINATOR_REASON_UNSPECIFIED = 0;
-  // COMMUTATIVE behind the head: the units the window changed
-  // (`window_units`) and the units the command changed (`command_units`)
-  // overlap (options.proto, Overlap), as the client library reported them
-  // (io.angzarr.handler.v1.Decided.conflict). Nothing is persisted.
-  // Business, immediate return (decision 14.37), as STRICT's stale command
-  // is.
-  COORDINATOR_REASON_CONFLICT_OVERLAP = 2 [(reason) = {
-    args: ["stream", "window_units", "command_units"]
-    grpc_status: REASON_STATUS_ABORTED
-  }];
   COORDINATOR_REASON_PM_NO_INSTANCE = 3 [(reason) = {
     args: ["stream", "type_url"]
     grpc_status: REASON_STATUS_FAILED_PRECONDITION
@@ -421,30 +411,10 @@ enum CoordinatorReason {
     args: ["component"]
     readiness: {}
   }];
-  // STRICT only. The command, under STRICT, set
-  // Command.handling.expected_sequence (`expected`) behind the stream's
-  // head, its next_sequence (`actual`): found when the command is loaded
-  // (before business code runs), or at its write, when another write to the
-  // same stream landed first. Nothing is persisted. Under AGGREGATE_HANDLES
-  // and COMMUTATIVE a moved stream is never answered this: those resolutions
-  // apply their own rules (types.proto, ConflictResolution). A command without
-  // an expected sequence that loses such a race is never answered this either:
-  // the coordinator re-runs it on the new head, under the race re-run cap.
-  // Business, immediate return (decision 14.37): a direct caller re-reads and
-  // decides; a policy step is re-run under the retry cap. (Decision 14.45.) An
-  // expected sequence ahead of the head is never this, under any resolution:
-  // it is malformed, COORDINATOR_REASON_EXPECTED_SEQUENCE_AHEAD (decision
-  // 14.47).
-  COORDINATOR_REASON_EXPECTED_SEQUENCE_STALE = 20 [(reason) = {
-    args: ["stream", "expected", "actual"]
-    grpc_status: REASON_STATUS_ABORTED
-  }];
   // Commands only: the coordinator gave up on a command its caller is waiting
   // for (Handle, HandleSync): every run lost a race at the write to another
-  // write to the same stream, until a cap. A stamped command (no expected
-  // sequence) re-run on the new head stops at the race re-run cap; an
-  // AGGREGATE_HANDLES or COMMUTATIVE command re-delivered its widened window
-  // stops at the retry cap. `attempts` is how many times business code ran,
+  // write to the same stream, until the race re-run cap (every input is
+  // re-run on the new head; decision 14.92). `attempts` is how many times business code ran,
   // `cap` the configured limit reached. Nothing is persisted, and the
   // command is not dead-lettered: its caller holds it (the owner's ruling of
   // 2026-10-31; decision 14.85, DRAFT). INTERNAL, a fatal bug's status
@@ -462,26 +432,6 @@ enum CoordinatorReason {
   COORDINATOR_REASON_RETRY_CAP_EXHAUSTED = 21 [(reason) = {
     args: ["stream", "attempts", "cap"]
     grpc_status: REASON_STATUS_INTERNAL
-  }];
-  // Every resolution (STRICT, AGGREGATE_HANDLES, COMMUTATIVE). The command set
-  // Command.handling.expected_sequence (`expected`) ahead of the stream's
-  // head, its next_sequence (`head`): it names a sequence the stream has not
-  // reached, so it was decided against no state the stream ever held, and no
-  // resolution can apply (there is no window to deliver). Malformed input,
-  // found when the command is loaded (pipeline step 4, before business code):
-  // business code is not invoked and nothing is persisted. A head only moves
-  // forward, so it is never found at the write. Business, fatal (decision
-  // 14.37): never retried; a direct caller fixes the command, and a
-  // HandleAsync command, with no caller to answer, is dead-lettered with this
-  // key and its args as its AngzarrDeadLetter.reason, and alerted.
-  // Deduplication comes first, so a command the stream already holds is
-  // answered DUPLICATE, never this. Reaction commands never carry an expected
-  // sequence, so they are never answered this. An expected sequence behind the
-  // head is COORDINATOR_REASON_EXPECTED_SEQUENCE_STALE under STRICT. (Decision
-  // 14.47.)
-  COORDINATOR_REASON_EXPECTED_SEQUENCE_AHEAD = 22 [(reason) = {
-    args: ["stream", "expected", "head"]
-    grpc_status: REASON_STATUS_INVALID_ARGUMENT
   }];
   // The rows of a deleted edition in one stream could not be removed
   // (transport/distributed/v1/meta.proto, DeleteEdition): the removal is
@@ -591,15 +541,6 @@ enum CoordinatorReason {
     args: ["stream", "edition"]
     grpc_status: REASON_STATUS_FAILED_PRECONDITION
   }];
-  // A component whose descriptor's state lists a value that is not a
-  // conflict resolution (UNSPECIFIED, or no value of ConflictResolution),
-  // or lacks the implicit base every state supports, STRICT and
-  // AGGREGATE_HANDLES (types.proto, StateOptions). Readiness, as every
-  // descriptor rule's (decision 14.65).
-  COORDINATOR_REASON_STATE_RESOLUTIONS_INVALID = 40 [(reason) = {
-    args: ["component"]
-    readiness: {}
-  }];
   // A policy's reaction, a command or a fact, addressed to its trigger's own
   // stream (`stream`: the trigger's domain and root, and its edition, which
   // every output is stamped with), of type `command_type`. A policy may
@@ -706,6 +647,16 @@ enum CoordinatorReason {
   // least 1.
   reserved 31;
   reserved "COORDINATOR_REASON_STORE_CONFLICT";
+
+  // Retired by 14.92 (DRAFT; the owner's decision 47): the coordinator has
+  // no conflict concept. It judges no overlap, interprets no client
+  // expected sequence (stale or ahead), and checks no state resolutions.
+  reserved 2, 20, 22, 40;
+  reserved
+    "COORDINATOR_REASON_CONFLICT_OVERLAP",
+    "COORDINATOR_REASON_EXPECTED_SEQUENCE_STALE",
+    "COORDINATOR_REASON_EXPECTED_SEQUENCE_AHEAD",
+    "COORDINATOR_REASON_STATE_RESOLUTIONS_INVALID";
 
   // Retired by 14.37.
   reserved
