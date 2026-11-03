@@ -5,23 +5,26 @@ Client-surface cucumber, run by every `client-*-lang` repo.
 ## The rule: dispatch is specified by the router, not here
 
 Dispatch behaviour — routing by type, state rebuild, command/fact/
-rejection/compensation/undo dispatch, policy and process-manager handling —
+refusal/compensation/undo dispatch, policy reactions and refusal
+translation, and process-manager handling —
 is specified **only** by the handler-contract tier
 ([`../handler-contract/`](../handler-contract/), decision 14.42), the
 router's complete contract. Every router's CI (angzarr-router's, and
 client-python's native router's) runs it.
 This tier never restates dispatch behaviour; a scenario that would is added
-to the conformance suite instead. The `Handle` contract the conformance
-suite binds by ID (rules version, unknown types, the conflict nonce,
-COMMUTATIVE) is written in [`../handler-contract/`](../handler-contract/).
+to the conformance suite instead. The `CommandHandlerService.Handle`
+contract the conformance suite binds by ID (the rules version and state
+it reports, unknown types, typed refusals as gRPC statuses) is written in
+[`../handler-contract/`](../handler-contract/).
 
 ## What lives here
 
 Scenarios about what a client itself provides:
 
-- consumer clients — `CommandHandlerClient`, `QueryClient`,
-  `SpeculativeClient`, `DomainClient` (`aggregate_client`, `query_client`,
-  `speculative_client`, `domain-client`)
+- consumer clients — `CommandHandlerClient`, `QueryClient`, `DomainClient`
+  (`aggregate_client`, `query_client`, `domain-client`); a what-if is an
+  ordinary command in an edition, so there is no speculative client
+  (docs/design/command-handling.md §8)
 - builders, connection, errors, retry, identity (`compute_root`), event
   decoding, the `testing` namespace, the component host and the public
   surface — in [`../../parity/client/`](../../parity/client/)

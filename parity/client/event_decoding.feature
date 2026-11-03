@@ -1,6 +1,8 @@
 Feature: Event Decoding - Payload Deserialization
-  Events are stored as google.protobuf.Any with type_url and value.
-  Decoding extracts typed messages from the Any wrapper by type name. Every
+  A domain's event is stored as a google.protobuf.Any with type_url and
+  value, in the event arm of its EventPage's body; the other arm,
+  meta_event, holds the framework's meta-events, which business code is
+  never handed (decision 14.106). Decoding extracts typed messages from the Any wrapper by type name. Every
   client emits type URLs as "/" + the fully-qualified message name
   (TYPE_URL_PREFIX = "/") and accepts any prefix: a type URL names the
   message whose fully-qualified name is the text after its last "/".
@@ -45,24 +47,35 @@ Feature: Event Decoding - Payload Deserialization
     Then event.sequence should be 5
 
   @C-0369
-  Scenario: EventPage contains created_at timestamp
-    Given an EventPage with timestamp
-    Then event.created_at should be a valid timestamp
+  Scenario: An EventPage's meta carries when it was recorded
+    # An event has no business-time field: EventMeta.recorded_at is when
+    # it was recorded, the only timestamp an event carries.
+    Given an EventPage read from the event store
+    Then event.meta.recorded_at should be a valid timestamp
     And the timestamp should be parseable
 
   @C-0370
-  Scenario: EventPage payload is Event variant
-    Given an EventPage with Event payload
-    Then event.payload should be Event variant
-    And the Event should contain the Any wrapper
+  Scenario: A domain event is an EventPage's event arm
+    Given an EventPage holding a domain event
+    Then the page's body should be the event arm
+    And the event arm should contain the Any wrapper
 
   @C-0371
-  Scenario: An EventPage payload is always a plain Any
+  Scenario: An EventPage's event arm is always a plain Any
     # A claim-check PayloadReference is a bus-envelope concern resolved
     # before any client sees the event; it never appears on a page.
-    Given an EventPage read from the event store
-    Then event.payload should be a google.protobuf.Any
+    Given an EventPage of a domain event read from the event store
+    Then the page's event arm should be a google.protobuf.Any
     And the page should offer no payload reference
+
+  @C-0871
+  Scenario: A meta-event page is never handed to business code as an event
+    # Meta-events are told apart by type, the body's meta_event arm, never
+    # by a type-URL convention (decision 14.106).
+    Given a stream whose pages are an EditionCreated in the meta_event arm, then an OrderCreated in the event arm
+    When the client library hands the stream's events to business code
+    Then business code is handed the OrderCreated only
+    And decoding the EditionCreated page as OrderCreated should return None/null
 
   # ==========================================================================
   # Type URL Handling
@@ -126,8 +139,8 @@ Feature: Event Decoding - Payload Deserialization
   # ==========================================================================
 
   @C-0377
-  Scenario: EventPage with no payload
-    Given an EventPage with payload = None
+  Scenario: EventPage with no body
+    Given an EventPage whose body is unset
     When I attempt to decode
     Then decoding should return None/null
     And no crash should occur
@@ -154,13 +167,16 @@ Feature: Event Decoding - Payload Deserialization
 
   @C-0380
   Scenario: events_from_response helper
-    Given a CommandResponse with events
+    # Handle and Deliver answer a CommandResult: the events and the
+    # delivery outcome (decision 14.105).
+    Given a CommandResult whose events book holds 2 pages and whose delivery is DELIVERY_OUTCOME_APPLIED
     When I call events_from_response(response)
-    Then I should get a slice/list of EventPages
+    Then I should get a slice/list of the book's 2 EventPages
 
   @C-0381
   Scenario: events_from_response with no events
-    Given a CommandResponse with no events
+    # A zero-event decision is APPLIED with an empty book.
+    Given a CommandResult whose events book holds no pages and whose delivery is DELIVERY_OUTCOME_APPLIED
     When I call events_from_response(response)
     Then I should get an empty slice/list
 

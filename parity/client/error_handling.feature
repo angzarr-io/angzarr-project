@@ -9,7 +9,9 @@ Feature: Error Handling - Client Error Introspection
   - User-friendly text, rendered where it is displayed from a catalog
     keyed by the error's code (decision 14.37: an error is a code and an
     argument map, never rendered English)
-  - Optimistic concurrency conflict resolution
+  - Re-reading and deciding again after a stale expected sequence (the
+    coordinator's ExpectedSequenceMismatch refusal; there is no conflict
+    resolution, decisions 14.92 and 14.94)
   - Debugging and logging
 # docs:end:error_handling_contract
 
@@ -65,11 +67,14 @@ Feature: Error Handling - Client Error Introspection
 
   @C-0347
   Scenario: FAILED_PRECONDITION error is identifiable
-    Given the server aggregate is at sequence 5
-    When I execute a mock command at sequence 3
+    # A set expected sequence other than the head is refused by the
+    # coordinator before business code, as a typed refusal (decision 14.94).
+    Given the server stream's head is next_sequence 5
+    When I execute a mock command with expected sequence 3
     Then is_precondition_failed should return true
     And code should return FAILED_PRECONDITION
-    And the error indicates optimistic lock failure
+    And the error's reason is ANGZARR_REASON_COMMAND_REFUSED with refusal_type "io.angzarr.v1.ExpectedSequenceMismatch"
+    And the status details carry an ExpectedSequenceMismatch with expected 3 and head 5
 
   @C-0348
   Scenario: INVALID_ARGUMENT error from server
@@ -176,13 +181,58 @@ Feature: Error Handling - Client Error Introspection
     And UNAVAILABLE gRPC errors should be retryable
     And RESOURCE_EXHAUSTED should be retryable with backoff
     And INVALID_ARGUMENT should NOT be retryable
-    And FAILED_PRECONDITION should be retryable after state refresh
+    And FAILED_PRECONDITION should NOT be retried as sent: the caller re-reads and decides again
 
   @C-0362
   Scenario: Extract retry information from error
     Given an error with retry-after metadata
     When I inspect the error details
     Then I should be able to extract retry timing hints
+
+  # ==========================================================================
+  # Reason keys by layer
+  # ==========================================================================
+
+  @C-0872
+  Scenario Outline: A reason key is read as its value's full name, its layer's prefix included
+    # Keys are named by layer, never by role (decision 14.104): core's
+    # AngzarrReason, the embedded transport's EmbeddedReason, the
+    # distributed transport's DistributedReason. The key on the wire is the
+    # value's full name, never its number.
+    Given a gRPC error with status <status> whose ErrorInfo reason is <key>
+    When I inspect the error's reason key
+    Then the key is <key>
+    And it is the value of enum <enum> in package "<package>"
+    And the key's status is the google.rpc.Code <status>
+
+    Examples:
+      | key                                          | enum              | package                             | status           |
+      | ANGZARR_REASON_HANDLER_UNAVAILABLE           | AngzarrReason     | io.angzarr.v1                       | UNAVAILABLE      |
+      | EMBEDDED_REASON_PROBE_INPUT                  | EmbeddedReason    | io.angzarr.transport.embedded.v1    | INVALID_ARGUMENT |
+      | DISTRIBUTED_REASON_DEAD_LETTER_NOT_FOUND     | DistributedReason | io.angzarr.transport.distributed.v1 | NOT_FOUND        |
+
+  @C-0873
+  Scenario Outline: A key has one string whichever component raises it
+    # Who raises a key is in its comment, never in its string (decision
+    # 14.104): the router raises ANGZARR_REASON_COMMAND_REFUSED for a
+    # handler's refusal, the coordinator for its ExpectedSequenceMismatch.
+    Given a command refused by <raiser> with the typed refusal "<refusal>"
+    When I inspect the error
+    Then its reason key is ANGZARR_REASON_COMMAND_REFUSED with refusal_type "<refusal>"
+    And code should return FAILED_PRECONDITION
+
+    Examples:
+      | raiser                 | refusal                                 |
+      | the handler's router   | orders.v1.OrderClosed                   |
+      | the coordinator        | io.angzarr.v1.ExpectedSequenceMismatch  |
+
+  @C-0874
+  Scenario: A key's number is never what identifies it
+    # The numbers are bookkeeping only (docs/design/reason-keys.md §3).
+    Given a gRPC error whose ErrorInfo reason is ANGZARR_REASON_STORE_UNAVAILABLE
+    When I compare it with the key ANGZARR_REASON_STORE_UNAVAILABLE
+    Then they are the same key, compared by name
+    And no number of the key is read from the error
 
   # ==========================================================================
   # Error Display

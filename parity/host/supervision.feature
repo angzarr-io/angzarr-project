@@ -1,7 +1,8 @@
 Feature: Child supervision - how a host keeps its children healthy
   A host (angzarr-embedded) supervises every child it launches once the
-  child has handshaken (docs/design/child-protocol.md, section 8; decision
-  14.63): it sends the child a grpc.health.v1 Check for the overall server
+  child's health reports SERVING on the socket path the host chose
+  (docs/design/child-protocol.md, sections 2 and 8; decisions 14.63 and
+  14.80: there is no handshake line): it sends the child a grpc.health.v1 Check for the overall server
   every check interval, with a deadline; a child unhealthy (a check not
   answered SERVING within its deadline, or its watch reporting other than
   SERVING) is sent no new call, and one unhealthy for its whole grace is
@@ -87,3 +88,28 @@ Feature: Child supervision - how a host keeps its children healthy
     Then the host has stopped the child and launched another
     And the command in flight has failed retryably
     And no child has been sent the command a second time
+
+  @C-0869
+  Scenario Outline: A child not SERVING on the host's path within the start limit fails its start
+    # Readiness is health SERVING on the path the host chose, within the
+    # host's time limit for a start (decision 14.80); the fixture's start
+    # limit is 5000 ms.
+    Given a host starting a child serving an aggregate component for domain "order"
+    And the child <behaviour>
+    When the start limit passes, a check at a time
+    Then the host fails the start with reason EMBEDDED_REASON_CHILD_NOT_SERVING
+    And the failure's args are component "order", status "<status>" and timeout_ms "5000"
+    And the host has stopped the child and removed the socket file at the path it chose
+
+    Examples:
+      | behaviour                                     | status      |
+      | answers every health Check NOT_SERVING        | NOT_SERVING |
+      | never listens on the path                     | none        |
+
+  @C-0870
+  Scenario: A child that exits before it reports SERVING fails its start
+    Given a host starting a child serving an aggregate component for domain "order"
+    And the child exits with status 3 before any health Check is answered
+    When the host starts the child
+    Then the host fails the start with reason EMBEDDED_REASON_CHILD_NOT_SERVING
+    And the failure's args are component "order", status "none" and timeout_ms "5000"

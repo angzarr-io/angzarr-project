@@ -67,8 +67,9 @@ Feature: CommandBuilder - Fluent Command Construction
 
   @C-0308
   Scenario: Build without an expected sequence leaves it unset
-    # The coordinator stamps the head it decides against; there is no
-    # default of 0.
+    # Unset means the client stated none, and the command is decided on
+    # the current state; the coordinator never stamps it, and there is no
+    # default of 0 (decision 14.94).
     When I build a command for domain "orders"
       And I set the command type and payload
     Then the built command should have no expected sequence
@@ -146,19 +147,13 @@ Feature: CommandBuilder - Fluent Command Construction
     Then the built command should have no correlation ID
 
   # ==========================================================================
-  # Conflict Resolution
+  # Conflict resolution (retired)
   # ==========================================================================
 
-  @C-0315
-  Scenario: Default conflict resolution is UNSPECIFIED
-    # UNSPECIFIED means the coordinator applies the configured default.
-    When I build a command without specifying a conflict resolution
-    Then the command's handling should have conflict resolution CONFLICT_RESOLUTION_UNSPECIFIED
-
-  @C-0316
-  Scenario: Build with explicit conflict resolution
-    When I build a command with conflict resolution STRICT
-    Then the command's handling should have conflict resolution CONFLICT_RESOLUTION_STRICT
+  # C-0315 and C-0316 (a builder's default and explicit conflict
+  # resolution) are retired: the coordinator has no conflict concept, and
+  # Handling holds the expected sequence only (decision 14.92; C-0307,
+  # C-0308).
 
   # ==========================================================================
   # Extension Traits
