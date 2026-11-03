@@ -11,7 +11,7 @@ option java_package = "io.angzarr.handler";
 option ruby_package = "Angzarr::Handler";
 
 // An upcaster's rules (decision 14.78, DRAFT; what an upcaster is, where it
-// runs and who calls it are io/angzarr/v1/upcaster.proto's). The layer rule
+// runs and who calls it are docs/design/upcasting.md's). The layer rule
 // is command_handler.proto's.
 
 // What an upcaster is handed: a stream's pages to bring to their current

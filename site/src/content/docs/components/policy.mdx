@@ -55,7 +55,7 @@ flowchart LR
 
 *The dashed domain represents the policy's one destination domain.*
 
-The business code checks nothing and stamps nothing. The policy's coordinator checks every command and fact it returns (destination, edition, root, correlation, no `Handling`, no identity or `fact_origin` of its own) and stamps its identity. Any failed check is a policy bug: the whole answer is refused `INTERNAL`, nothing is delivered, and the trigger is dead-lettered and alerted (`PolicyResponse` in `io/angzarr/v1/policy.proto`; the keys are listed in [Error Recovery](/operations/error-recovery)).
+The business code checks nothing and stamps nothing. The policy's coordinator checks every command and fact it returns (destination, edition, root, correlation, no `Handling`, no identity or `fact_origin` of its own) and stamps its identity. Any failed check is a policy bug: the whole answer is refused `INTERNAL`, nothing is delivered, and the trigger is dead-lettered and alerted (`PolicyResponse` in `docs/design/policies.md`; the keys are listed in [Error Recovery](/operations/error-recovery)).
 
 ---
 

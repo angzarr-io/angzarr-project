@@ -5503,6 +5503,56 @@ round 5, 2026-11-02.
   rule for a policy's and a projector's empty source. Amends 14.55.
 - `ComponentKind` stays as the bare tag.
 
+**14.102 (DRAFT) EventMeta's cause mirrors the input; one neutral refusal
+key; live-key checkers; the coordinator owns every descriptor check.** The
+owner's review round 6, 2026-11-02.
+- **EventMeta.causation** is `oneof { CommandCause command; FactCause fact
+  }`, `CommandCause { command_id }`, `FactCause { command_id; origin }`,
+  mirroring CommandPage's Command|Fact. The separate `fact` field and its
+  "set iff a Fact" rule go; the deduplication index reads command_id from
+  whichever arm is set.
+- **A neutral refusal key.** `ROUTER_REASON_COMMAND_REFUSED` becomes
+  `ANGZARR_REASON_COMMAND_REFUSED`, in a new core enum `AngzarrReason` (keys
+  raised by more than one component): the router raises it for a handler's
+  refusal, the coordinator for its `ExpectedSequenceMismatch`, and it is a
+  dead letter's implied refusal key.
+- **The rules_version divergence**, verified against angzarr-embedded
+  origin/main 06c59a9: its production (the build version), its check of
+  every answer and its full stamping match the spec. It still differs in
+  two points, which the note on `EventMeta.rules_version` now states,
+  pending the owner's review: it accepts a non-SemVer version at
+  registration (14.88 refuses it), and it offers a snapshot by exact
+  equality when either version is not SemVer (14.88 has no equality
+  fallback). annals-divergence.md's "author's short label" description is
+  stale.
+- **Reason checkers validate live keys only** (the owner dropped the
+  retired-key check): `check-reason-keys` and `check-reason-names` no longer
+  require or read reservations, and their retired-key tables are gone.
+- **The coordinator owns every descriptor check.**
+  `HOST_REASON_DESCRIPTOR_RULES_VERSION_MISMATCH` and
+  `HOST_REASON_STATE_TYPE_MISMATCH` are retired; the coordinator's
+  equivalents are `COORDINATOR_REASON_RULES_VERSION_MISMATCH` (existing) and
+  the new `COORDINATOR_REASON_STATE_TYPE_MISMATCH` (an answer whose state is
+  not the registered type).
+- **The baseline:** a new dated draft branch cut from the approved commit,
+  with the justfile's `DRAFT_BRANCH` pointed at it, when the owner
+  approves.
+
+**14.103 (DRAFT) Narrative is not proto.** The owner: "If its
+narrative/normative text, why is it proto?"
+- The four core protos that defined nothing are deleted:
+  `io/angzarr/v1/command_handler.proto`, `policy.proto`,
+  `process_manager.proto` and `upcaster.proto`. Their normative text, as it
+  stood after 14.102, is `docs/design/command-handling.md`,
+  `docs/design/policies.md`, `docs/design/process-managers.md` and
+  `docs/design/upcasting.md`, in child-protocol.md's style, with numbered
+  sections. Every reference points at the docs, by section. The policy
+  text is approved in substance (the late-caught skewed arm and
+  `on_policy_bug` stay).
+- **The comment rule from now on:** a proto comment says what a field or
+  message IS; behaviour, pipelines and rules go in the design docs. Applied
+  to the moved text; the other protos are flagged for review, not churned.
+
 ## Corrections
 
 Facts the earlier passes or the design note got wrong:

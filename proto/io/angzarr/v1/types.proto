@@ -3,7 +3,7 @@
 //      region, Handling, Cover (editions), Snapshot, the command identity
 //      fields, or the CommandPage body. The command handling modes
 //      (DECISION, ASYNC, SIMPLE) are RPCs, documented in
-//      command_handler.proto.
+//      docs/design/command-handling.md.
 
 syntax = "proto3";
 package io.angzarr.v1;
@@ -126,7 +126,7 @@ message UUID {
 //
 // Refusal facts take no derivation (decision 14.31): a refusal fact's
 // command_id IS the refused command's command_id, which is already a
-// reaction command id derived above (PolicyService in policy.proto, Refusals;
+// reaction command id derived above (docs/design/policies.md §3;
 // the command_identity region).
 //
 // Three namespaces, not one: "{domain}:{key}" is also a valid external_id,
@@ -172,7 +172,7 @@ message Cover {
   // A process manager's stream is no exception: a command or fact
   // addressed to it names its root, whatever its correlation_id; by
   // convention a policy may set it to its trigger's correlation_id
-  // (process_manager.proto, Stream; decisions 14.30 and 14.36).
+  // (docs/design/process-managers.md §3; decisions 14.30 and 14.36).
   UUID root = 2;
   // Edition: the NAME of the timeline the stream belongs to.
   //
@@ -274,7 +274,7 @@ message Cover {
 //     decides on current state. Re-runs are capped by the race re-run cap (a
 //     count of runs, the first included, default 10, at least 1; decision
 //     14.84), with exponential backoff and jitter between them
-//     (command_handler.proto, the status codes; decision 14.46). At the cap
+//     (docs/design/command-handling.md §3; decision 14.46). At the cap
 //     nothing is persisted; a waiting caller is answered INTERNAL
 //     COORDINATOR_REASON_RETRY_CAP_EXHAUSTED and nothing is dead-lettered,
 //     and work with no caller waiting is dead-lettered and alerted (a fact,
@@ -296,7 +296,7 @@ message Cover {
 // never by business code, and listed in no command's refuses. FAILED_PRECONDITION
 // (business, fatal, decision 14.37: the caller re-reads and decides again),
 // by its (refusal_status) option. On the wire it travels as any typed
-// refusal: reason ROUTER_REASON_COMMAND_REFUSED, refusal_type
+// refusal: reason ANGZARR_REASON_COMMAND_REFUSED, refusal_type
 // io.angzarr.v1.ExpectedSequenceMismatch, the object in the status details;
 // a HandleAsync command so refused is dead-lettered with it as
 // AngzarrDeadLetter's refusal arm. Behind and ahead are one
@@ -379,7 +379,7 @@ message EventRef {
 //                   may set it only to that value (an SDK may compute it);
 //                   any other value is malformed.
 // Every event the command produces records it as its causation
-// (EventMeta.causation.command_id).
+// (EventMeta.causation's command_id).
 //
 // correlation_id: the workflow. The caller's when supplied (verbatim; a
 // UUID of any version). When absent, the coordinator sets it, before
@@ -413,10 +413,10 @@ message EventRef {
 // coordinator only: on reaction commands and facts, where it is the input
 // the reaction command_id is derived from, and on refusal facts, where it is
 // the refused command's own causation, so it names the very stream the
-// fact is addressed to (PolicyService in policy.proto, Refusals).
+// fact is addressed to (docs/design/policies.md §3).
 // It is transport and trace metadata, NOT persisted on the events the
 // command produces: their causation is the command itself
-// (EventMeta.causation.command_id). The coordinators record the trigger
+// (EventMeta.causation's command_id). The coordinators record the trigger
 // edge in the command's trace and logs (OpenTelemetry), as Marten and
 // Wolverine do, so "which event led to these events" is answered from
 // traces, not from the event store (decision 13.3; see CorrelationQuery for
@@ -429,7 +429,8 @@ message EventRef {
 // region); a client's CommandBook has no field for it (decision 14.79).
 //
 // origin (Fact.origin): where a Fact came from (FactOrigin, below), kept
-// for audit and copied onto every event the fact produces (EventMeta.fact).
+// for audit and copied onto every event the fact produces (EventMeta's
+// fact cause).
 // Only the Fact arm has one, so a Command cannot carry one.
 //
 // Validation (refused before deduplication; see Handling for the full list):
@@ -457,7 +458,8 @@ message EventRef {
 //
 // Deduplication: by command_id, ON THE EVENTS. There is no separate key
 // store. "Already applied?" means: the addressed stream (CommandBook.cover)
-// already holds events whose EventMeta.causation.command_id is this
+// already holds events whose EventMeta.causation's command_id (either arm)
+// is this
 // command's. Every backend keeps an index on (stream, command_id) for that
 // lookup; it is not unique, since one command may produce several events.
 // On a hit the coordinator does not run business code: it answers with
@@ -527,7 +529,7 @@ message EventRef {
 // Where a fact came from: something that already happened outside the
 // system (a webhook, an integration). Carried on the CommandPage of a Fact
 // (Fact.origin) and copied onto every event the fact produces
-// (EventMeta.fact). See Fact.
+// (EventMeta's fact cause). See Fact.
 message FactOrigin {
   // The external system's id for this fact (e.g. "pi_1234" from Stripe).
   // Required: a Fact whose external_id is empty is refused INVALID_ARGUMENT.
@@ -584,7 +586,7 @@ message FactOrigin {
 // packed as an Any) is the key, by its type, and the map, by its fields,
 // so it carries no Diagnostic. On the wire it is a gRPC status under the
 // message's declared refusal_status, its reason (and so its status message)
-// ROUTER_REASON_COMMAND_REFUSED, its ErrorInfo metadata refusal_type the
+// ANGZARR_REASON_COMMAND_REFUSED, its ErrorInfo metadata refusal_type the
 // object's fully-qualified type, and the object packed in the status
 // details. A handler's ABORTED and every handler bug carry a diagnostic
 // code and its args: an ABORTED's reason is the handler's own code; a
@@ -600,7 +602,7 @@ message FactOrigin {
 // The framework's reason keys. Every framework key, the component that
 // answers it (the router, the component host or the coordinator), the gRPC
 // status it travels with and its arg names are listed once, as the enums of
-// reasons.proto (RouterReason, HostReason, CoordinatorReason; decision
+// reasons.proto (AngzarrReason, RouterReason, HostReason, CoordinatorReason; decision
 // 14.44); a key travels as its value's full name, prefix included
 // (ROUTER_REASON_DUPLICATE_COMPONENT). Which class a status is
 // (decision 14.37's four classes) is the coordinator's to decide, never
@@ -639,10 +641,9 @@ message Diagnostic {
 //
 // causation, correlation_id and recorded_at are always recorded. causation
 // is the event's DIRECT cause (see the command_identity region):
-// command_id, for every event: each was produced by a command or fact
-// (client, reaction or fact, a process manager's events included; a PM
-// is a domain, with no trigger-caused events; decision 14.31). fact is
-// set iff the producing command was a Fact.
+// its command arm or its fact arm (with the fact's origin), by the
+// producing input's kind, every event's (a process manager's included; a
+// PM is a domain, with no trigger-caused events; decision 14.31).
 // rules_version is always recorded from the business logic's report
 // (empty only if the business logic reports none). A reaction command's
 // causation (its trigger) is NOT recorded: an event names its own
@@ -659,19 +660,17 @@ message Diagnostic {
 // head the decision saw is not recorded: it is the sequence of the write's
 // first event (decision 12.4).
 message EventMeta {
-  // The event's direct cause. Always set on a persisted event: the
-  // producing command's or fact's id (a PM is a domain whose inputs are
-  // commands and facts, decision 14.31).
+  // The event's direct cause, always set on a persisted event, its arm the
+  // producing input's kind, as CommandPage's body (decision 14.102, DRAFT;
+  // a PM is a domain whose inputs are commands and facts, decision 14.31).
+  // Its command_id, read from whichever arm is set, is the deduplication key
+  // on the stream (the command_identity region).
   oneof causation {
-    // The producing command's command_id (see the command_identity
-    // region): every event a client Command, reaction command or Fact
-    // produced, a process manager's events included. The deduplication key
-    // on the stream.
-    UUID command_id = 1;
+    // Produced by a command (a client's or a policy's).
+    CommandCause command = 1;
+    // Produced by a fact: its id and its origin, copied.
+    FactCause fact = 2;
   }
-  // The producing Fact's source: its Fact.origin, copied. Unset
-  // for Commands.
-  FactOrigin fact = 2;
   // The producing command's correlation (see the command_identity
   // region). Never unset on a persisted event.
   UUID correlation_id = 3;
@@ -694,10 +693,27 @@ message EventMeta {
   // event names the build that decided it. Business code never sets it on
   // an event. The framework reads it only to choose which snapshots to
   // offer (see Snapshot); otherwise it explains a historical decision.
-  // (annals, which shares these protos, treats rules_version differently:
-  // a documented divergence, see
-  // docs/design/audit-meta/annals-divergence.md.)
+  // (angzarr-embedded diverges, pending the owner's review: it accepts a
+  // rules_version that is not SemVer at registration, and offers a
+  // snapshot by exact string equality when either version is not SemVer,
+  // where this spec refuses the version (decision 14.88) and has no
+  // equality fallback. See docs/design/audit-meta/annals-divergence.md.)
   string rules_version = 5;
+}
+
+// An event's cause when a command produced it.
+message CommandCause {
+  // The producing command's command_id (the command_identity region).
+  UUID command_id = 1;
+}
+
+// An event's cause when a fact produced it.
+message FactCause {
+  // The producing fact's command_id (derived from its origin, or a policy's
+  // reaction id).
+  UUID command_id = 1;
+  // Where the fact came from: its Fact.origin, copied.
+  FactOrigin origin = 2;
 }
 // endregion
 
@@ -813,8 +829,8 @@ message Projection {
 //
 // How much of the processing the caller waits for is NOT handling: it is a
 // call-level choice, made by which coordinator RPC the caller uses (Handle,
-// HandleAsync or HandleSync; see the command_modes region in
-// command_handler.proto).
+// HandleAsync or HandleSync; see docs/design/command-handling.md
+// §1).
 //
 // The pipeline. The coordinator's order, NORMATIVE in every runtime and
 // every mode:
@@ -829,7 +845,7 @@ message Projection {
 //                    the snapshot covers (decision 14.40), and the pages
 //                    and the input's payload are upcast through the
 //                    component's upcaster sidecar (decision 14.39; see
-//                    upcaster.proto) before anything below judges them;
+//                    docs/design/upcasting.md) before anything below judges them;
 //   4. check         a command whose Handling sets expected_sequence
 //                    other than the head step 3 loaded is refused
 //                    ExpectedSequenceMismatch (the concurrency region;
@@ -902,7 +918,7 @@ message Handling {
 // pipeline the payload's type URL picks the handler, after the
 // coordinator, through the component's upcaster sidecar, has brought an
 // old payload type up to the current one (decision 14.39; see
-// upcaster.proto); Command and Fact payloads alike are upcast, and the
+// docs/design/upcasting.md); Command and Fact payloads alike are upcast, and the
 // client library never sees an old type. A payload whose type URL reaches
 // no handler is refused by the client library INTERNAL (a bug: decision
 // 14.37) with reason ROUTER_REASON_UNKNOWN_COMMAND_TYPE (ROUTER_REASON_NO_FACT_HANDLER for a fact),
@@ -927,7 +943,7 @@ message Handling {
 // of a refused command (the domestic fact its callback translates the
 // refusal into; the one refusal path, decision 46 #5), to the exact stream
 // of its trigger (decision 14.31, amending 2.2; PolicyService in
-// policy.proto, Refusals).
+// docs/design/policies.md §3).
 message CommandPage {
   oneof body {
     Command command = 1; // Asks the aggregate to decide; may be rejected
@@ -936,7 +952,7 @@ message CommandPage {
   // The command's id: client-supplied or minted (client Command), derived
   // (Fact). Unset on arrival from a client means "mint one". Recorded on
   // every event it produces as their causation
-  // (EventMeta.causation.command_id), and the deduplication key there.
+  // (EventMeta.causation's command_id), and the deduplication key there.
   UUID command_id = 3;
   // The workflow correlation; set by the coordinator when absent. Copied
   // onto every event (EventMeta.correlation_id).
@@ -949,7 +965,7 @@ message CommandPage {
 //
 // Commands may be upcast: the coordinator runs the payload through the
 // same upcaster chain as for events, by type URL, in the component's
-// upcaster sidecar, before dispatch (decision 14.39; see upcaster.proto,
+// upcaster sidecar, before dispatch (decision 14.39; see docs/design/upcasting.md,
 // which also explains why that is discouraged).
 message Command {
   google.protobuf.Any payload = 1; // The domain command; its type URL picks the handler
@@ -965,7 +981,7 @@ message Command {
 //
 // Facts are upcast like commands: the coordinator runs the payload through
 // the same upcaster chain, by type URL, in the component's upcaster
-// sidecar, before dispatch (decision 14.39; see upcaster.proto).
+// sidecar, before dispatch (decision 14.39; see docs/design/upcasting.md).
 //
 // Fact handlers are infallible: they record the fact (possibly together
 // with events that flag it, e.g. a payment received for an unknown order)
@@ -987,7 +1003,7 @@ message Command {
 message Fact {
   google.protobuf.Any payload = 1; // The fact; its type URL picks the ingest handler
   // Where the fact came from, required: copied onto every event
-  // (EventMeta.fact). For a policy's fact the destination derives it
+  // (EventMeta's fact cause). For a policy's fact the destination derives it
   // (ReactionDelivery).
   FactOrigin origin = 2;
 }
@@ -1156,7 +1172,7 @@ message AngzarrDeadLetter {
   oneof why {
     // A typed business refusal of an asynchronous command (every refusal
     // is typed, decision 14.95): the refusal object, packed. Its key is
-    // implied (ROUTER_REASON_COMMAND_REFUSED, as on the wire), its type is
+    // implied (ANGZARR_REASON_COMMAND_REFUSED, as on the wire), its type is
     // the Any's own type URL, and its args are its fields.
     google.protobuf.Any refusal = 5;
     // Every other failure: a key and its args (below).
@@ -1234,13 +1250,11 @@ enum ComponentKind {
 // builder per kind for it), and a hand-written descriptor is held to
 // exactly the rules a generated one is. Either way the business process
 // answers Describe with it unchanged, and the client library's router never
-// builds or checks it. The client library's component host checks one thing
-// when the component is registered: that rules_version is the version the
-// component's answers report (HandleResponse.rules_version,
-// io/angzarr/handler/v1), which the
-// coordinator would otherwise refuse on every answer; a descriptor of any
-// other version is refused at once, before anything is served
-// (HOST_REASON_DESCRIPTOR_RULES_VERSION_MISMATCH).
+// builds or checks it, nor does the component host: the coordinator owns
+// every descriptor check (decision 14.102, DRAFT). An answer whose
+// rules_version or state type is not the registered one is the
+// coordinator's to refuse (COORDINATOR_REASON_RULES_VERSION_MISMATCH,
+// COORDINATOR_REASON_STATE_TYPE_MISMATCH).
 //
 // The kind is a oneof (decision 14.78, from the owner's ruling #2): each arm
 // holds exactly what that kind has, so no field is set on a kind that may
@@ -1308,7 +1322,7 @@ message ProcessManagerDescriptor {
   // (decision 14.41). An input for a correlation with no PM instance is
   // delivered only if its type is listed here; otherwise the coordinator
   // dead-letters a fact and refuses a command (ruling B1, adapted; decision
-  // 14.31; see process_manager.proto, Starting an instance).
+  // 14.31; see docs/design/process-managers.md §4).
   repeated string starting_types = 3;
 }
 

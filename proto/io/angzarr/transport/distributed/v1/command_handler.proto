@@ -13,7 +13,7 @@ option ruby_package = "Angzarr::Transport::Distributed";
 
 // The distributed coordinator's command RPCs. The command modes, the
 // pipeline and the status codes they follow are every runtime's
-// (io/angzarr/v1/command_handler.proto, the command_modes region; decision
+// (docs/design/command-handling.md §1; decision
 // 14.64).
 service CommandHandlerCoordinatorService {
   // DECISION. Process one command and answer with its decision. The
@@ -148,7 +148,7 @@ message ProjectorFailure {
   string projector = 1; // Registered name of the projector
   // The failure as a gRPC status code (google.rpc.Code numbering). Whether
   // the projection will be retried follows the retryable set in
-  // io/angzarr/v1/command_handler.proto.
+  // docs/design/command-handling.md.
   int32 code = 2;
   // The failure's key and args (decision 14.37): its status's ErrorInfo
   // reason and metadata. Never the status's text.

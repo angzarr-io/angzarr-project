@@ -13,7 +13,7 @@ option ruby_package = "Angzarr::Transport::Distributed";
 // PolicyCoordinatorService: orchestrates policy execution. Calls the
 // policy's PolicyService.React once per source event it handles (decision
 // 46, Q3), checks each answer's outputs (a root, not the trigger's own
-// stream, a routable destination, the chain depth; io/angzarr/v1/policy.proto),
+// stream, a routable destination, the chain depth; docs/design/policies.md),
 // and addresses and stamps each one: the destination
 // (PolicyDescriptor.output_domain), the trigger's edition, causation
 // (the triggering event's EventRef), command_id (UUIDv5 of the trigger,
@@ -21,13 +21,13 @@ option ruby_package = "Angzarr::Transport::Distributed";
 // reaction, commands and facts in one index space; derived_ids region),
 // correlation_id (the trigger's) and the policy's name, as a
 // ReactionDelivery (decision 14.79). Records them in the transient outbox
-// (io/angzarr/v1/policy.proto), delivers them through the destination's
+// (docs/design/policies.md), delivers them through the destination's
 // coordinator (CommandHandlerCoordinatorService.Deliver) as a framework
 // component,
 // and retries retryable failures. On a business rejection it calls
 // PolicyService.Translate and delivers the fact it answers, through the
 // outbox, to the policy's own source stream (the one refusal path,
-// io/angzarr/v1/policy.proto, Refusals).
+// docs/design/policies.md, Refusals).
 service PolicyCoordinatorService {
   // Execute the policy over source events: React per event, then deliver
   // the stamped outputs to their destinations. The request is the source

@@ -11,7 +11,7 @@ option ruby_package = "Angzarr::Component";
 
 // UpcasterService: the upcaster sidecar's one service (decision 14.39).
 // What an upcaster is, where it runs and who calls it are core's
-// (io/angzarr/v1/upcaster.proto); its messages are the handler layer's
+// (docs/design/upcasting.md); its messages are the handler layer's
 // (io/angzarr/handler/v1/upcaster.proto; decision 14.78, DRAFT): the
 // angzarr-embedded kernel runs a Rust upcaster in process under this same
 // contract (decision 14.64).

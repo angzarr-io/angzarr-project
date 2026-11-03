@@ -19,7 +19,7 @@ option ruby_package = "Angzarr::Examples";
 // example's only process manager.
 //
 // State is keyed by the correlation id: the PM's root is the correlation id
-// itself, unchanged (process_manager.proto, Stream). A process manager is
+// itself, unchanged (docs/design/process-managers.md §3). A process manager is
 // a domain (decision 14.31): its inputs are facts, which policies from the
 // table and the wallet send it (each declares fact, so each policy emits it
 // as a Fact; decision 14.69), and the refusal facts its own policies

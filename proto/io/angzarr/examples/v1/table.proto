@@ -273,7 +273,7 @@ message ReleaseSeat {
 // its (io.angzarr.v1.refusal_status) message option, declared on each
 // (decision 14.95), each named in the refuses of every command that
 // refuses with it. Refusal objects, never events. On the wire each travels
-// as ROUTER_REASON_COMMAND_REFUSED with its type as refusal_type, as every
+// as ANGZARR_REASON_COMMAND_REFUSED with its type as refusal_type, as every
 // typed refusal does.
 
 // CreateTable on a table that already exists.

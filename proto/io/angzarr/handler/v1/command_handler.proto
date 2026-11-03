@@ -77,14 +77,14 @@ message HandleRequest {
 // AIP-193 and decision 14.37:
 //   - a refusal, a COMMAND's only: the business status its refusal message
 //     declares ((io.angzarr.v1.refusal_status), required), with a
-//     google.rpc.ErrorInfo (reason ROUTER_REASON_COMMAND_REFUSED, metadata
+//     google.rpc.ErrorInfo (reason ANGZARR_REASON_COMMAND_REFUSED, metadata
 //     refusal_type) and the typed refusal object packed in the status
 //     details. The refusing domain records nothing. A fact's handling never
 //     refuses;
 //   - a re-run ("re-read and re-decide"): ABORTED under the handler's own
 //     key and args;
 //   - a bug: its error status (ROUTER_REASON_UNHANDLED_HANDLER_ERROR and the
-//     router's other bug keys; io/angzarr/v1/command_handler.proto, status
+//     router's other bug keys; docs/design/command-handling.md, status
 //     codes).
 // Any error status for a FACT is a bug: the fact is dead-lettered under the
 // status's key and args and alerted, and its sender answered INTERNAL
@@ -93,9 +93,10 @@ message HandleResponse {
   // The events, payloads only, in order: empty, one or many (decision
   // 14.75). The coordinator wraps event i as an EventPage under the input's
   // cover, at sequence head + i, with one EventMeta for the write
-  // (causation.command_id and correlation_id from the input's page,
+  // (causation, the command or fact arm with the input's command_id, and
+  // correlation_id from the input's page,
   // recorded_at, rules_version from this answer, and a fact's origin as
-  // EventMeta.fact).
+  // the fact arm's origin).
   repeated google.protobuf.Any events = 1;
   // The state with the events folded in, filled by the client library on
   // every answer, never by business code. The coordinator persists it as a

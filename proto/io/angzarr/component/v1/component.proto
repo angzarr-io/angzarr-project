@@ -20,7 +20,7 @@ option ruby_package = "Angzarr::Component";
 // component's upcasters are part of it, not components of their own: they
 // run in the component's upcaster sidecar, which serves UpcasterService to
 // the component's coordinator and is not a business process (see
-// io/angzarr/v1/upcaster.proto; decision 14.39).
+// docs/design/upcasting.md; decision 14.39).
 //
 // Every business process serves ComponentService beside its kind service
 // (CommandHandlerService for an aggregate or a process manager, PolicyService or
@@ -52,8 +52,7 @@ option ruby_package = "Angzarr::Component";
 //     component while it holds no descriptor (no command, fact, trigger or
 //     event). Until it holds one, deliveries wait: a synchronous caller is
 //     answered UNAVAILABLE COORDINATOR_REASON_COMPONENT_NOT_REGISTERED
-//     (retryable, arg domain; see the status codes in
-//     io/angzarr/v1/command_handler.proto; decision 14.51), and queued and reaction
+//     (retryable, arg domain; see docs/design/command-handling.md §3; decision 14.51), and queued and reaction
 //     deliveries stay queued.
 //   - Refusal: a descriptor that fails the coordinator's validation (see
 //     ComponentDescriptor: an empty rules_version, no kind, an aggregate

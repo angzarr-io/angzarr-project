@@ -49,7 +49,7 @@ Feature: Edition propagation across cross-domain emissions
 
   @C-0140
   Scenario: A policy's command naming another edition than its trigger's is refused
-    # policy.proto, PolicyResponse: no edition is overridden; a command into
+    # docs/design/policies.md: no edition is overridden; a command into
     # any other edition than its trigger's is the policy's bug (decision
     # 14.66).
     Given a policy "OrderFulfillment" translating from "order" to "inventory"

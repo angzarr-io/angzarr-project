@@ -12,11 +12,14 @@
 # `just check-reason-keys` holds this file to reasons.proto; every runtime
 # embeds it.
 
+## AngzarrReason: raised by more than one component.
+
+ANGZARR_REASON_COMMAND_REFUSED = the command was refused with a typed refusal, a { $refusal_type }
+
 ## RouterReason: the client library's router.
 
 ROUTER_REASON_UNHANDLED_HANDLER_ERROR = a handler failed with an error it does not classify: a bug in the handler
 ROUTER_REASON_HANDLER_PANICKED = a handler panicked: a bug in the handler
-ROUTER_REASON_COMMAND_REFUSED = the command was refused with a typed refusal, a { $refusal_type }
 ROUTER_REASON_FOLD_FAILED = a stored event could not be folded into a { $state_type_url }: a bug, or a missing upcaster
 ROUTER_REASON_FOLD_FAILED_EMITTED = an event the command emitted could not be folded into a { $state_type_url }: a bug in the domain
 ROUTER_REASON_PERSISTED_EVENT_CORRUPT = a stored event or snapshot of type { $type_url } does not decode: restore it, or add the upcaster it needs
@@ -33,11 +36,9 @@ ROUTER_REASON_TOO_MANY_STEPS = a decision ran more than its limit of { $limit } 
 
 HOST_REASON_UPCASTER_WITH_COMPONENT = component "{ $component }" is hosted beside an upcaster: an upcaster is its own sidecar
 HOST_REASON_NO_COMPONENTS_REGISTERED = no component is registered with the host: register one
-HOST_REASON_DESCRIPTOR_RULES_VERSION_MISMATCH = component "{ $component }" describes rules version "{ $described }" but answers as "{ $reported }": nothing was registered
 HOST_REASON_UPCASTER_UNKNOWN_DOMAIN = an upcaster is given for domain { $domain }, which no component here handles
 HOST_REASON_UPCASTER_OTHER_DOMAIN = the upcaster registered for domain { $domain } upcasts { $upcaster }'s payloads
 HOST_REASON_REMOTE_SOURCE = { $component } reads the events of domain { $domain }, which a coordinator elsewhere handles: they are never written or read here
-HOST_REASON_STATE_TYPE_MISMATCH = component { $component }'s state descriptor names { $type_url }, but its snapshots are { $state_type_url }: they would never be offered back
 
 ## CoordinatorReason: core's coordinator and the angzarr-embedded kernel.
 
@@ -67,3 +68,4 @@ COORDINATOR_REASON_DESCRIPTOR_NO_KIND = component "{ $component }": its descript
 COORDINATOR_REASON_RULES_VERSION_NOT_SEMVER = component "{ $component }": its rules version "{ $rules_version }" is not a SemVer version
 COORDINATOR_REASON_FACT_DEAD_LETTERED = the fact for { $stream } was dead-lettered and not recorded: do not resend it
 COORDINATOR_REASON_DESCRIPTOR_NO_DOMAIN = component "{ $component }": a { $component_kind } names no domain
+COORDINATOR_REASON_STATE_TYPE_MISMATCH = component "{ $component }" answered a state of type { $state_type }, not { $registered }, for { $stream }: a bug in the component; nothing was kept

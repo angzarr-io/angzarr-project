@@ -1,0 +1,160 @@
+# Process managers
+
+**Status:** normative (decision 14.31 and its amendments; DRAFT decisions 14.78 to 14.102 pending review). Moved from `proto/io/angzarr/v1/process_manager.proto`, which defined no message (decision 14.103, DRAFT).
+
+Process managers (decision 14.31): A PROCESS MANAGER IS A DOMAIN.
+
+There is no process-manager service or message. A process manager is
+served exactly as an aggregate is: its business process implements
+CommandHandlerService (component/v1/command_handler.proto), its coordinator serves
+CommandHandlerCoordinatorService for the PM's domain, and it is
+described by ComponentService with kind PROCESS_MANAGER. What sets a PM
+apart from an aggregate is written here, and nothing else.
+
+WARNING: Only use when policy + queries is insufficient. Consider:
+- Can a simple policy + destination queries solve this?
+- Is the "state" you want to track already derivable from existing aggregates?
+- Are you adding Process Manager because the workflow is genuinely complex?
+
+Process Manager is warranted when:
+- Workflow state is NOT derivable from aggregates (PM owns unique state)
+- You need to query workflow status independently ("show all pending fulfillments")
+- Timeout/scheduling logic is complex enough to merit its own aggregate
+- The workflow gathers what happened in SEVERAL domains (each reaches
+```text
+  the PM as commands or facts, through a policy from that domain)
+```
+- You must track the replies to the steps you start (see below)
+
+## 1. Inputs
+
+Like any domain, a PM takes:
+```text
+  - COMMANDS, which it may refuse (a business rejection, recording
+    nothing). Most come from policies: a PM subscribes to no domain and has
+    no triggers, so the policy for (another domain, the PM's domain) turns
+    that domain's events into commands to the PM. A client may also
+    command it (an operator's cancel, say).
+  - FACTS, which it never refuses: timeouts, webhooks, other external
+    inputs, the facts a policy emits for the types the PM declares facts
+    (a reply it records and cannot refuse; decision 14.69), and the
+    refusal facts that the policies whose source is the
+    PM's domain deliver when their commands are refused (PolicyService in
+    docs/design/policies.md §3): the domestic fact each such policy
+    translates the refusal into (the one refusal path, decision 46 #5).
+```
+Its (command) entries name both (options.proto); the handler
+registration says which is a command and which a fact, as for an
+aggregate.
+
+## 2. Outputs
+
+A PM's only output is its own events, on its own stream (ruling
+P1): it sends NO commands and no facts. To act on another domain it
+records an event carrying the data that domain's input needs, and the
+policy for (the PM's domain, that domain) builds the command, or the fact
+that domain declares (decision 14.69). Its events
+are ordinary stored events, published like an aggregate's.
+
+## 3. Stream
+
+A PM instance's stream is (the PM's domain, an edition, a
+root): domain is the one the PM owns (ProcessManagerDecl.domain), the
+edition is the input's cover's (a policy's command carries its trigger's
+edition; see Cover.edition), and the root is the one the input's cover
+names. A policy addressing a PM names that root, as it does for any
+target (decision 14.36, as amended): nothing fills one in, and a policy
+command with no root is a policy bug (COORDINATOR_REASON_POLICY_COMMAND_NO_ROOT;
+Output.root in handler/v1/policy.proto). By convention a policy may set
+it to its trigger's correlation_id, unchanged (decision 14.30): no
+derivation (no hash, no UUIDv5) and no text fallback, since a
+correlation_id is always a 16-byte UUID (decision 9.1) and so a valid
+root as it stands. Or it names another root: a uniqueness PM keyed by
+username, say, or one "name-identities" instance. Either way the command
+carries its trigger's correlation_id unchanged.
+```text
+  - A correlation_id that differs from the cover's root is NOT
+    malformed: the input is delivered to the root its cover names and
+    keeps its correlation. One left unset is given its cover's root.
+  - One instance may therefore take inputs of several correlations; its
+    events carry each input's correlation, like any domain's.
+```
+A PM's coordinator applies no root rule of its own: the start rule below
+is the only rule it adds to an aggregate's.
+
+## 4. Starting an instance
+
+Starting an instance (ruling B1, adapted; decision 14.31). A PM instance
+exists once its stream holds an event (in the input's edition, as read
+there). An input for a root with no instance starts one only if
+the PM declares its type as STARTING (ProcessManagerDecl.starting_types,
+options.proto; decision 14.91; advertised to the coordinator as
+ProcessManagerDescriptor.starting_types). It is then delivered with an empty
+state. Any other input for a root with no instance is not
+delivered; the coordinator decides, before the handler, by its type
+after the coordinator has upcast it through the upcaster sidecar
+(decisions 14.25, 14.39), matching the fully-qualified name its type URL
+ends in against ProcessManagerDescriptor.starting_types, which lists type
+names (decision 14.41):
+```text
+  - a FACT is dead-lettered (owner's ruling; decision 14.69), with reason
+    COORDINATOR_REASON_PM_NO_INSTANCE, and alerted, recording nothing; a
+    fact is never refused, so its sender is answered INTERNAL
+    COORDINATOR_REASON_FACT_DEAD_LETTERED (cause the COORDINATOR_REASON_PM_NO_INSTANCE key), never
+    retried (decision 14.100, DRAFT);
+  - a COMMAND is refused (owner's ruling; decision 14.31):
+    FAILED_PRECONDITION, with a google.rpc.ErrorInfo of reason
+    COORDINATOR_REASON_PM_NO_INSTANCE, recording nothing, as any business rejection. A
+    policy's refused command then yields its refusal fact to the policy's
+    source, which decides what an unstarted process means for it. The
+    alternative, a silent skip answered APPLIED with no events, would
+    tell the sender a command took effect that did not.
+```
+An input for a root whose instance exists is delivered whatever
+its type. A PM should declare as starting every input that can arrive
+first: inputs from different domains arrive in no guaranteed order.
+
+## 5. Replies and refusals
+
+A PM tracks the replies to the steps it starts:
+its event carries the instance's correlation_id, so the policy's command
+built from it carries that correlation, so the target's events carry it
+too, and the policy from the target's domain to the PM's domain turns the
+replies the PM needs into commands or facts to the instance that
+correlation names. A target that REFUSES the policy's command records nothing; the
+policy delivers a refusal fact to the PM (the policy's source domain), and
+the PM's fact handler decides the next step
+(decision 2.2, as amended by 14.31; docs/design/policies.md §3). There is no compensation or notification channel: a PM's
+rollback is its own events, which its client library's compensation
+tooling builds (decision 14.74): the failed event, then one undo event
+per completed step, newest first, each turned by its outbound policy into
+what the destination declares, a fact where it can, so an undo is never
+refused and compensation cannot loop.
+
+## 6. Handlers
+
+A PM's handlers follow the aggregate's: a command handler may
+refuse; a fact handler is infallible, and a failing one is a bug (the
+fact is dead-lettered and alerted, its sender answered INTERNAL
+COORDINATOR_REASON_FACT_DEAD_LETTERED). A PM
+command handler that fails with anything but a business rejection is a
+bug too: the command is dead-lettered and alerted. The client library
+gives every PM handler one context type, carrying the input's identity
+(its command_id, its origin for a fact, its correlation_id, and the
+instance's root), which is exactly the cause
+the coordinator stamps on
+the events the handler writes.
+
+## 7. Deduplication
+
+Deduplication is the coordinator's job, never the handler's, as for any
+domain: by command_id (a fact's derived from its origin), on the
+PM's stream, before the handler runs (types.proto, the command_identity
+lookup.
+
+## 8. No outbox
+
+No outbox needed. A PM's whole output is its own events, appended to its
+own stream like any domain's, and it consumes no stream, so it has no
+checkpoint. The outbox is one capability for any component whose output
+leaves its own stream (see docs/design/policies.md §5); a PM would use that same outbox if it ever emitted such output.

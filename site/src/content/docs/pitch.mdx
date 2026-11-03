@@ -342,7 +342,7 @@ Synchronous projections enable CQRS patterns where commands must return updated 
 
 Business processes span several domains. A **policy** translates events of its one source domain into commands for its one destination domain; its coordinator stamps each command's identity, delivers it through a transactional outbox, and retries retryable failures, so the policy's own logic handles neither persistence nor delivery.
 
-```protobuf title="abridged from io/angzarr/v1/policy.proto"
+```protobuf title="abridged from docs/design/policies.md"
 service PolicyService {
   // Source events in, commands for the destination domain out.
   rpc Handle(EventBook) returns (PolicyResponse);

@@ -86,7 +86,7 @@ option ruby_package = "Angzarr";
 // records nothing, the policy translates the refusal into one fact of its
 // own source domain, and that domain's fact handler decides what it means
 // (decision 2.2, as amended by 14.31 and 14.78; PolicyService in
-// policy.proto, Refusals). The typed refusal objects a command's handler
+// docs/design/policies.md §3). The typed refusal objects a command's handler
 // may return are named by the command's annotation, CommandOptions.refuses,
 // as its events are by emits (the refusals region, below). A process
 // manager's inputs are declared like an aggregate's, as (command) and
@@ -137,7 +137,7 @@ message ProcessManagerDecl {
   // CommandOptions.starts switch). An input for a correlation with no
   // instance starts one only if its type is listed; any other is not
   // delivered: a fact is dead-lettered (decision 14.69), and a command
-  // refused (ruling B1, adapted; decision 14.31; process_manager.proto,
+  // refused (ruling B1, adapted; decision 14.31; docs/design/process-managers.md,
   // Starting an instance). Each must be one of this PM's own commands or
   // facts (generation fails otherwise). The generator copies the list into
   // the PM's descriptor (ProcessManagerDescriptor.starting_types). A PM
@@ -226,7 +226,7 @@ message CommandOptions {
 // policy sends what its destination declares (decision 14.69): a fact for
 // a type carrying (fact), a command for one carrying (command), so a
 // policy's fact is never refused, and only its commands have a refusal
-// path (policy.proto).
+// path (docs/design/policies.md).
 //
 // Why its own option, not one message with a kind (a oneof of CommandOptions
 // and FactOptions under one extension): the two share only `component` and
@@ -333,7 +333,7 @@ extend google.protobuf.MessageOptions {
 
 // region refusals
 // Refusals (decision 14.31, amending 2.2; plan ruling 7, "REFUSAL
-// WIRING"; PolicyService in policy.proto, Refusals).
+// WIRING"; docs/design/policies.md §3).
 //
 // The refusing side. A command handler refuses with a business rejection,
 // a gRPC status (decision 14.95, DRAFT, reversing decision 46's Q2) under
@@ -379,7 +379,7 @@ extend google.protobuf.MessageOptions {
 //     ...
 //   }
 //   message AlreadyBet { int32 seat = 1; }
-// Every typed refusal travels under one wire key: ROUTER_REASON_COMMAND_REFUSED,
+// Every typed refusal travels under one wire key: ANGZARR_REASON_COMMAND_REFUSED,
 // its refusal_type the message's fully-qualified name, the object in the
 // status details (types.proto, the diagnostic region). Its status is the
 // message's declared (io.angzarr.v1.refusal_status) (the refusal_status

@@ -13,7 +13,7 @@ option ruby_package = "Angzarr::Handler";
 
 // A policy's business logic: React to one event of its source, and
 // Translate one refusal of a command it sent (decision 14.78, DRAFT; what
-// a policy is, its outbox and its refusals are io/angzarr/v1/policy.proto).
+// a policy is, its outbox and its refusals are docs/design/policies.md).
 // The layer rule is command_handler.proto's: a request carries the books,
 // read-only; a response carries only what business code decides.
 
@@ -94,7 +94,7 @@ message TranslateRequest {
 // payload only. The coordinator builds the rest: a ReactionDelivery
 // addressed to the trigger's exact stream, a fact holding this payload,
 // with the refused command's command_id, the trigger's correlation_id and
-// causation the trigger (decision 14.79; io/angzarr/v1/policy.proto,
+// causation the trigger (decision 14.79; docs/design/policies.md,
 // Refusals). It is never
 // refused, so compensation cannot loop.
 //

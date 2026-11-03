@@ -150,40 +150,30 @@ check-gherkin *dirs="features parity":
 contracts: proto-lint proto-breaking test-check-feature-ids check-feature-ids check-gherkin check-rules check-reason-names test-check-reason-keys check-reason-keys
 
 # The features, the protos and the site docs (the generated Proto API page
-# aside) name no retired reason key, bare or prefixed, and no live key
-# without its enum's prefix (decision 14.44). The reasons.proto files (core's
-# and each transport's, decision 14.64) are the list: protoc refuses a
-# reserved name as a value, this catches names in prose. A key core moved to a
-# transport is reserved in core and live in the transport, so it is live.
+# aside) name no live reason key without its enum's prefix (decision 14.44).
+# The reasons.proto files (core's and each transport's, decision 14.64) are
+# the list of live keys; a removed key leaves nothing in them to check for.
 check-reason-names:
     #!/usr/bin/env bash
     set -euo pipefail
     protos=(proto/io/angzarr/v1/reasons.proto proto/io/angzarr/transport/embedded/v1/reasons.proto proto/io/angzarr/transport/distributed/v1/reasons.proto)
-    prefixes='(ROUTER|HOST|COORDINATOR)_REASON_'
+    prefixes='(ANGZARR|ROUTER|HOST|COORDINATOR)_REASON_'
     live=$(grep -ohE "^[[:space:]]+${prefixes}[A-Z0-9_]+ = [1-9]" "${protos[@]}" \
-        | sed -E "s/^[[:space:]]+${prefixes}//; s/ = .*//" | sort -u)
-    # A reserved name sits on a line of its own in a `reserved` list.
-    retired=$(grep -hE "^[[:space:]]+\"${prefixes}[A-Z0-9_]+\"[,;]$" "${protos[@]}" | tr -d ' ",;' \
-        | sed -E "s/^${prefixes}//" | sort -u | comm -23 - <(echo "$live") | paste -sd'|')
-    live=$(paste -sd'|' <<< "$live")
-    [ -n "$retired" ] && [ -n "$live" ] || { echo "FAIL check-reason-names: no keys read from ${protos[*]}" >&2; exit 1; }
-    scan() { grep -rnwE "$1" features proto site/src/content/docs --exclude=reasons.proto --exclude=proto-api.md; }
-    failed=0
-    rc=0; scan "(${prefixes})?(${retired})" || rc=$?
-    case "$rc" in 0) echo "FAIL check-reason-names: the lines above name a retired reason key" >&2; failed=1 ;; 1) ;; *) exit "$rc" ;; esac
-    rc=0; scan "(${live})" || rc=$?
-    case "$rc" in 0) echo "FAIL check-reason-names: the lines above name a reason key without its enum's prefix" >&2; failed=1 ;; 1) ;; *) exit "$rc" ;; esac
-    [ "$failed" = 0 ] || exit 1
-    echo "ok   check-reason-names ($(tr '|' '\n' <<< "$live" | wc -l) live keys prefixed, $(tr '|' '\n' <<< "$retired" | wc -l) retired keys unnamed)"
+        | sed -E "s/^[[:space:]]+${prefixes}//; s/ = .*//" | sort -u | paste -sd'|')
+    [ -n "$live" ] || { echo "FAIL check-reason-names: no keys read from ${protos[*]}" >&2; exit 1; }
+    rc=0; grep -rnwE "(${live})" features proto site/src/content/docs --exclude=reasons.proto --exclude=proto-api.md || rc=$?
+    case "$rc" in 0) echo "FAIL check-reason-names: the lines above name a reason key without its enum's prefix" >&2; exit 1 ;; 1) ;; *) exit "$rc" ;; esac
+    echo "ok   check-reason-names ($(tr '|' '\n' <<< "$live" | wc -l) live keys prefixed)"
 
 # Unit tests for the scenario-ID checker
 test-check-feature-ids:
     python3 -m unittest scripts/test_check_feature_ids.py
 
 # The reasons.proto files' keys (core's and each transport's, decision
-# 14.64) keep decision 14.44's rules (every key carries its enum's prefix,
-# every enum reserves every retired key, and core's every key it moved) and
-# 14.60's (every key declares its args; the reasons.en-US.ftl beside each
+# 14.64) keep decision 14.44's rules for LIVE keys (every key carries its
+# enum's prefix, numbered densely, in one enum only; retired keys are not
+# checked, decision 14.102) and 14.60's (every key declares its args and one
+# surface, a gRPC status or readiness; the reasons.en-US.ftl beside each
 # file holds one message per key of that file, naming only its args), read
 # from the descriptor buf builds in its pinned container. The Rust crates' own
 # reason tests (generated code) live with angzarr-proto in angzarr-core.

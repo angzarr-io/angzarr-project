@@ -112,7 +112,7 @@ message ListDeadLettersRequest {
   //   field "=" string-literal { "AND" field "=" string-literal }
   // Recognised fields: domain, correlation_id, reason_code (the reason's
   // key, StoredDeadLetter.reason.code; for a refusal entry its implied key,
-  // ROUTER_REASON_COMMAND_REFUSED), refusal_type (a refusal entry's type,
+  // ANGZARR_REASON_COMMAND_REFUSED), refusal_type (a refusal entry's type,
   // its Any's fully-qualified type name), source_component,
   // occurred_after, occurred_before. The filter is text,
   // so it is an input boundary: a correlation_id literal is the UUID's

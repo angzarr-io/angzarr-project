@@ -39,7 +39,7 @@ in angzarr-embedded, where a process manager can be built into one binary from s
 *"If no payment arrives within 15 minutes, cancel the order."*
 
 The spec already gives this its shape: a timeout reaches a process manager as a **fact** from a clock or
-scheduler source, which it never refuses (see `process_manager.proto` and the commands-vs-facts guide).
+scheduler source, which it never refuses (see `docs/design/process-managers.md` and the commands-vs-facts guide).
 Time then stays an input, and replay stays deterministic.
 
 What's missing is anything that produces those facts. There is no scheduler component and no way to say

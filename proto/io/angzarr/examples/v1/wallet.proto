@@ -157,7 +157,7 @@ message HoldFunds {
 // fields, its status its (io.angzarr.v1.refusal_status) message option
 // (declared on each, decision 14.95), each named in the refuses of every command
 // that refuses with it. Refusal objects, never events; on the wire each is
-// ROUTER_REASON_COMMAND_REFUSED with its type as refusal_type. Was
+// ANGZARR_REASON_COMMAND_REFUSED with its type as refusal_type. Was
 // WalletRefused, one message with a 6-code Reason enum and optional args.
 
 // RegisterWallet or ImportWallet for a wallet that exists.

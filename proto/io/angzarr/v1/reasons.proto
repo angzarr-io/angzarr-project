@@ -13,6 +13,7 @@ option ruby_package = "Angzarr";
 // angzarr answers, once, in the enum of the component that answers it, in
 // the package whose code raises it (decision 14.64). This file holds core's:
 //
+//   AngzarrReason      raised by more than one component (decision 14.102)
 //   RouterReason       the client library's router, in every language
 //   HostReason         the client library's component host, in every
 //                      language (parity/client/hosting.feature): its
@@ -125,12 +126,31 @@ enum ReasonStatus {
 message Readiness {}
 
 extend google.protobuf.EnumValueOptions {
-  // On every value of RouterReason, HostReason and CoordinatorReason, here
+  // On every value of AngzarrReason, RouterReason, HostReason and CoordinatorReason, here
   // and in the transports' reasons.proto. In angzarr's extension range
   // (options.proto).
   ReasonOptions reason = 50105;
 }
 // endregion
+
+// Keys the framework raises from more than one component (decision 14.102,
+// DRAFT): a key neither the router's nor the coordinator's alone. Core's,
+// so every component that raises one imports it.
+enum AngzarrReason {
+  ANGZARR_REASON_UNSPECIFIED = 0;
+  // The key a TYPED refusal travels under, arg refusal_type its object's
+  // full type name, on a gRPC status (the object in the status details,
+  // under the status the refusal message declares, its refusal_status;
+  // decisions 14.37 and 14.95). The router raises it for a handler's
+  // refusal; the coordinator passes that on, and raises it itself for its
+  // ExpectedSequenceMismatch (decision 14.94). A dead letter holds the
+  // refusal itself (AngzarrDeadLetter's refusal arm), its key implied as
+  // this one and its type the Any's type URL (decision 14.101).
+  ANGZARR_REASON_COMMAND_REFUSED = 1 [(reason) = {
+    args: ["refusal_type"]
+    grpc_status: REASON_STATUS_FAILED_PRECONDITION
+  }];
+}
 
 // Keys the client library's router answers.
 enum RouterReason {
@@ -145,43 +165,30 @@ enum RouterReason {
   ROUTER_REASON_HANDLER_PANICKED = 2 [(reason) = {
     grpc_status: REASON_STATUS_INTERNAL
   }];
-  // The key a TYPED refusal travels under, arg refusal_type its object's
-  // full type name, on the coordinator's gRPC status to a caller (the
-  // object in the status details). A dead letter holds the refusal itself
-  // (AngzarrDeadLetter's refusal arm), its key implied as this one and its
-  // type the Any's type URL (decision 14.101, DRAFT). The router answers it on the status a
-  // handler's refusal travels as (decision 14.95, DRAFT), with the status
-  // the refusal message declares (its refusal_status; FAILED_PRECONDITION is
-  // the most common), and the coordinator passes it on; the coordinator also
-  // answers it for its own ExpectedSequenceMismatch (decision 14.94).
-  ROUTER_REASON_COMMAND_REFUSED = 3 [(reason) = {
-    args: ["refusal_type"]
-    grpc_status: REASON_STATUS_FAILED_PRECONDITION
-  }];
-  ROUTER_REASON_FOLD_FAILED = 4 [(reason) = {
+  ROUTER_REASON_FOLD_FAILED = 3 [(reason) = {
     args: ["sequence", "type_url", "first_sequence", "last_sequence", "state_type_url", "cause"]
     grpc_status: REASON_STATUS_INTERNAL
   }];
-  ROUTER_REASON_FOLD_FAILED_EMITTED = 5 [(reason) = {
+  ROUTER_REASON_FOLD_FAILED_EMITTED = 4 [(reason) = {
     args: ["sequence", "type_url", "first_sequence", "last_sequence", "state_type_url", "cause"]
     grpc_status: REASON_STATUS_INTERNAL
   }];
-  ROUTER_REASON_PERSISTED_EVENT_CORRUPT = 6 [(reason) = {
+  ROUTER_REASON_PERSISTED_EVENT_CORRUPT = 5 [(reason) = {
     args: ["type_url"]
     grpc_status: REASON_STATUS_DATA_LOSS
   }];
-  ROUTER_REASON_ANY_DECODE_FAILED = 7 [(reason) = {
+  ROUTER_REASON_ANY_DECODE_FAILED = 6 [(reason) = {
     args: ["message_type", "ext_err_txt"]
     grpc_status: REASON_STATUS_INTERNAL
   }];
   // The router sends type_url only; the coordinator relays it with
   // upcast_type_url (14.39).
-  ROUTER_REASON_UNKNOWN_COMMAND_TYPE = 8 [(reason) = {
+  ROUTER_REASON_UNKNOWN_COMMAND_TYPE = 7 [(reason) = {
     args: ["type_url", "upcast_type_url"]
     grpc_status: REASON_STATUS_INTERNAL
   }];
   // Relayed as ROUTER_REASON_UNKNOWN_COMMAND_TYPE is.
-  ROUTER_REASON_NO_FACT_HANDLER = 9 [(reason) = {
+  ROUTER_REASON_NO_FACT_HANDLER = 8 [(reason) = {
     args: ["type_url", "upcast_type_url"]
     grpc_status: REASON_STATUS_INTERNAL
   }];
@@ -194,14 +201,14 @@ enum RouterReason {
   // router, which no longer dispatches refusals (the one refusal path).
   // Bug, fatal (decision 14.37): the policy step is dead-lettered and
   // alerted.
-  ROUTER_REASON_NO_REFUSAL_HANDLER = 10 [(reason) = {
+  ROUTER_REASON_NO_REFUSAL_HANDLER = 9 [(reason) = {
     args: ["command_type"]
     grpc_status: REASON_STATUS_INTERNAL
   }];
-  ROUTER_REASON_NO_COMPONENT_OF_KIND = 11 [(reason) = {
+  ROUTER_REASON_NO_COMPONENT_OF_KIND = 10 [(reason) = {
     grpc_status: REASON_STATUS_UNIMPLEMENTED
   }];
-  ROUTER_REASON_NO_HANDLERS_REGISTERED = 12 [(reason) = {
+  ROUTER_REASON_NO_HANDLERS_REGISTERED = 11 [(reason) = {
     grpc_status: REASON_STATUS_INTERNAL
   }];
   // A second component registered where one already is: one business
@@ -210,7 +217,7 @@ enum RouterReason {
   // (`registered`) and the one refused (`refused`), each by its component
   // name. The component host does not check it again: it registers through
   // the router (C-0579; decision 14.44, amended).
-  ROUTER_REASON_DUPLICATE_COMPONENT = 13 [(reason) = {
+  ROUTER_REASON_DUPLICATE_COMPONENT = 12 [(reason) = {
     args: ["registered", "refused"]
     grpc_status: REASON_STATUS_INTERNAL
   }];
@@ -226,7 +233,7 @@ enum RouterReason {
   // same answer), never a policy's Translate (a business status would invite
   // a compensating reaction to a bug). A router that offers no follow-on steps
   // never answers it. (Decision 14.49.)
-  ROUTER_REASON_TOO_MANY_STEPS = 14 [(reason) = {
+  ROUTER_REASON_TOO_MANY_STEPS = 13 [(reason) = {
     args: ["limit"]
     grpc_status: REASON_STATUS_INTERNAL
   }];
@@ -245,28 +252,17 @@ enum HostReason {
   HOST_REASON_NO_COMPONENTS_REGISTERED = 2 [(reason) = {
     grpc_status: REASON_STATUS_INTERNAL
   }];
-  // A component registered with a descriptor whose rules_version (`described`)
-  // is not the version its answers report (`reported`: the rules_version of
-  // io.angzarr.handler.v1.HandleResponse), generated or
-  // written by hand alike.
-  // Refused at registration, before anything is served, and nothing is
-  // registered: the coordinator would refuse every answer the component gave
-  // (types.proto, ComponentDescriptor; C-0743).
-  HOST_REASON_DESCRIPTOR_RULES_VERSION_MISMATCH = 3 [(reason) = {
-    args: ["component", "described", "reported"]
-    grpc_status: REASON_STATUS_INTERNAL
-  }];
   // An upcaster given for `domain`, which no component of the host
   // handles: there is nothing for it to upcast. Refused at registration,
   // and nothing is registered (decision 14.65).
-  HOST_REASON_UPCASTER_UNKNOWN_DOMAIN = 4 [(reason) = {
+  HOST_REASON_UPCASTER_UNKNOWN_DOMAIN = 3 [(reason) = {
     args: ["domain"]
     grpc_status: REASON_STATUS_INTERNAL
   }];
   // The upcaster registered for `domain` upcasts another domain's
   // payloads (`upcaster`, the domain it names). Refused at registration,
   // and nothing is registered (decision 14.65).
-  HOST_REASON_UPCASTER_OTHER_DOMAIN = 5 [(reason) = {
+  HOST_REASON_UPCASTER_OTHER_DOMAIN = 4 [(reason) = {
     args: ["domain", "upcaster"]
     grpc_status: REASON_STATUS_INTERNAL
   }];
@@ -274,17 +270,8 @@ enum HostReason {
   // `domain`, which a coordinator elsewhere handles: its events are never
   // written or read here, so the component would never run. Refused at
   // registration, and nothing is registered (decision 14.65).
-  HOST_REASON_REMOTE_SOURCE = 6 [(reason) = {
+  HOST_REASON_REMOTE_SOURCE = 5 [(reason) = {
     args: ["component", "domain"]
-    grpc_status: REASON_STATUS_INTERNAL
-  }];
-  // A component whose state's descriptor names one type (`type_url`) while
-  // the state it writes as its snapshot is another (`state_type_url`): its
-  // snapshots would never be offered back to it (the snapshot region of
-  // types.proto). Refused at registration, and nothing is registered
-  // (decision 14.65).
-  HOST_REASON_STATE_TYPE_MISMATCH = 7 [(reason) = {
-    args: ["component", "type_url", "state_type_url"]
     grpc_status: REASON_STATUS_INTERNAL
   }];
 }
@@ -414,7 +401,7 @@ enum CoordinatorReason {
   // The upcaster sidecar `domain`'s coordinator upcasts through (decision
   // 14.39) is configured but could not be reached, or answered under a
   // retryable status (`cause`): the coordinator delivers nothing it would have
-  // to upcast and reports NOT_SERVING (upcaster.proto, Failure). A waiting
+  // to upcast and reports NOT_SERVING (docs/design/upcasting.md §5). A waiting
   // caller and a query are answered this key, to resend; queued and reaction
   // deliveries stay queued until the sidecar is back, so it is never a dead
   // letter's reason. A rule that fails (an error status from
@@ -429,7 +416,7 @@ enum CoordinatorReason {
   // ComponentDescriptor.rules_version). Bug, fatal (decision 14.37): refused
   // and nothing persisted; a caller of Handle or HandleSync is answered it, an
   // asynchronous or reaction delivery dead-lettered with it as its
-  // AngzarrDeadLetter.reason and alerted (command_handler.proto, Handle;
+  // AngzarrDeadLetter.reason and alerted (docs/design/command-handling.md;
   // C-0558, C-0559, C-0748). (Decision 14.56.)
   COORDINATOR_REASON_RULES_VERSION_MISMATCH = 13 [(reason) = {
     args: ["stream", "component", "registered", "reported"]
@@ -508,5 +495,18 @@ enum CoordinatorReason {
   COORDINATOR_REASON_DESCRIPTOR_NO_DOMAIN = 20 [(reason) = {
     args: ["component", "component_kind"]
     readiness: {}
+  }];
+  // A handler's answer whose state (`state_type`, the name its type URL
+  // ends in) is not the type the component registered (`registered`, its
+  // StateDescriptor.type_name): its snapshots would never be offered back
+  // to it. Bug, fatal (decision 14.37): refused, nothing persisted; a
+  // caller of Handle or HandleSync is answered it, any other delivery
+  // dead-lettered with it and alerted. The coordinator's equivalent of the
+  // retired host check (decision 14.102, DRAFT: the coordinator owns every
+  // descriptor check), beside COORDINATOR_REASON_RULES_VERSION_MISMATCH,
+  // which is the equivalent for the rules version.
+  COORDINATOR_REASON_STATE_TYPE_MISMATCH = 21 [(reason) = {
+    args: ["stream", "component", "registered", "state_type"]
+    grpc_status: REASON_STATUS_INTERNAL
   }];
 }

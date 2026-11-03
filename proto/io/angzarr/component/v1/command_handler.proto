@@ -42,7 +42,7 @@ option ruby_package = "Angzarr::Component";
 // status details carry a google.rpc.ErrorInfo whose metadata key "type_url"
 // holds the type URL the library was given. The coordinator answers its
 // caller with "type_url" as sent and "upcast_type_url" as delivered (see
-// io/angzarr/v1/upcaster.proto). The state the handler sees is the
+// docs/design/upcasting.md). The state the handler sees is the
 // starting state (history.snapshot.state, when present) decoded, with
 // every delivered page folded in order.
 //
@@ -68,12 +68,12 @@ service CommandHandlerService {
   // A refusal records nothing. It is typed (one of the command's refuses
   // messages; decision 14.95): its status is the message's declared
   // (io.angzarr.v1.refusal_status), its google.rpc.ErrorInfo reason
-  // ROUTER_REASON_COMMAND_REFUSED with refusal_type, and the object packed in
+  // ANGZARR_REASON_COMMAND_REFUSED with refusal_type, and the object packed in
   // the status details (decision 14.37). The coordinator answers a client
   // caller with that status unchanged; a refused HandleAsync command is
   // dead-lettered with its refusal (AngzarrDeadLetter's refusal arm,
   // decision 14.101); a refused
   // policy command reaches the policy's Translate (the one refusal path;
-  // io/angzarr/v1/policy.proto, Refusals).
+  // docs/design/policies.md, Refusals).
   rpc Handle(io.angzarr.handler.v1.HandleRequest) returns (io.angzarr.handler.v1.HandleResponse);
 }
