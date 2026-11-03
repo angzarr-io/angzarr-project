@@ -6,8 +6,9 @@ Scenarios:
 [`parity/client/child.feature`](../../parity/client/child.feature), run by
 every child shim, and
 [`parity/host/supervision.feature`](../../parity/host/supervision.feature)
-(C-0763 to C-0768), run by every host; the handshake scenarios of
-`child.feature` are falsified by 14.80 and wait on its review. Reason keys:
+(C-0763 to C-0768), run by every host; `child.feature`'s handshake
+scenarios, falsified by 14.80, are rewritten to its readiness rule
+(health SERVING on the host's path). Reason keys:
 EmbeddedReason's `EMBEDDED_REASON_CHILD_*` and `EMBEDDED_REASON_PROBE_INPUT`, the
 local-process transport's
 (`proto/io/angzarr/transport/embedded/v1/reasons.proto`, English in
@@ -178,6 +179,6 @@ language's code generator to read, as each reads the
 Why a file option: proto3 has no constants, an enum value holds a number
 and never a string, and the spec states no constant any other way. A
 custom option is the spec's existing idiom for data a generator reads off
-the descriptor (options.proto's `(component)`, `(state)` and `(conflict)`,
-reasons.proto's `(reason)`), so the constants are a typed message set as
+the descriptor (options.proto's `(component)`, `(command)`, `(fact)`,
+`(event)` and `(refusal_status)`, reasons.proto's `(reason)`), so the constants are a typed message set as
 that file's option, read the same way, and nothing else on the wire.

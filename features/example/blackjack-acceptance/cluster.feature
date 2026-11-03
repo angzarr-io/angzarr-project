@@ -1,15 +1,15 @@
-# Allocated: EA-0014 .. EA-0049
+# Allocated: EA-0014 .. EA-0050
 Feature: Blackjack on a deployed cluster
   The blackjack example deployed as separate services, each one component
   with its own coordinator: the wallet, the table, the buy-in process, the
-  table-to-wallet translator and the ledger. These scenarios only make sense over a real
+  table-to-wallet translator, the wallet ledger and the table ledger. These scenarios only make sense over a real
   network: they observe what a caller waiting for an answer actually gets,
   what happens when two callers act on the same thing at once, what survives
   a restart, and what the stored history can be asked afterwards.
 
   Scenarios that relied on constructs the latest contract removes (waiting
   for every follow-up, writing without reactions, commutative and manually
-  reviewed conflicts, compensation, facts, cascade error modes, lasting
+  reviewed conflict resolution (gone: decision 14.92), compensation, facts, cascade error modes, lasting
   snapshots, what-ifs and speculative reads) wait on rulings in
   docs/design/blackjack-latest-proto-rulings.md.
 
@@ -17,13 +17,15 @@ Feature: Blackjack on a deployed cluster
   other's money. Tables are created with a named shoe seed; the golden shoes
   in ../blackjack/shoe.feature say which cards each seed deals. Assertions
   read what the services report: the event stream, stored history, and the
-  ledger's query service. Nothing is checked against the test's own notes.
+  ledgers' query services (WalletLedgerQueryService,
+  TableLedgerQueryService). Nothing is checked against the test's own notes.
 
   A scenario tagged @needs-core-X-NNN depends on the fix for that finding in
   the framework and is excluded from required runs until the fix lands; the
   fix removes the tag.
 
-  How to run: deploy the example, export PLAYER_URL, TABLE_URL and LEDGER_URL,
+  How to run: deploy the example, export PLAYER_URL, TABLE_URL,
+  WALLET_LEDGER_URL and TABLE_LEDGER_URL,
   then run the example repository's acceptance runner.
 
   Background:
@@ -36,51 +38,53 @@ Feature: Blackjack on a deployed cluster
 
   @command-mode @projector @cluster @needs-core-X-014
   @EA-0017
-  Scenario: A deposit that waits for the read models is in the ledger when it returns
+  Scenario: A deposit that waits for the wallet ledger is in it when it returns
     Given player "Alice" is registered
-    When "Alice" deposits 500 and waits for the read models to catch up
-    Then at the moment the answer arrives the ledger shows "Alice" with a bankroll of 500
+    When "Alice" deposits 500 and waits for projector "projector-wallet-ledger"
+    Then at the moment the answer arrives the wallet ledger shows "Alice" with a bankroll of 500
 
   @projector @consistency @cluster
   @EA-0018
-  Scenario: A deposit that does not wait reaches the ledger shortly after
+  Scenario: A deposit that does not wait reaches the wallet ledger shortly after
     Given player "Alice" is registered
     When "Alice" deposits 500 without waiting for anything downstream
-    Then within 3 seconds the ledger shows "Alice" with a bankroll of 500
+    Then within 3 seconds the wallet ledger shows "Alice" with a bankroll of 500
 
   # ==========================================================================
   # Two callers at once
   # ==========================================================================
-  # Rule: N/A — framework concurrency (conflict resolution) behaviour over the deployed cluster
+  # Rule: N/A — framework concurrency (a per-stream optimistic append, a lost
+  # race re-run on the new head, and the expected-sequence check; decisions
+  # 14.92 and 14.94) over the deployed cluster
 
-  @concurrency @conflict-aggregate-handles @cluster
+  @concurrency @cluster
   @EA-0022
   Scenario: A second bet for the same seat is refused by the table itself
     Given "Alice" sits at seat 0 of table "Main" with a stack of 500
-    And two bets of 20 at seat 0 were prepared from the table as it is now
-    When both bets are sent, letting the table judge them against its full history
+    And two bets of 20 at seat 0 were prepared, stating no expected sequence
+    When both bets are sent at once
     Then exactly one bet of 20 is placed at seat 0
-    And the other is refused because seat 0 has already bet this round
+    And the other is refused FAILED_PRECONDITION with a typed refusal io.angzarr.examples.v1.AlreadyBet for seat 0
 
-  @concurrency @conflict-aggregate-handles @cluster
+  @concurrency @cluster
   @EA-0023
-  Scenario: Bets for different seats prepared at the same moment both land
+  Scenario: Bets for different seats sent at the same moment both land
     Given "Alice" sits at seat 0 and "Bob" at seat 1 of table "Main", each with a stack of 500
-    And a bet of 20 at seat 0 and a bet of 30 at seat 1 were prepared from the table as it is now
-    When both bets are sent, letting the table judge them against its full history
+    And a bet of 20 at seat 0 and a bet of 30 at seat 1 were prepared, stating no expected sequence
+    When both bets are sent at once
     Then seat 0 has a wager of 20 and seat 1 has a wager of 30
 
   # Rule: AHR-10
-  @concurrency @conflict-strict @cluster
+  @concurrency @cluster
   @EA-0024
   Scenario: Two hits for one hand at the same moment deal exactly one card
     # Seed 1 deals "Alice" 7♦ 4♦ against a dealer showing 9♣.
     Given "Alice" sits at seat 0 of table "Main" opened with shoe seed 1
     And "Alice" has bet 20 and the round has been dealt
-    And two hits for seat 0 were prepared from the table as it is now
-    When both hits are sent, refusing either if the table has changed
+    And two hits for seat 0 were prepared, each stating the table's current next sequence as its expected sequence
+    When both hits are sent at once
     Then exactly one of the hits deals a card to seat 0, the 8♦
-    And the other is refused as out of date, and may be retried
+    And the other is refused FAILED_PRECONDITION with a typed refusal io.angzarr.v1.ExpectedSequenceMismatch whose head is past its expected sequence, and may be re-read and resent
 
   # ==========================================================================
   # Buy-ins across two services
@@ -153,6 +157,18 @@ Feature: Blackjack on a deployed cluster
     And table "Main" is open
     When "Alice" asks for seat 0 of "Main" for 500
     Then within 10 seconds the stored history of that conversation holds exactly one seat confirmation and one spent hold for 500 under the same buy-in
+
+  # Rule: L4
+
+  @ledger @cluster @needs-core-X-031
+  @EA-0050
+  Scenario: Once a session settles, the money in both ledgers adds up to what was deposited
+    Given players "Alice" and "Bob" are registered and have each deposited 1000
+    And "Alice" has bought in at seat 0 and "Bob" at seat 1 of table "Main" for 500 each
+    And 3 rounds have been played at table "Main" with every player standing as soon as it is their turn
+    And "Alice" has withdrawn 200
+    When the run has settled
+    Then the wallet ledger's bankrolls plus the table ledger's stacks, wagers and house result equal the wallet ledger's deposits minus its withdrawals
 
   # ==========================================================================
   # Restarts

@@ -259,7 +259,7 @@ an owner in the set (a folding entry included), generation fails.
 ProcessManagerDecl.starting_types lists the fully-qualified names of the
 commands and facts that may START an instance (decision 14.91,
 replacing the per-input CommandOptions.starts switch). What happens to an
-input for a correlation with no instance whose type is not listed (a fact
+input for a root with no instance whose type is not listed (a fact
 dead-lettered, decision 14.69; a command refused, ruling B1, adapted;
 decision 14.31) is `docs/design/process-managers.md` §4. The generator's
 rules: each listed type must be one of this PM's own commands or facts

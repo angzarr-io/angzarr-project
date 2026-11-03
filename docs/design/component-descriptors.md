@@ -110,7 +110,7 @@ starting_types are the fully-qualified type NAMES (no type URL prefix:
 and fact types that are the PM's STARTING inputs, copied from its
 declaration's starting_types
 ([component-options.md](component-options.md) §9; decision 14.91). The coordinator matches an input by the name its type URL ends
-in, after upcasting (decision 14.41). An input for a correlation with no
+in, after upcasting (decision 14.41). An input for a root with no
 PM instance is delivered only if its type is listed here; otherwise the
 coordinator dead-letters a fact and refuses a command (ruling B1,
 adapted; decision 14.31; see [process-managers.md](process-managers.md)

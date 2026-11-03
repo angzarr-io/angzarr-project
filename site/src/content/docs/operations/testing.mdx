@@ -613,12 +613,13 @@ Scenario: Order completion triggers fulfillment
 
 ### Shared Feature Files
 
-The **same Gherkin scenarios** validate all language implementations. `angzarr-project/features/acceptance/` is the canonical source; each example repo pulls it in via the project submodule.
+The **same Gherkin scenarios** validate all language implementations. `angzarr-project/features/example/` is the canonical source; each example repo pulls it in via the project submodule.
 
 ```text title="canonical feature layout"
-angzarr-project/features/acceptance/
-├── poker_game.feature      # End-to-end poker flow
-└── sync_modes.feature      # What each command mode waits for
+angzarr-project/features/example/
+├── blackjack/              # House rules, by direct handler invocation
+├── blackjack-framework/    # Framework concepts through the blackjack components
+└── blackjack-acceptance/   # Cluster-only scenarios, against a deployed cluster
 ```
 
 Each of the six language repos (Python, Rust, Go, Java, C#, C++) implements **169 step definitions** against the same features — same behavior, same assertions, different runtimes.

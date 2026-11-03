@@ -11,8 +11,8 @@ Among other failures, a fact whose ingest handler fails lands here: a
 failing fact handler is a bug, never a business rejection
 ([pipeline.md](pipeline.md) §7.2).
 
-A dead letter is its payload and why: a typed refusal, or a reason
-(decisions 14.78 and 14.101). Everything else about why is read
+A dead letter is its payload and why: a typed refusal, a reason, or a
+transport's own why (decisions 14.78, 14.101 and 14.107). Everything else about why is read
 from it: a refusal's type and fields, or a reason's key, args and the
 key's declared status (its (reason) option;
 [reason-keys.md](reason-keys.md) §5). Stores from before the rewrite
@@ -23,8 +23,9 @@ rejected_reaction.cover, rejected_events.cover or
 failed_edition_removal.cover); the entry does not repeat it.
 
 A transport may wrap the entry with what only it knows: the distributed
-transport's DeadLetterEnvelope adds the captured stack trace, metadata
-and a claim-checked payload's retrieval details (decision 14.64). The
+transport's DeadLetterEnvelope adds the captured stack trace (decision
+14.64; its metadata is dropped, and a claim-checked payload's retrieval
+failure is the entry's own transport why, §3; decision 14.107). The
 entry itself is whole without it: the angzarr-embedded kernel stores it
 bare.
 

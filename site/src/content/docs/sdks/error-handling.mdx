@@ -76,7 +76,7 @@ It's important to distinguish between:
 | Type | Cause | Action |
 |------|-------|--------|
 | **CommandRejectedError** | Business rule violation | Render its code and args from the catalog for the user, don't retry |
-| **PreconditionFailed (sequence)** | Optimistic locking conflict | Refetch state and retry |
+| **PreconditionFailed (`ExpectedSequenceMismatch`)** | The stream moved past the expected sequence the command stated | Refetch state, re-decide and retry |
 | **ConnectionError** | Network failure | Retry with exponential backoff |
 | **InvalidArgument** | Bad input data | Fix input, don't retry |
 

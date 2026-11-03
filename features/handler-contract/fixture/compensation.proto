@@ -15,7 +15,7 @@ import "io/angzarr/v1/options.proto";
 //   charge payment - completed by PaymentCharged, undone by RefundDue, which
 //                    its outbound policy turns into RefundPayment.
 // ShipmentFailed is its failed event. An undo's target must be a fact
-// (decision 14.83, DRAFT): a registration whose undo targets a command is
+// (decision 14.83): a registration whose undo targets a command is
 // refused, so no undo is ever refused.
 
 // --- the process manager's state and events ---

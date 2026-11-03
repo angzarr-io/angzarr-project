@@ -12,11 +12,11 @@ Policies are the bridge between domains. Each domain has its own aggregate, but 
 
 ## One Source, One Destination
 
-A policy translates between **exactly two domains**: events of its one source domain (its `input_domain`) into commands for its one destination domain (its `output_domain`). There is one policy per (source, destination) pair: every reaction from one domain's events to another domain's commands is part of that pair's single policy.
+A policy translates between **exactly two domains**: events of its one source domain into commands and facts for its one destination domain (its `output_domain`). Its source is never declared: it is derived from the events it names (`PolicyDescriptor.input_domain`). There is one policy per (source, destination) pair: every reaction from one domain's events to another domain's inputs is part of that pair's single policy. A policy emits what its destination declares: a command for a type declared `(command)`, a fact for one declared `(fact)` (decision 14.69).
 
 The destination may be an aggregate's domain or a [process manager](/components/process-manager)'s: a process manager is a domain, so a policy's commands reach it like any other domain's. Anything that needs several destinations, or state, is a process manager.
 
-The coordinator enforces the shape when the component registers: a policy with other than exactly one input, or with no output domain, is refused (`COORDINATOR_REASON_POLICY_INPUT_COUNT`, `ANGZARR_REASON_POLICY_NO_OUTPUT_DOMAIN`).
+The shape is enforced twice. Generation fails for a policy whose events come from more than one domain, or that declares no output domain. The coordinator checks the descriptor when the component registers: one with no source or no output domain is a readiness refusal (`ANGZARR_REASON_NO_INPUT_DOMAIN`, `ANGZARR_REASON_POLICY_NO_OUTPUT_DOMAIN`).
 
 ---
 
@@ -24,10 +24,9 @@ The coordinator enforces the shape when the component registers: a policy with o
 
 Every policy follows this pattern:
 
-1. **Receive** an EventBook from its source domain
-2. **Filter** for the events it reacts to
-3. **Extract** the data needed to build commands
-4. **Return** commands for its destination domain, per triggering event
+1. **Receive** one trigger event of its source domain (`React`, one call per event)
+2. **Extract** the data needed for the destination's inputs
+3. **Return** outputs: each a destination root and a payload, in the arm its destination declares
 
 ```mermaid
 flowchart LR
@@ -36,14 +35,14 @@ flowchart LR
     end
 
     subgraph Policy[Policy Processing]
-        Filter[1. Filter events]
+        Filter[1. One trigger event]
         Extract[2. Extract data]
-        Build[3. Build command]
+        Build[3. Build output]
         Filter --> Extract --> Build
     end
 
     subgraph DomainB[Table Domain]
-        Output[CommandBook<br/>JoinTable]
+        Output[Output<br/>JoinTable]
     end
 
     Input --> Filter
@@ -55,7 +54,7 @@ flowchart LR
 
 *The dashed domain represents the policy's one destination domain.*
 
-The business code checks nothing and stamps nothing. The policy's coordinator checks every command and fact it returns (destination, edition, root, correlation, no `Handling`, no identity or `fact_origin` of its own) and stamps its identity. Any failed check is a policy bug: the whole answer is refused `INTERNAL`, nothing is delivered, and the trigger is dead-lettered and alerted (`PolicyResponse` in `docs/design/policies.md`; the keys are listed in [Error Recovery](/operations/error-recovery)).
+The business code checks nothing and stamps nothing. An output (`io.angzarr.handler.v1.Output`) is a destination root and a payload, nothing else, so the coordinator addresses and stamps every one alike: the destination domain, the trigger's edition, the derived `command_id`, the trigger's correlation, the trigger as causation, and a fact's origin. It still checks what a type cannot hold: a root unset or not 16 bytes, an output to the trigger's own stream, a destination it cannot route, a chain too deep. Any failed check is a policy bug: the whole answer is refused `INTERNAL`, nothing is delivered, and the trigger is dead-lettered and alerted (`docs/design/policies.md` §2 and §6; the keys are listed in [Error Recovery](/operations/error-recovery)).
 
 ---
 
@@ -80,36 +79,39 @@ The example repositories still name this component a saga; they follow the contr
 
 ## Several Commands From One Event
 
-When one event should trigger commands to **several roots** of the destination domain, return several `CommandBook` entries, one per target root. This is the [splitter pattern](https://eda-visuals.boyney.io/visuals/splitter-pattern).
+When one event should trigger commands to **several roots** of the destination domain, return several outputs, one per target root. This is the [splitter pattern](https://eda-visuals.boyney.io/visuals/splitter-pattern).
 
 **Example:** When a table settles, distribute payouts to several players:
 
 ```python file=vendor/examples/python/table/saga-hand/splitter_example.py region=saga_splitter
 ```
 
-Each `CommandBook` targets a different root. The framework delivers them independently: if one is refused, the others may still succeed, and each refusal comes back to the policy's source as its own refusal fact (below).
+Each output targets a different root. The framework delivers them independently: if one is refused, the others may still succeed, and each refusal comes back to the policy's source as its own refusal fact (below).
 
 ---
 
 ## Refusals
 
-When a target **refuses** one of a policy's commands, the target records nothing and may return a typed refusal object of its own domain (one of the command's `refuses` types). The refusal comes back to the policy, and the policy's coordinator builds one **refusal fact** for the exact stream of the triggering event; its id is the refused command's id.
+When a target **refuses** one of a policy's commands, the target records nothing and answers a business status carrying a typed refusal object of its own domain (one of the command's `refuses` types; every refusal is typed, decision 14.95). There is **one path** (decision 46 #5): the policy's coordinator calls the policy's `Translate` with the trigger, the command as delivered and the refusal, and the policy's one refusal callback returns a fact of its own source domain:
 
-- **Translate**: the policy's callback reads the refused command and its typed refusal and returns a fact of the source domain, so a source that does not want to unpack a foreign object, or import foreign protos, gets a domestic fact. A policy the `angzarr` CLI generates always translates (decision 14.76): the callback is required for every command of its target, and answers a fact of the source or a bug.
-- **Pass-through** (a policy written by hand only): the coordinator builds the standard `CommandRefused { command, refusal, trigger }`, the typed refusal object packed, and the source domain handles it in its `on_refused_<Command>(refusal, state)`, unpacking the foreign object.
+```text title="the one refusal callback"
+refused(command, refusal, ctx) -> <a fact of the source domain>, or a Bug
+```
 
-The refusal fact is unrefusable. A policy's facts for its destination are never refused at all, so only its commands come back this way. The source decides what the refusal means and records its own events. There is no compensation side channel: the refusal is an ordinary fact in the source's own stream.
+The callback takes the refused command (its target's command choice) and the refusal (one arm per refusal message its target's commands name). Its author handles the refusals of the commands the policy sends and answers every other arm with a bug (decision 14.89). The coordinator delivers the fact to the exact stream of the triggering event, with the refused command's id, so the source never imports foreign protos. There is no pass-through and no policy that declines to translate.
 
-Every command of a domain a policy targets names a `refuses` type, and the generator refuses one that names none. A hand-written policy's refusal with no path (a pass-through `CommandRefused` whose command type the source has no handler for) is answered `ANGZARR_REASON_NO_REFUSAL_HANDLER`, dead-lettered and alerted; a generated policy never reaches it. See [Error Recovery](/operations/error-recovery#policy-refusals).
+The refusal fact is unrefusable. A policy's facts for its destination are never refused at all, so only its commands come back this way. Only a business rejection reaches `Translate`: an `ABORTED` re-runs the step, and a bug is dead-lettered. The source decides what the refusal means and records its own events. There is no compensation side channel: the refusal is an ordinary fact in the source's own stream.
+
+A command whose `refuses` names nothing cannot refuse, so every command a policy sends has a path by construction (decision 14.99). A generated policy whose target has a command that can refuse has its one callback, required; generation fails if its source takes no fact to translate into. A hand-written policy whose router has no callback answers `ANGZARR_REASON_NO_REFUSAL_HANDLER`, dead-lettered and alerted. The rules are `docs/design/policies.md` §3; see also [Error Recovery](/operations/error-recovery#policy-refusals).
 
 ---
 
 ## Identity and Sequences
 
-**Policies do not set ids or sequences.** The policy's coordinator stamps each command's identity:
+**Policies do not set ids or sequences.** The policy's coordinator stamps each output's identity, and delivers it as a `ReactionDelivery` through the framework-only `Deliver`:
 
-```text title="reaction command identity"
-causation_id   — the triggering event (its EventRef)
+```text title="reaction identity"
+causation      — the triggering event (its EventRef)
 command_id     — UUIDv5 of (trigger, the policy's registered name,
                  the command's index in the reaction's output)
 correlation_id — the trigger's, unchanged
@@ -117,9 +119,9 @@ correlation_id — the trigger's, unchanged
 
 A redelivered trigger therefore yields the same command ids, and the destination deduplicates them.
 
-A reaction command carries no `Handling` at all: the destination always stamps its head before business code, so no sequence check or conflict resolution applies (`docs/design/pipeline.md` §1 and §10). The destination's own command handler is the business guard: if the command no longer makes sense for the current state, it refuses it, and the refusal comes back as above.
+A reaction carries no `Handling` at all: there is no expected sequence to check, and the destination appends at the head it loaded, like any input (`docs/design/pipeline.md` §1 and §10). The destination's own command handler is the business guard: if the command no longer makes sense for the current state, it refuses it, and the refusal comes back as above.
 
-Policies never load target state or sequences: the coordinator invokes a policy with the triggering events only.
+Policies never load target state or sequences: the coordinator invokes a policy with its one trigger event only. In an edition, every stream a policy reaches must already be forked there: a reaction to an unforked stream is refused `ANGZARR_REASON_EDITION_NOT_FORKED` and dead-lettered (decision 14.107).
 
 ---
 

@@ -3,9 +3,15 @@ Feature: Executing commands against aggregates
   Clients send commands to aggregates to change their state. Commands are
   validated, processed, and result in events being persisted. Callers can
   send without waiting (handle_async), wait for the decision (handle), or
-  also wait for the synchronous projectors (handle_sync); these are named
-  after the coordinator RPCs HandleAsync, Handle and HandleSync. No mode
-  waits for policies or process managers.
+  also wait for the projectors the call names (handle_sync, decision
+  14.107); these are named after the coordinator RPCs HandleAsync, Handle
+  and HandleSync. No mode waits for policies or process managers.
+
+  "At sequence N" sets the command's expected sequence (Handling): the
+  coordinator refuses a set expected sequence other than the stream's head,
+  behind or ahead alike, before business code runs, with its typed refusal
+  ExpectedSequenceMismatch, FAILED_PRECONDITION (decision 14.94). There is
+  no conflict resolution (decision 14.92).
 
   Without command execution, the system cannot accept user actions or
   change aggregate state.
@@ -50,20 +56,22 @@ Feature: Executing commands against aggregates
   Scenario: Sending a command at the wrong sequence is refused
     Given an aggregate "orders" with root "order-002" at sequence 5
     When I send a command at sequence 3
-    Then the command is refused because the aggregate has moved on
+    Then the command is refused FAILED_PRECONDITION with an ExpectedSequenceMismatch naming expected 3 and head 5
 
   @C-0195
   Scenario: Only one of two concurrent writes can land
     Given an aggregate "orders" with root "order-003" at sequence 0
     When two commands are sent concurrently at sequence 0
     Then one command is accepted
-    And the other is refused because the aggregate has moved on
+    And the other is refused FAILED_PRECONDITION with an ExpectedSequenceMismatch naming expected 0 and head 1
 
   @C-0196
   Scenario: Retrying at the current sequence after a stale write succeeds
+    # The first attempt is refused by the coordinator, never by business
+    # code (decision 14.94).
     Given an aggregate "orders" with root "order-004" at sequence 5
     When I send a command at sequence 3
-    Then the command is refused because the aggregate has moved on
+    Then the command is refused FAILED_PRECONDITION with an ExpectedSequenceMismatch naming expected 3 and head 5
     When I look up the current sequence for "orders" root "order-004"
     And I retry the command at that sequence
     Then the command is accepted
@@ -81,11 +89,11 @@ Feature: Executing commands against aggregates
     And the response returns before any projectors have caught up
 
   @C-0198
-  Scenario: A command sent with handle_sync waits for the synchronous projectors
+  Scenario: A command sent with handle_sync waits for the projectors it names
     Given a new aggregate root in domain "orders"
-    And projectors are configured for "orders" domain
-    When I send a command with handle_sync
-    Then the response reflects the projectors having processed the event
+    And a projector "order-summary" subscribed to the "orders" domain
+    When I send a command with handle_sync naming projector "order-summary"
+    Then the response carries one projection, from "order-summary", covering the command's events
 
   # ==========================================================================
   # Command Validation
@@ -158,4 +166,4 @@ Feature: Executing commands against aggregates
   Scenario: The first command on an aggregate must start at sequence 0
     Given no aggregate exists for domain "orders" root "order-new2"
     When I send a command at sequence 5
-    Then the command is refused because the aggregate has moved on
+    Then the command is refused FAILED_PRECONDITION with an ExpectedSequenceMismatch naming expected 5 and head 0

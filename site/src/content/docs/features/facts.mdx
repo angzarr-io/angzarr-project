@@ -50,27 +50,29 @@ Facts from external systems often arrive multiple times (webhook retries, networ
 
 ## How It Works
 
-A fact travels through the same command coordinator as a command (`Handle`, `HandleAsync` or `HandleSync`). What makes it a fact is its page: `CommandPage.body` is a `Fact` rather than a `Command`, and it carries a **fact origin**.
+A fact travels through the same command coordinator as a command (`Handle`, `HandleAsync` or `HandleSync`). What makes it a fact is its page: `CommandPage.body` is a `Fact` rather than a `Command`, and the `Fact` carries its **origin**.
 
 ```protobuf file=proto/io/angzarr/v1/types.proto region=command_page
 ```
 
+Dispatch by arm and type, and the fact's rules: `docs/design/pipeline.md` §6 and §7.2.
+
 Facts need two things that regular commands don't:
 
-1. **An idempotency key** — Stripe might retry that webhook five times. You need to record the payment exactly once. It is `fact_origin.external_id`: the fact's `command_id` is derived from it, so a redelivery to the same stream is answered `DUPLICATE`, with the first delivery's events.
-2. **No sequence** — a fact is never checked against a sequence and never conflict-resolved. The coordinator stamps the stream's head; a `Fact` that sets any `Handling` field is malformed and refused `INVALID_ARGUMENT`.
+1. **An idempotency key** — Stripe might retry that webhook five times. You need to record the payment exactly once. It is `origin.external_id`: the fact's `command_id` is derived from it, so a redelivery to the same stream is answered `DUPLICATE`, with the first delivery's events.
+2. **No sequence** — a fact is never checked against a sequence: a `Fact` has no `Handling`. It is appended at the head the coordinator loaded, like any input; a lost race re-runs it on the new head.
 
 ### Processing Flow
 
 The coordinator handles a fact the way it handles any command, through the one pipeline:
 
-1. Validates it (`fact_origin` with a non-empty `external_id`; no `Handling`)
-2. Derives its `command_id` from `fact_origin.external_id` and deduplicates on the addressed stream
-3. Routes it to the component's **fact handler** for its type (`ANGZARR_REASON_NO_FACT_HANDLER` if there is none)
-4. Appends the events the handler records at the stream's head, each carrying the fact's origin (`EventMeta.fact`)
+1. Validates it (an `origin` with a non-empty `external_id`)
+2. Derives its `command_id` from `origin.external_id` and deduplicates on the addressed stream
+3. Calls the component's `Handle`, whose router dispatches it to the handler for its type (`ANGZARR_REASON_NO_FACT_HANDLER` if there is none)
+4. Appends the events the handler records at the head it loaded, each carrying the fact's origin (`EventMeta.causation`'s fact arm)
 5. Publishes them to downstream consumers, with ordinary sequence numbers
 
-A failing fact handler is a bug, never a refusal: the fact is dead-lettered and alerted, and the sender is answered "accepted, parked" (`OK`, `PARKED`).
+A failing fact handler is a bug, never a refusal: the fact is dead-lettered and alerted, and the sender is answered `INTERNAL` `ANGZARR_REASON_FACT_DEAD_LETTERED`, never retried (decision 14.100). A fact that loses a race at every write until the race re-run cap is dead-lettered and answered the same way, even when its sender is waiting (decision 14.109).
 
 ---
 
@@ -82,13 +84,15 @@ Here's how you send a fact with proper idempotency:
 book = CommandBook(
     cover=Cover(domain="payments", root=payment_id),
     page=CommandPage(
-        fact=Fact(payload=Any.pack(PaymentConfirmed(
-            amount=Money(amount=5000, currency="USD"),
-            provider="stripe",
-        ))),
-        fact_origin=FactOrigin(
-            external_id="stripe_pi_abc123",  # Idempotency key
-            description="Payment intent succeeded",
+        fact=Fact(
+            payload=Any.pack(PaymentConfirmed(
+                amount=Money(amount=5000, currency="USD"),
+                provider="stripe",
+            )),
+            origin=FactOrigin(
+                external_id="stripe_pi_abc123",  # Idempotency key
+                description="Payment intent succeeded",
+            ),
         ),
     ),
 )
@@ -101,13 +105,12 @@ Webhook retries? Network hiccups? Duplicate deliveries? The derived `command_id`
 
 ## Declaring Facts
 
-A fact type is declared on its message, like a command, with the `(io.angzarr.v1.command)` option and `fact: true`. It is owned by exactly one component, an aggregate or a process manager; code generation emits one fact handler for it, and the generated dispatch routes each fact to the handler for its type.
+A fact type is declared on its message with its own option, `(io.angzarr.v1.fact)` (decision 14.91), as a command is with `(io.angzarr.v1.command)`; a message carries one of the two, never both. It is owned by exactly one component, an aggregate or a process manager; code generation emits one handler for it, under the same `#[handles]` attribute as a command's but with no refusal return, and the generated dispatch routes each fact to the handler for its type.
 
 ```protobuf title="illustrative - fact declaration"
 message ShipmentDispatched {
-  option (io.angzarr.v1.command) = {
+  option (io.angzarr.v1.fact) = {
     component: "examples.v1.OrderState"
-    fact: true
   };
   string order_id = 1;
 }
@@ -127,7 +130,7 @@ def on_shipment_dispatched_fact(self, state, fact):
 |-----------|--------|
 | Fact type with a fact handler | Routed to it; recorded |
 | No handler for the fact's type | Refused as a wiring error: `INTERNAL`, `ANGZARR_REASON_NO_FACT_HANDLER`; nothing persisted |
-| `refuses` set on a fact type | Generation fails: a fact cannot be refused |
+| A fact type | Has no `refuses`: `FactOptions` has no such field, so a fact cannot be refused |
 
 A policy sends the facts its destination declares: for a type the destination declares a fact, the policy's generated code emits a Fact, which the destination records and never refuses. A policy also delivers the refusal fact of a refused command, to the stream of its trigger (see [Policies: Refusals](/components/policy#refusals)).
 

@@ -7,25 +7,16 @@ Cached aggregate state at a point in time. Snapshots optimize [replay](/glossary
 
 ## When to Snapshot
 
-The coordinator persists a snapshot whenever a command handler returns aggregate state that differs from the stored snapshot, anchored at the sequence of the last new event. There is no fixed event-count cadence: a handler that returns state on every command is snapshotted on every command. Snapshot writes are best-effort; a failed write only means the next load replays more events.
+Snapshots are a framework optimisation, never business data. The client library returns the post-command state on every answer (`HandleResponse.state`); business code never decides when. The coordinator persists it per the domain's storage policy (by default only the newest snapshot of a stream is kept), anchored at the sequence of the last event folded in and stamped with the answer's rules version. A failed snapshot write only means the next load replays more events. Business milestones are domain events, never retained snapshots.
 
-Retention decides how many snapshots accumulate. Under `RETENTION_DEFAULT` and `RETENTION_TRANSIENT` only the newest snapshot of an aggregate survives, so storage stays bounded regardless of how often snapshots are written.
+## When One Is Offered
 
-## Snapshot Retention Policies
-
-| Policy | Behavior | Use Case |
-|--------|----------|----------|
-| `RETENTION_DEFAULT` | Delete when newer written (same as TRANSIENT) | Normal operation |
-| `RETENTION_PERSIST` | Keep indefinitely | Business milestones |
-| `RETENTION_TRANSIENT` | Delete when newer written | Temporary checkpoints |
+The coordinator offers a snapshot with a delivery only when its state type is the one the component registered and its rules version is compatible with the registered one (major.minor for SemVer versions, exact equality otherwise). One that fails either check is simply not offered: the delivery carries every page from sequence 0. The rules are `docs/design/snapshots.md`.
 
 ## Structure
 
-A snapshot contains:
-- Serialized aggregate state
-- Sequence number at snapshot time
-- Timestamp
-- Retention policy
+```protobuf file=proto/io/angzarr/v1/types.proto region=aggregate_snapshot
+```
 
 ## Trade-offs
 

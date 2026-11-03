@@ -1,5 +1,5 @@
-# Orthogonal envelope for the FailHard command (no fields).
-command {
+# Orthogonal HandleRequest for the FailHard command (no fields).
+input {
   cover { domain: "counter" }
   page {
     command {

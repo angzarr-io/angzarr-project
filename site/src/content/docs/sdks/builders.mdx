@@ -157,7 +157,7 @@ events = client.query_domain("orders") \
 | Method | Description |
 |--------|-------------|
 | `with_correlation_id(id)` | Set correlation ID for distributed tracing |
-| `with_sequence(seq)` | Set expected sequence for optimistic locking |
+| `with_sequence(seq)` | Set the expected sequence (`Handling.expected_sequence`): the coordinator refuses the command `ExpectedSequenceMismatch` if the stream is not at it |
 | `with_command(type_url, msg)` | Set the command payload |
 | `build()` | Build the CommandBook without executing |
 | `execute()` | Build and execute the command |
@@ -167,7 +167,7 @@ events = client.query_domain("orders") \
 | Method | Description |
 |--------|-------------|
 | `by_correlation_id(id)` | Query by correlation ID across aggregates |
-| `with_edition(edition)` | Filter by schema edition |
+| `with_edition(edition)` | Read an edition's timeline (unset is main) |
 | `range(lower)` | Events from sequence `lower` onwards |
 | `range_to(lower, upper)` | Events in sequence range |
 | `as_of_sequence(seq)` | Temporal query at sequence |

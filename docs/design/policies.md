@@ -219,7 +219,8 @@ cannot set it:
   - causation: the trigger's EventRef;
   - a fact's origin: external_id the command_id's canonical text,
     description naming the type and the policy;
-  - Handling: none; the destination stamps its head.
+  - Handling: none; the destination appends at the head it loaded, as
+    for any input (decision 14.92).
 ```
 
 The root is required for every destination, an aggregate's or a process
@@ -230,12 +231,8 @@ destination's declaration, (command) or (fact) (options.proto; decision
 the reverse) is refused by the destination's router, as before (decision
 14.69; §2).
 
-The coordinator still refuses a root that is unset or not 16 bytes
-(ANGZARR_REASON_POLICY_COMMAND_NO_ROOT), an output to the trigger's own
-stream (ANGZARR_REASON_POLICY_TARGETS_ITS_TRIGGER), a destination it
-cannot route (ANGZARR_REASON_POLICY_COMMAND_UNKNOWN_DOMAIN) and a chain too
-deep (ANGZARR_REASON_CHAIN_TOO_DEEP): each a policy bug, the trigger
-dead-lettered and alerted, nothing delivered (§2).
+What the coordinator still checks of an answer, and what a failed check
+does, are §2.
 
 **Translate.** Translate turns one refusal of the policy's command into
 one fact of its own source (the one refusal path, decision 46 #5; §3). It

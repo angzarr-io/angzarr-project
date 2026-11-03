@@ -103,22 +103,25 @@ angzarr dlq discard --domain=hand --before=2024-01-15
 
 ## Policy Refusal Tracking
 
-When a target refuses a policy's command, it records nothing, and the policy's coordinator delivers one refusal fact to the stream of the triggering event. By default that is the standard `CommandRefused`:
+When a target refuses a policy's command, it records nothing, and the policy's coordinator hands the refusal to the policy's `Translate` (the one refusal path). Its one refusal callback answers a domestic fact of the policy's source domain, which the coordinator delivers to the stream of the triggering event:
 
-*Illustrative — CommandRefused:*
+*Illustrative — a refusal translated:*
 
-| Field | Example Value |
-|-------|---------------|
-| `command` | the refused `DeductFromPlayerStack` command, as delivered (its ids stamped) |
-| `refusal` | the target's typed refusal object, packed: `InsufficientBalance { available: 40, requested: 100 }` |
-| `trigger` | the triggering event's `EventRef`: `{domain: "hand", root: ..., sequence: 42}` |
+| What | Example Value |
+|------|---------------|
+| The refused command | `DeductFromPlayerStack`, as delivered (its `ReactionDelivery`, ids stamped) |
+| The refusal | the target's typed refusal object, `InsufficientBalance { available: 40, requested: 100 }`, and the status it travelled as |
+| The trigger | the triggering event's `EventRef`: `{domain: "hand", root: ..., sequence: 42}` |
+| The fact delivered | the source's own fact, e.g. `StackDeductionRefused { requested: 100 }` |
 
 The fact's id is the refused command's id, and it carries the trigger's correlation. The source records it in its own stream and decides what it means, so the audit trail shows:
 1. What was attempted
-2. Why it was refused
+2. Why it was refused (in the source's own terms)
 3. What the source did about it
 
-```protobuf file=proto/io/angzarr/v1/types.proto region=refusal_facts
+The rules are `docs/design/policies.md` §3 and §4.
+
+```protobuf file=proto/io/angzarr/v1/types.proto region=reaction_delivery
 ```
 
 ---

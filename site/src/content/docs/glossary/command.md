@@ -26,10 +26,12 @@ Commands use **imperative** naming - they tell the system what to do:
 
 Commands are wrapped in a [CommandBook](/glossary/command-book) containing exactly one command:
 - The command payload
-- Its identity: a `command_id`, a `correlation_id`, and for a policy's reaction command the triggering event (`causation_id`)
-- `Handling`: the expected sequence number (for optimistic concurrency) and the conflict resolution, on client commands to an aggregate only
+- Its identity: a `command_id` and a `correlation_id`
+- `Handling`: the optional expected sequence (`ExpectedSequenceMismatch` when the stream has moved), on client commands only
 
-Reaction commands come from policies only. A process manager sends no commands: it records an event carrying the data a command needs, and a policy from its domain builds the command. A target that refuses a reaction command records nothing; the policy delivers a fact of the refusal to its own domain, passed through or translated (see [Process Managers](/components/process-manager)). There is no compensation channel.
+A policy's reaction command is not a CommandBook: its coordinator delivers it as a `ReactionDelivery`, with its derived id, its trigger's correlation and its trigger as causation, and no Handling.
+
+Reaction commands come from policies only. A process manager sends no commands: it records an event carrying the data a command needs, and a policy from its domain builds the command. A target that refuses a reaction command records nothing; the policy's one refusal callback translates the refusal into a fact of its own source domain (see [Policies](/components/policy)). There is no compensation channel.
 
 A process manager is a domain: it takes commands like an aggregate and may refuse them. When a policy's command is refused, the refusing domain records nothing; the policy delivers an unrefusable refusal fact, with the refused command's id, to the policy's own source domain.
 
@@ -37,4 +39,4 @@ A process manager is a domain: it takes commands like an aggregate and may refus
 
 Not all messages to aggregates are rejectable requests. External realities (payments processed, packages delivered) are **facts** that must be recorded, not decided upon.
 
-Angzarr distinguishes these by allowing [fact events](/components/commands-vs-facts) — events sent directly to aggregates with idempotency keys instead of sequence numbers. This preserves semantic clarity: commands request decisions, facts notify of external reality.
+Angzarr distinguishes these by the page's body arm: a `Command` or a [`Fact`](/components/commands-vs-facts), declared by its own option, `(command)` or `(fact)`. A fact's `command_id` is derived from its origin, so a redelivery is deduplicated. This preserves semantic clarity: commands request decisions, facts notify of external reality.

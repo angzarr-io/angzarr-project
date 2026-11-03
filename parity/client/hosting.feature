@@ -19,7 +19,7 @@ Feature: Component host - serving its registered component over gRPC
     Given a component host with an aggregate component for domain "order" registered
     When the host starts on a TCP port
     Then CommandHandlerService is served on that port
-    And a ContextualCommand for domain "order" sent to CommandHandlerService.Handle reaches the order component
+    And a HandleRequest for domain "order" sent to CommandHandlerService.Handle reaches the order component
 
   @C-0499
   Scenario Outline: The host takes its transport from the environment
@@ -69,36 +69,26 @@ Feature: Component host - serving its registered component over gRPC
     # this scenario.
     Given a component host with no component registered
     When the host starts
-    Then starting fails with a configuration error
+    Then starting fails with reason ANGZARR_REASON_NO_COMPONENTS_REGISTERED
+    And no service is served
 
   @C-0579
   Scenario: A host given a second component refuses to start
-    # One business process is one component (decision 14.19). A client whose
-    # host API cannot represent a second component (e.g. a Rust typestate
-    # builder, refused at compile time) satisfies this scenario.
-    Given a component host with an aggregate component for domain "order" registered
-    And a second component, an aggregate for domain "payment", registered on the same host
+    # One business process is one component (decision 14.19). The router is
+    # the key's one owner, and the host registers through it (decision
+    # 14.88). A client whose host API cannot represent a second component
+    # (e.g. a Rust typestate builder, refused at compile time) satisfies
+    # this scenario.
+    Given a component host with an aggregate component "order" for domain "order" registered
+    And a second component, an aggregate "payment" for domain "payment", registered on the same host
     When the host starts
-    Then starting fails with a configuration error naming both components
+    Then starting fails with reason ANGZARR_REASON_DUPLICATE_COMPONENT, registered "order" and refused "payment"
     And no service is served
 
-  @C-0743
-  Scenario: A host refuses a descriptor whose rules version is not the one its component reports
-    # Decision 14.42, amended: a descriptor generated or written by hand is
-    # checked alike; the coordinator would refuse every answer of a
-    # component whose descriptor names another version.
-    Given a component host whose aggregate component "Order" for domain "order" reports rules version "1.4.2"
-    When the component is registered with a descriptor carrying rules version "1.4.1"
-    Then the registration fails with reason HOST_REASON_DESCRIPTOR_RULES_VERSION_MISMATCH, component "Order", described "1.4.1" and reported "1.4.2"
-    And no component is registered
-
-  @C-0747
-  Scenario: A host refuses a projector that names no input domain
-    # Decision 14.55: there is no wildcard domain (14.53), so a projector
-    # naming no domain it reads would fold nothing. A client that builds
-    # the descriptor from the dispatch table (describe()) refuses such a
-    # table there too, with the same key.
-    Given a component host
-    When a projector component "Totals" naming no input domain is registered
-    Then the registration fails with reason HOST_REASON_PROJECTOR_NO_INPUT_DOMAIN and component "Totals"
-    And no component is registered
+  # C-0743 (a host refusing a descriptor whose rules version is not the one
+  # its component reports) and C-0747 (a host refusing a projector that
+  # names no input domain) are retired: the coordinator owns every
+  # descriptor check (decisions 14.101 and 14.102). Its equivalents are the
+  # per-answer refusal ANGZARR_REASON_RULES_VERSION_MISMATCH
+  # (coordinator-contract rules_version.feature, C-0748) and the readiness
+  # key ANGZARR_REASON_NO_INPUT_DOMAIN (component_discovery.feature, C-0687).

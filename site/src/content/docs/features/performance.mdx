@@ -9,7 +9,7 @@ An aggregate with a hundred thousand events. State rebuilt in fifty milliseconds
 
 Event sourcing rebuilds state by replaying events. A player who's been active for years might have tens of thousands of events. Replaying them on every command would be prohibitive.
 
-The framework provides three mechanisms: snapshots, async processing, and conflict resolution.
+The framework provides three mechanisms: snapshots, async processing, and a per-stream optimistic append with no locks.
 
 ---
 
@@ -33,37 +33,18 @@ flowchart LR
 
 Without: replay 100,000 events. With: replay 999 events.
 
-### Client-Driven Snapshotting
+### Snapshots Are the Framework's
 
-The aggregate handler decides when to snapshot by including state in the EventBook:
-
-```python title="illustrative - client-driven snapshotting"
-def handle_command(cmd, event_book):
-    state = build_state(event_book)
-    event = compute(cmd, state)
-
-    # Include snapshot state when appropriate
-    new_state = apply_event(state, event)
-    if should_snapshot(event_book, new_state):
-        event_book.snapshot.state = Any.pack(new_state)
-
-    return event_book
-
-def should_snapshot(event_book, state):
-    # Snapshot every 1000 events
-    return len(event_book.pages) > 0 and state.event_count % 1000 == 0
-```
-
-The framework persists the snapshot automatically when the handler provides state. The aggregate owns the decision logic—snapshot after N events, after certain event types, or based on state size.
+Business code never decides whether or when to snapshot. Every answer a handler gives carries the state with its events folded in (`HandleResponse.state`), filled by the client library, never by business code; the coordinator persists it as a snapshot per the domain's storage policy, stamped with the answer's rules version (`docs/design/handler-contract.md` §7). A snapshot is offered back only when its state type is the one the component registered and its rules version is compatible (`docs/design/snapshots.md` §3).
 
 ### On Command Arrival
 
 On command arrival:
 
-1. **Coordinator** loads the most recent snapshot (if any) and events after that sequence
-2. **Aggregate** receives snapshot and events, reconstructs state by replaying events
-3. **Aggregate** receives command, applies business logic to reconstructed state, returns events
-4. **Coordinator** persists events and snapshot (if the handler included state)
+1. **Coordinator** loads the most recent valid snapshot (if any) and the events after it
+2. **Client library** folds the snapshot's state and the events into the current state
+3. **Aggregate** applies business logic to that state and returns events
+4. **Coordinator** appends the events at the head it loaded, and persists the returned state as a snapshot per the storage policy
 
 ---
 
@@ -145,51 +126,26 @@ This bypasses the bus entirely for consistency—the event store is the source o
 
 ---
 
-## Conflict Resolution
+## Concurrency
 
-When concurrent commands arrive for the same aggregate, a command that names the head it was decided against (its expected sequence) may find the stream has moved. Its conflict resolution decides what happens. The rules, normative, are the `ConflictResolution` region of `io/angzarr/v1/types.proto`:
+When concurrent commands arrive for the same aggregate, the coordinator has no conflict-resolution concept to apply (decision 14.92): no resolution, window or conflict units. It loads the stream, hands the handler the current state, and appends the decision's events **at the head it loaded**. The store's per-stream optimistic append refuses a write whose head has moved, and the coordinator re-runs the command on the new head, under the race re-run cap (a count of runs, default 10, at least 1; decision 14.84). So a handler always decides on current state, and a business rule ("this bet was already placed") is checked by the handler against that state, with its own typed refusal. The rules are `docs/design/pipeline.md` §4 and §5:
 
-```protobuf file=proto/io/angzarr/v1/types.proto region=conflict_resolution
+```protobuf file=proto/io/angzarr/v1/types.proto region=concurrency
 ```
 
-Ordering is per stream: a write to another stream is never a conflict. An expected sequence *ahead* of the head is not a conflict at all: it is malformed under every resolution, refused `INVALID_ARGUMENT`, `COORDINATOR_REASON_EXPECTED_SEQUENCE_AHEAD` (decision 14.47). A command with no expected sequence is stamped with the head and never stale; a race lost at its write re-runs it on the new head, under the race re-run cap (decision 14.46).
+Ordering is per stream: a write to another stream never matters.
 
-### COMMUTATIVE (the default where the state supports it)
+### The Expected Sequence
 
-The command is delivered with the events it did not see (the window). `decide` runs on the head state, so its invariants are checked against the window's effects. The client library then computes the **conflict units** the window changed and those the command's events change, from the state message's markers (the `conflict_units` region of `io/angzarr/v1/options.proto`), and the coordinator compares the two sets (decision 14.42). Disjoint: the events are kept. Overlapping: `ABORTED`, `COORDINATOR_REASON_CONFLICT_OVERLAP`, and nothing is persisted. There is no Replay RPC: the coordinator never reads a state, it compares unit paths.
+A client that decided against the state it read may say so: `Handling.expected_sequence` is the stream's `next_sequence` it decided against. When it is set and is not the head the coordinator loaded, behind or ahead alike, the coordinator refuses the command before the handler is called, `FAILED_PRECONDITION` with the framework's typed refusal `ExpectedSequenceMismatch { expected, head }` (decision 14.94). Nothing is persisted; the caller re-reads, re-decides and re-issues. A command that sets it and then loses a race at its write is re-run, finds the head moved, and is refused the same way.
 
-```text title="illustrative - disjoint units (kept)"
-Player stream, head 6; the command expected 5
-Window (sequence 5) changed:  {display_name}
-Command DepositFunds changes: {bankroll}
-
-Disjoint → the command's events are persisted at sequence 6
-```
-
-```text title="illustrative - overlapping units (refused)"
-Player stream, head 6; the command expected 5
-Window (sequence 5) changed:   {bankroll}
-Command WithdrawFunds changes: {bankroll}
-
-Overlap → ABORTED, COORDINATOR_REASON_CONFLICT_OVERLAP
-```
-
-Fields left unmarked conflict with everything, so an unmarked change can only make COMMUTATIVE stricter. A state supports COMMUTATIVE only when it declares conflict units; otherwise the default is STRICT.
-
-### STRICT
-
-A command behind the head is refused `ABORTED`, `COORDINATOR_REASON_EXPECTED_SEQUENCE_STALE` (args `expected`, `actual`), before business code, or at the write if another write to the same stream lands first. Nothing is persisted and the command is never re-run: the caller re-reads, re-decides and re-issues (decision 14.45). Use it where the caller's intent depends on exactly the state it read.
-
-```text title="illustrative - strict rejection"
+```text title="illustrative - a stale command"
 Command A (expects 5) succeeds; the head is now 6
-Command B (expects 5) → ABORTED, COORDINATOR_REASON_EXPECTED_SEQUENCE_STALE
+Command B (expects 5) → FAILED_PRECONDITION, ExpectedSequenceMismatch { expected: 5, head: 6 }
+Command C (no expected sequence) → decided on the state at head 6
 ```
 
-### AGGREGATE_HANDLES
-
-`decide` receives the window with a nonce and applies its own conflict rule. It must call `resolve_conflicts(...)` with that nonce before it returns; one that does not fails `ABORTED`, `COORDINATOR_REASON_CONFLICT_UNRESOLVED`, exactly as STRICT would have (decision 14.42).
-
-What a caller does with each answer, and what happens at a retry cap, is in [Error Recovery](/operations/error-recovery#sequence-conflicts).
+What a caller does with each answer, and what happens at the cap, is in [Error Recovery](/operations/error-recovery#lost-races-and-the-expected-sequence).
 
 ---
 
@@ -197,8 +153,8 @@ What a caller does with each answer, and what happens at a retry cap, is in [Err
 
 | Component | Pattern | Why |
 |-----------|---------|-----|
-| Hand aggregate | STRICT | Action order matters |
-| Player aggregate | COMMUTATIVE | Deposits touch only the bankroll |
+| Hand aggregate | Expected sequence on player actions | Action order matters: a stale action is refused |
+| Player aggregate | No expected sequence on deposits | A deposit is decided on whatever the current state is |
 | Table aggregate | Snapshots @ 100 | Many events per session |
 | Leaderboard projector | Async | Can lag behind |
 | Balance projector | Simple sync | Visible immediately |
@@ -304,11 +260,12 @@ Facts represent things that have already happened—the aggregate cannot reject 
 - "Payment processor confirmed charge" → Order aggregate must record it
 - "Tournament system assigned seating" → Table aggregate must honor it
 
-A policy emits **commands** only. The one fact a policy delivers is a refusal fact: a refusal of its command, recorded in the stream of the event that triggered it.
+A policy emits what its destination declares (decision 14.69): a command for a type the destination declares a command, which it may refuse, and a fact for one it declares a fact, which it records. A policy also delivers the refusal fact of a refused command, translated by its one refusal callback, to the stream of the event that triggered it.
 
-```python title="illustrative - policy emitting a command"
-# Policy emitting a command (can be refused)
-yield Command(domain="player", type=DeductChips(amount=100))
+```python title="illustrative - policy reacting with an output"
+# The output names only the destination root and the payload;
+# the coordinator addresses and stamps the rest.
+return [Output(root=player_root, command=DeductChips(amount=100))]
 ```
 
 See **[Commands vs Facts](/features/facts)** for idempotency handling, external system integration, and detailed examples.

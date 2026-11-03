@@ -49,7 +49,7 @@ ANGZARR_REASON_POLICY_NO_OUTPUT_DOMAIN = component "{ $component }": a policy ha
 ANGZARR_REASON_RETRY_CAP_EXHAUSTED = gave up after { $attempts ->
         [one] one run
        *[other] { $attempts } runs
-    }, each losing its write to another write to stream { $stream }, at the cap of { $cap }: dead-lettered, nothing persisted
+    }, each losing its write to another write to stream { $stream }, at the cap of { $cap }: nothing persisted
 ANGZARR_REASON_EDITION_REMOVAL_FAILED = the rows of { $stream } in deleted edition "{ $edition }" could not be removed, after { $attempts ->
         [one] one attempt
        *[other] { $attempts } attempts

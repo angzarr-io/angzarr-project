@@ -4,7 +4,7 @@ Feature: Facts and handler context
   registered for its type, optionally followed by events that flag it,
   never refused. A fact whose type has no fact handler (a command type
   included: the arm must match the handler's kind) is refused with
-  ROUTER_REASON_NO_FACT_HANDLER and nothing is recorded. Appliers see each event's
+  ANGZARR_REASON_NO_FACT_HANDLER and nothing is recorded. Appliers see each event's
   sequence; handlers read the cover they are handling; a projector fold
   knows where each event sits. A policy handler and a projector fold read
   the event's whole metadata, as delivered: its cover and sequence, and
@@ -27,14 +27,14 @@ Feature: Facts and handler context
   Scenario: A fact of an undeclared type is refused
     Given a ledger aggregate
     When a Reserve fact is handled over no prior events
-    Then the fact is refused with ROUTER_REASON_NO_FACT_HANDLER as INTERNAL
+    Then the fact is refused with ANGZARR_REASON_NO_FACT_HANDLER as INTERNAL
 
   @context
   @C-0705
   Scenario: A command delivered as a fact is refused
     Given a ledger aggregate
     When an IncreaseBy fact is handled over no prior events
-    Then the fact is refused with ROUTER_REASON_NO_FACT_HANDLER as INTERNAL
+    Then the fact is refused with ANGZARR_REASON_NO_FACT_HANDLER as INTERNAL
 
   @context
   @C-0706

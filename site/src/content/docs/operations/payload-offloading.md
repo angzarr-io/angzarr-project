@@ -114,6 +114,8 @@ Claim checks are the distributed transport's (decision 14.64): the bus envelope 
 ```protobuf file=proto/io/angzarr/v1/types.proto region=event_page
 ```
 
+A claim check rides the bus envelope only, never a persisted page (`docs/design/distributed-transport.md` §4).
+
 ---
 
 ## Threshold Configuration
@@ -166,10 +168,12 @@ curl -X POST http://localhost:9099/admin/payload-store/cleanup?age=7d
 
 ## Retrieval Failures
 
-When payload retrieval fails, angzarr routes to DLQ under `DISTRIBUTED_REASON_PAYLOAD_UNAVAILABLE`: the core entry carries `processing_failed`, and the retrieval's details ride the distributed transport's `DeadLetterEnvelope`:
+When payload retrieval fails, it is retried under the retry cap, then dead-lettered: the core entry's why is its `transport` arm, holding the distributed transport's `PayloadRetrievalFailed` (the payload's reference and the retrieval's failure), whose type implies `DISTRIBUTED_REASON_PAYLOAD_UNAVAILABLE` (decision 14.107). The `DeadLetterEnvelope` around the entry adds only the captured stack trace:
 
 ```protobuf file=proto/io/angzarr/transport/distributed/v1/dead_letter.proto region=dead_letter_envelope
 ```
+
+The envelope and the claim check: `docs/design/distributed-transport.md` §4 and §5; the dead letter: `docs/design/dead-letters.md`.
 
 Common failure causes:
 

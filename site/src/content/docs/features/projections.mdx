@@ -89,18 +89,18 @@ The projector receives events, transforms them, and writes to its target storage
 | Mode | Use Case | Behavior |
 |------|----------|----------|
 | **Async** (default) | Analytics, indexing | Fire-and-forget, eventually consistent |
-| **Sync** | Read-after-write | Command waits for projectors to complete |
+| **Sync** | Read-after-write | Command waits for the projectors it names to complete |
 
-Projectors just project—they don't know or care about sync mode. The **caller** specifies sync mode when sending commands:
+Projectors just project—they don't know or care about sync mode. The **caller** chooses by the RPC it calls (`Handle` or `HandleSync`), naming the projectors to wait for:
 
 ```python title="illustrative - sync mode selection"
 # Default: async, returns immediately
 send_command(DepositFunds(amount=1000))
 
 # Sync: framework waits for projectors, returns their results
-send_command(
+client.handle_sync(
     DepositFunds(amount=1000),
-    sync_mode=SyncMode.SYNC_MODE_SIMPLE,
+    projectors=["projector-wallet-ledger"],  # required, non-empty
 )
 ```
 

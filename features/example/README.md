@@ -7,7 +7,8 @@ Protos live in `proto/io/angzarr/examples/v1/`.
   (L1, L2) for the wallet, the table, a round and the deterministic shoe.
   In-process tier.
 - **[`blackjack-framework/`](blackjack-framework/)** — framework concepts
-  (translators, the buy-in process manager, the ledger projector,
+  (translators, the buy-in process manager, the wallet-ledger and
+  table-ledger projectors,
   snapshots, a player bot playing a seat) demonstrated through the blackjack components. In-process tier
   only.
 - **[`blackjack-acceptance/`](blackjack-acceptance/)** — scenarios that only
@@ -22,7 +23,8 @@ Protos live in `proto/io/angzarr/examples/v1/`.
   domains, one step at a time
 - **In-aggregate lifecycle** — a whole round (deal, turns, dealer, settlement)
   is one aggregate's job, showing when *not* to use a process manager
-- **Money provably balances** — ledger invariants L1–L4 are checked at every tier
+- **Money provably balances** — ledger invariants L1–L3 are checked in their
+  own domains, and L4 end to end over both ledgers once a run settles
 - **Deterministic** — the shoe is shuffled from a seed with a pinned algorithm,
   so every language deals the same cards
 

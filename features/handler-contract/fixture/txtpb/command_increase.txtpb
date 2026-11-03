@@ -1,6 +1,6 @@
-# Orthogonal envelope for an IncreaseBy command. The salient field `n` is
+# Orthogonal HandleRequest for an IncreaseBy command. The salient field `n` is
 # omitted on purpose — the step definition sets it from the scenario.
-command {
+input {
   cover { domain: "counter" }
   page {
     command {

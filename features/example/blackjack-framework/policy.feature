@@ -52,9 +52,9 @@ Feature: Translations between wallet and table
       | Bob    | 30     |
 
   @EU-1543
-  Scenario: A settled round reaches the table, the table-to-wallet translator and the ledger
+  Scenario: A settled round reaches the table, the table-to-wallet translator and the table ledger
     Given round 1 at table "Main" settled
     When the settlement is delivered
     Then it is folded into table "Main"
     And it is handled once by the table-to-wallet translator
-    And it is applied to the ledger
+    And it is applied to the table ledger (projector-table-ledger)

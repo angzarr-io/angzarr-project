@@ -13,8 +13,8 @@ Policies are stateless — each event is processed independently with no memory 
 
 ## Output
 
-A policy's business code emits **commands** only, never facts. The policy's coordinator stamps each command's identity (its causation, a derived command id and the trigger's correlation) and delivers it through a transactional outbox.
+A policy's business code emits what its destination declares: a **command** for a type declared `(command)`, a **fact** for one declared `(fact)` (decision 14.69). Each output is a root and a payload; the policy's coordinator stamps its identity (its causation, a derived command id and the trigger's correlation) and delivers it through a transactional outbox.
 
-When a target refuses one of those commands, the coordinator builds one **refusal fact** for the stream of the triggering event: the standard `CommandRefused` passed through, or a domestic fact the policy translates the refusal into. That refusal fact is the only fact a policy delivers.
+When a target refuses one of its commands, the policy's one refusal callback translates the refusal into a domestic fact of its source, which the coordinator delivers to the stream of the triggering event. That refusal fact is the only output a policy delivers to its own source.
 
 See [Policies](/components/policy) and [Commands vs Facts](/components/commands-vs-facts).

@@ -1,23 +1,23 @@
-# Allocated: EU-1565 .. EU-1579
-Feature: The money ledger
-  The ledger is a read model built from both the wallets and the tables. It
-  shows each player's wallet, each table's chips and the house result, and
-  says whether all the money in the system adds up.
+# Allocated: EU-1565 .. EU-1579, EU-1613
+Feature: The money ledgers
+  Two read models, each built from one domain's events (decision 14.96: the
+  examples use no multi-domain projector). The wallet ledger
+  (projector-wallet-ledger, served by WalletLedgerQueryService) shows each
+  player's bankroll, holds, loyalty and recent results. The table ledger
+  (projector-table-ledger, served by TableLedgerQueryService) shows each
+  table's stacks, wagers, house result and chips in and out.
 
   Why this matters:
   - players and operators read balances without touching the wallets or
     tables themselves
-  - money moving between a wallet and a table is visible on both sides, and
-    the ledger can tell when a transfer has only been seen on one side
-  - when nothing is in flight, everything in wallets, on tables and won by
-    the house equals what was deposited minus what was withdrawn (ledger
-    rule L4)
-  - rebuilding the ledger from the same history always gives the same
-    answer
+  - each ledger reads its own domain's events only, so a run of one stream
+    is projected on its own, in any order across streams
+  - rebuilding a ledger from the same history always gives the same answer
 
-  Only buy-ins are paired across the two sides here. Pairing top-ups and
-  cash-outs, and showing retracted round results, wait on rulings in
-  docs/design/blackjack-latest-proto-rulings.md.
+  Neither ledger pairs a transfer across the two domains. That money adds up
+  across the whole system (ledger rule L4) is an end-to-end assertion over
+  both read models once a run settles
+  (../blackjack-acceptance/cluster.feature, EA-0050).
 
   # ==========================================================================
   # Wallets
@@ -25,62 +25,62 @@ Feature: The money ledger
 
   @EU-1565
   Scenario: A registered player appears with an empty wallet
-    When the ledger applies "Alice" registering as "Alice"
-    Then the ledger shows "Alice" as "Alice" with a bankroll of 0 and nothing held
+    When the wallet ledger applies "Alice" registering as "Alice"
+    Then the wallet ledger shows "Alice" as "Alice" with a bankroll of 0 and nothing held
 
   @EU-1566
-  Scenario: A player the ledger has never seen is reported as not found
-    When the ledger is asked for "Zed"
-    Then the ledger reports that it has not seen "Zed"
+  Scenario: A player the wallet ledger has never seen is answered not seen
+    When the wallet ledger is asked for the balance of "Zed"
+    Then the answer is the not_seen arm, with no balance
 
   @EU-1567
   Scenario: Deposits and withdrawals change the bankroll
-    Given the ledger has applied "Alice" registering
-    When the ledger applies, for "Alice":
+    Given the wallet ledger has applied "Alice" registering
+    When the wallet ledger applies, for "Alice":
       | event      | amount |
       | deposit    | 1000   |
       | withdrawal | 250    |
-    Then the ledger shows "Alice" with a bankroll of 750 and nothing held
+    Then the wallet ledger shows "Alice" with a bankroll of 750 and nothing held
 
   @EU-1568
   Scenario: Held money shows as held, not spent
-    Given the ledger has applied "Alice" registering and depositing 1000
-    When the ledger applies a hold of 500 for buy-in "B1" for "Alice"
-    Then the ledger shows "Alice" with a bankroll of 1000, 500 held and 500 available
+    Given the wallet ledger has applied "Alice" registering and depositing 1000
+    When the wallet ledger applies a hold of 500 for buy-in "B1" for "Alice"
+    Then the wallet ledger shows "Alice" with a bankroll of 1000, 500 held and 500 available
 
   @EU-1569
   Scenario: A deposit recorded by an older version is counted
-    Given the ledger has applied "Alice" registering
-    When the ledger applies a deposit of 300 for "Alice" stored in the previous shape
-    Then the ledger shows "Alice" with a bankroll of 300 and nothing held
+    Given the wallet ledger has applied "Alice" registering
+    When the wallet ledger applies a deposit of 300 for "Alice" stored in the previous shape
+    Then the wallet ledger shows "Alice" with a bankroll of 300 and nothing held
 
   # ==========================================================================
-  # Tables and transfers
+  # A buy-in, as each ledger sees it, and rounds
   # ==========================================================================
 
   @EU-1571
-  Scenario: Seating moves money from a wallet to a table stack
-    Given the ledger has applied "Alice" registering and depositing 1000
-    And the ledger has applied a hold of 500 for buy-in "B1" for "Alice"
-    When the ledger applies both sides of buy-in "B1": "Alice" seated at table "Main" with a stack of 500, and the hold spent
-    Then the ledger shows "Alice" with a bankroll of 500 and nothing held
-    And the ledger shows table "Main" with stacks of 500
-    And the ledger reports nothing in flight
+  Scenario: A spent buy-in hold moves money out of the wallet
+    Given the wallet ledger has applied "Alice" registering and depositing 1000
+    And the wallet ledger has applied a hold of 500 for buy-in "B1" for "Alice"
+    When the wallet ledger applies the hold for buy-in "B1" spent
+    Then the wallet ledger shows "Alice" with a bankroll of 500 and nothing held
 
-  @EU-1572
-  Scenario: A buy-in seen on only one side is in flight
-    Given the ledger has applied "Alice" registering and depositing 1000
-    And the ledger has applied a hold of 500 for buy-in "B1" for "Alice"
-    When the ledger applies "Alice" being seated at table "Main" through buy-in "B1" with a stack of 500
-    Then the ledger reports 500 in flight in 1 transfer
-    And the ledger does not report the money as balanced
+  @EU-1613
+  Scenario: A confirmed seat moves chips onto a table stack
+    Given the table ledger has applied table "Main" opening
+    When the table ledger applies "Alice" seated at table "Main" through buy-in "B1" with a stack of 500
+    Then the table ledger shows table "Main" with stacks of 500 and chips in of 500
+
+  # EU-1572 (a buy-in seen on only one side is in flight) is retired: no
+  # ledger pairs a transfer across the wallet and the table any more, so
+  # nothing is in flight in a read model (decision 14.96).
 
   @EU-1574
   Scenario: A settled round updates stacks, wagers and the house result
-    Given the ledger shows table "Main" with stacks of 1000 after buy-ins
-    And the ledger has applied bets of 20 and 30 at table "Main"
-    When the ledger applies round 1 at table "Main" settling with 40 returned and the house winning 10
-    Then the ledger shows table "Main" with stacks of 990, no wagers and a house result of 10
+    Given the table ledger shows table "Main" with stacks of 1000 after buy-ins
+    And the table ledger has applied bets of 20 and 30 at table "Main"
+    When the table ledger applies round 1 at table "Main" settling with 40 returned and the house winning 10
+    Then the table ledger shows table "Main" with stacks of 990, no wagers and a house result of 10
 
   # ==========================================================================
   # Replay
@@ -88,12 +88,17 @@ Feature: The money ledger
 
   @EU-1576
   Scenario: Applying the same event twice changes nothing
-    Given the ledger has applied "Alice" registering and depositing 1000
-    When the ledger applies the same deposit of 1000 for "Alice" again
-    Then the ledger shows "Alice" with a bankroll of 1000 and nothing held
+    Given the wallet ledger has applied "Alice" registering and depositing 1000
+    When the wallet ledger applies the same deposit of 1000 for "Alice" again
+    Then the wallet ledger shows "Alice" with a bankroll of 1000 and nothing held
 
   @EU-1577
-  Scenario: Rebuilding the ledger from the same history gives the same ledger
-    Given the ledger has applied a complete two-player session
-    When the ledger is rebuilt from the same history
-    Then the rebuilt ledger equals the original ledger
+  Scenario Outline: Rebuilding a ledger from the same history gives the same ledger
+    Given the <ledger> ledger has applied a complete two-player session
+    When the <ledger> ledger is rebuilt from the same history
+    Then the rebuilt <ledger> ledger equals the original
+
+    Examples:
+      | ledger |
+      | wallet |
+      | table  |

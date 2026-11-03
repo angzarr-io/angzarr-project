@@ -31,7 +31,7 @@ SUBS = ("blackjack", "blackjack-acceptance")
 BLACKJACK_RULES = {f"AHR-{n}" for n in range(1, 14)} | {f"L{n}" for n in range(1, 5)}
 BLACKJACK_ID = re.compile(r'\b(AHR-\d+|L\d+)\b')
 # Rules whose only citing scenarios wait on a latest-proto ruling.
-AWAITING_RULING = {"L4"}
+AWAITING_RULING: set[str] = set()
 
 cited = exempt = uncited = 0
 gaps = {}

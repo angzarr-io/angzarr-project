@@ -6,11 +6,15 @@ import "io/angzarr/v1/options.proto";
 
 // Conformance fixtures, declared as message annotations (unit 6 codegen input):
 // the generated clients must pass the SAME behavior suite as the hand-written
-// harness. Four components are declared here over one event so the
+// harness. Three components are declared here over one event so the
 // multi-consumer model is exercised hard — Increased folds into the aggregate,
 // folds the projector, AND triggers the policy. (No process manager: since
 // decision 14.31 a process manager is a domain fed commands by policies, with no
-// triggers.)
+// triggers.) The declarations follow options.proto (decisions 14.78, 14.87,
+// 14.91 and 14.95): one required component_name, the kind a oneof, sources
+// derived from the events named (so Increased's owner, the aggregate, makes
+// "counter" the policy's and the projector's source), and every refusal a
+// typed message declaring its status.
 //
 // CounterAggregate is the smallest aggregate exercising every load-bearing
 // dispatch mechanism (per-page appliers, a handler with framework context in
@@ -26,36 +30,41 @@ import "io/angzarr/v1/options.proto";
 // as multiple components).
 message Increased {
   option (io.angzarr.v1.event) = {component: "test.counter.CounterState"};
-  option (io.angzarr.v1.event) = {
-    component: "test.counter.OrderPolicy"
-    domain: "order"
-  };
-  option (io.angzarr.v1.event) = {
-    component: "test.counter.CounterProjectorState"
-    domain: "counter"
-  };
+  option (io.angzarr.v1.event) = {component: "test.counter.OrderPolicy"};
+  option (io.angzarr.v1.event) = {component: "test.counter.CounterProjectorState"};
 }
 
 // --- commands ---
 
-// IncreaseBy emits n Increased events when n > 0; n == 0 rejects with
-// VALUE_NOT_POSITIVE (the typed-emit path).
+// IncreaseBy emits n Increased events when n > 0; n == 0 is refused with the
+// typed refusal ValueNotPositive (the typed-emit and typed-refusal paths;
+// decision 14.95: refusals are typed only).
 message IncreaseBy {
   option (io.angzarr.v1.command) = {
     component: "test.counter.CounterState"
     emits: "test.counter.Increased"
+    refuses: "test.counter.ValueNotPositive"
   };
   uint32 n = 1;
 }
 
+// IncreaseBy's one refusal: the amount is not positive. Travels as
+// INVALID_ARGUMENT ANGZARR_REASON_COMMAND_REFUSED, refusal_type
+// test.counter.ValueNotPositive, the object in the status details.
+message ValueNotPositive {
+  option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_INVALID_ARGUMENT;
+  uint32 n = 1;
+}
+
 // FailHard returns a plain (unclassified) error -> ANGZARR_REASON_UNHANDLED_HANDLER_ERROR. It
-// declares no emits, so the generated handler returns the raw EventBook escape
-// hatch.
+// declares no emits, so its handler may return any of the component's events,
+// and no refuses, so it cannot refuse.
 message FailHard {
   option (io.angzarr.v1.command) = {component: "test.counter.CounterState"};
 }
 
-// Reserve is never handled by the aggregate; it is the command the policy emits.
+// Reserve is never handled by the aggregate; it is the command the policy emits
+// for "inventory", whose declaration is outside this fixture.
 message Reserve {}
 
 // --- aggregate ---
@@ -63,9 +72,8 @@ message Reserve {}
 // CounterAggregate (domain "counter").
 message CounterState {
   option (io.angzarr.v1.component) = {
-    kind: COMPONENT_KIND_AGGREGATE
-    domain: "counter"
-    name: "CounterAggregate"
+    component_name: "counter"
+    aggregate: {domain: "counter"}
   };
   uint32 count = 1;
 }
@@ -74,24 +82,24 @@ message CounterState {
 
 // OrderPolicy translates each Increased source event into one Reserve
 // command for "inventory". A stateless policy has no state message, so it is
-// declared on this marker.
+// declared on this marker. Its source, "counter", is derived from the event
+// it names (decision 14.78).
 message OrderPolicy {
   option (io.angzarr.v1.component) = {
-    kind: COMPONENT_KIND_POLICY
-    input_domain: "order"
-    output_domain: "inventory"
+    component_name: "order-policy"
+    policy: {output_domain: "inventory"}
   };
 }
 
 // --- projector ---
 
-// CounterProjector folds each Increased over the "counter" domain into a count
-// and finishes into a Projection carrying that count.
+// CounterProjector folds each Increased over the "counter" domain (its source,
+// derived from the event it names) into a count and answers a projection
+// carrying that count.
 message CounterProjectorState {
   option (io.angzarr.v1.component) = {
-    kind: COMPONENT_KIND_PROJECTOR
-    input_domain: "counter"
-    name: "CounterProjector"
+    component_name: "counter-projector"
+    projector: {}
   };
   uint32 count = 1;
 }

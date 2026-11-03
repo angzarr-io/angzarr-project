@@ -109,6 +109,8 @@ Process managers use the **correlation ID** as their aggregate root:
 ```protobuf file=proto/io/angzarr/v1/types.proto region=cover
 ```
 
+A PM's stream, its root and its start rule: `docs/design/process-managers.md` §3 and §4.
+
 A command or fact addressed to a PM names its instance: its cover is the PM's domain with the instance's root. A policy always names its command's root, for a PM as for an aggregate: by convention the event's correlation ID, unchanged, or another root (a uniqueness PM keyed by username, say). Either way the command carries the event's correlation ID unchanged (decision 14.36). All events in a workflow share the same correlation ID, allowing the PM to:
 - Hear, through policies, what happened in several domains
 - Maintain workflow state across its inputs
@@ -117,7 +119,7 @@ A command or fact addressed to a PM names its instance: its cover is the PM's do
 
 ### Which inputs start an instance
 
-A PM declares which of its command and fact types are **starting** inputs (`starts` on the `(command)` entry). An input for a correlation the PM has no instance for starts one only if its type is a starting input. Any other such fact is dead-lettered (`ANGZARR_REASON_PM_NO_INSTANCE`) and alerted, recording nothing; a fact is never refused, so its sender is answered `PARKED` with no events. Any other such command is refused (`FAILED_PRECONDITION`, `ANGZARR_REASON_PM_NO_INSTANCE`), recording nothing. Declare as starting every input that can arrive first: inputs from different domains arrive in no guaranteed order.
+A PM declares which of its command and fact types are **starting** inputs, by name, in its declaration (`ProcessManagerDecl.starting_types`; decision 14.91). An input for a root the PM has no instance for starts one only if its type is a starting input. Any other such fact is dead-lettered (`ANGZARR_REASON_PM_NO_INSTANCE`) and alerted, recording nothing; a fact is never refused, so its sender is answered `INTERNAL` `ANGZARR_REASON_FACT_DEAD_LETTERED`. Any other such command is refused (`FAILED_PRECONDITION`, `ANGZARR_REASON_PM_NO_INSTANCE`), recording nothing. Declare as starting every input that can arrive first: inputs from different domains arrive in no guaranteed order.
 
 ---
 
@@ -131,10 +133,12 @@ A PM declares which of its command and fact types are **starting** inputs (`star
 
 ```python title="illustrative"
 # The policy from "hand" to the PM's domain tells the PM, as a command.
+# Its output names only the root and the payload; the coordinator
+# addresses it to the policy's one destination, "hand-flow".
 def on_hand_complete(event: HandComplete, ctx: PolicyContext):
-    return CommandBook(domain="hand-flow", root=ctx.correlation_id,
-                       command=RecordHandComplete(winner_root=event.winner_root,
-                                                  pot=event.pot))
+    return [Output(root=ctx.correlation_id,
+                   command=RecordHandComplete(winner_root=event.winner_root,
+                                              pot=event.pot))]
 ```
 
 Its only output is its own events. To act on another domain, it records an event that carries the command's data, and the policy for (the PM's domain, that domain) builds the command:
@@ -146,8 +150,8 @@ def handle_hand_complete(cmd: RecordHandComplete, state: WorkflowState):
 
 # The policy from the PM's domain to "player" builds the command.
 def on_pot_awarded(event: PotAwarded):
-    return CommandBook(domain="player", root=event.player_root,
-                       command=TransferChips(amount=event.amount))
+    return [Output(root=event.player_root,
+                   command=TransferChips(amount=event.amount))]
 ```
 
 The coordinator, not the handler, deduplicates, as for any domain: a redelivered command or fact is found on the PM's stream by its id before the handler runs, and the handler is not called again. A policy's command gets its id from the event it reacts to, so a policy re-run sends the same id.
@@ -159,7 +163,7 @@ The coordinator, not the handler, deduplicates, as for any domain: a redelivered
 PM state is stored as events in the PM's own event stream:
 
 ```text title="illustrative - PM event stream"
-PM Event Stream (correlation_id = "hand-abc-123"):
+PM Event Stream (root = the workflow's correlation_id, by convention):
   [0] WorkflowStarted { hand_id: "...", phase: "awaiting_deal" }
   [1] PhaseTransitioned { from: "awaiting_deal", to: "dealing" }
   [2] PhaseTransitioned { from: "dealing", to: "blinds" }
@@ -174,16 +178,19 @@ On restart, the PM rebuilds state by replaying its own events.
 
 A PM tracks the replies to the steps it starts. Its event carries the instance's correlation ID, so the policy's command built from it carries that correlation, and so do the target's events. The policy from the target's domain to the PM's domain turns the replies the PM needs into commands to the instance under that correlation.
 
-A target that **refuses** a policy's command records nothing, and may return a **typed refusal object** of its own domain (e.g. the wallet's `InsufficientFunds { available, requested }`). The command names it in its annotation, as it names its events with `emits`: `refuses: "examples.v1.InsufficientFunds"` on `HoldFunds`, so the generated handler returns its events or an `InsufficientFunds` refusal. The refusal goes back to the policy, which builds one **refusal fact** for the exact stream of its triggering event (domain, root and edition); when that source is the PM, the PM decides the next step from its own state. The fact's id is the refused command's id. A policy the `angzarr` CLI generates always **translates** (decision 14.76: every command a policy sends has a refusal path): its callback reads the typed refusal object and returns a domestic fact, so the PM never refers to the foreign protos. The callback is required for every command of the policy's target, and it answers a fact of the source or a bug; it cannot decline:
+A target that **refuses** a policy's command records nothing, and answers a business status carrying a **typed refusal object** of its own domain (e.g. the wallet's `InsufficientFunds { available, requested }`; every refusal is typed, decision 14.95). The command names it in its annotation, as it names its events with `emits`: `refuses: "examples.v1.InsufficientFunds"` on `HoldFunds`, so the generated handler returns its events or an `InsufficientFunds` refusal; a command that names none cannot refuse. The refusal goes back to the policy's `Translate`, and its **one refusal callback** (decision 14.89) returns a domestic fact of the policy's source, which the coordinator delivers to the exact stream of the triggering event (domain, root and edition), with the refused command's id; when that source is the PM, the PM decides the next step from its own state, and never refers to the foreign protos. The callback's author handles the refusals of the commands the policy sends and answers every other arm with a bug; it cannot decline:
 
 ```python title="illustrative"
-def confirm_seat_refused(command: ConfirmSeat, refusal: SeatNotConfirmable | None,
-                         ctx: CommandContext) -> SeatConfirmationRefused:
-    return SeatConfirmationRefused(buy_in_id=command.buy_in_id,
-                                   reason=refusal.reason if refusal else "")
+def refused(self, command: TableCommand, refusal: TableRefusal,
+            ctx: RefusalContext) -> BuyInFact:
+    match (command, refusal):
+        case (ConfirmSeat(), SeatNotConfirmable() as r):
+            return SeatConfirmationRefused(buy_in_id=command.buy_in_id, reason=r.reason)
+        case _:
+            raise Bug.unhandled()
 ```
 
-So every command of a domain a policy targets names a `refuses` type, and a policy's source takes at least one fact; the generator refuses either missing. A policy written by hand may still pass a refusal through as the standard `CommandRefused { command, refusal, trigger }`, which the source handles by its `on_refused_<command>`; a pass-through with no such handler is found at run time, dead-lettered and alerted.
+There is one refusal path (decision 46 #5): no pass-through and no standard refusal fact. A generated policy whose target has a command that can refuse has its callback, required, and generation fails if its source takes no fact; a hand-written policy whose router has no callback answers `ANGZARR_REASON_NO_REFUSAL_HANDLER`, dead-lettered and alerted.
 
 The refusal fact is unrefusable, so a refusal cannot loop. There is no separate notification channel: the refusal is an ordinary fact in the PM's own stream. A hard failure of the policy's command (anything but a business rejection) is retried when retryable and otherwise dead-lettered, as for any policy command.
 

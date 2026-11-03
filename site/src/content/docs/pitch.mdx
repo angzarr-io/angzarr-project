@@ -133,48 +133,24 @@ Angzarr models event-sourced aggregates as books. An **EventBook** contains the 
 
 This metaphor provides intuitive semantics: you read a book to understand its history, append pages as events occur, and bookmark your place with snapshots.
 
-```protobuf
-// Core identity: domain + aggregate root + workflow correlation
-message Cover {
-  string domain = 2;
-  UUID root = 1;
-  string correlation_id = 3;  // Workflow correlation - flows through all commands/events
-}
-
-// Individual event with sequence number and timestamp
-message EventPage {
-  oneof sequence {
-    uint32 num = 1;    // Normal sequenced event
-    bool force = 2;    // Force-write (conflict resolution)
-  }
-  google.protobuf.Timestamp created_at = 3;
-  google.protobuf.Any event = 4;
-}
-
-// Point-in-time aggregate state for replay optimization
-message Snapshot {
-  uint32 sequence = 2;
-  google.protobuf.Any state = 3;
-}
-
-// Complete aggregate history
-message EventBook {
-  Cover cover = 1;
-  Snapshot snapshot = 2;
-  repeated EventPage pages = 3;
-  google.protobuf.Any snapshot_state = 5;  // business logic sets this
-}
+```protobuf file=proto/io/angzarr/v1/types.proto region=cover
 ```
 
-Commands use a similar envelope, with one difference: a **CommandBook** carries exactly one command (one **CommandPage**) for a single aggregate. Deduplication, the expected-sequence check and the outcome are per command, so there is no wire batching:
-
-```protobuf
-message CommandBook {
-  Cover cover = 1;
-  CommandPage page = 3;   // the one command
-  Handling handling = 6;
-}
+```protobuf file=proto/io/angzarr/v1/types.proto region=event_page
 ```
+
+```protobuf file=proto/io/angzarr/v1/types.proto region=aggregate_snapshot
+```
+
+```protobuf file=proto/io/angzarr/v1/types.proto region=event_book
+```
+
+A cover is stream identity only: the workflow correlation is each page's (`EventMeta.correlation_id`, `CommandPage.correlation_id`). Commands use a similar envelope, with one difference: a **CommandBook** carries exactly one command or fact (one **CommandPage**) for a single stream. Deduplication, the expected-sequence check and the outcome are per command, so there is no wire batching:
+
+```protobuf file=proto/io/angzarr/v1/types.proto region=command_book
+```
+
+What each field means, and the pipeline a command goes through: `docs/design/identity-and-streams.md` and `docs/design/pipeline.md`.
 
 ---
 
@@ -223,44 +199,50 @@ message ProductState {
 }
 ```
 
-Business logic implements the `BusinessLogic` service interface. The framework delivers a **ContextualCommand**—the aggregate's EventBook (snapshot + subsequent events) bundled with the CommandBook—and receives an EventBook containing the resulting events:
+Business logic implements the component contract's `CommandHandlerService`, whose one call, `Handle`, serves commands and facts alike (decision 14.98). The request carries the books, read-only; the response carries only what business code decides (the handler layer, `io.angzarr.handler.v1`; `docs/design/handler-contract.md`):
 
-```protobuf
-// Framework protocol — implemented by your aggregate
-
-message ContextualCommand {
-  EventBook events = 1;   // Current state: snapshot + events since
-  CommandBook command = 2; // Command(s) to process
+```protobuf title="abridged from io/angzarr/handler/v1/command_handler.proto"
+message HandleRequest {
+  io.angzarr.v1.CommandBook input = 1;    // the command or fact, with its ids
+  io.angzarr.v1.EventBook history = 2;    // the stream as loaded: snapshot + events since
+  google.protobuf.Timestamp recorded_at = 3;
+  io.angzarr.v1.EventRef causation = 4;   // a policy's trigger, for a reaction
 }
 
-service BusinessLogic {
-  rpc Handle(ContextualCommand) returns (EventBook);
+message HandleResponse {                  // success only
+  repeated google.protobuf.Any events = 1; // payloads; the coordinator wraps and sequences them
+  google.protobuf.Any state = 2;           // filled by the client library
+  string rules_version = 3;                // filled by the client library
+}
+
+service CommandHandlerService {
+  rpc Handle(HandleRequest) returns (HandleResponse);
 }
 ```
 
-Your aggregate implementation unpacks the Any-wrapped messages, applies domain logic, and returns events:
+Every other outcome is a gRPC status: a refusal is the business status its typed refusal message declares, with the object in the status details; a re-run is `ABORTED`; a bug is its error status (decision 14.95). In practice a client library does the unpacking, folding and dispatch; written against the raw contract it looks like this:
 
 ```go
-// Example: Go aggregate implementation
+// Example: Go aggregate implementation, against the raw contract
 
-func (s *ProductAggregate) Handle(ctx context.Context, cmd *angzarr.ContextualCommand) (*angzarr.EventBook, error) {
-    // Hydrate state from snapshot + events
-    state := s.rehydrate(cmd.Events)
+func (s *ProductAggregate) Handle(ctx context.Context, req *handlerv1.HandleRequest) (*handlerv1.HandleResponse, error) {
+    // Fold the starting state and every page after it
+    state := s.rehydrate(req.History)
 
     // Process the one command
-    newPages, err := s.processCommand(state, cmd.Command.Page)
+    events, err := s.processCommand(state, req.Input.Page.GetCommand().Payload)
     if err != nil {
-        return nil, err
+        return nil, err // a typed refusal as a business status, or a bug
     }
-
-    return &angzarr.EventBook{
-        Cover: cmd.Events.Cover,
-        Pages: newPages,
+    return &handlerv1.HandleResponse{
+        Events:       events,
+        State:        s.fold(state, events),
+        RulesVersion: buildVersion,
     }, nil
 }
 
-func (s *ProductAggregate) processCommand(state *ProductState, cmd *anypb.Any) ([]*angzarr.EventPage, error) {
-    // Match the fully-qualified name after the last "/"; any prefix is accepted.
+func (s *ProductAggregate) processCommand(state *ProductState, cmd *anypb.Any) ([]*anypb.Any, error) {
+    // A type URL is read by the fully-qualified name after its last "/", matched exactly.
     switch cmd.TypeUrl[strings.LastIndex(cmd.TypeUrl, "/")+1:] {
     case "inventory.CreateProduct":
         var create inventory.CreateProduct
@@ -269,14 +251,14 @@ func (s *ProductAggregate) processCommand(state *ProductState, cmd *anypb.Any) (
         }
         // Pure domain logic — no I/O, no framework coupling
         if state != nil {
-            return nil, errors.New("product already exists")
+            return nil, refuse(&inventory.ProductAlreadyExists{Sku: create.Sku})
         }
-        return []*angzarr.EventPage, nil
+        return packAll(&inventory.ProductCreated{Sku: create.Sku, Name: create.Name}), nil
 
     case "inventory.AdjustInventory":
         // ... handle adjustment
     }
-    return nil, errors.New("unknown command type")
+    return nil, unknownCommandType(cmd.TypeUrl) // INTERNAL, ANGZARR_REASON_UNKNOWN_COMMAND_TYPE
 }
 ```
 
@@ -287,7 +269,7 @@ func (s *ProductAggregate) processCommand(state *ProductState, cmd *anypb.Any) (
 Angzarr uses coordinators to route messages between external clients and your business logic services. This separation keeps your domain code focused on business rules while the framework handles:
 
 - Event persistence and retrieval
-- Optimistic concurrency via sequence numbers
+- Optimistic concurrency: a per-stream append at the loaded head, with lost races re-run
 - Snapshot management
 - Event upcasting (schema evolution on read)
 - Synchronous vs. asynchronous processing paths
@@ -320,24 +302,25 @@ message CommandSyncResult {
 
 Unlike frameworks that treat projections as an afterthought, Angzarr provides first-class projection infrastructure. Projectors consume EventBooks and produce typed Projection messages:
 
-```protobuf
+```protobuf title="abridged from io/angzarr/v1/types.proto and the projector services"
 message Projection {
-  Cover cover = 1;           // Source aggregate
-  string projector = 2;      // Projector identifier
-  uint32 sequence = 3;       // Last processed event sequence
-  google.protobuf.Any projection = 4;  // Projected read model
+  Cover cover = 1;                     // The stream projected
+  string projector = 2;                // Registered name of the projector
+  uint64 next_sequence = 3;            // Its position: last projected sequence + 1
+  google.protobuf.Any projection = 4;  // The projector's answer
 }
 
-service Projector {
-  rpc Handle(EventBook) returns (google.protobuf.Empty);      // Async
-  rpc HandleSync(EventBook) returns (Projection);              // Sync
+service ProjectorService {             // your business logic
+  rpc Project(ProjectRequest) returns (ProjectResponse); // one stream's run
 }
 
-service ProjectorCoordinator {
-  rpc Handle(EventBook) returns (google.protobuf.Empty);      // Fan-out async
-  rpc HandleSync(EventBook) returns (Projection);              // Sync with response
+service ProjectorCoordinatorService {  // the framework's
+  rpc HandleSync(EventBook) returns (Projection);
+  rpc HandleAsync(EventBook) returns (google.protobuf.Empty);
 }
 ```
+
+A projector receives each stream's run on its own, in sequence order within the stream and no order across streams; the coordinator records its position only after the projector's affirmative answer, so a failed run is delivered again (`docs/design/projectors.md`).
 
 Synchronous projections enable CQRS patterns where commands must return updated read models—the coordinator orchestrates the command → event → projection pipeline and returns results atomically.
 
@@ -345,22 +328,18 @@ Synchronous projections enable CQRS patterns where commands must return updated 
 
 ## Policy Coordination
 
-Business processes span several domains. A **policy** translates events of its one source domain into commands for its one destination domain; its coordinator stamps each command's identity, delivers it through a transactional outbox, and retries retryable failures, so the policy's own logic handles neither persistence nor delivery.
+Business processes span several domains. A **policy** translates events of its one source domain into commands and facts for its one destination domain; its coordinator stamps each output's identity, delivers it through a transactional outbox, and retries retryable failures, so the policy's own logic handles neither persistence nor delivery.
 
-```protobuf title="abridged from docs/design/policies.md"
+```protobuf title="abridged from io/angzarr/component/v1/policy.proto"
 service PolicyService {
-  // Source events in, commands for the destination domain out.
-  rpc Handle(EventBook) returns (PolicyResponse);
-  // A refusal of one of its commands: the translated fact, or none.
-  rpc OnRefused(Refusal) returns (OnRefusedResponse);
-}
-
-message PolicyResponse {
-  repeated PolicyReaction reactions = 2;  // Per triggering page, its outputs: commands and facts
+  // One source event in; outputs (a root and a payload each) for the destination out.
+  rpc React(ReactRequest) returns (ReactResponse);
+  // One refusal of a command it sent in; one fact of its own source out.
+  rpc Translate(TranslateRequest) returns (TranslateResponse);
 }
 ```
 
-Policies always run asynchronously, after the source's events are persisted. When a target refuses a policy's command, the target records nothing, and the policy's coordinator delivers one refusal fact to the stream of the triggering event; the source decides what the refusal means. Anything that needs state, or several destinations, is a process manager.
+Policies always run asynchronously, after the source's events are persisted. When a target refuses a policy's command, the target records nothing, and the policy translates the refusal into one fact of its source, which its coordinator delivers to the stream of the triggering event; the source decides what the refusal means (`docs/design/policies.md`). Anything that needs state, or several destinations, is a process manager.
 
 ---
 
@@ -372,13 +351,13 @@ How much of a command's processing the caller waits for is a call-level choice, 
 |-----|------|------------|----------|----------|
 | `HandleAsync` | ASYNC | Async | Async | Fire-and-forget, eventual consistency |
 | `Handle` | DECISION | Async | Async | Accept or reject synchronously |
-| `HandleSync` | SIMPLE | Sync | Async | Read-after-write for this domain |
+| `HandleSync` | SIMPLE | The named ones | Async | Read-after-write for this domain |
 
 No mode waits for reactions. Synchronous cascades across domains were removed (decision 2.1): they coupled one aggregate's availability to every aggregate downstream of it and hid partial failure. Policies always run asynchronously; the commands they send are separate commands with their own outcomes, and a refused one comes back to the policy's source as a refusal fact.
 
 ### Observing Effects: the Event Stream
 
-To observe what a command sets off downstream rather than wait for it, subscribe to the event stream filtered by the command's `correlation_id`:
+To observe what a command sets off downstream rather than wait for it, subscribe to the command's `correlation_id`: the subscription catches up from its resume point, then goes live, with no gap and no duplicate (`docs/design/queries-and-subscriptions.md` §5):
 
 ```protobuf file=proto/io/angzarr/transport/distributed/v1/stream.proto region=event_stream_service
 ```
@@ -409,34 +388,26 @@ Every command or fact a policy sends carries its trigger's `correlation_id` unch
 
 The EventQuery service provides direct access to the event store for replay, debugging, and custom projection rebuilding:
 
-```protobuf
-service EventQuery {
-  // Retrieve events for a specific aggregate
-  rpc GetEvents(Query) returns (stream EventBook);
-
-  // Subscribe to events (live tail with optional historical replay)
-  rpc Synchronize(stream Query) returns (stream EventBook);
-
-  // List every stream (for full replay scenarios)
-  rpc ListStreams(google.protobuf.Empty) returns (stream Cover);
+```protobuf title="abridged from io/angzarr/transport/distributed/v1/query.proto"
+service EventQueryService {
+  rpc GetEventBook(Query) returns (EventBook);                       // one book
+  rpc GetEvents(Query) returns (stream EventBook);                   // bulk retrieval
+  rpc GetCorrelatedEvents(CorrelationQuery) returns (stream EventBook); // one workflow, every domain
+  rpc ListStreams(google.protobuf.Empty) returns (stream Cover);     // every stream
 }
 
 message Query {
-  Cover cover = 1;  // Query by root, correlation_id, or both
+  Cover cover = 1;              // one domain: by root, or with correlation_id
   oneof selection {
-    SequenceRange range = 3;    // Partial replay
-    SequenceSet sequences = 4;  // Specific sequences
-    TemporalQuery temporal = 5; // Point-in-time (as_of_time or as_of_sequence)
+    SequenceRange range = 2;    // Partial replay
+    SequenceSet sequences = 3;  // Specific sequences
+    TemporalQuery temporal = 4; // Point-in-time (as_of_time or as_of_sequence)
   }
-}
-
-message AggregateRoot {
-  string domain = 1;
-  UUID root = 2;
+  UUID correlation_id = 5;
 }
 ```
 
-Streaming responses handle large event histories efficiently. The `Synchronize` RPC enables catch-up subscriptions—replay historical events then seamlessly transition to live updates.
+Streaming responses handle large event histories efficiently. Catch-up subscriptions are `EventStreamService.Subscribe`: historical pages from a resume point, then live, per stream.
 
 ---
 
@@ -642,7 +613,7 @@ No code changes or recompilation required — swap the `OTEL_EXPORTER_OTLP_ENDPO
 
 ### Correlation ID Flow
 
-The `correlation_id` on `Cover` is the thread connecting all operations in a workflow. When a client sends a command, the sidecar generates or preserves the correlation ID and propagates it through every subsequent operation:
+The `correlation_id` on each command page and event is the thread connecting all operations in a workflow. When a client sends a command, the sidecar preserves its correlation ID, or sets one when it is absent, and propagates it through every subsequent operation:
 
 ```mermaid
 flowchart LR

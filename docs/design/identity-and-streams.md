@@ -269,9 +269,14 @@ reported by the business logic with every answer
 (io.angzarr.handler.v1.HandleResponse.rules_version, a process manager's
 included) and stamped in full by the coordinator from that response, so
 during a rolling deployment each event names the build that decided it.
-Business code never sets it on an event. The framework reads it only to
-choose which snapshots to offer ([snapshots.md](snapshots.md) §3);
-otherwise it explains a historical decision.
+Business code never sets it on an event. The framework never reads it
+back to decide anything: it explains a historical decision. The checks
+that use a rules version read other copies of it: the snapshot rule reads
+the snapshot's own Snapshot.rules_version ([snapshots.md](snapshots.md)
+§3), and the per-answer check
+(`ANGZARR_REASON_RULES_VERSION_MISMATCH`; decision 14.56) reads the
+answer's HandleResponse.rules_version, each against the version the
+component registered.
 
 ## 6. Command identity
 
@@ -285,7 +290,8 @@ Wolverine): one message id, a correlation id, and a causation id naming
 the message's DIRECT cause. A command's direct cause is its trigger (its
 causation); an event's direct cause is the command (or fact) that
 produced it (EventMeta.causation). Every event has one: a process
-manager's events too, since its only input is facts (decision 14.31).
+manager's events too, since its inputs are commands and facts like any
+domain's (decision 14.31).
 Each event records only its own direct cause, never its command's
 causation (decision 13.3).
 
