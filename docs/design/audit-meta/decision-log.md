@@ -5253,6 +5253,8 @@ bools are fine, as they implement fixed rules".
   the wallet's `registered` and `loyalty_enrolled`, the compensation
   fixture's `failed`, and the vendored `sererr` and `google.api` messages.
 
+> **Amended by 14.93 (DRAFT, pending review):** the framework writes one staleness refusal, `io.angzarr.handler.v1.ExpectedSequenceMismatch`, which a handler raises; consequence (3) of 14.92 ("no framework staleness refusal") is reversed.
+
 **14.92 (DRAFT) The coordinator has no conflict concept.** The owner's
 decision 47, 2026-11-02: "does the coordinator need to care, at all, about
 conflicts, or should we just delegate it?" ... "and let the business logic
@@ -5282,6 +5284,26 @@ and 14.66.
 - **Not part of this proto draft:** embedded's `Catalog::supports` check and
   `Malformed::{Unknown,Unsupported}ConflictResolution`, which go with the
   implementation.
+
+**14.93 (DRAFT) The framework's one refusal: ExpectedSequenceMismatch.**
+The owner, on 14.92's consequence 3: "framework needs a staleness refusal
+written". Amends 14.92.
+- `io.angzarr.handler.v1.ExpectedSequenceMismatch { uint64 expected = 1;
+  uint64 head = 2; }`, marked `(refusal_status) =
+  REFUSAL_STATUS_FAILED_PRECONDITION`. Its wire key is
+  `ROUTER_REASON_COMMAND_REFUSED`, refusal_type its full name, as any typed
+  refusal's.
+- **In the handler package:** it is what a handler answers (a
+  `Refusal.typed` in `DecideResponse.refused`), and only handlers raise it;
+  core is the coordinator's records, and the coordinator never raises it.
+- **The handler raises it,** comparing `Handling.expected_sequence` with
+  `history.next_sequence`. The coordinator still does not interpret the
+  expected sequence (14.92).
+- **Declared like any refusal:** a command that may be refused so lists it
+  in `refuses`; the own-domain rule for `refuses` admits this one framework
+  message. No implicit "every command may return it" rule.
+- **Behind and ahead are one refusal:** either way the client decided against
+  a version that is not the head, and its remedy is the same (re-read).
 
 ## Corrections
 

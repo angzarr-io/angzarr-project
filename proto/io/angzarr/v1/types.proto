@@ -285,8 +285,9 @@ message Cover {
 // (io.angzarr.handler.v1.DecideRequest.command). The coordinator does not
 // interpret it: it neither refuses one behind or ahead of the head nor
 // changes how it delivers or appends. A handler that cares compares it with
-// the state it is given (history.next_sequence) and refuses with its own
-// typed refusal.
+// the state it is given (history.next_sequence) and refuses with
+// io.angzarr.handler.v1.ExpectedSequenceMismatch (decision 14.93, DRAFT),
+// which the command names in its refuses.
 // endregion
 
 // region event_page
@@ -857,7 +858,9 @@ message Handling {
   // having seen version N"), as DATA for the handler (decision 14.92,
   // DRAFT): the coordinator does not interpret it, stamp it or refuse on
   // it. A handler that cares compares it with the state it is given and
-  // refuses with its own typed refusal. Unset: the client stated none.
+  // refuses with the framework's
+  // io.angzarr.handler.v1.ExpectedSequenceMismatch (decision 14.93), which
+  // the command lists in its refuses. Unset: the client stated none.
   optional uint64 expected_sequence = 1;
   // Field 2 was conflict_resolution; retired by decision 14.81 and, with
   // the whole conflict concept, by 14.92.
