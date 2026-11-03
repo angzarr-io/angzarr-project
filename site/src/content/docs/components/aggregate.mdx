@@ -106,7 +106,7 @@ Pass the handler class (not an instance) to the server factory. The framework co
 
 ## Receiving Facts
 
-Aggregates receive **facts** in addition to commands. Facts are events injected directly — they bypass command validation because they represent external reality the aggregate cannot reject.
+Aggregates receive **facts** in addition to commands. A fact is declared by its own option, `(fact)`, and represents external reality the aggregate cannot reject: its handler records it and has no refusal return. One attribute, `@handles`, serves both; the message's option is the declaration (decision 14.98).
 
 ```python title="illustrative"
 class Player(CommandHandler[PlayerState]):
@@ -115,10 +115,10 @@ class Player(CommandHandler[PlayerState]):
     @handles(DepositFunds)
     def handle_deposit_funds(self, cmd: DepositFunds) -> FundsDeposited:
         if cmd.amount <= 0:
-            raise CommandRejectedError("INVALID_AMOUNT")     # can reject
+            return InvalidAmount(amount=cmd.amount)           # a typed refusal its (command) names in refuses
         return FundsDeposited(new_bankroll=self.state.bankroll + cmd.amount)
 
-    @handles_fact(TurnAssigned)
+    @handles(TurnAssigned)                                   # TurnAssigned carries (fact)
     def handle_turn_assigned(self, fact: TurnAssigned) -> None:
         self.state.current_hand = fact.hand_id               # cannot reject
         self.state.is_my_turn = True
@@ -126,7 +126,7 @@ class Player(CommandHandler[PlayerState]):
 
 Facts arrive from:
 
-- **Policies/PMs** asserting cross-domain decisions
+- **Policies**, for a type the aggregate declares a fact (a PM's decisions reach it through a policy)
 - **External systems** (payment confirmations, IoT sensors)
 - **Human overrides** (floor manager rulings)
 

@@ -11,9 +11,9 @@ This document covers ⍼ Angzarr's core architectural concepts: event sourcing d
 
 | Component | Purpose |
 |-----------|---------|
-| **Cover** | Identity: domain, aggregate root ID, correlation ID |
+| **Cover** | Stream identity only: domain, root, and edition (unset for main) |
 | **Snapshot** | Point-in-time state for replay optimization |
-| **EventPages** | Ordered sequence of domain events |
+| **EventPages** | Ordered sequence of events: each a domain `event`, or a framework `meta_event` (an edition's fork), with its sequence and `EventMeta` (causation, correlation, `recorded_at`, rules version) |
 
 ```protobuf file=proto/io/angzarr/v1/types.proto region=cover
 ```
@@ -27,6 +27,8 @@ This document covers ⍼ Angzarr's core architectural concepts: event sourcing d
 ```protobuf file=proto/io/angzarr/v1/types.proto region=event_book
 ```
 
+What each field means: `docs/design/identity-and-streams.md` §5, and `docs/design/snapshots.md` for the snapshot.
+
 Commands use a similar envelope, but a **CommandBook** carries exactly one command (one **CommandPage**) for a single aggregate: deduplication, the expected-sequence check and the outcome are per command, so there is no wire batching.
 
 ---
@@ -36,7 +38,7 @@ Commands use a similar envelope, but a **CommandBook** carries exactly one comma
 ⍼ Angzarr uses coordinators to route messages between external clients and your business logic. This separation keeps domain code focused while the framework handles:
 
 - Event persistence and retrieval
-- Optimistic concurrency via sequence numbers
+- Optimistic concurrency: a per-stream append at the loaded head, lost races re-run on current state
 - Snapshot management
 - Event upcasting (schema evolution on read)
 - Synchronous vs. asynchronous processing
@@ -48,7 +50,7 @@ Commands use a similar envelope, but a **CommandBook** carries exactly one comma
 | **CommandHandlerCoordinator** | Commands → Aggregates | Command handling, event persistence |
 | **ProjectorCoordinator** | Events → Projectors | Read model updates, side effects |
 | **PolicyCoordinator** | Events → Policies | Cross-domain command orchestration |
-| **ProcessManagerCoordinator** | Events → PMs | Stateful multi-domain workflows |
+| **CommandHandlerCoordinator**, for a PM's domain | Commands and facts → Process managers | Stateful multi-domain workflows: a PM is a domain, fed by policies |
 
 ```mermaid
 flowchart TB
@@ -134,7 +136,7 @@ How much of a command's processing the caller waits for is a call-level choice, 
 |-----|------|------------|----------|----------|
 | `HandleAsync` | ASYNC | Async | Async | Fire-and-forget: validated and enqueued, nothing about the decision comes back |
 | `Handle` | DECISION | Async | Async | Accept or reject synchronously; returns the persisted events |
-| `HandleSync` | SIMPLE | Sync | Async | Read-after-write: also waits for the projectors the call names |
+| `HandleSync` | SIMPLE | The named ones, sync | Async | Read-after-write: also waits for the projectors the call names (`HandleSyncRequest.projectors`, required) |
 
 No mode waits for reactions. Policies always run asynchronously, after the command's events are persisted, and the commands they send are separate commands with their own outcomes. Every mode publishes the persisted events downstream: there is no mode that writes silently. (Synchronous cascades were removed, decision 2.1: they coupled aggregates' availability and hid partial failure.)
 
@@ -145,7 +147,7 @@ For observing events as they happen rather than waiting:
 ```protobuf file=proto/io/angzarr/transport/distributed/v1/stream.proto region=event_stream_service
 ```
 
-Events are correlated via `correlation_id` on `Cover`, allowing clients to track causally-related events across aggregate boundaries.
+Events are correlated via each event's `EventMeta.correlation_id`, allowing clients to track causally-related events across aggregate boundaries: a subscription to one stream or to one correlation catches up from its resume point, then goes live, ordered per stream only (`docs/design/queries-and-subscriptions.md` §5 and §6).
 
 ---
 

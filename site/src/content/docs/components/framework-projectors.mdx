@@ -151,7 +151,7 @@ flowchart LR
 
 ### Features
 
-- **gRPC Streaming**: Correlation-based filtering for internal consumers (gateways)
+- **gRPC Streaming**: one stream or one correlation, catch-up from a resume point then live, for internal consumers (gateways)
 - **CloudEvents HTTP**: Webhook publishing with JSON or protobuf encoding
 - **CloudEvents Kafka**: Topic publishing with message key ordering
 - Multiple subscribers per correlation ID
@@ -172,6 +172,8 @@ flowchart LR
 
 ```protobuf file=proto/io/angzarr/transport/distributed/v1/stream.proto region=subscribe_request
 ```
+
+Catch-up, resume points and ordering (per stream only): `docs/design/queries-and-subscriptions.md` §5 and §6.
 
 ### Configuration
 

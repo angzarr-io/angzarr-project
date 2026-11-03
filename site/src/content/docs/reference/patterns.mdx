@@ -14,7 +14,7 @@ Common CQRS and Event Sourcing patterns used in angzarr.
 |----------|----------|
 | [Delivery](#delivery-patterns) | Outbox, Idempotent Consumer |
 | [Schema Evolution](#schema-evolution) | Upcasting |
-| [Coordination](#coordination-patterns) | Correlation ID, Conflict Resolution, Sync Mode |
+| [Coordination](#coordination-patterns) | Correlation ID, Concurrency, Command Modes |
 | [Query](#query-patterns) | Temporal Query |
 
 ---
@@ -103,23 +103,26 @@ Links related events across aggregates:
 ```protobuf file=proto/io/angzarr/v1/types.proto region=cover
 ```
 
-**Propagation rules:**
-- Client provides correlation_id on initial command (if cross-domain tracking needed)
-- Framework does NOT auto-generate—if not provided, stays empty
-- Once set, propagates through policies and process managers
+The correlation is the command page's (`CommandPage.correlation_id`), copied onto every event (`EventMeta.correlation_id`); a cover is stream identity only. Rules (`docs/design/identity-and-streams.md` §6):
+- A client may supply one on its command; when it is absent the coordinator sets one (pipeline step 2)
+- A policy's outputs and refusal facts carry their trigger's correlation, unchanged
+- So everything a request or a fact led to shares its correlation (`EventQueryService.GetCorrelatedEvents`)
 
-### Conflict Resolution
+### Concurrency
 
-Optimistic concurrency, per stream: a command may name the stream head it was decided against (`Handling.expected_sequence`), and its conflict resolution says what happens when the stream has moved on since. Three resolutions exist, `STRICT`, `AGGREGATE_HANDLES` and `COMMUTATIVE`; the authoritative rules are the `ConflictResolution` region and `Handling.expected_sequence` in `io/angzarr/v1/types.proto`.
+Optimistic concurrency, per stream, and nothing else: the coordinator has no conflict-resolution concept (decision 14.92). It appends a decision's events at the head it loaded; a write that loses the race is re-run on the new head, under the race re-run cap (default 10 runs, at least 1; decision 14.84), so a handler always decides on current state. The rules are `docs/design/pipeline.md` §4 and §5:
+
+```protobuf file=proto/io/angzarr/v1/types.proto region=concurrency
+```
 
 In short:
 
-- **`STRICT`**: a command behind the head is refused `ABORTED`, `COORDINATOR_REASON_EXPECTED_SEQUENCE_STALE`, before business code. The caller re-reads and re-decides (decision 14.45).
-- **`AGGREGATE_HANDLES`**: business code receives the events the command did not see (the window) with a nonce, and applies its own conflict rule; one that never resolves the window fails `ABORTED`, `COORDINATOR_REASON_CONFLICT_UNRESOLVED`.
-- **`COMMUTATIVE`**: delivered like `AGGREGATE_HANDLES`, but the client library computes the conflict units the window and the command changed, and the coordinator keeps the command's events only if they are disjoint; an overlap fails `ABORTED`, `COORDINATOR_REASON_CONFLICT_OVERLAP` (decision 14.42).
-- **Every resolution**: an expected sequence *ahead* of the head is malformed, refused `INVALID_ARGUMENT`, `COORDINATOR_REASON_EXPECTED_SEQUENCE_AHEAD` (decision 14.47).
+- **No expected sequence**: the command is decided on the current state; a lost race re-runs it on the new head.
+- **An expected sequence** (`Handling.expected_sequence`, the `next_sequence` the client decided against): set and not the head the coordinator loaded, behind or ahead alike, the command is refused before the handler, `FAILED_PRECONDITION`, the framework's typed refusal `ExpectedSequenceMismatch { expected, head }` (decision 14.94). The caller re-reads and re-decides. A command that sets it and loses a race at its write is re-run and refused the same way.
+- **A retry of an applied command** is answered `DUPLICATE`, whatever its expected sequence: deduplication runs first.
+- **At the cap** a waiting caller is answered `INTERNAL` `ANGZARR_REASON_RETRY_CAP_EXHAUSTED` and nothing is dead-lettered; work with no caller waiting is dead-lettered (decision 14.85).
 
-Which resolutions a stream supports comes from its registered state: every state supports `STRICT` and `AGGREGATE_HANDLES`, and `COMMUTATIVE` only where the state declares conflict units (the `conflict_units` region of `io/angzarr/v1/options.proto`). With none chosen, the default is `COMMUTATIVE` where supported and `STRICT` otherwise. A command without an expected sequence is stamped with the head it decides against, so it is never stale: if it loses a race at its write, the coordinator re-runs it on the new head, under the race re-run cap (decision 14.46).
+Business rules about concurrent intent ("a second bet on the same seat") are the handler's, checked on the current state it is handed and refused with its own typed refusal.
 
 What each status means to a caller, which class it belongs to (decision 14.37) and what happens at a retry cap: see [Error Recovery](/operations/error-recovery).
 
@@ -131,7 +134,7 @@ How much of a command's processing returns to the caller is chosen by the RPC ca
 |-----|------|------------|----------|----------|
 | `HandleAsync` | ASYNC | Async | Async | Fire-and-forget: validated and enqueued, nothing about the decision comes back |
 | `Handle` | DECISION | Async | Async | Accept or reject synchronously; returns the persisted events |
-| `HandleSync` | SIMPLE | Sync | Async | Read-after-write: also waits for the projectors the call names |
+| `HandleSync` | SIMPLE | The named ones, sync | Async | Read-after-write: also waits for the projectors `HandleSyncRequest.projectors` names (required, non-empty) |
 
 No mode waits for reactions. Policies always run asynchronously, after the command's events are persisted, and the commands they send are separate commands with their own outcomes. Every mode publishes the persisted events downstream: there is no mode that writes silently. (Synchronous cascades were removed, decision 2.1: they coupled aggregates' availability and hid partial failure.)
 
@@ -171,40 +174,23 @@ print(f"Balance at {yesterday}: {state.bankroll}")
 |----------|-----|
 | **What-if analysis** | Branch at sequence N, apply hypothetical commands |
 | **Historical branches** | Explore alternative histories |
-| **Policy coordination** | Reactions stay in their trigger's edition, and fork the streams they reach |
-| **Speculative execution** | Execute commands speculatively, merge or discard |
+| **Policy coordination** | Reactions stay in their trigger's edition; every stream they reach must be forked first |
+| **Speculative execution** | Execute commands speculatively, then delete the edition |
 
-**Per-stream forks** (decisions 14.32 and 14.35): forking a stream starts the edition, and every stream the edition holds is forked explicitly with `ForkStream`; an input to an unforked stream is refused `ANGZARR_REASON_EDITION_NOT_FORKED`. There is no global position, so there is no fork at one store-wide moment.
+**Per-stream forks** (decisions 14.32, 14.35 and 14.107): forking a stream starts the edition, and every stream the edition holds is forked explicitly with `ForkStream`, at the sequence the caller states; there is no automatic propagation, and an input (a client's or a policy's) to an unforked stream is refused `FAILED_PRECONDITION` `ANGZARR_REASON_EDITION_NOT_FORKED`. There is no global position, so there is no fork at one store-wide moment. `DeleteEdition` removes each forked stream's rows by enumeration. The rules are `docs/design/edition-meta-events.md`.
 
 ```python
 # Create a what-if branch by forking the player's stream
 cover = Cover(domain="player", root=player_id, edition="bonus-scenario")
-admin.fork_stream(cover)
+admin.fork_stream(ForkStreamRequest(stream=cover, fork_sequence=head))
 
 # Commands on this cover write to the branch, not main timeline
 cmd = CommandBook(cover=cover, page=...)  # exactly one command per book
 ```
 
-### Snapshot Retention
+### Snapshots
 
-**When to use:**
-
-| Retention | Use Case | Example |
-|-----------|----------|---------|
-| **DEFAULT** | Normal operation; deleted when a newer snapshot is written | Most events |
-| **PERSIST** | Business milestones | End-of-day balance, audit checkpoints |
-| **TRANSIENT** | Temporary optimization | Intermediate computation state |
-
-**Snapshot with retention:**
-
-```python
-# Mark a snapshot as a business milestone (never delete)
-snapshot = Snapshot(
-    sequence=current_sequence,
-    state=state.SerializeToString(),
-    retention=SnapshotRetention.RETENTION_PERSIST,
-)
-```
+Snapshots are the framework's optimisation, never business data: every handler answer carries its state, and the coordinator keeps it as a snapshot per the domain's storage policy (by default only the newest is kept). Which snapshot may be offered (the registered state type, a compatible rules version) and which may start a temporal query: `docs/design/snapshots.md`.
 
 ---
 
@@ -216,7 +202,7 @@ snapshot = Snapshot(
 |--------|------|-----------------|
 | **State** | Stateless | Own event stream |
 | **Input** | Single domain | Multiple domains |
-| **Identity** | None | correlation_id |
+| **Identity** | None | Its own stream's root (by convention, the trigger's correlation_id) |
 | **Timeouts** | No | Yes |
 
 **Rule of thumb:** Start with policies. Upgrade to PM when you need state or multi-domain input.

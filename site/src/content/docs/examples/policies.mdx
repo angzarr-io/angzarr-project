@@ -31,7 +31,7 @@ Policies are classes with handler decorators — the same OO pattern as aggregat
 
 ## Refusals
 
-When a policy's command is refused, the target records nothing, and the policy's coordinator delivers one refusal fact to the stream of the triggering event: the standard `CommandRefused` (handled by the source's `on_refused_<Command>`), or a domestic fact the policy translates the refusal into. The source decides what the refusal means and records its own events. See [Policies: Refusals](/components/policy#refusals).
+When a policy's command is refused, the target records nothing, and the policy's one refusal callback (its `Translate`) turns the refusal into a domestic fact of its source, which the coordinator delivers to the stream of the triggering event. There is no other path. The source decides what the refusal means and records its own events. See [Policies: Refusals](/components/policy#refusals).
 
 ---
 
