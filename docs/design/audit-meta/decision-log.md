@@ -5850,6 +5850,32 @@ for a transport; minimal envelopes.** The owner's review round 10,
   the configured sinks like main's; the ban text in the projector protos
   and cloudevents.proto is removed.
 
+**14.108 (DRAFT) The official CloudEvents format; an exact type match; a
+portable socket path.** The owner's CloudEvents rulings (sent in round 10)
+and review round 11, 2026-11-02.
+- **The CloudEvents Protobuf Format is adopted.** `io.cloudevents.v1`
+  (`CloudEvent`, its nested `CloudEventAttributeValue`, `CloudEventBatch`)
+  is vendored verbatim at `proto/io/cloudevents/v1/cloudevents.proto` from
+  github.com/cloudevents/spec `cloudevents/formats/cloudevents.proto`
+  (commit bad81171bd3d1c0343ef43b4b2ad4ffca9dc2012), Apache-2.0, and buf
+  lint ignores it as it does `google/`. Its package and options build
+  under buf unchanged. angzarr's own `CloudEvent` is deleted;
+  `CloudEventsResponse` is `repeated io.cloudevents.v1.CloudEvent events`.
+  The former defaults are text: the framework fills `id`, `source`,
+  `subject`, `type`, `spec_version`, `time` and the `correlationid`
+  extension attribute when the projector leaves them empty, with the
+  edition segments as before.
+- **An exact type match.** External publishing triggers only when
+  `projection.type_url` names exactly
+  `io.angzarr.transport.distributed.v1.CloudEventsResponse` (its full name
+  after the last "/", as every type URL is read); the "message name after
+  any prefix" rule is removed.
+- **`ChildProtocol.max_socket_path_bytes` is 103**, the portable minimum:
+  macOS and the BSDs give `sun_path` 104 bytes, less its NUL (Linux would
+  allow 107). child-protocol.md §1 says why.
+- **14.107's `AngzarrDeadLetter.why` `Any transport` arm is accepted** as
+  is.
+
 ## Corrections
 
 Facts the earlier passes or the design note got wrong:

@@ -11,11 +11,16 @@ lint:
     - RPC_RESPONSE_STANDARD_NAME
     - SERVICE_SUFFIX
     - IMPORT_USED
-  # The vendored Google protos (google/api for non-buf build systems,
-  # google/rpc/code.proto for ReasonOptions.grpc_status, decision 14.104,
-  # DRAFT) are Google's, kept verbatim: lint holds angzarr's protos only.
+  # The vendored protos are kept verbatim and are not angzarr's, so lint
+  # holds angzarr's protos only: Google's (google/api for non-buf build
+  # systems, google/rpc/code.proto for ReasonOptions.grpc_status, decision
+  # 14.104, DRAFT) and the CloudEvents Protobuf Format's
+  # (io/cloudevents/v1/cloudevents.proto, from github.com/cloudevents/spec
+  # cloudevents/formats/cloudevents.proto at bad81171, Apache-2.0; decision
+  # 14.108, DRAFT).
   ignore:
     - google
+    - io/cloudevents
 # Breaking checks report wire + JSON incompatibility, and gate (decision
 # 14.54): `just proto-breaking` runs in `just contracts`, the Contracts
 # workflow and the pre-push hook, against the merge base with the spec

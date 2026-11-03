@@ -23,8 +23,9 @@ option ruby_package = "Angzarr::Transport::Embedded";
 // this file's option, read the same way, and nothing else on the wire.
 message ChildProtocol {
   string socket_env = 1;
-  // The longest socket path a host gives, in bytes (section 1): a Unix
-  // socket address's `sun_path`, less its NUL.
+  // The longest socket path a host gives, in bytes (section 1): the
+  // portable minimum of a Unix socket address's `sun_path`, less its NUL
+  // (macOS and the BSDs: 104, so 103).
   uint32 max_socket_path_bytes = 2;
 }
 
@@ -36,6 +37,6 @@ extend google.protobuf.FileOptions {
 
 option (child_protocol) = {
   socket_env: "ANGZARR_SOCKET"
-  max_socket_path_bytes: 107
+  max_socket_path_bytes: 103
 };
 // endregion

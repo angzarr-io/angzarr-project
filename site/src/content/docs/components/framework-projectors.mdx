@@ -219,16 +219,16 @@ async def stream_events(correlation_id: str):
 
 ### CloudEvents Format
 
-Each EventBook page becomes a CloudEvent with:
+A projector publishes by returning an `io.angzarr.transport.distributed.v1.CloudEventsResponse`: a list of events in the official [CloudEvents Protobuf Format](https://github.com/cloudevents/spec/blob/main/cloudevents/formats/protobuf-format.md) (`io.cloudevents.v1.CloudEvent`). Only that exact type triggers publishing. The framework fills these attributes when the projector leaves them empty:
 
-| Field | Value |
+| Attribute | Default |
 |-------|-------|
-| `id` | `{domain}:{root_id}:{sequence}` |
-| `type` | `angzarr.{event_type}` |
-| `source` | `angzarr/{domain}` |
-| `subject` | Root ID (hex) |
-| `data` | Single-page EventBook (protobuf bytes) |
-| `correlationid` | Extension: correlation ID |
+| `id` | `{domain}:{root}:{sequence}`, or `{domain}:{edition}:{root}:{sequence}` in an edition |
+| `source` | `angzarr/{domain}`, or `angzarr/{domain}/editions/{edition}` in an edition |
+| `subject` | the stream's root, as canonical UUID text |
+| `type` | the projected event's fully-qualified message name |
+| `time` | the event's `recorded_at` |
+| `correlationid` | extension attribute: the event's correlation id, as canonical UUID text |
 
 ---
 

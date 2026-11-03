@@ -12,7 +12,7 @@ EmbeddedReason's `EMBEDDED_REASON_CHILD_*` and `EMBEDDED_REASON_PROBE_INPUT`, th
 local-process transport's
 (`proto/io/angzarr/transport/embedded/v1/reasons.proto`, English in
 `reasons.en-US.ftl` beside it; section 7; decision 14.64). The protocol's
-constants (`ANGZARR_SOCKET` and the 107-byte path limit) are declared once,
+constants (`ANGZARR_SOCKET` and the 103-byte path limit) are declared once,
 as the `(child_protocol)` option of
 `proto/io/angzarr/transport/embedded/v1/child_protocol.proto`.
 
@@ -32,8 +32,11 @@ The key words MUST, MUST NOT, SHOULD and MAY are used as in RFC 2119.
 
 - The host chooses the socket path and passes it to the child in the
   environment variable `ANGZARR_SOCKET`. The path is absolute, UTF-8, and
-  at most 107 bytes long (a Unix socket address's `sun_path`, less its
-  NUL); a host refuses a socket directory too long to hold the names it
+  at most 103 bytes long: the portable minimum of a Unix socket address's
+  `sun_path`, less its NUL. macOS and the BSDs give `sun_path` 104 bytes
+  (103 usable), Linux 108 (107 usable), so 103 is the longest path every
+  platform a host or child may run on accepts (decision 14.108, DRAFT); a
+  host refuses a socket directory too long to hold the names it
   gives.
 - Before launching, the host removes any file already at that path (a stale
   socket from an earlier child).
