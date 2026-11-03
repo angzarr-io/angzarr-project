@@ -46,9 +46,10 @@ option ruby_package = "Angzarr";
 //
 // Commands and facts. The same coordinator upcasts an incoming Command's or
 // Fact's payload through the SAME chain, by type URL, before it judges the
-// input by its type (a process manager's start rule) and before dispatch. It sends the payload as a one-page
-// UpcastRequest whose page carries only `payload` and sequence 0, and takes
-// the answer entry keyed 0. An upcaster answers payloads keyed by sequence
+// input by its type (a process manager's start rule) and before dispatch.
+// It sends the payload as the request's lone_payload (it has no stream
+// sequence) and takes the answer entry keyed no_sequence (decision 14.97,
+// DRAFT). An upcaster answers payloads keyed by sequence, or no_sequence
 // (UpcastResponse, decision 14.96): a page's sequence and EventMeta stay as
 // stored. The business process (the client library's router) never
 // upcasts and never sees an old shape. A payload whose type URL, after

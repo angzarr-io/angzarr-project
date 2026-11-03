@@ -5383,6 +5383,25 @@ examples' ledger split.** The owner's review round 2, 2026-11-02.
   projector's contract; L4 money conservation becomes an end-to-end test
   assertion over both read models once a run settles.
 
+**14.97 (DRAFT) An upcast keys a lone payload by NoSequence; a projector's
+run is marked only after its affirmative answer.** The owner's review round
+3, 2026-11-02. Amends 14.96 and 14.68.
+- **Upcaster.** `Upcasted { oneof key { uint64 sequence; NoSequence
+  no_sequence }; Any payload }`, `NoSequence` "a lone command or fact
+  payload, which has no stream sequence" (the owner: "Single is not the
+  appropriate name. NO_SEQ or something similar"). The request is `oneof
+  input { UpcastPages pages; Any lone_payload }`. The sequence-0 convention
+  of 14.96 is gone.
+- **Projector delivery.** The owner: "coordinator should not mark as done
+  until business logic responds with an affirmative". The coordinator
+  records a run's position only after the projector's affirmative
+  `ProjectResponse`; an error status or no answer leaves it unmarked and
+  the run is redelivered. A run whose read-model write landed but whose
+  mark did not is delivered again, and the projector skips what it applied,
+  by (stream, sequence), which the request carries.
+- **The ledgers.** "The table ledger balances" (round.feature, table.feature)
+  is rule L2, the table's own chips: a table-ledger assertion, not e2e.
+
 ## Corrections
 
 Facts the earlier passes or the design note got wrong:

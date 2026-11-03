@@ -29,6 +29,14 @@ option ruby_package = "Angzarr::Component";
 // CloudEvents HTTP or Kafka sinks, nor to any other automation with
 // effects outside angzarr (see
 // io/angzarr/transport/distributed/v1/cloudevents.proto).
+// Delivery (decision 14.97, DRAFT; the owner: "coordinator should not mark
+// as done until business logic responds with an affirmative"). The
+// coordinator records a run's position (its processed state, decision
+// 14.68) ONLY after the projector's affirmative ProjectResponse. An error
+// status, or no answer, leaves the run unmarked, and it is delivered again.
+// So a run whose read-model write landed but whose mark did not (a crash
+// between them) is delivered again: the projector skips what it has already
+// applied, by (stream, sequence), which every page of the request carries.
 service ProjectorService {
   // Project a run of one stream's events (decision 14.78, DRAFT): the
   // projector persists its read model and answers the projection; the

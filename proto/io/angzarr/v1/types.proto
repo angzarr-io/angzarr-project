@@ -802,6 +802,9 @@ message EventBook {
 message Projection {
   Cover cover = 1; // The stream projected
   string projector = 2; // Registered name of the projector
+  // Recorded by the coordinator ONLY after the projector's affirmative
+  // answer (decision 14.97, DRAFT): an error status or no answer leaves it
+  // unrecorded, and the run is delivered again.
   // The projector's position in the stream after this projection: the
   // stream's next_sequence once the projected events are applied, i.e. the
   // sequence of the last projected event + 1. (Renamed from `sequence`,

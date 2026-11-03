@@ -14,20 +14,29 @@ option ruby_package = "Angzarr::Handler";
 // runs and who calls it are io/angzarr/v1/upcaster.proto's). The layer rule
 // is command_handler.proto's.
 
-// What an upcaster is handed: the pages to bring to their current shape,
-// with their sequences and EventMeta, read-only. For a command or a fact
-// the coordinator sends one page carrying only its payload and sequence 0
-// (it has no stream sequence; decision 14.96, DRAFT), and takes the one
-// answer entry keyed 0.
+// What an upcaster is handed: a stream's pages to bring to their current
+// shape, with their sequences and EventMeta, read-only; or a lone command
+// or fact payload, which has no stream sequence (decision 14.97, DRAFT).
 message UpcastRequest {
-  // The domain whose streams these pages belong to.
+  // The domain whose streams, commands or facts these are.
   string domain = 1;
-  repeated io.angzarr.v1.EventPage events = 2;
+  oneof input {
+    // A stream's pages, each answered keyed by its sequence.
+    UpcastPages pages = 2;
+    // A lone command or fact payload, answered keyed no_sequence.
+    google.protobuf.Any lone_payload = 3;
+  }
 }
 
-// What an upcaster answers: each page's payload in its current shape,
-// keyed by the page's sequence (decision 14.96, DRAFT): matched to the
-// request's pages by sequence, never by position. A page's sequence and
+// A stream's pages to upcast.
+message UpcastPages {
+  repeated io.angzarr.v1.EventPage events = 1;
+}
+
+// What an upcaster answers: each payload in its current shape, keyed by the
+// page's sequence (decision 14.96, DRAFT), or no_sequence for a lone
+// payload (decision 14.97): matched to the request by key, never by
+// position. A page's sequence and
 // EventMeta are the coordinator's and stay as stored, so an upcaster cannot
 // rewrite them. An answer missing a requested sequence, naming one not
 // requested, or naming one twice is a rule bug (an error from the
@@ -36,10 +45,18 @@ message UpcastResponse {
   repeated Upcasted pages = 1;
 }
 
-// One page's upcast payload.
+// One upcast payload, keyed (decision 14.97, DRAFT; the owner: "NO_SEQ or
+// something similar").
 message Upcasted {
-  // The requested page's sequence (0 for a command's or a fact's one page).
-  uint64 sequence = 1;
+  oneof key {
+    // The requested page's sequence.
+    uint64 sequence = 1;
+    // A lone command or fact payload, which has no stream sequence.
+    NoSequence no_sequence = 3;
+  }
   // Its payload, in current shape.
   google.protobuf.Any payload = 2;
 }
+
+// A lone command or fact payload, which has no stream sequence.
+message NoSequence {}
