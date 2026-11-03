@@ -134,9 +134,13 @@ option ruby_package = "Angzarr";
 // There is no opt-out: the coordinator owns race re-runs (the owner's
 // ruling of 2026-10-30), and the race re-run cap of 0 that handed a lost
 // race back to its caller is retired with its key (decision 14.84).
-// A client's expected sequence (Handling.expected_sequence) is data for
-// its handler, which may refuse on it with its own typed refusal; the
-// coordinator answers nothing about it (decision 14.92, DRAFT).
+// A client's expected sequence (Handling.expected_sequence), when set and
+// not the head the coordinator loaded, is refused before business code:
+// FAILED_PRECONDITION, the framework's typed refusal
+// io.angzarr.v1.ExpectedSequenceMismatch (types.proto; decision 14.94,
+// DRAFT). A race lost at the write re-runs the command, which is then stale
+// and refused the same way; one without an expected sequence re-runs on
+// the new head.
 //
 // Reaction commands and refusal facts (policy output) are not delivered
 // through these RPCs: a policy's coordinator delivers each as a

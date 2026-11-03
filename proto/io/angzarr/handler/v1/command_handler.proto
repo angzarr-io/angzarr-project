@@ -38,18 +38,17 @@ option ruby_package = "Angzarr::Handler";
 // never is.
 
 // What Decide is handed: one command and the stream it addresses, after
-// the coordinator's pipeline steps 1-3 (io/angzarr/v1/types.proto,
-// Handling). The command is validated, its ids assigned, deduplicated and
-// admitted (a process manager's start rule); every payload is in its current shape (upcast, decision 14.39).
+// the coordinator's pipeline steps 1-4 (io/angzarr/v1/types.proto,
+// Handling). The command is validated, its ids assigned, deduplicated,
+// admitted (a process manager's start rule) and, when it sets an expected
+// sequence, found at the head; every payload is in its current shape (upcast, decision 14.39).
 message DecideRequest {
   // The command as the coordinator holds it: its cover (the stream), its
   // page (command_id, correlation_id) and its Handling
-  // (page.command.handling) as the client sent it: its expected_sequence,
-  // when set, is DATA (decision 14.92, DRAFT; the owner's decision 47). The
-  // coordinator does not interpret it; a handler that cares compares it
-  // with history.next_sequence and refuses with ExpectedSequenceMismatch
-  // (below; decision 14.93), if the command lists it in its refuses. The
-  // page's body is the Command arm.
+  // (page.command.handling) as the client sent it. A set expected_sequence
+  // equals history.next_sequence here: the coordinator refused any other
+  // before calling the handler (io.angzarr.v1.ExpectedSequenceMismatch;
+  // decision 14.94, DRAFT). The page's body is the Command arm.
   io.angzarr.v1.CommandBook command = 1;
   // The stream as loaded: the starting state (a snapshot that passed the
   // coordinator's validity checks, see Snapshot) and every page after it
@@ -144,32 +143,6 @@ message Refusal {
     // the code is the status message and the ErrorInfo reason.
     io.angzarr.v1.Diagnostic diagnostic = 3;
   }
-}
-
-// The framework's one refusal (decision 14.93, DRAFT; the owner, on
-// decision 47: "framework needs a staleness refusal written"): the client's
-// expected sequence (Handling.expected_sequence, "I decided having seen
-// version N") is not the stream's head. The HANDLER raises it, never the
-// coordinator (decision 14.92): a handler that cares compares the two and
-// answers this in DecideResponse.refused, as Refusal.typed. A command that
-// may be refused so names it in its refuses
-// (`refuses: "io.angzarr.handler.v1.ExpectedSequenceMismatch"`), like any
-// refusal; no command returns it undeclared.
-//
-// One message for behind and ahead alike: either way the client decided
-// against a version that is not the head, and its remedy is the same:
-// re-read and decide again. FAILED_PRECONDITION, the business status for
-// "the state is not what you assumed" (decision 14.37: business, fatal;
-// the caller, not the framework, re-reads). Its wire key is
-// ROUTER_REASON_COMMAND_REFUSED with refusal_type
-// io.angzarr.handler.v1.ExpectedSequenceMismatch, as every typed refusal's.
-message ExpectedSequenceMismatch {
-  option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_FAILED_PRECONDITION;
-  // The client's expected sequence: the stream's next_sequence it decided
-  // against.
-  uint64 expected = 1;
-  // The stream's head when the handler decided: history.next_sequence.
-  uint64 head = 2;
 }
 
 // What Ingest is handed: one fact and the stream it addresses, after the

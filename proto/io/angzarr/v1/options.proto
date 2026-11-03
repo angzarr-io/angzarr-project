@@ -201,9 +201,7 @@ message CommandOptions {
   // the answer's refusal (io.angzarr.handler.v1.Refusal.typed), and the
   // refused policy receives it in TranslateRequest.refusal. Generation fails on a refuses
   // type that does not resolve, or that is not a message of the command's
-  // own domain or the framework's one refusal,
-  // io.angzarr.handler.v1.ExpectedSequenceMismatch (the refusals region;
-  // decision 14.93, DRAFT). A fact (FactOptions) has no
+  // own domain (the refusals region). A fact (FactOptions) has no
   // refuses: a fact cannot be refused. A command of a domain some
   // policy targets (a policy may send any of its target's commands) must
   // name at least one (decision 14.76): every command a policy sends has a
@@ -372,15 +370,10 @@ extend google.protobuf.MessageOptions {
 // command's own domain, fails generation. A command may name several
 // refuses types (decision 14.50).
 //
-// The framework's one refusal (decision 14.93, DRAFT; the owner: "framework
-// needs a staleness refusal written"):
-// io.angzarr.handler.v1.ExpectedSequenceMismatch, a command whose client's
-// expected sequence is not the stream's head. The coordinator never raises
-// it (decision 14.92): a handler that cares compares
-// Handling.expected_sequence with the history's next_sequence and answers
-// it as DecideResponse.refused. A command that may be refused so names it
-// in its refuses, like any refusal, beside its own domain's; nothing makes
-// every command able to return it.
+// The framework's one refusal, io.angzarr.v1.ExpectedSequenceMismatch
+// (types.proto; decisions 14.93 and 14.94, DRAFT), is the coordinator's:
+// it refuses a command whose set expected sequence is not the head it
+// loaded, before the handler runs. No command lists it in its refuses.
 //
 // One message per refusal (decision 14.82, DRAFT; the owner's ruling F3 of
 // 2026-11-02, amending 14.50). A domain whose commands refuse for several

@@ -10,6 +10,7 @@ package io.angzarr.v1;
 
 import "google/protobuf/any.proto";
 import "google/protobuf/timestamp.proto";
+import "io/angzarr/v1/options.proto";
 // Core imports nothing of angzarr's other packages and nothing of sererr
 // (decision 14.64): what a transport adds (a captured stack trace, a
 // claim-checked payload, a sync projector's result) rides that transport's
@@ -281,13 +282,32 @@ message Cover {
 //     writes matter.
 //
 // A client's expected sequence (Handling.expected_sequence: "I decided
-// having seen version N") is DATA in the command the handler receives
-// (io.angzarr.handler.v1.DecideRequest.command). The coordinator does not
-// interpret it: it neither refuses one behind or ahead of the head nor
-// changes how it delivers or appends. A handler that cares compares it with
-// the state it is given (history.next_sequence) and refuses with
-// io.angzarr.handler.v1.ExpectedSequenceMismatch (decision 14.93, DRAFT),
-// which the command names in its refuses.
+// having seen version N") is the one thing the coordinator checks of
+// staleness (decision 14.94, DRAFT; the owner's ruling, amending 14.93):
+// set, and not the head it loaded, the command is refused
+// ExpectedSequenceMismatch (below) before the handler is called, behind or
+// ahead alike. There is no mode and no resolution: a command with no
+// expected sequence is decided on the current state, and one with it is
+// either at the head or refused.
+//
+// The framework's one refusal (decisions 14.93 and 14.94): the client's
+// expected sequence is not the stream's head. Raised by the COORDINATOR,
+// never by business code, and listed in no command's refuses. FAILED_PRECONDITION
+// (business, fatal, decision 14.37: the caller re-reads and decides again),
+// by its (refusal_status) option. On the wire it travels as any typed
+// refusal: reason ROUTER_REASON_COMMAND_REFUSED, refusal_type
+// io.angzarr.v1.ExpectedSequenceMismatch, the object in the status details;
+// a HandleAsync command so refused is dead-lettered with that reason and
+// the object as AngzarrDeadLetter.refusal. Behind and ahead are one
+// refusal: either way the client decided against a version that is not the
+// head.
+message ExpectedSequenceMismatch {
+  option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_FAILED_PRECONDITION;
+  // The command's expected sequence: the next_sequence it decided against.
+  uint64 expected = 1;
+  // The stream's head the coordinator loaded (its next_sequence).
+  uint64 head = 2;
+}
 // endregion
 
 // region event_page
@@ -813,7 +833,11 @@ message Projection {
 //                    and the input's payload are upcast through the
 //                    component's upcaster sidecar (decision 14.39; see
 //                    upcaster.proto) before anything below judges them;
-//   4. business code CommandHandlerService.Decide for a command, Ingest
+//   4. check         a command whose Handling sets expected_sequence
+//                    other than the head step 3 loaded is refused
+//                    ExpectedSequenceMismatch (the concurrency region;
+//                    decision 14.94), and the handler is never called;
+//   5. business code CommandHandlerService.Decide for a command, Ingest
 //                    for a fact (the client library folds the delivered
 //                    state and dispatches by type), then the append at
 //                    the head step 3 loaded. A process manager's business
@@ -826,8 +850,13 @@ message Projection {
 // lookup or fails this delivery's append on its loaded head.
 // A HandleAsync command refused by business code has no caller to answer:
 // it is dead-lettered with its key and args as AngzarrDeadLetter.reason,
-// and alerted (decision 14.47). An append that loses an optimistic race
-// re-runs from step 3, under the race re-run cap (the concurrency region).
+// and alerted (decision 14.47); so is one refused at step 4. An append that
+// loses an optimistic race re-runs from step 3, under the race re-run cap
+// (the concurrency region). On that re-run a command WITH an expected
+// sequence is stale (the head has moved past it) and is refused at step 4;
+// one without re-runs on the new head as before. Deduplication (step 3)
+// comes first, so a retry of an applied command is answered DUPLICATE
+// whatever its expected sequence.
 //
 // Violations are refused loudly, never silently ignored. Each of these is
 // malformed, refused at step 1, before deduplication or business code:
@@ -855,12 +884,11 @@ message Projection {
 // commands addressed to it exactly as to an aggregate's.
 message Handling {
   // The stream's next_sequence the client decided against ("I decided
-  // having seen version N"), as DATA for the handler (decision 14.92,
-  // DRAFT): the coordinator does not interpret it, stamp it or refuse on
-  // it. A handler that cares compares it with the state it is given and
-  // refuses with the framework's
-  // io.angzarr.handler.v1.ExpectedSequenceMismatch (decision 14.93), which
-  // the command lists in its refuses. Unset: the client stated none.
+  // having seen version N"). Set and not the head the coordinator loaded,
+  // the command is refused ExpectedSequenceMismatch before business code
+  // (pipeline step 4; decision 14.94, DRAFT). Unset: the client stated
+  // none, and the command is decided on the current state. The coordinator
+  // never stamps it.
   optional uint64 expected_sequence = 1;
   // Field 2 was conflict_resolution; retired by decision 14.81 and, with
   // the whole conflict concept, by 14.92.

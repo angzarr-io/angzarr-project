@@ -5255,6 +5255,8 @@ bools are fine, as they implement fixed rules".
 
 > **Amended by 14.93 (DRAFT, pending review):** the framework writes one staleness refusal, `io.angzarr.handler.v1.ExpectedSequenceMismatch`, which a handler raises; consequence (3) of 14.92 ("no framework staleness refusal") is reversed.
 
+> **Amended by 14.94 (DRAFT, pending review):** the coordinator checks one thing of staleness: a set expected sequence other than the loaded head is refused `ExpectedSequenceMismatch` before the handler runs. The rest of 14.92 stands.
+
 **14.92 (DRAFT) The coordinator has no conflict concept.** The owner's
 decision 47, 2026-11-02: "does the coordinator need to care, at all, about
 conflicts, or should we just delegate it?" ... "and let the business logic
@@ -5285,6 +5287,8 @@ and 14.66.
   `Malformed::{Unknown,Unsupported}ConflictResolution`, which go with the
   implementation.
 
+> **Amended by 14.94 (DRAFT, pending review):** the check is the COORDINATOR's; the message moves to core, and no command lists it in `refuses` (the widened own-domain rule is reverted).
+
 **14.93 (DRAFT) The framework's one refusal: ExpectedSequenceMismatch.**
 The owner, on 14.92's consequence 3: "framework needs a staleness refusal
 written". Amends 14.92.
@@ -5304,6 +5308,27 @@ written". Amends 14.92.
   message. No implicit "every command may return it" rule.
 - **Behind and ahead are one refusal:** either way the client decided against
   a version that is not the head, and its remedy is the same (re-read).
+
+**14.94 (DRAFT) The staleness check is the coordinator's.** The owner's
+ruling, 2026-11-02. Amends 14.92 and 14.93.
+- **The check.** When a command's `Handling.expected_sequence` is set and
+  differs from the head the coordinator loaded, the coordinator refuses
+  with `io.angzarr.v1.ExpectedSequenceMismatch { expected, head }`
+  (FAILED_PRECONDITION) BEFORE calling the handler. Behind and ahead are
+  one refusal. It is pipeline step 4, after deduplication: a retry of an
+  applied command is still DUPLICATE.
+- **No modes.** Decision 47's other removals stand: no resolution, no
+  window, no units, no report. A command without an expected sequence is
+  decided on the current state.
+- **Race re-runs.** A command with an expected sequence that loses a race
+  at its write is re-run, finds the head moved, and is refused; one without
+  re-runs on the new head as before.
+- **Core, not the handler package.** The coordinator raises it. On the wire
+  it is a typed refusal (`ROUTER_REASON_COMMAND_REFUSED`, refusal_type its
+  name); a HandleAsync command so refused is dead-lettered with it as
+  `AngzarrDeadLetter.refusal`.
+- **Not declared.** No command lists it in `refuses`; the own-domain rule
+  for `refuses` is back to as it was.
 
 ## Corrections
 
