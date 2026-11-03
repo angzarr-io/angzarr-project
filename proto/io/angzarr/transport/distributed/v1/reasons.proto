@@ -55,4 +55,32 @@ enum DistributedReason {
     args: ["uri", "cause"]
     grpc_status: UNAVAILABLE
   }];
+  // Raised by a distributed coordinator.
+  // DlqAdminService (dlq_admin.proto): the admin store of dead letters
+  // could not be reached or failed to answer (`cause`, the store's failure,
+  // a third-party driver's text as `cause.ext_err_txt`). Bug, retryable
+  // (decision 14.37): the caller resends; nothing was changed by a failed
+  // Delete or Replay. (Decision 14.106, DRAFT, replacing the degraded
+  // envelope.)
+  DISTRIBUTED_REASON_DEAD_LETTER_STORE_UNAVAILABLE = 4 [(io.angzarr.v1.reason) = {
+    args: ["cause"]
+    grpc_status: UNAVAILABLE
+  }];
+  // Raised by a distributed coordinator.
+  // DlqAdminService.GetDeadLetter or ReplayDeadLetter given an id (`id`)
+  // with no entry. Business, fatal (decision 14.37). DeleteDeadLetter never
+  // answers it: its no_entry arm says so. (Decision 14.106, DRAFT.)
+  DISTRIBUTED_REASON_DEAD_LETTER_NOT_FOUND = 5 [(io.angzarr.v1.reason) = {
+    args: ["id"]
+    grpc_status: NOT_FOUND
+  }];
+  // Raised by a distributed coordinator.
+  // DlqAdminService.ListDeadLetters given a filter or a page token that
+  // does not parse (`field`: `filter` or `page_token`). Business, fatal
+  // (decision 14.37): the caller fixes the request. (Decision 14.106,
+  // DRAFT.)
+  DISTRIBUTED_REASON_DEAD_LETTER_QUERY_INVALID = 6 [(io.angzarr.v1.reason) = {
+    args: ["field"]
+    grpc_status: INVALID_ARGUMENT
+  }];
 }

@@ -25,7 +25,9 @@ service EventStreamService {
   // Order is per stream only: a stream's pages arrive in sequence order;
   // pages of different streams arrive in no defined order. There is no
   // cross-stream order and no store-wide position: a resume point is one
-  // sequence per stream (StreamFrom.after_sequence, CorrelationFrom.seen).
+  // sequence per stream, the next one to deliver, inclusive, as
+  // SequenceRange.lower (StreamFrom.from_sequence, CorrelationFrom.seen;
+  // decision 14.106, DRAFT).
   //
   // Refusals: a target that is unset, a cover with no domain or a root that
   // is not 16 bytes, or a correlation_id unset or not 16 bytes, is
@@ -33,11 +35,13 @@ service EventStreamService {
   // EventQueryService).
   //
   // REST: Server-Sent Events (SSE). A stream subscription is GET
-  // /v1/stream/{domain}/{root}, with after_sequence and cover.edition as
+  // /v1/stream/{domain}/{root}, with from_sequence and cover.edition as
   // query parameters. A correlation subscription is POST
   // /v1/stream/correlations/{correlation_id}, the request its body, since
   // its resume point (seen) is a list of messages, which a query string
-  // cannot carry. Path segments that are UUIDs take the UUID's bytes field,
+  // cannot carry. A browser's EventSource opens GET only, so a browser
+  // subscribes to a correlation with a fetch-based SSE reader (decision
+  // 14.106, DRAFT: accepted). Path segments that are UUIDs take the UUID's bytes field,
   // so HTTP transcoding takes them as base64 (URL-safe), not as canonical
   // UUID text (the accepted cost of UUID-typed ids; see UUID in
   // io/angzarr/v1/types.proto).
@@ -65,31 +69,30 @@ message SubscribeRequest {
 }
 
 // One stream, from a sequence: every page of the stream with a sequence
-// greater than after_sequence (every page, when it is unset), then live.
-// The stream's timeline is cover.edition, read as EventQueryService reads
-// it. A subscriber that reconnects sets after_sequence to the last
-// sequence it received.
+// at or above from_sequence, then live. The stream's timeline is
+// cover.edition, read as EventQueryService reads it. A subscriber that
+// reconnects sets from_sequence to the last sequence it received + 1.
 message StreamFrom {
   io.angzarr.v1.Cover cover = 1;
-  // The last sequence the subscriber has; unset: it has none, and delivery
-  // starts at sequence 0.
-  optional uint64 after_sequence = 2;
+  // The first sequence to deliver, inclusive, as SequenceRange.lower: 0 is
+  // the stream's start.
+  uint64 from_sequence = 2;
 }
 
 // One correlation, from a set of per-stream positions: every page whose
-// EventMeta.correlation_id is correlation_id, in every domain, after each
-// listed stream's cursor, and from the start of any stream not listed;
-// then live.
+// EventMeta.correlation_id is correlation_id, in every domain, from each
+// listed stream's cursor (inclusive), and from the start of any stream not
+// listed; then live.
 //
 // Building seen: for each EventBook received, the subscriber keeps its
-// cover and the sequence of its last page, the highest per cover. On
+// cover and its last page's sequence + 1, the highest per cover. On
 // reconnect, seen is one StreamCursor per stream it kept. A stream it has
 // never received from is simply not listed.
 message CorrelationFrom {
   // Required.
   io.angzarr.v1.UUID correlation_id = 1;
   // The streams the subscriber has already received from, each with the
-  // last sequence it has. At most one cursor per stream; each cover's
+  // next sequence it needs. At most one cursor per stream; each cover's
   // edition is the subscription's (a cursor of another edition, or two of
   // one stream, is INVALID_ARGUMENT).
   repeated StreamCursor seen = 2;
@@ -99,10 +102,11 @@ message CorrelationFrom {
   optional string edition = 3;
 }
 
-// One stream's position in a correlation subscription: the last sequence
-// the subscriber has of that stream.
+// One stream's position in a correlation subscription.
 message StreamCursor {
   io.angzarr.v1.Cover cover = 1;
-  uint64 sequence = 2;
+  // The next sequence to deliver of that stream, inclusive: the last
+  // sequence the subscriber received + 1.
+  uint64 next_sequence = 2;
 }
 // endregion

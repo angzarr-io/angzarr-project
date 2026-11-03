@@ -9,9 +9,17 @@
 // holds its own services.
 //
 // Surface follows Google AIPs for resource naming, pagination and
-// filtering. Every method returns a health envelope (`oneof state` of an
-// `ok` payload or RFC 7807 `degraded` problem details) so a degraded
-// backend renders as a per-panel error instead of failing the console.
+// filtering. Every method returns its plain result (decision 14.106,
+// DRAFT). A failure is a gRPC status with a google.rpc.ErrorInfo key
+// (decision 14.37): the admin store unreachable is UNAVAILABLE
+// DISTRIBUTED_REASON_DEAD_LETTER_STORE_UNAVAILABLE, an id with no entry
+// NOT_FOUND DISTRIBUTED_REASON_DEAD_LETTER_NOT_FOUND, a filter or page
+// token that does not parse INVALID_ARGUMENT
+// DISTRIBUTED_REASON_DEAD_LETTER_QUERY_INVALID
+// (transport/distributed/v1/reasons.proto). A console renders a failed
+// call as that panel's error. An HTTP gateway may map gRPC statuses to
+// `application/problem+json` (RFC 9457) at the edge; that is the gateway's
+// concern, and no proto message carries it.
 
 syntax = "proto3";
 
@@ -33,16 +41,8 @@ option ruby_package = "Angzarr::Transport::Distributed";
 // One row from `dlq_entries`, surfaced via the API. The `payload`
 // bytes are the proto-encoded `DeadLetterEnvelope` exactly as the
 // publisher wrote it; ReplayDeadLetter reuses these bytes.
-//
-// The `payload_view` field carries a server-side descriptor-decoded
-// JSON rendering of the same data, so operators see structured
-// content in one round-trip without writing client-side decode logic.
-// Nested `Any` payloads (rejected_command.page.command.payload or
-// rejected_command.page.fact.payload, rejected_reaction's body,
-// rejected_events.pages[].payload, refusal) are
-// recursively decoded via the
-// framework `DescriptorPool`. User-domain types not yet in the pool
-// stay as `{"@type": type_url, "value_b64": "..."}` placeholders.
+// A console decodes `payload`, and the Anys inside it, with descriptors
+// (decision 14.106, DRAFT: there is no server-rendered view).
 message StoredDeadLetter {
   int64 id = 1; // Store-assigned row number (not an identifier, so not a UUID)
   string domain = 2;
@@ -60,14 +60,11 @@ message StoredDeadLetter {
   io.angzarr.v1.ComponentKind source_component_kind = 8; // AngzarrDeadLetter.source_component_kind
   google.protobuf.Timestamp occurred_at = 9;
   google.protobuf.Timestamp created_at = 10;
-  // JSON string. Empty when decoding failed entirely (the row is still
-  // surfaced — clients can fall back to `payload` bytes).
-  string payload_view = 11;
   // Every replay of this entry, oldest first: the record of when it was
   // replayed and with what result (who replayed it is in the security
   // log, not here). `payload` itself never
   // changes; replays are recorded here, beside it.
-  repeated DeadLetterReplay replays = 12;
+  repeated DeadLetterReplay replays = 11;
 }
 
 // One replay of a dead-letter entry, recorded in the entry when the replay
@@ -91,20 +88,6 @@ enum ReplayOutcome {
   REPLAY_OUTCOME_FAILED = 4; // Failed again: rejected or re-dead-lettered (see reason)
 }
 
-// RFC 7807 — Problem Details for HTTP APIs. Used when a tile's
-// backend is unreachable so the UI can render an in-place error
-// without crashing the page. Standards conformance: same shape the
-// REST sidecar emits for envoy-side errors.
-message ProblemDetails {
-  // URI identifying the error type (RFC 7807). Default:
-  // "about:blank" when not classified.
-  string type = 1;
-  string title = 2;       // human-readable summary
-  int32 status = 3;       // HTTP-equivalent status code
-  string detail = 4;      // human-readable per-occurrence detail
-  string instance = 5;    // URI of the failing call (optional)
-}
-
 // ----- ListDeadLetters --------------------------------------------------
 
 message ListDeadLettersRequest {
@@ -117,7 +100,8 @@ message ListDeadLettersRequest {
   // occurred_after, occurred_before. The filter is text,
   // so it is an input boundary: a correlation_id literal is the UUID's
   // canonical text (hyphenated 8-4-4-4-12 hex, either case), parsed by the
-  // server; one that does not parse is INVALID_ARGUMENT.
+  // server; a filter that does not parse is INVALID_ARGUMENT
+  // DISTRIBUTED_REASON_DEAD_LETTER_QUERY_INVALID.
   // Example: `domain = "player" AND reason_code = "ANGZARR_REASON_RETRY_CAP_EXHAUSTED"`
   string filter = 1;
 
@@ -127,24 +111,11 @@ message ListDeadLettersRequest {
   string page_token = 3;
 }
 
-// "ok" payload for ListDeadLettersResponse.
-message ListDeadLettersOk {
-  repeated StoredDeadLetter entries = 1;
-  string next_page_token = 2;
-}
-
-// Health envelope: `state.ok` on success, `state.degraded` when the
-// backend is unavailable. Clients render per-panel state from this
-// discriminator.
+// A page of entries.
 message ListDeadLettersResponse {
-  oneof state {
-    ListDeadLettersOk ok = 1;
-    ProblemDetails degraded = 2;
-  }
-  google.protobuf.Timestamp checked_at = 3;
-  // Backend identifier, e.g. "postgres-dlq" / "sqlite-dlq" /
-  // "noop". Lets the UI show which backend served the answer.
-  string source = 4;
+  repeated StoredDeadLetter entries = 1;
+  // AIP-158: empty on the last page.
+  string next_page_token = 2;
 }
 
 // ----- GetDeadLetter ----------------------------------------------------
@@ -153,21 +124,6 @@ message GetDeadLetterRequest {
   int64 id = 1;
 }
 
-// Wrapper retains the `state` discriminator pattern: an "ok"
-// response with `entry` unset means "no row matches" (gRPC NOT_FOUND
-// is the wire-level signal — see status code mapping in the handler).
-message GetDeadLetterOk {
-  StoredDeadLetter entry = 1;
-}
-
-message GetDeadLetterResponse {
-  oneof state {
-    GetDeadLetterOk ok = 1;
-    ProblemDetails degraded = 2;
-  }
-  google.protobuf.Timestamp checked_at = 3;
-  string source = 4;
-}
 
 // ----- ReplayDeadLetter -------------------------------------------------
 
@@ -209,27 +165,18 @@ message ReplayDeadLetterRequest {
   int64 id = 1;
 }
 
-// Successful replay request. The dead-letter row stays in `dlq_entries`
+// A replay was requested. The dead-letter row stays in `dlq_entries`
 // (the operator can `Delete` it explicitly once the outcome is confirmed),
 // and the replay is recorded in it (StoredDeadLetter.replays). The replayed
 // message keeps its original correlation_id; follow that, or re-read the
 // entry, for the outcome.
-message ReplayDeadLetterOk {
+message ReplayDeadLetterResponse {
   // The original correlation_id, kept on the replayed message.
   io.angzarr.v1.UUID correlation_id = 1;
-  // RFC-3339 timestamp of when the replay was published.
+  // When the replay was published.
   google.protobuf.Timestamp replayed_at = 2;
   // The replay as recorded in the entry (outcome PENDING for a command).
   DeadLetterReplay replay = 3;
-}
-
-message ReplayDeadLetterResponse {
-  oneof state {
-    ReplayDeadLetterOk ok = 1;
-    ProblemDetails degraded = 2;
-  }
-  google.protobuf.Timestamp checked_at = 3;
-  string source = 4;
 }
 
 // ----- DeleteDeadLetter -------------------------------------------------
@@ -238,9 +185,9 @@ message DeleteDeadLetterRequest {
   int64 id = 1;
 }
 
-// Idempotent: a row was removed, or none matched; either is a success
-// outcome, and the arm says which (decision 14.91, DRAFT: no flag).
-message DeleteDeadLetterOk {
+// Idempotent: a row was removed, or none matched; either is a success,
+// and the arm says which (decision 14.91, DRAFT: no flag).
+message DeleteDeadLetterResponse {
   oneof outcome {
     DeadLetterRemoved removed = 1;
     NoDeadLetter no_entry = 2;
@@ -253,15 +200,6 @@ message DeadLetterRemoved {}
 // No row matched the id.
 message NoDeadLetter {}
 
-message DeleteDeadLetterResponse {
-  oneof state {
-    DeleteDeadLetterOk ok = 1;
-    ProblemDetails degraded = 2;
-  }
-  google.protobuf.Timestamp checked_at = 3;
-  string source = 4;
-}
-
 // ----- Service ----------------------------------------------------------
 
 service DlqAdminService {
@@ -272,8 +210,9 @@ service DlqAdminService {
     };
   }
 
-  // Fetch a single entry by primary key.
-  rpc GetDeadLetter(GetDeadLetterRequest) returns (GetDeadLetterResponse) {
+  // Fetch a single entry by primary key (AIP-131: the resource itself).
+  // An id with no entry is NOT_FOUND DISTRIBUTED_REASON_DEAD_LETTER_NOT_FOUND.
+  rpc GetDeadLetter(GetDeadLetterRequest) returns (StoredDeadLetter) {
     option (google.api.http) = {
       get: "/api/dlq/{id}"
     };
@@ -289,7 +228,8 @@ service DlqAdminService {
   // Replay a dead-letter entry: a command through the command bus
   // (HandleAsync), an event book to the component that failed. The
   // original row is left in place, and the replay is recorded in it;
-  // operators delete explicitly after confirming the outcome.
+  // operators delete explicitly after confirming the outcome. An id with
+  // no entry is NOT_FOUND DISTRIBUTED_REASON_DEAD_LETTER_NOT_FOUND.
   rpc ReplayDeadLetter(ReplayDeadLetterRequest) returns (ReplayDeadLetterResponse) {
     option (google.api.http) = {
       post: "/api/dlq/{id}/replay"

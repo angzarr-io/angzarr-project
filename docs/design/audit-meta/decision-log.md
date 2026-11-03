@@ -5712,6 +5712,8 @@ the month, so these protos are live).
 - **`EventStreamService.Subscribe` takes a target and catches up.**
   `SubscribeRequest { oneof target { StreamFrom stream; CorrelationFrom
   correlation } }`, replacing `EventStreamFilter`.
+  (Amended by 14.106: the start is an inclusive `from_sequence`, and a
+  cursor carries `next_sequence`.)
   `StreamFrom { Cover cover; optional uint64 after_sequence }`: every page
   of the stream after `after_sequence` (from 0 when unset), then live, in
   stream order, with no gap and no duplicate; a reconnect resumes from the
@@ -5730,6 +5732,35 @@ the month, so these protos are live).
 - **`GetEventBook` and `GetEvents` both stay** (owner).
 - **`GetAggregateRoots` is `ListStreams`**, route `/v1/query/streams`: it
   lists every stream (domain, edition, root), not only aggregates'.
+
+**14.106 (DRAFT) DLQ admin answers plain results; subscriptions start at
+an inclusive sequence.** The owner's review round 9, 2026-11-02.
+- **DlqAdminService returns plain results.** `ListDeadLetters` answers
+  `ListDeadLettersResponse { entries; next_page_token }`; `GetDeadLetter`
+  answers the `StoredDeadLetter` itself (AIP-131); `ReplayDeadLetter`
+  answers `ReplayDeadLetterResponse { correlation_id; replayed_at; replay
+  }`; `DeleteDeadLetter` answers `DeleteDeadLetterResponse { oneof outcome
+  { removed; no_entry } }` (the delete outcome is data, and stays). Every
+  `oneof state { ok; degraded }` envelope, its `checked_at` and `source`,
+  the `…Ok` messages and `ProblemDetails` are deleted.
+- **Failures are gRPC statuses with keys.** New distributed keys:
+  `DISTRIBUTED_REASON_DEAD_LETTER_STORE_UNAVAILABLE` (UNAVAILABLE, arg
+  `cause`), `DISTRIBUTED_REASON_DEAD_LETTER_NOT_FOUND` (NOT_FOUND, arg `id`;
+  Get and Replay), `DISTRIBUTED_REASON_DEAD_LETTER_QUERY_INVALID`
+  (INVALID_ARGUMENT, arg `field`: a filter or page token that does not
+  parse). `ANGZARR_REASON_STORE_UNAVAILABLE` is the event store's, so the
+  admin store has its own. An HTTP gateway may map statuses to
+  `application/problem+json` at the edge; that is the gateway's concern.
+- **`StoredDeadLetter.payload_view` is dropped**; a console decodes
+  `payload` with descriptors. `replays` is renumbered 11.
+- **A subscription starts at an inclusive sequence** (amends 14.105):
+  `StreamFrom.from_sequence` (`uint64`, not optional; 0 is the start, a
+  resume is the last sequence seen + 1, as `SequenceRange.lower`), and
+  `StreamCursor.next_sequence`, the next sequence to deliver. A subscriber
+  builds `seen` from each stream's last received sequence + 1.
+- **A correlation subscription over HTTP is POST/SSE** (accepted); a
+  browser's `EventSource` is GET-only, so a browser uses a fetch-based SSE
+  reader.
 
 ## Corrections
 

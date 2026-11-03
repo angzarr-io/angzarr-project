@@ -13,3 +13,6 @@
 DISTRIBUTED_REASON_COMPONENT_NOT_REGISTERED = no component of domain { $domain } is registered yet: send it again
 DISTRIBUTED_REASON_COMMANDS_NOT_SERVED = the query server of domain { $domain } takes no commands: send it to the domain's coordinator
 DISTRIBUTED_REASON_PAYLOAD_UNAVAILABLE = the payload at { $uri } could not be retrieved: send it again
+DISTRIBUTED_REASON_DEAD_LETTER_STORE_UNAVAILABLE = the dead-letter store could not be reached: try again
+DISTRIBUTED_REASON_DEAD_LETTER_NOT_FOUND = there is no dead letter { $id }
+DISTRIBUTED_REASON_DEAD_LETTER_QUERY_INVALID = the request's { $field } does not parse

@@ -1198,8 +1198,10 @@ message AngzarrDeadLetter {
   // ANGZARR_REASON_UPCASTER_UNAVAILABLE and the distributed
   // transport's DISTRIBUTED_REASON_COMPONENT_NOT_REGISTERED (queued work
   // waits) and DISTRIBUTED_REASON_COMMANDS_NOT_SERVED (decision 14.51);
-  // and ANGZARR_REASON_SYNC_PROJECTION_FAILED, whose decision committed and
-  // whose caller retries (decision 14.105, DRAFT).
+  // ANGZARR_REASON_SYNC_PROJECTION_FAILED, whose decision committed and
+  // whose caller retries (decision 14.105, DRAFT); and the dead-letter
+  // admin's own keys (DISTRIBUTED_REASON_DEAD_LETTER_*; decision 14.106,
+  // DRAFT).
   // The retries after the first attempt (0 when it was tried once): of a
   // retryable bug, or a policy step's ABORTED re-run, at its cap, and of an
   // edition removal (ANGZARR_REASON_EDITION_REMOVAL_FAILED).
