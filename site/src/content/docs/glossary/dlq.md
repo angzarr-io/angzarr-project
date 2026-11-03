@@ -19,7 +19,7 @@ Each entry carries exactly one of three detail messages, chosen by its reason (t
 - **CommandRefusedDetails** — a typed business refusal of an asynchronous command: the refusal's type and the refusal object itself.
 - **ProcessingFailedDetails** — why a handler or the coordinator failed to process the entry's events, command or edition removal, with retry count and transience.
 
-The distributed transport wraps each entry in a `DeadLetterEnvelope` (decision 14.64) that adds what only it knows: a structured stack trace, metadata, and **PayloadRetrievalFailedDetails** for claim-check failures when an externally stored payload cannot be retrieved. The angzarr-embedded kernel stores the core entry bare.
+The distributed transport wraps each entry in a `DeadLetterEnvelope` (decision 14.64) that adds what only it knows: a structured stack trace. When an externally stored (claim-checked) payload cannot be retrieved, the entry's why is the transport's **PayloadRetrievalFailed** (the payload's reference and the retrieval's failure), packed in the dead letter's `transport` arm. The angzarr-embedded kernel stores the core entry bare.
 
 ```protobuf file=proto/io/angzarr/v1/types.proto region=dlq_details
 ```

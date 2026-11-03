@@ -17,17 +17,17 @@ option ruby_package = "Angzarr::Transport::Distributed";
 // (io/angzarr/v1/meta.proto; decision 14.64).
 
 // region edition_admin
-// EditionAdminService: forks origin streams into editions, lists editions,
-// and deletes them (see Cover.edition in io/angzarr/v1/types.proto).
+// EditionAdminService: forks streams into editions, lists editions, and
+// deletes them (see Cover.edition in io/angzarr/v1/types.proto).
 service EditionAdminService {
-  // Fork one origin stream into an edition at the sequence the request
-  // states (fork_sequence): append EditionCreated at that sequence to (the
-  // stream's domain, edition, root), its source origin, creating the edition if no fork event
-  // of it exists yet. From there the fork travels with the data
-  // (docs/design/edition-meta-events.md §2). Forking more origin streams into an
-  // existing edition is allowed, and is how a stream that policy commands
-  // have not reached is addressed from outside. Answers the fork event's
-  // EventRef.
+  // Fork one stream into an edition at the sequence the request states
+  // (fork_sequence): append EditionCreated at that sequence to (the
+  // stream's domain, edition, root), creating the edition if no fork event
+  // of it exists yet. Every stream an edition holds is forked this way:
+  // there is no automatic propagation, and an input in the edition to a
+  // stream not forked is refused ANGZARR_REASON_EDITION_NOT_FORKED
+  // (docs/design/edition-meta-events.md; decision 14.107, DRAFT). Answers
+  // the fork event's EventRef.
   //   INVALID_ARGUMENT     edition is empty or unset (main is unnamed and
   //                        cannot be forked into), or the cover names no
   //                        domain or root;
@@ -45,42 +45,31 @@ service EditionAdminService {
   rpc ListEditions(ListEditionsRequest) returns (ListEditionsResponse) {
     option (google.api.http) = {get: "/v1/admin/editions"};
   }
-  // Delete an edition (EditionDeleted, the owner's rulings of
-  // 2026-10-28): append EditionDeleted to each of X's origin streams, in
-  // sequence after their earlier work. From there, per stream: the event
-  // is RECORDED in the stream's own domain; the angzarr system layer
-  // PROPAGATES it
-  // onward along the streams that domain's policies reached in X, each of
-  // which records its own (never as a policy's command: the router sees no
-  // meta-event); and only once it has propagated onward (the system layer's
-  // onward writes and outbox entries have completed) are that stream's rows
-  // of X removed: events, the creation and deletion events included,
-  // snapshots, projector output, outbox entries and positions. Nothing
-  // remains. A stream of X the deletion cannot reach through the policy
-  // flows keeps its rows and stays visible in ListEditions. Once X is
-  // deleted, a later arrival in it (a policy command, a step's position on a
-  // removed stream) is refused NOT_FOUND and re-creates nothing; only
-  // ForkStream brings the name back. Answers once
-  // the origins have recorded it. A removal that genuinely fails is
-  // dead-lettered (AngzarrDeadLetter.failed_edition_removal, reason
-  // ANGZARR_REASON_EDITION_REMOVAL_FAILED) and alerted. Main is never
-  // touched.
+  // Delete an edition by enumeration (decision 14.107, DRAFT): find every
+  // stream forked in it by its EditionCreated, as ListEditions does, and
+  // remove each stream's rows of the edition directly: events (the fork
+  // event included), snapshots, projector output, outbox entries and
+  // positions. Nothing is appended and nothing propagates. A stream whose
+  // removal fails is retried under the retry cap, then dead-lettered
+  // (AngzarrDeadLetter.failed_edition_removal, reason
+  // ANGZARR_REASON_EDITION_REMOVAL_FAILED) and alerted. Answers once every
+  // stream is removed or so dead-lettered. A later input in the edition is
+  // refused by the not-forked rule; only ForkStream brings the name back.
+  // Main is never touched.
   //   INVALID_ARGUMENT  name is empty (a name is required; main is unnamed
   //                     and can never be deleted);
-  //   NOT_FOUND         the edition is unknown (no stream of it is forked
-  //                     and not yet deleted).
+  //   NOT_FOUND         the edition is unknown (no stream of it is
+  //                     forked).
   rpc DeleteEdition(DeleteEditionRequest) returns (google.protobuf.Empty) {
     option (google.api.http) = {delete: "/v1/admin/editions/{name}"};
   }
 }
 
 message ForkStreamRequest {
-  // The origin stream, named in the edition to create or extend: domain,
-  // root, and edition (required, non-empty). Its main version is forked.
-  // The fork is per stream (one domain and root): each stream a policy
-  // command reaches is forked at the main head read on its arrival. There
-  // is no global position to fork at and no cross-stream snapshot
-  // (decisions 14.35 and 14.36).
+  // The stream, named in the edition to create or extend: domain, root,
+  // and edition (required, non-empty). Its main version is forked. The
+  // fork is per stream (one domain and root): there is no global position
+  // to fork at and no cross-stream snapshot (decisions 14.35 and 14.36).
   io.angzarr.v1.Cover stream = 1;
   // The fork point, always stated by the caller (decision 14.36): the
   // sequence the EditionCreated is appended at, which is its own fork

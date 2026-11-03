@@ -31,20 +31,14 @@ message DeadLetterEnvelope {
   // when no capture was attempted. See sererr.fyi/spec/proto for the schema
   // rationale.
   repeated sererr.v1.CapturedError stack_trace = 2;
-  map<string, string> metadata = 3; // Additional context
-  // Set, with reason DISTRIBUTED_REASON_PAYLOAD_UNAVAILABLE, when a
-  // claim-checked payload could not be retrieved (bus.proto).
-  PayloadRetrievalFailedDetails payload_retrieval_failed = 4;
 }
 
-// Payload retrieval failure details for a dead letter: why a claim-checked
-// payload (PayloadReference, bus.proto) couldn't be retrieved (decision
-// 14.64).
-message PayloadRetrievalFailedDetails {
-  PayloadStorageType storage_type = 1; // Storage backend type
-  string uri = 2; // URI of the payload that couldn't be retrieved
-  bytes content_hash = 3; // Content hash for identification
-  uint64 original_size = 4; // Original payload size in bytes
-  io.angzarr.v1.Diagnostic failure = 5; // The retrieval's failure: its code and args, never its text (decision 14.37)
+// Why a claim-checked payload (bus.proto) could not be retrieved: the
+// dead letter's why, packed in AngzarrDeadLetter's transport arm, its key
+// implied as DISTRIBUTED_REASON_PAYLOAD_UNAVAILABLE (decision 14.107,
+// DRAFT).
+message PayloadRetrievalFailed {
+  PayloadReference reference = 1; // The payload that could not be retrieved
+  io.angzarr.v1.Diagnostic failure = 2; // The retrieval's failure: its code and args, never its text (decision 14.37)
 }
 // endregion

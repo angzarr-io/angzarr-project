@@ -29,8 +29,10 @@ For events exceeding message bus limits, use `PayloadReference`:
 
 ```protobuf
 message PayloadReference {
-  PayloadStorageType storage_type = 1;  // GCS, S3, filesystem
-  string location = 2;                   // Storage path
+  string uri = 1;           // file://, gs:// or s3://: the scheme names the store
+  bytes content_hash = 2;   // SHA-256
+  uint64 original_size = 3;
+  google.protobuf.Timestamp stored_at = 4;
 }
 ```
 

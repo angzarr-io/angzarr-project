@@ -2449,6 +2449,8 @@ and no fork at one (14.35).
 >   - **Filtering:** the system layer filters meta-events out of everything
 >     policies and handlers see; no business code runs for one.
 
+> **Amended by 14.107 (DRAFT, pending review):** forks no longer travel with the data: every stream is forked explicitly with ForkStream, and an input in an edition to an unforked stream is refused `ANGZARR_REASON_EDITION_NOT_FORKED`. Deletion is by enumeration of the forks, with no `EditionDeleted` event and no propagation; this revisits the 2026-10-28 ruling that a deletion is an event propagated through the policies, whose premise (forks that propagate) is gone.
+
 **14.33 The stateless event-to-command mapper is a POLICY, not a saga.**
 Owner ruling, 2026-10-28. Canon calls a saga stateful: what angzarr has
 called a saga (it reacts to one domain's events and builds commands for
@@ -2662,6 +2664,8 @@ says.** Owner rulings, 2026-10-28. Amends 14.30, 14.31 and 14.32.
 > **Amended by 14.42 (pass 14):** the reason keys, their owner, status and arg names live in `catalog/reasons.toml` and are generated per language. Classification by status is the coordinator's. Many router keys retire or move to the coordinator (14.42 lists them). A language with only exceptions marks a bug with no cause by a named unclassified error.
 
 > **Amended by 14.44 (2026-10-30):** the reason keys are the enums of `reasons.proto` (`RouterReason`, `HostReason`, `CoordinatorReason`), not a TOML catalog; a key travels as its value's full name, its enum's prefix included (`ROUTER_REASON_DUPLICATE_COMPONENT`), and every enum reserves the retired keys. Every key named in this log before 14.44 is written here with its prefix, except the old reasons of 14.37's inventory and the retired keys, which were only ever answered bare. Nothing is generated per language from a catalog.
+
+> **Amended by 14.107 (DRAFT, pending review):** the fork on arrival at the main head is gone; ForkStream's stated sequence is the only fork point.
 
 **14.37 Errors carry a key and an argument map, never rendered English;
 the input's acceptance time is delivered.** Owner rulings, 2026-10-28.
@@ -5784,6 +5788,54 @@ an inclusive sequence.** The owner's review round 9, 2026-11-02.
   (types.proto, annals-divergence.md's text, idempotency.md,
   audit-meta-followups.md's index, the state-and-conflicts guide); the
   historical log entries keep it.
+
+**14.107 (DRAFT) Explicit forks only; deletion by enumeration; one why
+for a transport; minimal envelopes.** The owner's review round 10,
+2026-11-02.
+- **What editions are for.** An edition's main use is operations research
+  and experimenting; it is not restricted to that and may hold real data.
+  It is a deliberately crafted system, so explicit creation is the rule:
+  whoever builds one decides which streams it holds (the owner: "there's no
+  real reason they shouldn't be used for more, but the explicit creation is
+  absolutely permissable because they're crafted systems").
+- **No automatic propagation.** The owner: "propagation of an edition
+  without edition created should be an error". A command or fact in
+  edition X, from a client or a policy, to a stream with no
+  `EditionCreated` in X is refused FAILED_PRECONDITION
+  `ANGZARR_REASON_EDITION_NOT_FORKED` (reused); a policy's reaction so
+  refused is dead-lettered as any failed delivery. Every stream is forked
+  explicitly with ForkStream. The propagation path, `PropagatedFork`,
+  `OriginFork`, `forked_by` and the source oneof are deleted:
+  `EditionCreated {}` is empty, the page's sequence its fork point and its
+  cover its edition. `EditionSummary.origins` is `forks` (every fork; the
+  count is its length, so `forked_streams` goes).
+- **Deletion by enumeration.** DeleteEdition finds X's forked streams by
+  their `EditionCreated` events, as ListEditions does, and removes each
+  stream's rows directly. `EditionDeleted`, its propagation and the system
+  layer's deletion machinery are deleted; `MetaEvent`'s oneof keeps one
+  arm, `created` (kept a oneof, so a later meta-event is an arm, not a
+  reshape). A later arrival in a deleted X is refused by the same
+  not-forked rule. A per-stream removal can still fail, so
+  `failed_edition_removal` stays, now the stream's `Cover` (there is no
+  deletion event to carry). This revisits the 2026-10-28 deletion ruling
+  ("EditionDeleted needs to be an EVENT, to propagate via policies"): its
+  premise, forks that propagate through the policies, is gone.
+- **Envelopes.** `PayloadStorageType` is dropped (the URI scheme says it;
+  `PayloadReference` renumbered 1-4). `PayloadRetrievalFailedDetails` is
+  `PayloadRetrievalFailed { PayloadReference reference; Diagnostic failure
+  }`, and it is the dead letter's why: core's `AngzarrDeadLetter.why` gains
+  a third arm, `google.protobuf.Any transport`, a transport's own why, its
+  key implied by its type (`DISTRIBUTED_REASON_PAYLOAD_UNAVAILABLE` for
+  this one); `StoredDeadLetter.why` mirrors it. Why core and not the
+  envelope: core cannot name a distributed type, and a why on the envelope
+  beside core's would give one dead letter two whys, the "set iff reason"
+  rule this removes. `DeadLetterEnvelope.metadata` is dropped.
+- **`PolicyCoordinatorService.Execute`'s text** no longer says the policy's
+  configuration sets how outputs are delivered: there is one way.
+- **`ReplayDeadLetterResponse.replayed_at` is dropped** (the replay's own
+  `replayed_at` says it).
+- **Kept by the owner:** the `meta_event` arm name and the two extra DLQ
+  keys of 14.106.
 
 ## Corrections
 

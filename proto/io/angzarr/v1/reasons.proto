@@ -299,10 +299,11 @@ enum AngzarrReason {
   // Raised by the coordinator.
   // The rows of a deleted edition in one stream could not be removed
   // (transport/distributed/v1/meta.proto, DeleteEdition): the removal is
-  // dead-lettered (the stream and its EditionDeleted as
-  // AngzarrDeadLetter.failed_edition_removal) with this key as its reason, and
-  // alerted. `attempts` is how many removals were tried, `cause` the store's
-  // failure. Never answered to a caller: DeleteEdition has already answered.
+  // dead-lettered (the stream's cover as
+  // AngzarrDeadLetter.failed_edition_removal) with this key as its reason,
+  // and alerted. `attempts` is how many removals were tried, `cause` the
+  // store's failure. Never answered to a caller: DeleteEdition answers once
+  // every stream is removed or so dead-lettered (decision 14.107, DRAFT).
   // (Decision 14.48, amended.)
   ANGZARR_REASON_EDITION_REMOVAL_FAILED = 25 [(reason) = {
     args: ["stream", "edition", "attempts", "cause"]
@@ -399,15 +400,16 @@ enum AngzarrReason {
     grpc_status: INTERNAL
   }];
   // Raised by the coordinator.
-  // An outside input (a client's command or fact) to a stream in an
-  // edition (`edition`) that is not forked there (`stream`, the input's
-  // stream in that edition): the store's Editions capability knows no fork
-  // of the stream in the edition. Checked when the input is loaded, before
-  // business code runs: nothing runs and nothing is persisted. Business,
-  // fatal (decision 14.37): the caller forks the stream into the edition,
-  // or waits for a policy to propagate into it, and resends. A reaction
-  // command into an edition is never this: its coordinator forks on arrival
-  // (edition_forks.feature). (C-0633; decision 14.65.)
+  // An input (a client's command or fact, or a policy's reaction) to a
+  // stream in an edition (`edition`) that is not forked there (`stream`,
+  // the input's stream in that edition): the store knows no EditionCreated
+  // of the stream in the edition, whether the edition was never created,
+  // was deleted, or simply does not hold this stream. Checked when the
+  // input is loaded, before business code runs: nothing runs and nothing
+  // is persisted. Business, fatal (decision 14.37): a client forks the
+  // stream (ForkStream) and resends; a policy's reaction is dead-lettered
+  // with this key, as any failed delivery, and alerted. There is no
+  // automatic fork (decision 14.107, DRAFT). (C-0633; decision 14.65.)
   ANGZARR_REASON_EDITION_NOT_FORKED = 32 [(reason) = {
     args: ["stream", "edition"]
     grpc_status: FAILED_PRECONDITION

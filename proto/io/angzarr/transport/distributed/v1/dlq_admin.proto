@@ -50,21 +50,23 @@ message StoredDeadLetter {
   // io.angzarr.v1.UUID).
   io.angzarr.v1.UUID correlation_id = 3;
   bytes payload = 4;
-  // AngzarrDeadLetter's why, mirrored (decision 14.101, DRAFT): a typed
-  // refusal, or a reason (a key and its args, never text; decision 14.37).
+  // AngzarrDeadLetter's why, mirrored (decisions 14.101 and 14.107,
+  // DRAFT): a typed refusal, a reason (a key and its args, never text;
+  // decision 14.37), or a transport's own why.
   oneof why {
     google.protobuf.Any refusal = 5;
     io.angzarr.v1.Diagnostic reason = 6;
+    google.protobuf.Any transport = 7;
   }
-  string source_component = 7;
-  io.angzarr.v1.ComponentKind source_component_kind = 8; // AngzarrDeadLetter.source_component_kind
-  google.protobuf.Timestamp occurred_at = 9;
-  google.protobuf.Timestamp created_at = 10;
+  string source_component = 8;
+  io.angzarr.v1.ComponentKind source_component_kind = 9; // AngzarrDeadLetter.source_component_kind
+  google.protobuf.Timestamp occurred_at = 10;
+  google.protobuf.Timestamp created_at = 11;
   // Every replay of this entry, oldest first: the record of when it was
   // replayed and with what result (who replayed it is in the security
   // log, not here). `payload` itself never
   // changes; replays are recorded here, beside it.
-  repeated DeadLetterReplay replays = 11;
+  repeated DeadLetterReplay replays = 12;
 }
 
 // One replay of a dead-letter entry, recorded in the entry when the replay
@@ -95,7 +97,8 @@ message ListDeadLettersRequest {
   //   field "=" string-literal { "AND" field "=" string-literal }
   // Recognised fields: domain, correlation_id, reason_code (the reason's
   // key, StoredDeadLetter.reason.code; for a refusal entry its implied key,
-  // ANGZARR_REASON_COMMAND_REFUSED), refusal_type (a refusal entry's type,
+  // ANGZARR_REASON_COMMAND_REFUSED; for a transport why, its type's
+  // implied key), refusal_type (a refusal entry's type,
   // its Any's fully-qualified type name), source_component,
   // occurred_after, occurred_before. The filter is text,
   // so it is an input boundary: a correlation_id literal is the UUID's
@@ -173,10 +176,9 @@ message ReplayDeadLetterRequest {
 message ReplayDeadLetterResponse {
   // The original correlation_id, kept on the replayed message.
   io.angzarr.v1.UUID correlation_id = 1;
-  // When the replay was published.
-  google.protobuf.Timestamp replayed_at = 2;
-  // The replay as recorded in the entry (outcome PENDING for a command).
-  DeadLetterReplay replay = 3;
+  // The replay as recorded in the entry (outcome PENDING for a command);
+  // its replayed_at is when the replay was published.
+  DeadLetterReplay replay = 2;
 }
 
 // ----- DeleteDeadLetter -------------------------------------------------

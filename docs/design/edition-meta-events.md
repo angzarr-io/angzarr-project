@@ -1,107 +1,96 @@
-# Edition meta-events: creation, propagation and deletion
+# Editions: forks, the not-forked rule and deletion
 
-**Status:** normative (decisions 14.32, 14.36, 14.86; DRAFT decision 14.106 pending review). Moved from `proto/io/angzarr/v1/meta/events.proto`, deleted when meta-events became a type (decision 14.106, DRAFT). The messages are `io/angzarr/v1/types.proto`'s `meta_events` region: `MetaEvent`, `EditionCreated`, `EditionDeleted`.
+**Status:** normative (decisions 14.32, 14.36, 14.86; DRAFT decisions 14.106 and 14.107 pending review). The messages are `io/angzarr/v1/types.proto`'s `meta_events` region (`MetaEvent`, `EditionCreated`); the administration RPCs are `io/angzarr/transport/distributed/v1/meta.proto`'s `EditionAdminService`.
 
-## 1. What a meta-event is
+**What editions are for.** An edition's main use is operations research
+and experimenting: a what-if run of real commands against a fork of real
+streams. It is not restricted to that, and it may hold real data. An
+edition is a deliberately crafted system, so explicit creation is the
+rule: whoever builds one decides which streams it holds, and forks each
+with ForkStream (the owner, 2026-11-02: "the explicit creation is
+absolutely permissable because they're crafted systems"; decision 14.107,
+DRAFT).
 
-A meta-event is a real event, appended to a stream and stamped like any
-other (a framework-derived command_id of its own, never that of the
-command whose arrival made it), but it is the framework's, not a domain's.
-It is told apart by TYPE, never by a type URL: an EventPage's body is
-`oneof { google.protobuf.Any event; MetaEvent meta_event }`, and a
-meta-event is the `meta_event` arm (decision 14.106, DRAFT, retiring the
-`/io.angzarr.v1.meta.*` type-URL convention).
+## 1. A fork is explicit, per stream
 
-- Stores and the angzarr system layer act on the `meta_event` arm: a store
-  reads an edition stream through its EditionCreated; the system layer
-  removes a stream's edition rows once its EditionDeleted has propagated.
-- Business handlers NEVER see one: the client library hands business code
-  only the `event` arm. No applier, policy, process manager or projector
-  handler receives a meta-event, and a book a handler is given holds only
-  event pages.
-- No input carries one. A CommandPage has no meta arm, so a meta-event
-  cannot arrive from outside the system layer; a command whose payload
-  happens to be an EditionCreated or EditionDeleted is an ordinary command
-  of an unknown type.
-- It travels on the same data flow as any event: a policy's step that
-  reacts to an event in edition X carries X's meta-events onward to the
-  streams it reaches (the angzarr system layer does this for core's
-  coordinator and for the angzarr-embedded kernel, whose in-process chain
-  of committed steps carries them the same way).
+An edition X is a set of per-stream forks and nothing else: there is no
+edition registry and no separate metadata store. A stream (D, X, R) exists
+in X from its fork, and every fork is made explicitly, by
+`EditionAdminService.ForkStream`, at the `fork_sequence` the caller states
+(decision 14.107, DRAFT: there is no automatic propagation).
 
-Only meta-events something needs are defined.
-
-## 2. EditionCreated: creation and propagation
-
-An edition's creation, per stream (Cover.edition). The first event of X's
-version of a stream (D, X, R), appended at its FORK SEQUENCE: its own
-EventPage.sequence IS the fork point (decision 14.86), stated nowhere
-else. (D, X, R) reads main's events below it, then X's own. The edition is
-the page's cover's; the event does not repeat it (decision 14.106, DRAFT).
+ForkStream appends one `EditionCreated` to (D, X, R) at that sequence: its
+own EventPage.sequence IS the fork point (decision 14.86), stated nowhere
+else, and the page's cover names the edition. (D, X, R) reads main's
+events below the fork point, then X's own (the fork event first). Main's
+later events never reach it.
 
 The parent is authoritative, period (the owner, 2026-11-02: "the parent
 should never have any concept of forks/branches. It is authoritative,
 period."): main's stream holds nothing of any edition, records no fork,
-and is never written, read for, or held back by an edition's lifecycle;
-only the edition's own streams know they fork it. A store accepts any
-stated sequence at or below main's head for that stream (the sequence
-main's version would use next) and refuses one above it as a conflict; it
-never moves a fork to the head. The fork point is per stream: no
-cross-stream snapshot is promised.
+and is never written, read for, or held back by an edition's lifecycle. A
+store accepts any stated sequence at or below main's head for that stream
+(the sequence main's version would use next) and refuses one above it as a
+conflict; it never moves a fork to the head. The fork point is per stream:
+no cross-stream snapshot is promised.
 
-Its source is a oneof (decision 14.106, DRAFT, replacing the
-presence-coded `propagated_from` and `forked_by`):
+## 2. The not-forked rule
 
-- **`origin` (OriginFork):** ForkStream created it
-  (transport/distributed/v1/meta.proto, at `fork_sequence`). Only an
-  origin creation brings a deleted edition's name back.
-- **`propagated` (PropagatedFork):** a policy's command or fact in X
-  reached a stream with no EditionCreated in X. That arrival is the
-  propagation: the angzarr system layer (shared code in angzarr-core,
-  called by the stream's coordinator or by the angzarr-embedded kernel)
-  reads that one stream's main head and appends EditionCreated at it, so
-  its own sequence is that head (policies never handle sequences; if main
-  appends in between, the fork still lands where it was appended), with
-  `from` the EditionCreated of the stream the policy reacted to and
-  `forked_by` the arriving input's command_id, and then hands the input to
-  the router as an ordinary input in X. The router never sees an
-  EditionCreated.
+A command or fact in X addressed to a stream with no `EditionCreated` in
+X is an error, whoever sent it: refused FAILED_PRECONDITION
+`ANGZARR_REASON_EDITION_NOT_FORKED` (args `stream`, `edition`), checked
+when the input is loaded, before business code runs; nothing runs and
+nothing is persisted (the owner: "propagation of an edition without
+edition created should be an error").
 
-An arrival in an edition that is deleted, or being deleted, is refused
-NOT_FOUND before the router is called. Concurrent arrivals race on the
-append like any two writes; the loser finds the stream created and appends
-no second one.
+- A client's input is answered the refusal; the client forks the stream
+  and resends.
+- A policy's reaction in X to a stream not forked in X is a failed
+  delivery like any other: dead-lettered with this key as its reason, and
+  alerted. It is the framework's key, not a typed refusal, so it never
+  reaches the policy's Translate. A policy that works in an edition needs
+  every stream it reaches forked first.
+- The same rule refuses an input in an edition that was never created or
+  has been deleted: no stream of it holds an `EditionCreated`.
 
-## 3. EditionDeleted: deletion
+A query or subscription of a stream not forked in X reads main's version
+(identical so far) and forks nothing. A query or subscription naming an
+edition no stream is forked in is refused NOT_FOUND.
 
-An edition's deletion, per stream (decision 14.32, the owner's rulings of
-2026-10-28: "delete edition / EditionDeleted needs to be an EVENT, to
-propagate via policies to other domains"; "it needs to exist in its
-domains"). Per stream (D, X, R), in this order:
+## 3. Meta-events
 
-1. **RECORDED:** DeleteEdition appends EditionDeleted to X's origin
-   streams; each other stream the deletion reaches records its own, in its
-   own domain, in sequence after its earlier work.
-2. **PROPAGATED:** the system layer carries it onward along the streams
-   that domain's policies reached in X, writing each one's own
-   EditionDeleted (never as a policy's command: no policy sees it).
-3. **REMOVED:** only after it has propagated onward (the system layer's
-   onward writes and outbox entries for it have completed), the stream's
-   rows tagged X are removed, this event included. Nothing remains.
+A meta-event is a real event, appended to a stream and stamped like any
+other, but the framework's, not a domain's. It is told apart by TYPE: an
+EventPage's body is `oneof { google.protobuf.Any event; MetaEvent
+meta_event }` (decision 14.106, DRAFT). `EditionCreated` is the one
+meta-event (decision 14.107, DRAFT).
 
-Who owns it (decision 14.32, amended; placed by 14.36): the ANGZARR SYSTEM
-LAYER, transport-free shared system code in angzarr-core that core's
-coordinator and the angzarr-embedded kernel call around the router, never
-the router, which sees no meta-event. It writes EditionDeleted in X's
-origin stream(s), then propagates it along the streams its policies
-reached in X, as its own write in each; a stream with nothing of X left is
-skipped, and nothing is created or forked there. It is not carried as a
-policy command.
+- Stores act on the `meta_event` arm: a store reads an edition stream
+  through its `EditionCreated`, and `ListEditions` and `DeleteEdition`
+  enumerate an edition's streams by it.
+- Business handlers NEVER see one: the client library hands business code
+  only the `event` arm.
+- No input carries one: a CommandPage has no meta arm, so a command whose
+  payload happens to be an `EditionCreated` is an ordinary command of an
+  unknown type.
 
-Main is never written. A stream in X that the deletion cannot reach
-through the policy flows keeps its rows and stays visible in
-ListEditions. After deletion, a later arrival in X (a policy command, or
-a step's position on a removed stream) is REFUSED NOT_FOUND: X does not
-exist, and the arrival re-creates neither the stream nor the edition. X is
-known to be deleted, or being deleted, while any stream of it holds an
-EditionDeleted, and not to exist once no EditionCreated of it remains.
+## 4. Deletion by enumeration
+
+`EditionAdminService.DeleteEdition` enumerates X's forked streams from
+their `EditionCreated` events, as `ListEditions` reads them, and removes
+each stream's rows of X directly: its events (the fork event included),
+snapshots, projector output, outbox entries and positions. Nothing is
+appended for it and nothing propagates (decision 14.107, DRAFT, which
+revisits the 2026-10-28 ruling that a deletion is an event that propagates
+through the policies: its premise, forks that propagate, is gone). Main
+is never touched.
+
+A stream whose removal fails is retried under the retry cap, then
+dead-lettered (`AngzarrDeadLetter.failed_edition_removal`, the stream's
+cover, reason `ANGZARR_REASON_EDITION_REMOVAL_FAILED`) and alerted.
+DeleteEdition answers once every stream is removed or so dead-lettered.
+
+Once a stream's rows are removed, a later input to it in X is refused by
+the not-forked rule (§2). Work in flight in X while it is deleted may
+reach a removed stream and is refused the same way; an edition is
+deleted when its experiment is done. Only ForkStream brings the name back.

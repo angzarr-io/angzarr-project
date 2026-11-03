@@ -31,8 +31,8 @@ option ruby_package = "Angzarr::Transport::Distributed";
 service PolicyCoordinatorService {
   // Execute the policy over source events: React per event, then deliver
   // the stamped outputs to their destinations. The request is the source
-  // EventBook; the policy's configuration, not the request, sets how its
-  // outputs are delivered. A trigger entry point: callers authenticated as
+  // EventBook, and every output is delivered the one way, through the
+  // transient outbox and Deliver. A trigger entry point: callers authenticated as
   // framework components only; a client is refused PERMISSION_DENIED (see
   // the entry_points region of command_handler.proto).
   rpc Execute(io.angzarr.v1.EventBook) returns (ExecuteResponse) {

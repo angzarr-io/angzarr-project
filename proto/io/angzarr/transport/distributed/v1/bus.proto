@@ -23,9 +23,8 @@ option ruby_package = "Angzarr::Transport::Distributed";
 // receiving side resolves every claim check back into its page's payload
 // (and checks its content_hash) before anything else sees the book. A
 // payload that cannot be retrieved, after the retry cap, is
-// dead-lettered with reason DISTRIBUTED_REASON_PAYLOAD_UNAVAILABLE
-// (reasons.proto, here), its details on the envelope
-// (DeadLetterEnvelope.payload_retrieval_failed).
+// dead-lettered with a PayloadRetrievalFailed as its why
+// (dead_letter.proto; key DISTRIBUTED_REASON_PAYLOAD_UNAVAILABLE).
 message BusEnvelope {
   oneof body {
     io.angzarr.v1.EventBook events = 1; // A book of events, its claim-checked pages' payloads unset
@@ -47,28 +46,20 @@ message ClaimCheck {
 // endregion
 
 // region payload_reference
-// Storage backend type for externally stored payloads (claim check pattern).
-enum PayloadStorageType {
-  PAYLOAD_STORAGE_TYPE_UNSPECIFIED = 0;
-  PAYLOAD_STORAGE_TYPE_FILESYSTEM = 1;
-  PAYLOAD_STORAGE_TYPE_GCS = 2;
-  PAYLOAD_STORAGE_TYPE_S3 = 3;
-}
-
 // Reference to an externally stored payload (claim check pattern), carried
 // only by a bus envelope, never by a persisted page (see above).
 message PayloadReference {
-  PayloadStorageType storage_type = 1;
-  // Location URI:
+  // Location URI; its scheme names the storage backend (decision 14.107,
+  // DRAFT: there is no separate storage type):
   // - file:///var/angzarr/payloads/{hash}.bin
   // - gs://bucket/prefix/{hash}.bin
   // - s3://bucket/prefix/{hash}.bin
-  string uri = 2;
+  string uri = 1;
   // Content hash for integrity verification and deduplication (SHA-256)
-  bytes content_hash = 3;
+  bytes content_hash = 2;
   // Original serialized payload size in bytes
-  uint64 original_size = 4;
+  uint64 original_size = 3;
   // Timestamp when payload was stored (for TTL cleanup)
-  google.protobuf.Timestamp stored_at = 5;
+  google.protobuf.Timestamp stored_at = 4;
 }
 // endregion

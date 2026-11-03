@@ -174,7 +174,11 @@ message Cover {
   // convention a policy may set it to its trigger's correlation_id
   // (docs/design/process-managers.md §3; decisions 14.30 and 14.36).
   UUID root = 2;
-  // Edition: the NAME of the timeline the stream belongs to.
+  // Edition: the NAME of the timeline the stream belongs to. An edition's
+  // main use is operations research and experimenting, but it is not
+  // restricted to that and may hold real data. It is a deliberately
+  // crafted system: whoever builds one forks each stream it holds,
+  // explicitly (decision 14.107, DRAFT; docs/design/edition-meta-events.md).
   //
   // Core, whatever the transport: the angzarr-embedded kernel and core's
   // coordinator alike keep and read editions (the angzarr system layer);
@@ -188,45 +192,28 @@ message Cover {
   // (here and in EventRef.stream), so an edition's events can never be
   // mistaken for, or copied as, main-timeline events.
   //
-  // Per-stream forks (decision 14.32, the owner's ruling of 2026-10-28).
+  // Per-stream forks (decision 14.32; docs/design/edition-meta-events.md).
   // An edition is a set of per-stream FORKS, and nothing else: there is no
   // edition registry and no separate metadata store. Stream (D, X, R)
-  // exists in edition X from its creation: an EditionCreated meta-event
-  // (the meta_events region) whose own sequence is its fork point (decision
-  // 14.86), at or below main's head for (D, main, R), the sequence main would use
-  // next; above it is a conflict (decision 14.36). That event is the first
-  // of X's version of the stream, and its sequence marks main's end and
-  // X's start for that stream. The fork point is per stream: no
-  // cross-stream snapshot is promised.
+  // exists in edition X from its fork: an EditionCreated meta-event (the
+  // meta_events region) appended by EditionAdminService.ForkStream
+  // (transport/distributed/v1/meta.proto), whose own sequence is its fork
+  // point (decision 14.86), at or below main's head for (D, main, R); above
+  // it is a conflict (decision 14.36). Every fork is explicit: there is no
+  // automatic propagation (decision 14.107, DRAFT).
   //   - Read rule, per stream: (D, X, R) reads main's events BELOW ITS OWN
   //     fork sequence, then X's own events (the fork event first). Main's
   //     later events never reach it.
-  //   - Creating X forks an origin stream (EditionAdminService.ForkStream,
-  //     transport/distributed/v1/meta.proto).
-  //   - The fork TRAVELS WITH THE DATA (the owner's ruling): when a policy's
-  //     command or fact in X reaches a stream with no fork in X (decision
-  //     14.69), that arrival is the propagation; the angzarr system layer
-  //     forks the stream then, at the main head it reads, and the input is
-  //     handled
-  //     (docs/design/edition-meta-events.md §2). Streams X's activity
-  //     never touches are never forked.
-  //   - A command or fact from outside (not a policy's) addressed in X to a
-  //     stream with no fork in X is REFUSED until propagation forks it:
-  //     FAILED_PRECONDITION, google.rpc.ErrorInfo reason
-  //     ANGZARR_REASON_EDITION_NOT_FORKED (the owner's ruling;
-  //     decision 14.65), checked before business code runs. Fork it with ForkStream to address it
-  //     directly.
+  //   - A command or fact in X, from a client or a policy, addressed to a
+  //     stream with no fork in X is REFUSED: FAILED_PRECONDITION,
+  //     google.rpc.ErrorInfo reason ANGZARR_REASON_EDITION_NOT_FORKED
+  //     (decisions 14.65 and 14.107), checked before business code runs.
+  //     This covers an edition never created and one deleted.
   //   - A query or subscription of a stream not forked in X reads main's
-  //     version (it is identical so far) and forks nothing.
-  //   - Unknown edition: an edition is known while any fork event of it
-  //     exists (a query over X's own fork events, never main;
-  //     cacheable). A command, query or subscription naming an edition
-  //     that was never created, or was deleted, is refused loudly
-  //     (NOT_FOUND), never silently given storage: a misspelt edition
-  //     cannot write anywhere.
-  //   - Deleting X is an event too (EditionDeleted; docs/design/edition-meta-events.md §3): recorded in each
-  //     stream it reaches, propagated onward through the policy flows, and
-  //     only then are that stream's rows of X removed, the event included.
+  //     version (it is identical so far) and forks nothing; one naming an
+  //     edition no stream is forked in is refused NOT_FOUND.
+  //   - Deleting X (EditionAdminService.DeleteEdition) removes the rows of
+  //     every stream forked in X, found by their EditionCreated events.
   //   - Main knows nothing of an edition: its lifecycle lives only in the
   //     edition's streams and store (the editions region).
   //
@@ -554,10 +541,10 @@ message FactOrigin {
 }
 
 // region editions
-// An edition's lifecycle is FRAMEWORK META-EVENTS in the edition's own
-// streams (decision 14.32): EditionCreated and EditionDeleted, an
-// EventPage's meta_event arm (the meta_events region;
-// docs/design/edition-meta-events.md). Business handlers never see them.
+// An edition's forks are FRAMEWORK META-EVENTS in the edition's own
+// streams (decision 14.32): EditionCreated, an EventPage's meta_event arm
+// (the meta_events region; docs/design/edition-meta-events.md). Business
+// handlers never see them.
 //
 // Main knows nothing (the owner's invariant). Every datum and message of
 // an edition's lifecycle lives in the edition's own streams (D, X, R), in
@@ -579,46 +566,14 @@ message FactOrigin {
 message MetaEvent {
   oneof kind {
     EditionCreated created = 1;
-    EditionDeleted deleted = 2;
   }
 }
 
-// The first event of an edition's version of a stream, at the stream's
-// fork sequence (its own EventPage.sequence). The edition is the page's
-// cover's (docs/design/edition-meta-events.md §2).
-message EditionCreated {
-  // How the stream came to be forked.
-  oneof source {
-    // Forked from outside, by EditionAdminService.ForkStream.
-    OriginFork origin = 1;
-    // Forked by a policy's input arriving in the edition.
-    PropagatedFork propagated = 2;
-  }
-}
-
-// An origin fork: nothing to say but its kind.
-message OriginFork {}
-
-// A fork made by a policy's input arriving in the edition.
-message PropagatedFork {
-  // The EditionCreated of the stream the policy reacted to.
-  EventRef from = 1;
-  // The arriving input's command_id.
-  UUID forked_by = 2;
-}
-
-// An edition's deletion, recorded in one stream of it
-// (docs/design/edition-meta-events.md §3).
-message EditionDeleted {
-  // The edition. Required, non-empty.
-  string edition = 1;
-  // For a deletion carried by a policy command's arrival: the EditionDeleted
-  // of the stream the policy reacted to. Unset at an origin.
-  EventRef propagated_from = 2;
-  // For a deletion carried by a policy command's arrival: that command's
-  // command_id. Unset at an origin.
-  UUID deleted_by = 3;
-}
+// The first event of an edition's version of a stream, appended by
+// EditionAdminService.ForkStream at the stream's fork sequence (its own
+// EventPage.sequence). The edition is the page's cover's. Nothing else to
+// say (decision 14.107, DRAFT).
+message EditionCreated {}
 // endregion
 
 // region diagnostic
@@ -1204,25 +1159,33 @@ message AngzarrDeadLetter {
     // ids and causation.
     ReactionDelivery rejected_reaction = 2;
     EventBook rejected_events = 3; // Events that failed (policy/projector failures)
-    // An edition removal that failed (DeleteEdition): the
-    // stream whose rows of the edition could not be removed, as its cover,
-    // and its EditionDeleted event, as recorded there, as the one
-    // page.
+    // An edition removal that failed (DeleteEdition): the stream whose
+    // rows of the edition could not be removed (decision 14.107, DRAFT: a
+    // cover, since deletion records no event).
     // Reason ANGZARR_REASON_EDITION_REMOVAL_FAILED (decision 14.48,
     // amended).
-    EventBook failed_edition_removal = 4;
+    Cover failed_edition_removal = 4;
   }
-  // Why it was dead-lettered: exactly one of a typed refusal or a reason,
-  // never text (decision 14.37); the one statement of why (decisions 14.78
-  // and 14.101, DRAFT).
+  // Why it was dead-lettered: exactly one of a typed refusal, a reason or
+  // a transport's own why, never text (decision 14.37); the one statement
+  // of why (decisions 14.78, 14.101 and 14.107, DRAFT).
   oneof why {
     // A typed business refusal of an asynchronous command (every refusal
     // is typed, decision 14.95): the refusal object, packed. Its key is
     // implied (ANGZARR_REASON_COMMAND_REFUSED, as on the wire), its type is
     // the Any's own type URL, and its args are its fields.
     google.protobuf.Any refusal = 5;
-    // Every other failure: a key and its args (below).
+    // Every other failure the framework's packages share: a key and its
+    // args (below).
     Diagnostic reason = 6;
+    // A transport's own why: a message of the transport's package, packed,
+    // its key implied by its type, as a refusal's is (decision 14.107,
+    // DRAFT). Core cannot name a transport's types, so it holds them as an
+    // Any. Today the one such type is the distributed transport's
+    // PayloadRetrievalFailed (transport/distributed/v1/dead_letter.proto),
+    // key DISTRIBUTED_REASON_PAYLOAD_UNAVAILABLE. The angzarr-embedded
+    // kernel never sets it.
+    google.protobuf.Any transport = 7;
   }
   // The reason arm, by failure:
   //   - A command with no caller waiting (HandleAsync, a reaction), or a
@@ -1260,10 +1223,10 @@ message AngzarrDeadLetter {
   // The retries after the first attempt (0 when it was tried once): of a
   // retryable bug, or a policy step's ABORTED re-run, at its cap, and of an
   // edition removal (ANGZARR_REASON_EDITION_REMOVAL_FAILED).
-  uint32 retry_count = 7;
-  google.protobuf.Timestamp occurred_at = 8;
-  string source_component = 9; // Which component sent to DLQ
-  ComponentKind source_component_kind = 10; // Its kind
+  uint32 retry_count = 8;
+  google.protobuf.Timestamp occurred_at = 9;
+  string source_component = 10; // Which component sent to DLQ
+  ComponentKind source_component_kind = 11; // Its kind
 }
 // endregion
 

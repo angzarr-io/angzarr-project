@@ -48,9 +48,10 @@ enum DistributedReason {
   // not retrieve from its payload store (`cause`, the store's failure, a
   // third-party library's text as `cause.ext_err_txt`). Bug, retryable
   // (decision 14.37): retried under the retry cap with backoff and jitter; at
-  // the cap dead-lettered with this key and its args as its
-  // AngzarrDeadLetter.reason, the retrieval's details on the DeadLetterEnvelope
-  // (payload_retrieval_failed), and alerted (C-0447). (Decision 14.51.)
+  // the cap dead-lettered with a PayloadRetrievalFailed as its why
+  // (AngzarrDeadLetter's transport arm, dead_letter.proto), whose type
+  // implies this key, and alerted (C-0447). (Decisions 14.51 and 14.107,
+  // DRAFT.)
   DISTRIBUTED_REASON_PAYLOAD_UNAVAILABLE = 3 [(io.angzarr.v1.reason) = {
     args: ["uri", "cause"]
     grpc_status: UNAVAILABLE

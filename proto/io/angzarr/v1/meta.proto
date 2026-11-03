@@ -14,29 +14,23 @@ option ruby_package = "Angzarr";
 // Edition administration
 // ============================================================================
 //
-// Editions are PER-STREAM FORKS (decision 14.32, the owner's ruling of
-// 2026-10-28; Cover.edition in types.proto, and the meta-events
-// EditionCreated and EditionDeleted, types.proto's meta_events region;
-// docs/design/edition-meta-events.md). There is no
-// edition registry and no separate metadata store: an edition exists
-// exactly as far as its fork events do. Creating edition X forks an origin
-// stream: it appends an EditionCreated meta-event to (D, X, R). It then
-// travels with the data: each policy command in X that reaches a stream with
-// no fork in X forks it on arrival (EditionCreated, propagated). Listing
-// editions is a query over X's own creation events. Deleting one is an
-// event too: EditionDeleted is recorded in X's origin streams, and the
-// angzarr system layer (shared system code in angzarr-core, called by
-// core's coordinator and the angzarr-embedded kernel; never the router,
-// which sees no meta-event) propagates it along
-// the streams X's policies reached; each stream's rows of X are removed
-// only after its EditionDeleted has propagated onward.
-// Everything of an edition's lifecycle lives in the edition's own streams
-// and store: main knows nothing of it.
+// Editions are PER-STREAM FORKS (decision 14.32; Cover.edition in
+// types.proto, the meta-event EditionCreated in its meta_events region;
+// docs/design/edition-meta-events.md). There is no edition registry and no
+// separate metadata store: an edition exists exactly as far as its fork
+// events do. Every stream of edition X is forked explicitly, by ForkStream,
+// which appends an EditionCreated to (D, X, R); an input in X to a stream
+// with no fork is refused ANGZARR_REASON_EDITION_NOT_FORKED (decision
+// 14.107, DRAFT: no automatic propagation). Listing editions is a query
+// over X's creation events, and deleting one enumerates its streams by them
+// and removes each stream's rows. Everything of an edition's lifecycle
+// lives in the edition's own streams and store: main knows nothing of it.
 //
 // These operations are authorised as operator actions from the call's
 // credentials, and who performed one goes to the deployment's security log,
 // never into the data (types.proto, security_logs region). ForkStream
-// and DeleteEdition write meta-events to edition streams only; nothing
+// writes meta-events to edition streams only, and DeleteEdition removes
+// edition rows only; nothing
 // here writes to, records in or
 // indexes against main, and
 // main can be neither forked into nor deleted.
@@ -50,7 +44,8 @@ option ruby_package = "Angzarr";
 // stored.
 message EditionSummary {
   string name = 1; // Always non-empty (main is not an edition)
-  // The origin forks: the EditionCreated events whose source is origin.
-  repeated EventRef origins = 2;
-  uint64 forked_streams = 3; // How many streams hold a fork event of it
+  // Every stream forked in it: each stream's EditionCreated (decision
+  // 14.107, DRAFT: every fork is explicit, so there is no origin to tell
+  // apart, and the count is this list's length).
+  repeated EventRef forks = 2;
 }
