@@ -404,7 +404,7 @@ message EventRef {
 // sources' external ids can coincide, and a sender that must keep them
 // apart supplies correlation_id itself. Correlation is recorded per page
 // only (covers carry none); Query.correlation_id, CorrelationQuery and
-// EventStreamFilter select by it.
+// EventStreamService.Subscribe (CorrelationFrom) select by it.
 //
 // causation (ReactionDelivery.causation): the command message's own
 // causation, as the standard defines it: the EventRef of the event a policy
@@ -1065,8 +1065,8 @@ message ReactionDelivery {
 // handling, NEVER persisted. Nothing here is written to any stream, and
 // replaying a stream cannot reproduce it. The command's business result is
 // its events. A distributed coordinator answers it beside the events
-// (io.angzarr.transport.distributed.v1.HandleResponse.delivery and
-// HandleSyncResponse.delivery; decision 14.105, DRAFT), and the
+// (io.angzarr.transport.distributed.v1.CommandResult.delivery and
+// CommandSyncResult.delivery; decision 14.105, DRAFT), and the
 // angzarr-embedded kernel answers the same pair, events and delivery.
 //
 // What the coordinator did with this delivery of a command. Deduplication

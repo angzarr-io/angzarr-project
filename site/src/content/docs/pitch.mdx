@@ -295,24 +295,24 @@ Angzarr uses coordinators to route messages between external clients and your bu
 ```protobuf
 service CommandHandlerCoordinatorService {
   // Route commands (and facts) to the domain's business logic, persist its events
-  rpc Handle(CommandBook) returns (HandleResponse);
+  rpc Handle(CommandBook) returns (CommandResult);
   // As Handle, and wait for the domain's synchronous projectors
-  rpc HandleSync(CommandBook) returns (HandleSyncResponse);
+  rpc HandleSync(CommandBook) returns (CommandSyncResult);
 }
 
-message HandleResponse {
+message CommandResult {
   EventBook events = 1;              // Events from the command
   DeliveryOutcome delivery = 2;      // APPLIED or DUPLICATE
 }
 
-message HandleSyncResponse {
+message CommandSyncResult {
   EventBook events = 1;
   DeliveryOutcome delivery = 2;
   repeated Projection projections = 3; // Sync projector results
 }
 ```
 
-`HandleSyncResponse` enables request-response patterns where callers need immediate confirmation of state changes and resulting projections—useful for APIs that must return updated read models.
+`CommandSyncResult` enables request-response patterns where callers need immediate confirmation of state changes and resulting projections—useful for APIs that must return updated read models.
 
 ---
 
@@ -417,8 +417,8 @@ service EventQuery {
   // Subscribe to events (live tail with optional historical replay)
   rpc Synchronize(stream Query) returns (stream EventBook);
 
-  // List all aggregate roots (for full replay scenarios)
-  rpc GetAggregateRoots(google.protobuf.Empty) returns (stream AggregateRoot);
+  // List every stream (for full replay scenarios)
+  rpc ListStreams(google.protobuf.Empty) returns (stream Cover);
 }
 
 message Query {

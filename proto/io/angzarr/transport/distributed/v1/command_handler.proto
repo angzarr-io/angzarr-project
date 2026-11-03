@@ -32,7 +32,7 @@ service CommandHandlerCoordinatorService {
   // every write until the race re-run cap is INTERNAL,
   // ANGZARR_REASON_RETRY_CAP_EXHAUSTED, and not dead-lettered: the
   // caller holds it; see the status codes above).
-  rpc Handle(io.angzarr.v1.CommandBook) returns (HandleResponse) {
+  rpc Handle(io.angzarr.v1.CommandBook) returns (CommandResult) {
     option (google.api.http) = {
       post: "/v1/ch/{cover.domain}/commands"
       body: "*"
@@ -56,7 +56,7 @@ service CommandHandlerCoordinatorService {
   // arm; decisions 14.47 and 14.101).
   // A caller that needs the outcome
   // uses Handle, or follows the command's correlation_id
-  // (EventStreamFilter).
+  // (EventStreamService.Subscribe, CorrelationFrom).
   rpc HandleAsync(io.angzarr.v1.CommandBook) returns (google.protobuf.Empty) {
     option (google.api.http) = {
       post: "/v1/ch/{cover.domain}/commands:async"
@@ -76,7 +76,7 @@ service CommandHandlerCoordinatorService {
   // either answers every projection or fails. The caller retries with the
   // same command_id: the retry deduplicates (delivery DUPLICATE), answers
   // the same events, and waits on the synchronous projectors again.
-  rpc HandleSync(io.angzarr.v1.CommandBook) returns (HandleSyncResponse) {
+  rpc HandleSync(io.angzarr.v1.CommandBook) returns (CommandSyncResult) {
     option (google.api.http) = {
       post: "/v1/ch/{cover.domain}/commands:sync"
       body: "*"
@@ -85,10 +85,10 @@ service CommandHandlerCoordinatorService {
   // A policy's output or refusal fact (decision 14.79, DRAFT; owner ruling
   // Q4 on decision 46). Framework components only (the entry_points region
   // below): a client is refused PERMISSION_DENIED. Answers as Handle
-  // (DECISION), with a HandleResponse: the persisted events and the
+  // (DECISION), with a CommandResult: the persisted events and the
   // delivery, or the rejection's status, which the policy's coordinator
   // hands to Translate. No HTTP route: it is not a client entry point.
-  rpc Deliver(io.angzarr.v1.ReactionDelivery) returns (HandleResponse);
+  rpc Deliver(io.angzarr.v1.ReactionDelivery) returns (CommandResult);
 }
 
 // region entry_points
@@ -121,7 +121,7 @@ service CommandHandlerCoordinatorService {
 // What Handle and Deliver answer (decision 14.105, DRAFT): one command's
 // events and what the coordinator did with this delivery of it. Never
 // persisted.
-message HandleResponse {
+message CommandResult {
   // The command's events: new (APPLIED) or re-read from the stream
   // (DUPLICATE).
   io.angzarr.v1.EventBook events = 1;
@@ -129,12 +129,12 @@ message HandleResponse {
   io.angzarr.v1.DeliveryOutcome delivery = 2;
 }
 
-// What HandleSync answers (decision 14.105, DRAFT): a HandleResponse's
+// What HandleSync answers (decision 14.105, DRAFT): a CommandResult's
 // fields and the synchronous projectors' results. Never persisted.
-message HandleSyncResponse {
-  // As HandleResponse.events.
+message CommandSyncResult {
+  // As CommandResult.events.
   io.angzarr.v1.EventBook events = 1;
-  // As HandleResponse.delivery.
+  // As CommandResult.delivery.
   io.angzarr.v1.DeliveryOutcome delivery = 2;
   // One per synchronous projector of the domain, each covering these
   // events. (Projectors persist their own read models; these are copies

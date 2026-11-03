@@ -36,14 +36,14 @@ a call-level choice, never part of the command: one RPC per mode.
                          about the decision comes back.
   HandleSync   SIMPLE    As DECISION, and also waits for the synchronous
                          projectors; their results come back in
-                         HandleSyncResponse.projections.
+                         CommandSyncResult.projections.
 ```
 
 Impact ordering (lowest to highest): ASYNC < DECISION < SIMPLE.
 
 Each RPC has its one response (decision 14.105, DRAFT): Handle and Deliver
-answer a HandleResponse (the events and the delivery, APPLIED or
-DUPLICATE), HandleSync a HandleSyncResponse (the same, and the
+answer a CommandResult (the events and the delivery, APPLIED or
+DUPLICATE), HandleSync a CommandSyncResult (the same, and the
 projections). There is no partial answer. A synchronous projector that
 fails after the decision commits fails HandleSync with UNAVAILABLE
 ANGZARR_REASON_SYNC_PROJECTION_FAILED (args stream, projector, cause): the

@@ -56,11 +56,11 @@ service EventQueryService {
     option (google.api.http) = {get: "/v1/query/correlations/{correlation_id.value}/events"};
   }
   // List every stream (SSE): one Cover (domain, edition, root) per stream.
-  rpc GetAggregateRoots(google.protobuf.Empty) returns (stream io.angzarr.v1.Cover) {
-    option (google.api.http) = {get: "/v1/query/aggregates"};
+  rpc ListStreams(google.protobuf.Empty) returns (stream io.angzarr.v1.Cover) {
+    option (google.api.http) = {get: "/v1/query/streams"};
   }
   // Use GetEvents for bulk reads and EventStreamService.Subscribe for live
-  // events.
+  // events, with catch-up from a resume point.
 }
 
 // region query_types

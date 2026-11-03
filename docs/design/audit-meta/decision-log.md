@@ -4589,7 +4589,7 @@ protos into four packages". Restores 1.12, and amends 14.60's one catalog.
 
 > **Amended by 14.104 (DRAFT, pending review):** each package's keys are one enum, prefixed by its layer: core's `AngzarrReason`, the embedded transport's `EmbeddedReason`, the distributed transport's `DistributedReason`. A moved key's string is now its layer's.
 
-> **Amended by 14.105 (DRAFT, pending review):** `CommandResponse`, `SyncOutcome` and core's `Outcome` are deleted: Handle and Deliver answer `HandleResponse { events; delivery }`, HandleSync `HandleSyncResponse { events; delivery; projections }`, in the distributed transport; `DeliveryOutcome` stays in core.
+> **Amended by 14.105 (DRAFT, pending review):** `CommandResponse`, `SyncOutcome` and core's `Outcome` are deleted: Handle and Deliver answer `CommandResult { events; delivery }`, HandleSync `CommandSyncResult { events; delivery; projections }`, in the distributed transport; `DeliveryOutcome` stays in core.
 
 **14.65 A key declares its status, a key of one stream names it, and the
 keys a runtime lacked are added.** Ruled by the owner, 2026-11-01, on the 2026-10-31 run's
@@ -5691,10 +5691,17 @@ the month, so these protos are live).
   waits on the synchronous projectors again. Never a dead letter's reason.
   `ProjectorFailure` is deleted, and HandleSync's text no longer says a
   projector failure never turns the answer into an error (reverses 5.11).
-- **One response per RPC.** `Handle` and `Deliver` answer `HandleResponse
+- **One response per RPC.** `Handle` and `Deliver` answer `CommandResult
   { EventBook events; DeliveryOutcome delivery }`; `HandleSync` answers
-  `HandleSyncResponse { EventBook events; DeliveryOutcome delivery;
+  `CommandSyncResult { EventBook events; DeliveryOutcome delivery;
   repeated Projection projections }`, both in the distributed transport.
+  Named so they do not collide with the handler layer's
+  `io.angzarr.handler.v1.HandleResponse` (which keeps its name, with
+  `HandleRequest`): they are the RESULT of a command (or a fact) as its
+  caller sees it, events and delivery, where the handler layer's is a
+  handler's response; one stem, `Command…Result`, pairs the two, the sync
+  one adding the projections. (The owner's first names in the round were
+  `HandleResponse` and `HandleSyncResponse`.)
   `CommandResponse`, `SyncOutcome` and core's `Outcome` wrapper are
   deleted; `DeliveryOutcome` (APPLIED, DUPLICATE) stays in core, and the
   embedded kernel answers the same pair, events and delivery. The
@@ -5702,6 +5709,27 @@ the month, so these protos are live).
 - **14.104's Emit covers command and fact handlers** (an aggregate's or a
   process manager's), confirmed by the owner; policies and projectors
   return no events and are outside it.
+- **`EventStreamService.Subscribe` takes a target and catches up.**
+  `SubscribeRequest { oneof target { StreamFrom stream; CorrelationFrom
+  correlation } }`, replacing `EventStreamFilter`.
+  `StreamFrom { Cover cover; optional uint64 after_sequence }`: every page
+  of the stream after `after_sequence` (from 0 when unset), then live, in
+  stream order, with no gap and no duplicate; a reconnect resumes from the
+  last sequence seen. `CorrelationFrom { UUID correlation_id; repeated
+  StreamCursor seen; optional string edition }`, `StreamCursor { Cover
+  cover; uint64 sequence }`: every page of the correlation in every domain
+  after each listed stream's cursor (from 0 for a stream not listed), then
+  live. Order is per stream only; there is no cross-stream order and no
+  store-wide position: the resume point is a set of per-stream positions.
+  A subscriber builds `seen` from the cover and last page sequence of each
+  EventBook it received, the highest per cover. Edition rules as before:
+  `cover.edition`, or the correlation's optional edition. REST/SSE: GET
+  `/v1/stream/{domain}/{root}` for a stream; POST
+  `/v1/stream/correlations/{correlation_id}` with the request as body for
+  a correlation, since `seen` cannot travel in a query string.
+- **`GetEventBook` and `GetEvents` both stay** (owner).
+- **`GetAggregateRoots` is `ListStreams`**, route `/v1/query/streams`: it
+  lists every stream (domain, edition, root), not only aggregates'.
 
 ## Corrections
 

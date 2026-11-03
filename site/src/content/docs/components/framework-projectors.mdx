@@ -170,7 +170,7 @@ flowchart LR
 ```protobuf file=proto/io/angzarr/transport/distributed/v1/stream.proto region=event_stream_service
 ```
 
-```protobuf file=proto/io/angzarr/transport/distributed/v1/stream.proto region=event_stream_filter
+```protobuf file=proto/io/angzarr/transport/distributed/v1/stream.proto region=subscribe_request
 ```
 
 ### Configuration
@@ -209,7 +209,7 @@ let handler = OutboundEventHandler::new(Arc::new(service));
 async def stream_events(correlation_id: str):
     async with grpc.aio.insecure_channel("localhost:1340") as channel:
         stub = EventStreamServiceStub(channel)
-        request = EventStreamFilter(correlation_id=correlation_id)
+        request = SubscribeRequest(correlation=CorrelationFrom(correlation_id=correlation_id))
 
         async for event_book in stub.Subscribe(request):
             print(f"Received: {event_book.cover.domain}")
