@@ -24,7 +24,7 @@ option ruby_package = "Angzarr::Component";
 // "I want fact and command to use the same verb"): the input book's body
 // arm says which, and only a command's handling may refuse.
 //
-// Before HandleInput is called the coordinator has run pipeline steps 1-4
+// Before Handle is called the coordinator has run pipeline steps 1-4
 // (io/angzarr/v1/types.proto, Handling): validated the input, assigned its
 // command_id and correlation_id, loaded and deduplicated it, admitted it
 // (a process manager's start rule; decision 14.42), and refused it if its
@@ -62,7 +62,7 @@ service CommandHandlerService {
   // The handler always decides on the current state: the coordinator
   // appends at the head it loaded and re-runs a lost race on the new head
   // (types.proto, the concurrency region). A command whose expected
-  // sequence is not that head is refused before HandleInput is called
+  // sequence is not that head is refused before Handle is called
   // (ExpectedSequenceMismatch; decision 14.94, DRAFT).
   //
   // A refusal records nothing. It is typed (one of the command's refuses
@@ -74,9 +74,5 @@ service CommandHandlerService {
   // dead-lettered (AngzarrDeadLetter.reason and .refusal); a refused
   // policy command reaches the policy's Translate (the one refusal path;
   // io/angzarr/v1/policy.proto, Refusals).
-  //
-  // Named HandleInput, not Handle: Handle is this service's deleted RPC
-  // (ContextualCommand -> CommandHandlerResponse), and retyping it is a
-  // wire break buf refuses (RPC_SAME_REQUEST_TYPE/RESPONSE_TYPE).
-  rpc HandleInput(io.angzarr.handler.v1.HandleRequest) returns (io.angzarr.handler.v1.HandleResponse);
+  rpc Handle(io.angzarr.handler.v1.HandleRequest) returns (io.angzarr.handler.v1.HandleResponse);
 }

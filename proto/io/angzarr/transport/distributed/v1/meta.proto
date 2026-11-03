@@ -90,7 +90,7 @@ message ForkStreamRequest {
   // at or below main's head (main's next sequence for the stream) is
   // taken; one above it is refused ABORTED (the store's conflict, the
   // status for a failed test-and-set), writing nothing.
-  uint64 parent_sequence = 3;
+  uint64 parent_sequence = 2;
 }
 
 message ListEditionsRequest {}

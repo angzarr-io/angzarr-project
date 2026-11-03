@@ -13,10 +13,8 @@ option ruby_package = "Angzarr";
 // served exactly as an aggregate is: its business process implements
 // CommandHandlerService (component/v1/command_handler.proto), its coordinator serves
 // CommandHandlerCoordinatorService for the PM's domain, and it is
-// described by ComponentService with kind PROCESS_MANAGER. The PM-specific
-// ProcessManagerService, ProcessManagerCoordinatorService and their
-// request and response messages are deleted, unreserved (policy 6.6). What
-// sets a PM apart from an aggregate is written here, and nothing else.
+// described by ComponentService with kind PROCESS_MANAGER. What sets a PM
+// apart from an aggregate is written here, and nothing else.
 //
 // WARNING: Only use when policy + queries is insufficient. Consider:
 // - Can a simple policy + destination queries solve this?
@@ -91,8 +89,9 @@ option ruby_package = "Angzarr";
 // names (decision 14.41):
 //   - a FACT is dead-lettered (owner's ruling; decision 14.69), with reason
 //     COORDINATOR_REASON_PM_NO_INSTANCE, and alerted, recording nothing; a
-//     fact is never refused, so its sender is answered OK, PARKED, with no
-//     events;
+//     fact is never refused, so its sender is answered INTERNAL
+//     COORDINATOR_REASON_FACT_DEAD_LETTERED (cause the PM_NO_INSTANCE key), never
+//     retried (decision 14.100, DRAFT);
 //   - a COMMAND is refused (owner's ruling; decision 14.31):
 //     FAILED_PRECONDITION, with a google.rpc.ErrorInfo of reason
 //     COORDINATOR_REASON_PM_NO_INSTANCE, recording nothing, as any business rejection. A
@@ -122,7 +121,8 @@ option ruby_package = "Angzarr";
 //
 // Handlers. A PM's handlers follow the aggregate's: a command handler may
 // refuse; a fact handler is infallible, and a failing one is a bug (the
-// fact is dead-lettered and alerted, its sender answered PARKED). A PM
+// fact is dead-lettered and alerted, its sender answered INTERNAL
+// COORDINATOR_REASON_FACT_DEAD_LETTERED). A PM
 // command handler that fails with anything but a business rejection is a
 // bug too: the command is dead-lettered and alerted. The client library
 // gives every PM handler one context type, carrying the input's identity

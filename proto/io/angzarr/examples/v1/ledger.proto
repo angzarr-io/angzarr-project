@@ -111,13 +111,9 @@ message GetWalletBalanceRequest {
 // a row that is unset when it is false).
 message WalletBalanceView {
   oneof result {
-    WalletBalance balance = 4;
-    WalletNotSeen not_seen = 5;
+    WalletBalance balance = 1;
+    WalletNotSeen not_seen = 2;
   }
-  // Fields 1 (wallet), 2 (available) and 3 (found) moved into the result
-  // arms; retired by decision 14.91.
-  reserved 1, 2, 3;
-  reserved "wallet", "available", "found";
 }
 
 // A wallet the ledger has seen.

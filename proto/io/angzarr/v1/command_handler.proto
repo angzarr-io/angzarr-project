@@ -21,8 +21,6 @@ option ruby_package = "Angzarr";
 // What the business logic answers is the handler layer's
 // (io.angzarr.handler.v1.HandleResponse,
 // io/angzarr/handler/v1/command_handler.proto; decision 14.78, DRAFT).
-// CommandHandlerResponse and ConflictReport, which were here, are deleted:
-// they were never stored.
 
 // region command_modes
 // CommandHandlerCoordinatorService (the distributed transport's) and the
@@ -126,14 +124,13 @@ option ruby_package = "Angzarr";
 // Only work with no caller waiting is dead-lettered and alerted: a
 // HandleAsync command, and a reaction (Deliver) whose policy step then
 // follows on_policy_bug. A fact is re-run the same way, but a fact is
-// never refused: at the cap it is dead-lettered and alerted,
-// nothing is persisted, and its sender is answered "accepted, parked" (OK,
-// outcome.delivery PARKED, no events), never the key. Either way the dead
+// never refused: at the cap it is dead-lettered and alerted, nothing is
+// persisted, and its sender is answered INTERNAL
+// COORDINATOR_REASON_FACT_DEAD_LETTERED (non-retryable; decision 14.100, DRAFT). Either way the dead
 // letter's reason (AngzarrDeadLetter.reason) is
 // COORDINATOR_REASON_RETRY_CAP_EXHAUSTED with the same args.
 // There is no opt-out: the coordinator owns race re-runs (the owner's
-// ruling of 2026-10-30), and the race re-run cap of 0 that handed a lost
-// race back to its caller is retired with its key (decision 14.84).
+// ruling of 2026-10-30; decision 14.84).
 // A client's expected sequence (Handling.expected_sequence), when set and
 // not the head the coordinator loaded, is refused before business code:
 // FAILED_PRECONDITION, the framework's typed refusal

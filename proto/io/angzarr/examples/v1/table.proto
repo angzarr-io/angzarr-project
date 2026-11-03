@@ -264,31 +264,6 @@ message ReleaseSeat {
   string reason = 2;
 }
 
-// The player could not decide a move. UNREACHABLE since decision 14.99
-// (DRAFT): DecideMove cannot be refused, so policy-table-player never
-// translates a refusal into it; kept pending the owner's call. It was the
-// DOMESTIC fact policy-table-player's callback returned from the player's
-// DecideMoveRefused. The table records
-// MoveUndecided and STANDS THE HAND (the owner's ruling of 2026-11-02, so
-// the round always completes): HandStood, then as Stand goes on,
-// TurnStarted for the next seat on turn, or DealerPlayed + RoundSettled
-// when it was the last. For a seat no longer on turn (the round moved on)
-// it records MoveUndecided alone. A player always decides (player.proto),
-// so it is never sent in play.
-message RecordMoveUndecided {
-  option (io.angzarr.v1.fact) = {
-    component: "io.angzarr.examples.v1.TableState"
-    emits: "io.angzarr.examples.v1.MoveUndecided"
-    emits: "io.angzarr.examples.v1.HandStood"
-    emits: "io.angzarr.examples.v1.TurnStarted"
-    emits: "io.angzarr.examples.v1.DealerPlayed"
-    emits: "io.angzarr.examples.v1.RoundSettled"
-  };
-  uint32 round = 1; // The refused DecideMove's round
-  int32 seat = 2; // The refused DecideMove's seat
-  string reason = 3; // Why the player could not decide
-}
-
 // -----------------------------------------------------------------------------
 // Refusals
 // -----------------------------------------------------------------------------
@@ -299,9 +274,7 @@ message RecordMoveUndecided {
 // (decision 14.95), each named in the refuses of every command that
 // refuses with it. Refusal objects, never events. On the wire each travels
 // as ROUTER_REASON_COMMAND_REFUSED with its type as refusal_type, as every
-// typed refusal does. Was TableRefused, one message with an 18-code Reason
-// enum and optional args; retired with no stored data kept (decision 46,
-// Q7's waiver).
+// typed refusal does.
 
 // CreateTable on a table that already exists.
 message TableAlreadyExists {
@@ -631,16 +604,6 @@ message RoundSettled {
   repeated SeatOutcome outcomes = 2; // Ascending by seat
   int64 house_delta = 3;
   int64 house_result_after = 4;
-}
-
-// The seat's player could not decide (RecordMoveUndecided): recorded,
-// followed by the stand the table makes for it (HandStood and what follows
-// a Stand).
-message MoveUndecided {
-  option (io.angzarr.v1.event) = {component: "io.angzarr.examples.v1.TableState"};
-  uint32 round = 1;
-  int32 seat = 2;
-  string reason = 3;
 }
 
 // -----------------------------------------------------------------------------

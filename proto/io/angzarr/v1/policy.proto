@@ -14,9 +14,7 @@ option ruby_package = "Angzarr";
 // (io/angzarr/handler/v1/policy.proto; decision 14.78, DRAFT), and the
 // coordinator's the distributed transport's (PolicyCoordinatorService,
 // io/angzarr/transport/distributed/v1/policy.proto); what follows is every
-// runtime's (decision 14.64). This file defines no message: PolicyResponse,
-// PolicyReaction, Refusal and OnRefusedResponse, which were here, are
-// deleted (decision 14.78); none was ever stored.
+// runtime's (decision 14.64). This file defines no message.
 //
 // A policy translates between exactly two domains: events of its one source
 // domain into commands and facts for its one destination domain. Its source
@@ -62,9 +60,10 @@ option ruby_package = "Angzarr";
 // (decision 14.79).
 //   - A fact is never refused. One whose handler fails at its destination,
 //     or whose business process answers it with an error (decision 14.72),
-//     is dead-lettered and alerted there and its sender answered OK, PARKED
-//     (command_handler.proto, status codes): to the policy, PARKED is its
-//     step done, and its position moves on.
+//     is dead-lettered and alerted there and its sender answered INTERNAL
+//     COORDINATOR_REASON_FACT_DEAD_LETTERED (command_handler.proto, status codes;
+//     decision 14.100, DRAFT): to the policy that is its step done, never
+//     retried or dead-lettered again, and its position moves on.
 //   - The descriptor names no fact types, so the policy's coordinator
 //     cannot check the arm: one its destination does not declare (a fact
 //     of a command type, a command of a fact type: deployed versions

@@ -399,7 +399,7 @@ message Hold {
     STATUS_UNSPECIFIED = 0;
     STATUS_OPEN = 1; // Counts against the available balance
     STATUS_CAPTURED = 2; // Buy-in spent
-    STATUS_RELEASED = 4; // Closed unspent (ReleaseHold)
+    STATUS_RELEASED = 3; // Closed unspent (ReleaseHold)
   }
   bytes table_root = 1;
   int64 amount = 2;

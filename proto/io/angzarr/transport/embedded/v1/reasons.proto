@@ -15,9 +15,8 @@ option ruby_package = "Angzarr::Transport::Embedded";
 // SERVING on the host's path), its exit, and a conformance probe's input. The
 // rules of core's reasons.proto hold here: a key travels as its value's full
 // name, prefix included, each carries its (io.angzarr.v1.reason) args, its
-// English is reasons.en-US.ftl beside this file, and the enum reserves every
-// retired key under its prefix. The enum keeps core's name and prefix, so
-// each key moved here from io.angzarr.v1.HostReason kept its string.
+// English is reasons.en-US.ftl beside this file. The enum keeps core's name
+// and prefix.
 //
 // Keys whatever runs a child answers.
 enum HostReason {
@@ -30,7 +29,7 @@ enum HostReason {
   // `SERVICE_UNKNOWN`), or its number when it has none, or `none` when no
   // check was answered. The host fails to start the child (child-protocol.md,
   // sections 2 and 7; decisions 14.62 and 14.80).
-  HOST_REASON_CHILD_NOT_SERVING = 4 [(io.angzarr.v1.reason) = {
+  HOST_REASON_CHILD_NOT_SERVING = 1 [(io.angzarr.v1.reason) = {
     args: ["component", "status", "timeout_ms"]
     grpc_status: REASON_STATUS_INTERNAL
   }];
@@ -38,7 +37,7 @@ enum HostReason {
   // than 0 (`exit_code`), when a child shutting down exits with 0: what a
   // host's conformance probe refuses (child-protocol.md, sections 5 and 7;
   // decision 14.62).
-  HOST_REASON_CHILD_EXIT_STATUS = 5 [(io.angzarr.v1.reason) = {
+  HOST_REASON_CHILD_EXIT_STATUS = 2 [(io.angzarr.v1.reason) = {
     args: ["component", "exit_code"]
     grpc_status: REASON_STATUS_INTERNAL
   }];
@@ -47,7 +46,7 @@ enum HostReason {
   // ended it), `terminated` (by the host's SIGTERM), `killed` (by its
   // SIGKILL) or `not-running`. What a host's conformance probe refuses
   // (child-protocol.md, sections 5 and 7; decision 14.62).
-  HOST_REASON_CHILD_NOT_EXITED = 6 [(io.angzarr.v1.reason) = {
+  HOST_REASON_CHILD_NOT_EXITED = 3 [(io.angzarr.v1.reason) = {
     args: ["component", "ended"]
     grpc_status: REASON_STATUS_INTERNAL
   }];
@@ -56,43 +55,8 @@ enum HostReason {
   // `policy`, `projector`) does not handle: a command for a policy, a
   // book of events for a domain. Nothing is sent to the child
   // (child-protocol.md, section 7; decision 14.62).
-  HOST_REASON_PROBE_INPUT = 7 [(io.angzarr.v1.reason) = {
+  HOST_REASON_PROBE_INPUT = 4 [(io.angzarr.v1.reason) = {
     args: ["component", "kind"]
     grpc_status: REASON_STATUS_INVALID_ARGUMENT
   }];
-
-  // Retired by 14.80 (DRAFT): there is no handshake line, so nothing
-  // malformed, late or cut short to refuse; a child that never reports
-  // SERVING is HOST_REASON_CHILD_NOT_SERVING.
-  reserved 1, 2, 3;
-  reserved
-    "HOST_REASON_HANDSHAKE_MALFORMED",
-    "HOST_REASON_HANDSHAKE_TIMEOUT",
-    "HOST_REASON_HANDSHAKE_CLOSED";
-
-  // Retired by 14.37.
-  reserved
-    "HOST_REASON_MALFORMED_REFUSAL_FACT",
-    "HOST_REASON_DUPLICATE_REGISTRATION",
-    "HOST_REASON_NO_HANDLER_REGISTERED";
-  // Retired by 14.39.
-  reserved
-    "HOST_REASON_DUPLICATE_UPCASTER_CHAIN",
-    "HOST_REASON_DUPLICATE_COMMAND_HANDLER";
-  // Retired by 14.42.
-  reserved
-    "HOST_REASON_MISSING_COMMAND_BOOK",
-    "HOST_REASON_MISSING_COMMAND_PAGE",
-    "HOST_REASON_MISSING_COMMAND_PAYLOAD",
-    "HOST_REASON_MISSING_EVENT_BOOK_COVER",
-    "HOST_REASON_EMPTY_POLICY_SOURCE",
-    "HOST_REASON_POLICY_SOURCE_OUTSIDE_INPUT_DOMAIN",
-    "HOST_REASON_REFUSAL_FACT_MISSING",
-    "HOST_REASON_REFUSAL_WITHOUT_COMMAND",
-    "HOST_REASON_REFUSAL_WITHOUT_EVENT",
-    "HOST_REASON_REFUSAL_WITHOUT_REFUSED_COMMAND",
-    "HOST_REASON_REFUSED_COMMAND_WITHOUT_ID",
-    "HOST_REASON_REFUSAL_WITHOUT_TRIGGER_STREAM",
-    "HOST_REASON_HOST_STATUS_UNDECODABLE",
-    "HOST_REASON_NULL_ABI_POINTER";
 }

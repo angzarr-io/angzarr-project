@@ -29,24 +29,22 @@ message DeadLetterEnvelope {
   // LAST element), matching Sentry's `exception.values` shape; linkage via
   // each entry's `mechanism.exception_id` / `mechanism.parent_id`. Empty
   // when no capture was attempted. See sererr.fyi/spec/proto for the schema
-  // rationale. Was the stack_trace of core's ProcessingFailedDetails
-  // (deleted by decision 14.78).
+  // rationale.
   repeated sererr.v1.CapturedError stack_trace = 2;
-  map<string, string> metadata = 3; // Additional context; was AngzarrDeadLetter.metadata
+  map<string, string> metadata = 3; // Additional context
   // Set, with reason COORDINATOR_REASON_PAYLOAD_UNAVAILABLE, when a
-  // claim-checked payload could not be retrieved (bus.proto). Was the core
-  // entry's payload_retrieval_failed variant.
+  // claim-checked payload could not be retrieved (bus.proto).
   PayloadRetrievalFailedDetails payload_retrieval_failed = 4;
 }
 
 // Payload retrieval failure details for a dead letter: why a claim-checked
-// payload (PayloadReference, bus.proto) couldn't be retrieved. Moved from
-// io.angzarr.v1, its field numbers unchanged (decision 14.64).
+// payload (PayloadReference, bus.proto) couldn't be retrieved (decision
+// 14.64).
 message PayloadRetrievalFailedDetails {
   PayloadStorageType storage_type = 1; // Storage backend type
   string uri = 2; // URI of the payload that couldn't be retrieved
   bytes content_hash = 3; // Content hash for identification
   uint64 original_size = 4; // Original payload size in bytes
-  io.angzarr.v1.Diagnostic failure = 6; // The retrieval's failure: its code and args, never its text (decision 14.37)
+  io.angzarr.v1.Diagnostic failure = 5; // The retrieval's failure: its code and args, never its text (decision 14.37)
 }
 // endregion

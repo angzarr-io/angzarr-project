@@ -52,10 +52,10 @@ message Upcasted {
     // The requested page's sequence.
     uint64 sequence = 1;
     // A lone command or fact payload, which has no stream sequence.
-    NoSequence no_sequence = 3;
+    NoSequence no_sequence = 2;
   }
   // Its payload, in current shape.
-  google.protobuf.Any payload = 2;
+  google.protobuf.Any payload = 3;
 }
 
 // A lone command or fact payload, which has no stream sequence.

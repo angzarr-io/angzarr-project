@@ -66,3 +66,4 @@ COORDINATOR_REASON_POLICY_TARGETS_ITS_TRIGGER = a policy sent a { $command_type 
 COORDINATOR_REASON_POLICY_NO_INPUT_DOMAIN = component "{ $component }": a policy has no input domain
 COORDINATOR_REASON_DESCRIPTOR_NO_KIND = component "{ $component }": its descriptor names no kind
 COORDINATOR_REASON_RULES_VERSION_NOT_SEMVER = component "{ $component }": its rules version "{ $rules_version }" is not a SemVer version
+COORDINATOR_REASON_FACT_DEAD_LETTERED = the fact for { $stream } was dead-lettered and not recorded: do not resend it

@@ -11,9 +11,7 @@ option ruby_package = "Angzarr";
 // (io.angzarr.component.v1.UpcasterService,
 // io/angzarr/component/v1/upcaster.proto) and its messages the handler
 // layer's (io/angzarr/handler/v1/upcaster.proto; decision 14.78, DRAFT);
-// what follows is core's (decision 14.64). This file defines no message:
-// UpcastRequest and UpcastResponse, which were here, are deleted (never
-// stored).
+// what follows is core's (decision 14.64). This file defines no message.
 //
 // UpcasterService: transforms old event versions to current versions.
 // An upcaster is PART of the component whose streams it upcasts, never a
@@ -82,5 +80,5 @@ option ruby_package = "Angzarr";
 // UNAVAILABLE COORDINATOR_REASON_UPCASTER_UNAVAILABLE (retryable; args
 // domain, cause; decision 14.51); queued and reaction deliveries stay
 // queued. A
-// rule that fails (an error status from UpcastPayloads, or an answer whose
+// rule that fails (an error status from Upcast, or an answer whose
 // sequences are not exactly the requested pages') is a handler bug.

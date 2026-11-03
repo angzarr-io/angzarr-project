@@ -14,9 +14,8 @@ option ruby_package = "Angzarr::Transport::Distributed";
 // standalone query server and the bus's claim check. The rules of core's
 // reasons.proto hold here: a key travels as its value's full name, prefix
 // included, each carries its (io.angzarr.v1.reason) args, its English is
-// reasons.en-US.ftl beside this file, and the enum reserves every retired
-// key under its prefix. The enum keeps core's name and prefix, so each key
-// moved here from io.angzarr.v1.CoordinatorReason kept its string.
+// reasons.en-US.ftl beside this file. The enum keeps core's name and
+// prefix.
 //
 // Keys only a distributed coordinator answers.
 enum CoordinatorReason {
@@ -55,30 +54,4 @@ enum CoordinatorReason {
     args: ["uri", "cause"]
     grpc_status: REASON_STATUS_UNAVAILABLE
   }];
-
-  // Retired by 14.37.
-  reserved
-    "COORDINATOR_REASON_MALFORMED_REFUSAL_FACT",
-    "COORDINATOR_REASON_DUPLICATE_REGISTRATION",
-    "COORDINATOR_REASON_NO_HANDLER_REGISTERED";
-  // Retired by 14.39.
-  reserved
-    "COORDINATOR_REASON_DUPLICATE_UPCASTER_CHAIN",
-    "COORDINATOR_REASON_DUPLICATE_COMMAND_HANDLER";
-  // Retired by 14.42.
-  reserved
-    "COORDINATOR_REASON_MISSING_COMMAND_BOOK",
-    "COORDINATOR_REASON_MISSING_COMMAND_PAGE",
-    "COORDINATOR_REASON_MISSING_COMMAND_PAYLOAD",
-    "COORDINATOR_REASON_MISSING_EVENT_BOOK_COVER",
-    "COORDINATOR_REASON_EMPTY_POLICY_SOURCE",
-    "COORDINATOR_REASON_POLICY_SOURCE_OUTSIDE_INPUT_DOMAIN",
-    "COORDINATOR_REASON_REFUSAL_FACT_MISSING",
-    "COORDINATOR_REASON_REFUSAL_WITHOUT_COMMAND",
-    "COORDINATOR_REASON_REFUSAL_WITHOUT_EVENT",
-    "COORDINATOR_REASON_REFUSAL_WITHOUT_REFUSED_COMMAND",
-    "COORDINATOR_REASON_REFUSED_COMMAND_WITHOUT_ID",
-    "COORDINATOR_REASON_REFUSAL_WITHOUT_TRIGGER_STREAM",
-    "COORDINATOR_REASON_HOST_STATUS_UNDECODABLE",
-    "COORDINATOR_REASON_NULL_ABI_POINTER";
 }

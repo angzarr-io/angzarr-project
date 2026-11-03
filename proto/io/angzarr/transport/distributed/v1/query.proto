@@ -59,11 +59,8 @@ service EventQueryService {
   rpc GetAggregateRoots(google.protobuf.Empty) returns (stream io.angzarr.v1.Cover) {
     option (google.api.http) = {get: "/v1/query/aggregates"};
   }
-  // (Synchronize, a bidirectional stream answering each Query with
-  // GetEventBook's result, was deleted in pass 6. It was not the catch-up
-  // subscription the site describes: it never switched to live events. Use
-  // GetEvents for bulk reads and EventStreamService.Subscribe for live
-  // events.)
+  // Use GetEvents for bulk reads and EventStreamService.Subscribe for live
+  // events.
 }
 
 // region query_types
@@ -113,9 +110,9 @@ message TemporalQuery {
 message Query {
   io.angzarr.v1.Cover cover = 1;
   oneof selection {
-    SequenceRange range = 3;
-    SequenceSet sequences = 4;
-    TemporalQuery temporal = 5;
+    SequenceRange range = 2;
+    SequenceSet sequences = 3;
+    TemporalQuery temporal = 4;
   }
   // Correlation selector: when set, only pages whose
   // EventMeta.correlation_id equals it (the same 16 bytes) are
@@ -123,7 +120,7 @@ message Query {
   // is recorded per page only (covers carry none); all pages of one write
   // share one correlation. Never crosses cover.domain (CorrelationQuery
   // does).
-  io.angzarr.v1.UUID correlation_id = 6;
+  io.angzarr.v1.UUID correlation_id = 5;
 }
 
 // region correlation_query

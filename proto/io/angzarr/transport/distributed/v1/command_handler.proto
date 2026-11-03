@@ -25,10 +25,10 @@ service CommandHandlerCoordinatorService {
   // outcome.delivery APPLIED. A command whose command_id the addressed
   // stream already holds is not handed to business code again; the response
   // carries those events, re-read from the stream, with outcome.delivery
-  // DUPLICATE. A fact whose ingest handler fails, or that lost a race at
-  // every write until the race re-run cap, is answered OK with
-  // outcome.delivery PARKED and no events ("accepted, parked"; it is
-  // dead-lettered). outcome.projections and outcome.projector_failures are
+  // DUPLICATE. A fact whose handler fails, or that lost a race at every
+  // write until the race re-run cap, is dead-lettered and its sender
+  // answered INTERNAL COORDINATOR_REASON_FACT_DEAD_LETTERED (non-retryable; decision
+  // 14.100, DRAFT). outcome.projections and outcome.projector_failures are
   // always empty. Rejected: a gRPC error status, and nothing is written (a
   // handler's refusal, under its own key; a command that lost a race at
   // every write until the race re-run cap is INTERNAL,
@@ -99,7 +99,7 @@ service CommandHandlerCoordinatorService {
 //   - Deliver, with a ReactionDelivery (its derived command_id, or the
 //     refused command's id on a refusal fact, and its causation; the
 //     receiving coordinator trusts them from this caller);
-//   - PolicyCoordinatorService.ExecuteStamped, with a caller-supplied
+//   - PolicyCoordinatorService.Execute, with a caller-supplied
 //     trigger EventBook (whose stamping copies the trigger's correlation
 //     and EventRef onto the policy's commands and refusal facts).
 // Any other caller is a client. A client's CommandBook has no field for a
@@ -122,7 +122,7 @@ message CommandResponse {
   // Results of handling: the core delivery outcome and, from HandleSync
   // (SIMPLE), synchronous projector results. Response-only, never persisted
   // (see io.angzarr.v1.Outcome).
-  SyncOutcome outcome = 5;
+  SyncOutcome outcome = 2;
 }
 
 // The core outcome of one command, wrapped with what only the distributed
@@ -152,5 +152,5 @@ message ProjectorFailure {
   int32 code = 2;
   // The failure's key and args (decision 14.37): its status's ErrorInfo
   // reason and metadata. Never the status's text.
-  io.angzarr.v1.Diagnostic diagnostic = 4;
+  io.angzarr.v1.Diagnostic diagnostic = 3;
 }

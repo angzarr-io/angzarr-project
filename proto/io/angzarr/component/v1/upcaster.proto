@@ -16,8 +16,7 @@ option ruby_package = "Angzarr::Component";
 // angzarr-embedded kernel runs a Rust upcaster in process under this same
 // contract (decision 14.64).
 service UpcasterService {
-  // Bring payloads to their current shape: one payload per page, in the
-  // same order, transformed where a rule applies. A new name, not Upcast
-  // retyped: Upcast is deleted (decision 14.78).
-  rpc UpcastPayloads(io.angzarr.handler.v1.UpcastRequest) returns (io.angzarr.handler.v1.UpcastResponse);
+  // Bring payloads to their current shape, keyed by sequence or
+  // no_sequence (UpcastResponse), transformed where a rule applies.
+  rpc Upcast(io.angzarr.handler.v1.UpcastRequest) returns (io.angzarr.handler.v1.UpcastResponse);
 }

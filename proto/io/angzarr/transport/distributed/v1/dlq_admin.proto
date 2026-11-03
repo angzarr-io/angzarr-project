@@ -4,10 +4,9 @@
 // (dead_letter.proto) around core's AngzarrDeadLetter
 // (io/angzarr/v1/types.proto).
 //
-// Part of the distributed transport (decision 14.64): it was package
-// io.angzarr.status.v1 until then, and moved whole, every message and
-// number unchanged, since only a distributed deployment runs an admin
-// store of dead letters and a transport's package holds its own services.
+// Part of the distributed transport (decision 14.64): only a distributed
+// deployment runs an admin store of dead letters, and a transport's package
+// holds its own services.
 //
 // Surface follows Google AIPs for resource naming, pagination and
 // filtering. Every method returns a health envelope (`oneof state` of an
@@ -28,11 +27,7 @@ option java_multiple_files = true;
 option java_package = "io.angzarr.transport.distributed";
 option ruby_package = "Angzarr::Transport::Distributed";
 
-// RejectionType, which was here, is deleted (decision 14.78, from the
-// owner's ruling #4): it discriminated AngzarrDeadLetter's rejection_details
-// oneof, which is retired. What kind of failure a dead letter is, is its
-// reason's key. The publishers stop writing the `dlq_entries.rejection_type`
-// column.
+// What kind of failure a dead letter is, is its reason's key.
 
 // One row from `dlq_entries`, surfaced via the API. The `payload`
 // bytes are the proto-encoded `DeadLetterEnvelope` exactly as the
@@ -58,35 +53,32 @@ message StoredDeadLetter {
   // AngzarrDeadLetter.reason: a key and its args, never text (decision
   // 14.37), and the one statement of why (decision 14.78). A typed
   // refusal's object is the payload's refusal, rendered in payload_view.
-  io.angzarr.v1.Diagnostic reason = 15;
-  // Field 6 was rejection_type (a RejectionType), retired by decision 14.78.
-  reserved 6;
-  reserved "rejection_type";
-  string source_component = 8;
-  io.angzarr.v1.ComponentKind source_component_kind = 14; // AngzarrDeadLetter.source_component_kind
-  google.protobuf.Timestamp occurred_at = 10;
-  google.protobuf.Timestamp created_at = 11;
+  io.angzarr.v1.Diagnostic reason = 5;
+  string source_component = 6;
+  io.angzarr.v1.ComponentKind source_component_kind = 7; // AngzarrDeadLetter.source_component_kind
+  google.protobuf.Timestamp occurred_at = 8;
+  google.protobuf.Timestamp created_at = 9;
   // JSON string. Empty when decoding failed entirely (the row is still
   // surfaced — clients can fall back to `payload` bytes).
-  string payload_view = 12;
+  string payload_view = 10;
   // Every replay of this entry, oldest first: the record of when it was
   // replayed, how and with what result (who replayed it is in the security
   // log, not here). `payload` itself never
   // changes; replays are recorded here, beside it.
-  repeated DeadLetterReplay replays = 13;
+  repeated DeadLetterReplay replays = 11;
 }
 
 // One replay of a dead-letter entry, recorded in the entry when the replay
 // is requested and updated when its result is known.
 message DeadLetterReplay {
-  google.protobuf.Timestamp replayed_at = 2; // When the replay was requested
-  ReplayMode mode = 3; // The mode applied
-  ReplayOutcome outcome = 5; // PENDING until the replayed delivery is decided
-  google.protobuf.Timestamp outcome_at = 6; // When outcome left PENDING
+  google.protobuf.Timestamp replayed_at = 1; // When the replay was requested
+  ReplayMode mode = 2; // The mode applied
+  ReplayOutcome outcome = 3; // PENDING until the replayed delivery is decided
+  google.protobuf.Timestamp outcome_at = 4; // When outcome left PENDING
   // Why the replay ended as it did (e.g. the new rejection's reason): a key
   // and its args, never text (decision 14.37). Unset while PENDING and
   // when nothing needs saying.
-  io.angzarr.v1.Diagnostic reason = 8;
+  io.angzarr.v1.Diagnostic reason = 5;
 }
 
 // What became of one replay.
@@ -263,12 +255,9 @@ message DeleteDeadLetterRequest {
 // outcome, and the arm says which (decision 14.91, DRAFT: no flag).
 message DeleteDeadLetterOk {
   oneof outcome {
-    DeadLetterRemoved removed = 2;
-    NoDeadLetter no_entry = 3;
+    DeadLetterRemoved removed = 1;
+    NoDeadLetter no_entry = 2;
   }
-  // Field 1 was deleted, a flag; retired by decision 14.91.
-  reserved 1;
-  reserved "deleted";
 }
 
 // The row was removed.

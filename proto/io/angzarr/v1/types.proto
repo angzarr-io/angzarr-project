@@ -166,14 +166,14 @@ message UUID {
 // never on the Cover. Parent/child relationships between aggregates are
 // carried in domain event payloads, not in the Cover.
 message Cover {
-  string domain = 2; // Domain name; never contains ':' (the root-derivation separator)
+  string domain = 1; // Domain name; never contains ':' (the root-derivation separator)
   // The stream's root: caller-chosen (any 16 bytes), derived by
   // compute_root (UUIDv5; see the derived_ids region) or minted (UUIDv7).
   // A process manager's stream is no exception: a command or fact
   // addressed to it names its root, whatever its correlation_id; by
   // convention a policy may set it to its trigger's correlation_id
   // (process_manager.proto, Stream; decisions 14.30 and 14.36).
-  UUID root = 1;
+  UUID root = 2;
   // Edition: the NAME of the timeline the stream belongs to.
   //
   // Core, whatever the transport: the angzarr-embedded kernel and core's
@@ -278,7 +278,8 @@ message Cover {
 //     nothing is persisted; a waiting caller is answered INTERNAL
 //     COORDINATOR_REASON_RETRY_CAP_EXHAUSTED and nothing is dead-lettered,
 //     and work with no caller waiting is dead-lettered and alerted (a fact,
-//     PARKED; decision 14.85). Ordering is per stream: no other stream's
+//     dead-lettered and its sender answered INTERNAL
+//     COORDINATOR_REASON_FACT_DEAD_LETTERED; decisions 14.85, 14.100). Ordering is per stream: no other stream's
 //     writes matter.
 //
 // A client's expected sequence (Handling.expected_sequence: "I decided
@@ -321,12 +322,12 @@ message ExpectedSequenceMismatch {
 message EventPage {
   // The domain event. Its type URL names the event type and version
   // (versioned packages: pkg.v1.Foo -> pkg.v2.Foo).
-  google.protobuf.Any payload = 3;
-  EventMeta meta = 8; // Provenance: which command, why, when recorded, under which rules (see EventMeta)
+  google.protobuf.Any payload = 1;
+  EventMeta meta = 2; // Provenance: which command, why, when recorded, under which rules (see EventMeta)
   // The event's position in its stream (domain, edition, root). Always
   // definite: assigned by the framework when the event is persisted, never
   // deferred. Together with the stream it is the event's identity (EventRef).
-  uint64 sequence = 9;
+  uint64 sequence = 3;
 }
 // endregion
 
@@ -506,8 +507,9 @@ message EventRef {
 //     expiry, purge or retention window.
 // Rejections leave nothing: a rejected command (a gRPC error status) writes
 // no event, so a retry with the same command_id runs business code again.
-// The same holds for a parked Fact (Outcome.delivery PARKED): its source's
-// redelivery runs ingest again.
+// The same holds for a dead-lettered Fact: it wrote nothing, and a DLQ
+// replay runs its handler again (its sender does not resend it; decision
+// 14.100).
 // endregion
 
 // region security_logs
@@ -629,12 +631,6 @@ message Diagnostic {
 }
 // endregion
 
-// The standard refusal fact (CommandRefused) and RefusalResponse, which
-// were here, are deleted (decision 14.78, the one refusal path of decision
-// 46 #5): a refusal reaches the policy's Translate as
-// io.angzarr.handler.v1.Refusal, and the policy answers its source's own
-// fact.
-
 // region event_meta
 // Provenance of one persisted event, stamped by the framework. Every
 // persisted event carries meta. Business code cannot set meta: a handler
@@ -663,24 +659,22 @@ message Diagnostic {
 // head the decision saw is not recorded: it is the sequence of the write's
 // first event (decision 12.4).
 message EventMeta {
-  // The event's direct cause. Always set on a persisted event. It has one
-  // arm: triggering_event (18), a process manager's trigger, is deleted,
-  // unreserved (policy 6.6), because a PM is a domain whose inputs are
-  // commands and facts (decision 14.31). The oneof stays, so command_id
-  // keeps its encoding, its JSON and its generated accessor.
+  // The event's direct cause. Always set on a persisted event: the
+  // producing command's or fact's id (a PM is a domain whose inputs are
+  // commands and facts, decision 14.31).
   oneof causation {
     // The producing command's command_id (see the command_identity
     // region): every event a client Command, reaction command or Fact
     // produced, a process manager's events included. The deduplication key
     // on the stream.
-    UUID command_id = 17;
+    UUID command_id = 1;
   }
   // The producing Fact's source: its Fact.origin, copied. Unset
   // for Commands.
-  FactOrigin fact = 16;
+  FactOrigin fact = 2;
   // The producing command's correlation (see the command_identity
   // region). Never unset on a persisted event.
-  UUID correlation_id = 14;
+  UUID correlation_id = 3;
   // When the event was durably recorded, stamped by the server that persisted
   // it. The only timestamp an event carries; TemporalQuery.as_of_time selects
   // by it.
@@ -690,7 +684,7 @@ message EventMeta {
   // makes a later event look older. Events of one write share one
   // recorded_at. Because of this, the events recorded at or before any time
   // T are always a prefix of the stream (see TemporalQuery).
-  google.protobuf.Timestamp recorded_at = 5;
+  google.protobuf.Timestamp recorded_at = 4;
   // The full version of the business binary that decided (or ingested) the
   // event (e.g. "1.4.2+build.7"): baked in when the binary is built (e.g.
   // by versionator), never a label chosen by hand. Reported by the business
@@ -703,7 +697,7 @@ message EventMeta {
   // (annals, which shares these protos, treats rules_version differently:
   // a documented divergence, see
   // docs/design/audit-meta/annals-divergence.md.)
-  string rules_version = 7;
+  string rules_version = 5;
 }
 // endregion
 
@@ -774,16 +768,16 @@ message Snapshot {
   // library never does. A delivery that offers a snapshot carries only the
   // pages after it: the coordinator drops the pages it covers, and the
   // client library folds what it is given (decision 14.40).
-  uint64 sequence = 2;
+  uint64 sequence = 1;
   // The folded state. Its type URL is the state type recorded with the
   // snapshot and checked before the snapshot is offered (see Validity
   // above).
-  google.protobuf.Any state = 3;
+  google.protobuf.Any state = 2;
   // The rules version reported with the answer that returned `state`
   // (io.angzarr.handler.v1.HandleResponse.rules_version), stamped in full by the
   // coordinator, never by business code. Checked by the coordinator before
   // the snapshot is offered (see Validity above).
-  string rules_version = 5;
+  string rules_version = 3;
 }
 // endregion
 
@@ -793,7 +787,7 @@ message EventBook {
   Cover cover = 1;
   Snapshot snapshot = 2; // The starting state a delivery offers, when one is valid (see Snapshot)
   repeated EventPage pages = 3;
-  uint64 next_sequence = 6; // Computed on load, never stored: (last page seq OR snapshot seq if no pages) + 1
+  uint64 next_sequence = 4; // Computed on load, never stored: (last page seq OR snapshot seq if no pages) + 1
 }
 // endregion
 
@@ -806,8 +800,7 @@ message Projection {
   // unrecorded, and the run is delivered again.
   // The projector's position in the stream after this projection: the
   // stream's next_sequence once the projected events are applied, i.e. the
-  // sequence of the last projected event + 1. (Renamed from `sequence`,
-  // which read as the last event's sequence.)
+  // sequence of the last projected event + 1.
   uint64 next_sequence = 3;
   google.protobuf.Any projection = 4;
 }
@@ -840,7 +833,7 @@ message Projection {
 //                    other than the head step 3 loaded is refused
 //                    ExpectedSequenceMismatch (the concurrency region;
 //                    decision 14.94), and the handler is never called;
-//   5. business code CommandHandlerService.HandleInput, for a command and
+//   5. business code CommandHandlerService.Handle, for a command and
 //                    a fact alike (decision 14.98; the client library folds the delivered
 //                    state and dispatches by type), then the append at
 //                    the head step 3 loaded. A process manager's business
@@ -893,10 +886,6 @@ message Handling {
   // none, and the command is decided on the current state. The coordinator
   // never stamps it.
   optional uint64 expected_sequence = 1;
-  // Field 2 was conflict_resolution; retired by decision 14.81 and, with
-  // the whole conflict concept, by 14.92.
-  reserved 2;
-  reserved "conflict_resolution";
 }
 // endregion
 
@@ -940,23 +929,17 @@ message Handling {
 // policy.proto, Refusals).
 message CommandPage {
   oneof body {
-    Command command = 3; // Asks the aggregate to decide; may be rejected
-    Fact fact = 4; // Records something that already happened; never rejected
+    Command command = 1; // Asks the aggregate to decide; may be rejected
+    Fact fact = 2; // Records something that already happened; never rejected
   }
   // The command's id: client-supplied or minted (client Command), derived
   // (Fact). Unset on arrival from a client means "mint one". Recorded on
   // every event it produces as their causation
   // (EventMeta.causation.command_id), and the deduplication key there.
-  UUID command_id = 8;
+  UUID command_id = 3;
   // The workflow correlation; set by the coordinator when absent. Copied
   // onto every event (EventMeta.correlation_id).
-  UUID correlation_id = 9;
-  // Field 10 was causation_id, which only a framework caller could set (a
-  // client's was refused PERMISSION_DENIED): a reaction's causation is
-  // ReactionDelivery.causation. Field 11 was fact_origin, beside the Fact
-  // arm it belonged to: Fact.origin. Both retired by decision 14.79.
-  reserved 10, 11;
-  reserved "causation_id", "fact_origin";
+  UUID correlation_id = 4;
 }
 
 // A command proper: a request for the aggregate to decide. decide may emit
@@ -987,23 +970,24 @@ message Command {
 // with events that flag it, e.g. a payment received for an unknown order)
 // and never reject it. A failing fact handler is a bug, not a business
 // rejection: the fact is dead-lettered and alerted, and the sender is
-// answered "accepted, parked" (OK, Outcome.delivery PARKED, no events),
-// never a rejection. The framework deduplicates on the command_id derived
+// answered INTERNAL COORDINATOR_REASON_FACT_DEAD_LETTERED, non-retryable (decision
+// 14.100, DRAFT; the owner: "if retrying senders repark, it's a logic
+// bug"). The framework deduplicates on the command_id derived
 // from origin.external_id, per addressed stream, before
-// the handler runs; a parked fact wrote nothing, so its redelivery runs
-// ingest again. A fact that loses a race at its write to another write to
+// the handler runs; a dead-lettered fact wrote nothing, so a DLQ replay of
+// it runs its handler again. A fact that loses a race at its write to another write to
 // the same stream is re-run on the new head under the race re-run cap, and
-// one that reaches the cap is parked the same way (dead-lettered with
-// reason COORDINATOR_REASON_RETRY_CAP_EXHAUSTED, alerted, answered OK
-// PARKED; decision 14.46).
+// one that reaches the cap is dead-lettered the same way (reason
+// COORDINATOR_REASON_RETRY_CAP_EXHAUSTED, alerted, its sender answered
+// INTERNAL COORDINATOR_REASON_FACT_DEAD_LETTERED; decisions 14.46, 14.100).
 //
 // A Fact has no Handling to set: it is appended at the head the coordinator
 // loaded, like any input (the concurrency region).
 message Fact {
   google.protobuf.Any payload = 1; // The fact; its type URL picks the ingest handler
   // Where the fact came from, required: copied onto every event
-  // (EventMeta.fact). Was CommandPage.fact_origin (decision 14.79). For a
-  // policy's fact the destination derives it (ReactionDelivery).
+  // (EventMeta.fact). For a policy's fact the destination derives it
+  // (ReactionDelivery).
   FactOrigin origin = 2;
 }
 // endregion
@@ -1020,11 +1004,7 @@ message Fact {
 // no request wrapper.
 message CommandBook {
   Cover cover = 1; // The target stream (domain, edition, root)
-  CommandPage page = 3; // The one command
-  // Field 6 was handling, retired by decision 14.79: it is the Command
-  // arm's (Command.handling), so a Fact cannot carry one.
-  reserved 6;
-  reserved "handling";
+  CommandPage page = 2; // The one command
 }
 // endregion
 
@@ -1079,10 +1059,6 @@ message ReactionDelivery {
 // 14.64).
 message Outcome {
   DeliveryOutcome delivery = 1;
-  // Fields 2 and 3 (projections, projector_failures) moved to
-  // io.angzarr.transport.distributed.v1.SyncOutcome (decision 14.64).
-  reserved 2, 3;
-  reserved "projections", "projector_failures";
 }
 
 // What the coordinator did with this delivery of a command. Deduplication
@@ -1094,13 +1070,9 @@ message Outcome {
 //   DUPLICATE  the addressed stream already held events with this
 //              command_id: business code did not run, and the events are
 //              those, re-read from the stream.
-//   PARKED     a Fact whose ingest handler failed (a process manager's
-//              fact handler included, and one its business process
-//              answered with a business status), or that lost a race at every
-//              write until the race re-run cap: it was accepted
-//              and dead-lettered for an operator, with no events. Such a
-//              failure is a bug, never a rejection, so the sender is
-//              answered OK and must not treat it as a refusal.
+// A fact that could not be recorded is no outcome either: it is
+// dead-lettered, and its sender answered INTERNAL
+// COORDINATOR_REASON_FACT_DEAD_LETTERED (decision 14.100, DRAFT).
 //
 // A rejection is never an outcome: it is a gRPC error status, and it writes
 // nothing, so the same command_id may be retried.
@@ -1108,27 +1080,12 @@ enum DeliveryOutcome {
   DELIVERY_OUTCOME_UNSPECIFIED = 0; // Not reported
   DELIVERY_OUTCOME_APPLIED = 1; // Business code ran for this delivery; the events are new
   DELIVERY_OUTCOME_DUPLICATE = 2; // The stream already held this command_id's events; they are re-read
-  DELIVERY_OUTCOME_PARKED = 3; // Fact accepted but its handler failed or it reached the race re-run cap; dead-lettered, no events
 }
 // endregion
-
-// ContextualCommand, which was here, is deleted (decision 14.78): the
-// business logic is handed io.angzarr.handler.v1.HandleRequest, the same
-// books with no conflict nonce (decision 46, Q5).
-// It was never stored.
 
 // ============================================================================
 // Dead Letter Queue (DLQ) Messages
 // ============================================================================
-
-// region dlq_details
-// SequenceMismatchDetails, CommandRefusedDetails and ProcessingFailedDetails,
-// which were here, are deleted (decision 14.78, from the owner's ruling #4):
-// each restated the dead letter's reason. What they held is the reason's
-// args (expected, actual, head), the reason itself, its declared status
-// (whether it is transient: ReasonOptions.status, reasons.proto), and two
-// fields of AngzarrDeadLetter's own (retry_count, refusal).
-// endregion
 
 // region dead_letter
 // Dead letter queue entry for failed messages requiring manual intervention.
@@ -1167,10 +1124,8 @@ enum DeliveryOutcome {
 // A dead letter is its payload, its reason and, for a typed refusal, the
 // refusal object (decision 14.78, from the owner's ruling #4). Everything
 // else about why is read from the reason: its key, its args and the key's
-// declared status (reasons.proto). Entries written before 14.78 still
-// decode (fields 12, 13 and 17 are skipped as unknown); they show
-// retry_count 0 and no refusal (the owner's waiver of stored data,
-// decision 46, Q7).
+// declared status (reasons.proto). Stores from before the rewrite cross it
+// by export and import (decision 14.100, DRAFT).
 message AngzarrDeadLetter {
   oneof payload {
     // A client's command or fact that failed, stored with its ids
@@ -1181,19 +1136,19 @@ message AngzarrDeadLetter {
     // Replay AS_IS keeps the Handling; FRESH_SEQUENCE clears
     // page.command.handling.expected_sequence so the coordinator stamps
     // the current head.
-    CommandBook rejected_command = 2;
+    CommandBook rejected_command = 1;
     // A policy's output or refusal fact that failed at its destination,
     // as delivered (decision 14.79). Replayed through Deliver, keeping its
     // ids and causation.
-    ReactionDelivery rejected_reaction = 21;
-    EventBook rejected_events = 9; // Events that failed (policy/projector failures)
+    ReactionDelivery rejected_reaction = 2;
+    EventBook rejected_events = 3; // Events that failed (policy/projector failures)
     // An edition removal that failed (DeleteEdition): the
     // stream whose rows of the edition could not be removed, as its cover,
     // and its meta.EditionDeleted event, as recorded there, as the one
     // page. An EventBook, since meta/events.proto imports this file.
     // Reason COORDINATOR_REASON_EDITION_REMOVAL_FAILED (decision 14.48,
     // amended).
-    EventBook failed_edition_removal = 18;
+    EventBook failed_edition_removal = 4;
   }
   // Why it was dead-lettered: a key and its args, never text (decision
   // 14.37). The one statement of why (decision 14.78).
@@ -1229,32 +1184,18 @@ message AngzarrDeadLetter {
   // COORDINATOR_REASON_UPCASTER_UNAVAILABLE and the distributed
   // transport's COORDINATOR_REASON_COMPONENT_NOT_REGISTERED (queued work
   // waits) and COORDINATOR_REASON_COMMANDS_NOT_SERVED (decision 14.51).
-  Diagnostic reason = 16;
+  Diagnostic reason = 5;
   // The retries after the first attempt (0 when it was tried once): of a
   // retryable bug, or a policy step's ABORTED re-run, at its cap, and of an
-  // edition removal (COORDINATOR_REASON_EDITION_REMOVAL_FAILED). Was
-  // ProcessingFailedDetails.retry_count (inside field 13); a new number,
-  // never 13's.
-  uint32 retry_count = 19;
+  // edition removal (COORDINATOR_REASON_EDITION_REMOVAL_FAILED).
+  uint32 retry_count = 6;
   // The typed refusal object, iff reason is ROUTER_REASON_COMMAND_REFUSED:
   // one of the refused command's `refuses` types, packed, whose type is the
-  // reason's refusal_type arg. A new number, never 17's: 17 held a
-  // CommandRefusedDetails, whose bytes would misdecode as an Any.
-  google.protobuf.Any refusal = 20;
-  // Fields 12, 13 and 17 were the rejection_details oneof
-  // (sequence_mismatch, processing_failed, command_refused), retired by
-  // decision 14.78. Fields 14 (payload_retrieval_failed) and 8 (metadata)
-  // moved to the distributed transport's DeadLetterEnvelope (decision
-  // 14.64).
-  reserved 8, 12, 13, 14, 17;
-  reserved "metadata", "payload_retrieval_failed", "sequence_mismatch", "processing_failed", "command_refused";
-  // When the runtime dead-lettered it: read from the runtime's clock, the
-  // one EventMeta.recorded_at is read from, as a UTC instant (a Timestamp
-  // has no zone); rendered, it is RFC 3339 in UTC, ending `Z`, never a local
-  // time (decision 14.66).
-  google.protobuf.Timestamp occurred_at = 7;
-  string source_component = 10; // Which component sent to DLQ
-  ComponentKind source_component_kind = 15; // Its kind
+  // reason's refusal_type arg.
+  google.protobuf.Any refusal = 7;
+  google.protobuf.Timestamp occurred_at = 8;
+  string source_component = 9; // Which component sent to DLQ
+  ComponentKind source_component_kind = 10; // Its kind
 }
 // endregion
 
@@ -1321,19 +1262,14 @@ message ComponentDescriptor {
   // to (see ComponentService for how the refusal surfaces). The coordinator
   // checks snapshot versions against it before offering a snapshot (see
   // Snapshot), and refuses an answer that reports any other version.
-  string rules_version = 4;
+  string rules_version = 2;
   // Which kind of component, and what that kind has.
   oneof kind {
-    AggregateDescriptor aggregate = 9;
-    ProcessManagerDescriptor process_manager = 10;
-    PolicyDescriptor policy = 11;
-    ProjectorDescriptor projector = 12;
+    AggregateDescriptor aggregate = 3;
+    ProcessManagerDescriptor process_manager = 4;
+    PolicyDescriptor policy = 5;
+    ProjectorDescriptor projector = 6;
   }
-  // Fields 3 (inputs), 5 (kind), 6 (state), 7 (starting_types) and 8
-  // (output_domain) were the flat shape, each refused on the kinds that may
-  // not have it; retired by decision 14.78 for the kind oneof. Never stored.
-  reserved 3, 5, 6, 7, 8;
-  reserved "inputs", "kind", "state", "starting_types", "output_domain";
 }
 
 // An aggregate's descriptor.
@@ -1387,9 +1323,4 @@ message StateDescriptor {
   // The state message's type URL ("/" + its fully-qualified name; see the
   // type URL rules at the top of this file).
   string type_url = 1;
-  // Field 2 was options, the conflict resolutions the state supported;
-  // retired by decision 14.92 (DRAFT): the coordinator has no conflict
-  // concept.
-  reserved 2;
-  reserved "options";
 }

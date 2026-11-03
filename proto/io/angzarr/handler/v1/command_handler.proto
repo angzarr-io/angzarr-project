@@ -87,8 +87,8 @@ message HandleRequest {
 //     router's other bug keys; io/angzarr/v1/command_handler.proto, status
 //     codes).
 // Any error status for a FACT is a bug: the fact is dead-lettered under the
-// status's key and args and alerted, and its sender answered OK, PARKED
-// (decision 14.72).
+// status's key and args and alerted, and its sender answered INTERNAL
+// COORDINATOR_REASON_FACT_DEAD_LETTERED (decisions 14.72 and 14.100, DRAFT).
 message HandleResponse {
   // The events, payloads only, in order: empty, one or many (decision
   // 14.75). The coordinator wraps event i as an EventPage under the input's

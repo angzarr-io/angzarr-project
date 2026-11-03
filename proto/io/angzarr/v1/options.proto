@@ -110,25 +110,13 @@ message ComponentOptions {
   // "-", starting with a letter; anything else fails generation. Two
   // components of one application with one name is a lint (`angzarr lint
   // app`). Generated code is named after the anchor message.
-  string component_name = 9;
-  // Field 4 was name, the generated code's base name beside this one,
-  // retired by decision 14.87: one name per component.
-  reserved 4;
-  reserved "name";
-  // Which kind of component, and what it declares. Required: a
-  // declaration with no kind fails generation.
+  string component_name = 1;
   oneof kind {
-    AggregateDecl aggregate = 10;
-    ProcessManagerDecl process_manager = 11;
-    PolicyDecl policy = 12;
-    ProjectorDecl projector = 13;
+    AggregateDecl aggregate = 2;
+    ProcessManagerDecl process_manager = 3;
+    PolicyDecl policy = 4;
+    ProjectorDecl projector = 5;
   }
-  // Fields 1 (kind, a ComponentKind), 2 (input_domain), 3 (output_domain),
-  // 7 (domain) and 8 (input_domains) were the flat shape, retired by
-  // decision 14.78 for the kind oneof and derived sources. A field cannot
-  // move into a oneof compatibly, so the arms take new numbers.
-  reserved 1, 2, 3, 7, 8;
-  reserved "kind", "input_domain", "output_domain", "domain", "input_domains";
 }
 
 // An aggregate's declaration.
@@ -223,22 +211,7 @@ message CommandOptions {
   // every command a policy sends has a refusal path by construction: its
   // refusals, or none (decision 14.99, DRAFT, dropping 14.76's rule that a
   // policy-targeted command name at least one).
-  repeated string refuses = 4;
-  // Field 3 was starts, a switch marking a starting input; a process
-  // manager now lists its starting inputs in its declaration
-  // (ProcessManagerDecl.starting_types). Field 5 was fact, a switch that
-  // made the message a fact; a fact is declared by its own option,
-  // (io.angzarr.v1.fact) (FactOptions, below). Both retired by decision
-  // 14.91 (DRAFT): a message is a command or a fact by the option it
-  // carries, never by a flag.
-  reserved 3, 5;
-  reserved "starts", "fact";
-  // Field 6 was emits_cardinality (decision 14.50), with its enum
-  // EmitsCardinality; removed by decision 14.75: every handling of a
-  // command or a fact returns a list of its component's events, so there
-  // is no cardinality to declare. Its number and name are reserved.
-  reserved 6;
-  reserved "emits_cardinality";
+  repeated string refuses = 3;
 }
 
 // Marks a message as a FACT: something that already happened, which its
@@ -294,27 +267,21 @@ message EventConsumer {
   // from the owner's domain (ComponentOptions, above). Set on an event that
   // has an owner in the set (a folding entry included), generation fails.
   string domain = 2;
-  // Field 3 (applies, which told a PM's own-state fold from a trigger) is
-  // deleted, unreserved (policy 6.6): a PM has no triggers (decision
-  // 14.31), so every entry naming a PM is a fold, as for an aggregate.
 }
 
 extend google.protobuf.MessageOptions {
+  // angzarr's extension range is 50100-50199, its numbers contiguous from
+  // 50100 across every extended options message (MessageOptions here and
+  // below, EnumValueOptions in reasons.proto, FileOptions in the child
+  // protocol): component 50100, command 50101, fact 50102, event 50103,
+  // refusal_status 50104, reason 50105, child_protocol 50106.
   ComponentOptions component = 50100;
-  CommandOptions command = 50104;
-  // A fact's declaration (decision 14.91). 50112: after the refusal status
-  // (50111).
-  FactOptions fact = 50112;
+  CommandOptions command = 50101;
+  // A fact's declaration (decision 14.91).
+  FactOptions fact = 50102;
   // Repeated: one entry per consuming component.
-  repeated EventConsumer event = 50105;
-  // 50101-50103 are skipped: earlier, since-deleted options used them, and
-  // stale descriptors may still carry them. 50106 was (state), a state's
-  // conflict resolutions, and FieldOptions 50107 was (conflict), a conflict
-  // unit: both retired by decision 14.92 (DRAFT; the owner's decision 47),
-  // with the coordinator's whole conflict concept. Neither number is used
-  // again.
+  repeated EventConsumer event = 50103;
 }
-
 
 // region refusal_status
 // The status a typed refusal is refused with (decision 14.52, as amended by
@@ -358,13 +325,9 @@ enum RefusalStatus {
 }
 
 extend google.protobuf.MessageOptions {
-  // On a typed refusal message: the status it is refused with. A MESSAGE
-  // option since decision 14.82 (DRAFT): it was 50108 on EnumValueOptions,
-  // on a nested Reason value, and that number stays unused there (an
-  // extension number of another message cannot be reserved here). 50111:
-  // after reasons.proto's (reason) (50109) and the child protocol's
-  // (child_protocol) (50110).
-  RefusalStatus refusal_status = 50111;
+  // On a typed refusal message: the status it is refused with (decision
+  // 14.82, DRAFT).
+  RefusalStatus refusal_status = 50104;
 }
 // endregion
 
@@ -458,5 +421,5 @@ extend google.protobuf.MessageOptions {
 // a mistake, period": the owner, 2026-10-28). What the generator checks:
 // the refuses diagnostics above and, for a policy whose target has a
 // command that can refuse, its source's facts. angzarr-cli selects no refusal
-// mode: there is one (its --translate switch is retired, decision 14.78).
+// mode: there is one (decision 14.78).
 // endregion

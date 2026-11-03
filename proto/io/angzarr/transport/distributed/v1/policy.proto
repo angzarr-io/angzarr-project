@@ -34,10 +34,8 @@ service PolicyCoordinatorService {
   // EventBook; the policy's configuration, not the request, sets how its
   // outputs are delivered. A trigger entry point: callers authenticated as
   // framework components only; a client is refused PERMISSION_DENIED (see
-  // the entry_points region of command_handler.proto). A new name, not
-  // Execute retyped: Execute, which answered the policy's own
-  // PolicyResponse, is deleted (decision 14.78).
-  rpc ExecuteStamped(io.angzarr.v1.EventBook) returns (ExecuteResponse) {
+  // the entry_points region of command_handler.proto).
+  rpc Execute(io.angzarr.v1.EventBook) returns (ExecuteResponse) {
     option (google.api.http) = {
       post: "/v1/policy/execute"
       body: "*"
@@ -45,7 +43,7 @@ service PolicyCoordinatorService {
   }
 }
 
-// What ExecuteStamped answers: the outputs as the coordinator addressed and
+// What Execute answers: the outputs as the coordinator addressed and
 // stamped them, in trigger order and, per trigger, in the policy's order.
 // Never persisted.
 message ExecuteResponse {

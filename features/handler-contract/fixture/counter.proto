@@ -10,7 +10,7 @@ import "io/angzarr/v1/options.proto";
 // multi-consumer model is exercised hard — Increased folds into the aggregate,
 // folds the projector, AND triggers the policy. (No process manager: since
 // decision 14.31 a process manager is a domain fed commands by policies, with no
-// triggers; the trigger-fed OrderProcessManager is deleted.)
+// triggers.)
 //
 // CounterAggregate is the smallest aggregate exercising every load-bearing
 // dispatch mechanism (per-page appliers, a handler with framework context in

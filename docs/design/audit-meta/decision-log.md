@@ -4840,6 +4840,8 @@ a policy never addresses its trigger's exact stream").
   on its own stream.
 - Cost: one more check per output, in each coordinator.
 
+> **Amended by 14.100 (DRAFT, pending review):** a fact that cannot be recorded is dead-lettered and its sender answered INTERNAL `COORDINATOR_REASON_FACT_DEAD_LETTERED` (non-retryable), never OK PARKED; `DELIVERY_OUTCOME_PARKED` is removed.
+
 **14.72 A fact its business process answers with a rejection is
 dead-lettered.** Ruled by the owner, 2026-11-02, on the escalation of
 14.69's implementation ("2 should dead-letter"), overturning that
@@ -5212,7 +5214,8 @@ per policy; a refused move stands the hand.** Owner rulings, 2026-11-02.
   14.76.
 - Blackjack: a refused DecideMove makes the table stand the hand
   (RecordMoveUndecided emits HandStood and what follows), so the round
-  always completes.
+  always completes. (Removed by 14.100: a player always decides, so
+  RecordMoveUndecided, MoveUndecided and this rule are gone.)
 
 **14.90 (DRAFT) The scheduler's time facts.** The owner's direction,
 2026-11-02 ("external, firing facts (datetime reached) into the domains
@@ -5441,6 +5444,33 @@ review round 4, 2026-11-02.
 - **Strings name types, deliberately.** Protobuf options cannot hold a
   type reference; generation resolves every name and fails on an unknown
   one.
+
+**14.100 (DRAFT) The rewrite holds no reservations; a dead-lettered fact's
+sender is answered non-retryable.** The owner's review round 5, 2026-11-02.
+- **No reservations** (the owner: "when we rewrite this, we're removing all
+  the held integers/reservations for removed items"). Every `reserved`
+  statement and every comment about a removed field is gone from the
+  protos. Fields are renumbered contiguously from 1 in declaration order,
+  per message, and enum values contiguously from 0, except RefusalStatus and
+  ReasonStatus, whose numbers are google.rpc.Codes by design. Extensions are
+  50100 component, 50101 command, 50102 fact, 50103 event, 50104
+  refusal_status, 50105 reason, 50106 child_protocol. This log keeps what
+  was removed and why; the protos do not.
+- **Freed names reused:** `CommandHandlerService.Handle` (was HandleInput),
+  `PolicyCoordinatorService.Execute` (was ExecuteStamped),
+  `UpcasterService.Upcast` (was UpcastPayloads).
+- **The wire break is deliberate.** `just proto-breaking` fails against
+  the draft and is not bypassed; the rewrite needs a new buf baseline, the
+  owner's call. Existing stores cross it by an export and import, probably
+  to JSONL (the owner).
+- **A dead-lettered fact** (its handler failed, or it hit the race re-run
+  cap) is answered INTERNAL `COORDINATOR_REASON_FACT_DEAD_LETTERED` (args
+  stream, cause), non-retryable (the owner: "non-retryable. if retrying
+  senders repark, it's a logic bug. they shouldn't be retrying").
+  `DELIVERY_OUTCOME_PARKED` is removed. Amends 14.72 and 14.46.
+- **`Handling` stays** (the owner).
+- **A player always decides:** `RecordMoveUndecided`, `MoveUndecided` and
+  the stand-the-hand rule (14.89) are removed.
 
 ## Corrections
 
