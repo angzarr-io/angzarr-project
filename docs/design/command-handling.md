@@ -1,6 +1,6 @@
 # Command handling: modes, the pipeline's outcomes and status codes
 
-**Status:** normative (decisions 14.37, 14.45 to 14.47, 14.51, 14.64; as amended by the DRAFT decisions 14.78 to 14.102, 14.104 and 14.105 pending review). Moved from `proto/io/angzarr/v1/command_handler.proto`, which defined no message (decision 14.103, DRAFT). The services are `io.angzarr.component.v1.CommandHandlerService` and `io.angzarr.transport.distributed.v1.CommandHandlerCoordinatorService`; the pipeline is `types.proto`'s Handling region.
+**Status:** normative (decisions 14.37, 14.45 to 14.47, 14.51, 14.64; as amended by the DRAFT decisions 14.78 to 14.102 and 14.104 to 14.107 pending review). Moved from `proto/io/angzarr/v1/command_handler.proto`, which defined no message (decision 14.103, DRAFT). The services are `io.angzarr.component.v1.CommandHandlerService` and `io.angzarr.transport.distributed.v1.CommandHandlerCoordinatorService`; the pipeline is `types.proto`'s Handling region.
 
 What a command handler answers, and how every runtime handles a command.
 The handler's service is the component contract's
@@ -34,8 +34,8 @@ a call-level choice, never part of the command: one RPC per mode.
                          asynchronously.
   HandleAsync  ASYNC     Validate, assign ids, enqueue and return. Nothing
                          about the decision comes back.
-  HandleSync   SIMPLE    As DECISION, and also waits for the synchronous
-                         projectors; their results come back in
+  HandleSync   SIMPLE    As DECISION, and also waits for the projectors
+                         the call names; their results come back in
                          CommandSyncResult.projections.
 ```
 
@@ -44,7 +44,14 @@ Impact ordering (lowest to highest): ASYNC < DECISION < SIMPLE.
 Each RPC has its one response (decision 14.105, DRAFT): Handle and Deliver
 answer a CommandResult (the events and the delivery, APPLIED or
 DUPLICATE), HandleSync a CommandSyncResult (the same, and the
-projections). There is no partial answer. A synchronous projector that
+projections). HandleSync takes a HandleSyncRequest: the command and the
+registered names of the projectors to wait for, a call-level choice (no
+projector carries a synchronous mode; decision 14.107, DRAFT). The list is
+required: an empty one is INVALID_ARGUMENT ANGZARR_REASON_SYNC_NO_PROJECTORS
+(a caller that waits for none calls Handle), and a named projector not
+subscribed to the command's domain is INVALID_ARGUMENT
+ANGZARR_REASON_SYNC_PROJECTOR_NOT_SUBSCRIBED, both before anything runs.
+There is no partial answer. A named projector that
 fails after the decision commits fails HandleSync with UNAVAILABLE
 ANGZARR_REASON_SYNC_PROJECTION_FAILED (args stream, projector, cause): the
 decision stays committed, and the caller's retry with the same command_id

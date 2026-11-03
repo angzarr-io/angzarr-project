@@ -79,7 +79,7 @@ Trade consistency for throughput with three modes, one RPC each:
 |------|----------|----------|
 | **Async** (`HandleAsync`) | Validated and enqueued; returns before the decision | High throughput, eventual consistency |
 | **Decision** (`Handle`) | Returns the decision and the persisted events | Accept or reject synchronously |
-| **Simple** (`HandleSync`) | Also waits for the domain's synchronous projectors | Read-after-write for the local domain |
+| **Simple** (`HandleSync`) | Also waits for the projectors the call names | Read-after-write for the local domain |
 
 ```mermaid
 flowchart LR

@@ -63,22 +63,32 @@ service CommandHandlerCoordinatorService {
       body: "*"
     };
   }
-  // SIMPLE. As Handle (DECISION), and also waits for the domain's
-  // synchronous projectors (each through its ProjectorCoordinatorService
-  // HandleSync) to project the persisted events; their results come back
-  // in projections, one per synchronous projector.
+  // SIMPLE. As Handle (DECISION), and also waits for the projectors the
+  // request names (HandleSyncRequest.projectors, each through its
+  // ProjectorCoordinatorService HandleSync) to project the persisted
+  // events; their results come back in projections, one per named
+  // projector. Which projectors to wait for is the call's choice: no
+  // projector carries a synchronous mode (decision 14.107, DRAFT).
   //
-  // A synchronous projector that fails after the decision committed fails
+  // Refused before anything runs, INVALID_ARGUMENT: an empty list
+  // (ANGZARR_REASON_SYNC_NO_PROJECTORS; a caller that waits for no
+  // projector calls Handle, so the list is required and there is no second
+  // path), or a named projector that is not subscribed to the command's
+  // domain, an unknown name included
+  // (ANGZARR_REASON_SYNC_PROJECTOR_NOT_SUBSCRIBED). A name listed twice is
+  // waited for once.
+  //
+  // A named projector that fails after the decision committed fails
   // the call with a RETRYABLE status: UNAVAILABLE
   // ANGZARR_REASON_SYNC_PROJECTION_FAILED, naming the projector, its
   // failure the cause (decision 14.105, DRAFT). The decision stays
   // committed; nothing is undone. There is no partial answer: the call
   // either answers every projection or fails. The caller retries with the
   // same command_id: the retry deduplicates (delivery DUPLICATE), answers
-  // the same events, and waits on the synchronous projectors again.
-  rpc HandleSync(io.angzarr.v1.CommandBook) returns (CommandSyncResult) {
+  // the same events, and waits on the named projectors again.
+  rpc HandleSync(HandleSyncRequest) returns (CommandSyncResult) {
     option (google.api.http) = {
-      post: "/v1/ch/{cover.domain}/commands:sync"
+      post: "/v1/ch/{command.cover.domain}/commands:sync"
       body: "*"
     };
   }
@@ -118,6 +128,15 @@ service CommandHandlerCoordinatorService {
 // the data (io/angzarr/v1/types.proto, security_logs region).
 // endregion
 
+// What HandleSync takes (decision 14.107, DRAFT): the command, and the
+// projectors to wait for.
+message HandleSyncRequest {
+  io.angzarr.v1.CommandBook command = 1;
+  // The registered names of the projectors to wait for: required,
+  // non-empty, each subscribed to the command's domain.
+  repeated string projectors = 2;
+}
+
 // What Handle and Deliver answer (decision 14.105, DRAFT): one command's
 // events and what the coordinator did with this delivery of it. Never
 // persisted.
@@ -130,14 +149,14 @@ message CommandResult {
 }
 
 // What HandleSync answers (decision 14.105, DRAFT): a CommandResult's
-// fields and the synchronous projectors' results. Never persisted.
+// fields and the named projectors' results. Never persisted.
 message CommandSyncResult {
   // As CommandResult.events.
   io.angzarr.v1.EventBook events = 1;
   // As CommandResult.delivery.
   io.angzarr.v1.DeliveryOutcome delivery = 2;
-  // One per synchronous projector of the domain, each covering these
-  // events. (Projectors persist their own read models; these are copies
+  // One per projector HandleSyncRequest.projectors named, each covering
+  // these events. (Projectors persist their own read models; these are copies
   // returned to the caller.)
   repeated io.angzarr.v1.Projection projections = 3;
 }

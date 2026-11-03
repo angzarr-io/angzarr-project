@@ -131,7 +131,7 @@ How much of a command's processing returns to the caller is chosen by the RPC ca
 |-----|------|------------|----------|----------|
 | `HandleAsync` | ASYNC | Async | Async | Fire-and-forget: validated and enqueued, nothing about the decision comes back |
 | `Handle` | DECISION | Async | Async | Accept or reject synchronously; returns the persisted events |
-| `HandleSync` | SIMPLE | Sync | Async | Read-after-write: also waits for the domain's synchronous projectors |
+| `HandleSync` | SIMPLE | Sync | Async | Read-after-write: also waits for the projectors the call names |
 
 No mode waits for reactions. Policies always run asynchronously, after the command's events are persisted, and the commands they send are separate commands with their own outcomes. Every mode publishes the persisted events downstream: there is no mode that writes silently. (Synchronous cascades were removed, decision 2.1: they coupled aggregates' availability and hid partial failure.)
 

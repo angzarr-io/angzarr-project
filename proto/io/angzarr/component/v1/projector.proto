@@ -24,11 +24,8 @@ option ruby_package = "Angzarr::Component";
 // Events from a non-main edition are projected like any others; the
 // projection's output follows that edition's storage configuration (an
 // in-memory edition's projections are kept in memory; see Cover.edition).
-// A non-main edition never reaches an external sink: a CloudEventsResponse
-// projected from a non-main edition's events is never routed to the
-// CloudEvents HTTP or Kafka sinks, nor to any other automation with
-// effects outside angzarr (see
-// io/angzarr/transport/distributed/v1/cloudevents.proto).
+// Its CloudEvents publish to the configured sinks like main's (decision
+// 14.107, DRAFT).
 // Delivery (decision 14.97, DRAFT; the owner: "coordinator should not mark
 // as done until business logic responds with an affirmative"). The
 // coordinator records a run's position (its processed state, decision

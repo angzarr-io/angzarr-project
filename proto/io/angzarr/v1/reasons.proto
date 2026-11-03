@@ -487,16 +487,32 @@ enum AngzarrReason {
   }];
   // Raised by the coordinator.
   // HandleSync only (transport/distributed/v1/command_handler.proto): the
-  // decision committed, and a synchronous projector (`projector`, its
+  // decision committed, and a projector the call named (`projector`, its
   // registered name) then failed to project its events (`cause`, the
   // projector's failure, its key and args). The decision stays committed.
   // Bug, retryable (decision 14.37): the caller resends with the same
   // command_id, which deduplicates (DUPLICATE), answers the same events and
-  // waits on the synchronous projectors again. Never a dead letter's
+  // waits on the named projectors again. Never a dead letter's
   // reason: a caller waits, and nothing is undone. There is no partial
   // answer (decision 14.105, DRAFT, deleting ProjectorFailure).
   ANGZARR_REASON_SYNC_PROJECTION_FAILED = 39 [(reason) = {
     args: ["stream", "projector", "cause"]
     grpc_status: UNAVAILABLE
+  }];
+  // Raised by the coordinator.
+  // HandleSync with no projector named (HandleSyncRequest.projectors
+  // empty): a caller that waits for no projector calls Handle. Business,
+  // fatal (decision 14.37): nothing runs. (Decision 14.107, DRAFT.)
+  ANGZARR_REASON_SYNC_NO_PROJECTORS = 40 [(reason) = {
+    grpc_status: INVALID_ARGUMENT
+  }];
+  // Raised by the coordinator.
+  // HandleSync naming a projector (`projector`) that is not subscribed to
+  // the command's domain (`domain`), a name no projector is registered
+  // under included. Business, fatal (decision 14.37): nothing runs.
+  // (Decision 14.107, DRAFT.)
+  ANGZARR_REASON_SYNC_PROJECTOR_NOT_SUBSCRIBED = 41 [(reason) = {
+    args: ["domain", "projector"]
+    grpc_status: INVALID_ARGUMENT
   }];
 }

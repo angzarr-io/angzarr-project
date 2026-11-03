@@ -5836,6 +5836,19 @@ for a transport; minimal envelopes.** The owner's review round 10,
   `replayed_at` says it).
 - **Kept by the owner:** the `meta_event` arm name and the two extra DLQ
   keys of 14.106.
+- **HandleSync names its projectors.** `HandleSync(HandleSyncRequest {
+  CommandBook command; repeated string projectors })`: the registered
+  names of the projectors to wait for, a call-level choice; no projector
+  carries a synchronous mode. The list is required (an empty one would be
+  a second path to Handle): empty is INVALID_ARGUMENT
+  `ANGZARR_REASON_SYNC_NO_PROJECTORS`; a named projector not subscribed to
+  the command's domain, an unknown name included, is INVALID_ARGUMENT
+  `ANGZARR_REASON_SYNC_PROJECTOR_NOT_SUBSCRIBED` (args `domain`,
+  `projector`); both before anything runs. A name listed twice is waited
+  for once. `CommandSyncResult.projections` are the named projectors'.
+- **No edition sink ban.** An edition's projected CloudEvents publish to
+  the configured sinks like main's; the ban text in the projector protos
+  and cloudevents.proto is removed.
 
 ## Corrections
 

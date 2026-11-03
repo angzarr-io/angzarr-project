@@ -20,14 +20,11 @@ option ruby_package = "Angzarr::Transport::Distributed";
 // prost-reflect using the descriptor pool. Clients should pack a "public"
 // proto message that omits sensitive fields.
 //
-// Editions. Only main-timeline events reach external sinks (the CloudEvents
-// HTTP webhook, Kafka, and any other automation with effects outside
-// angzarr). CloudEvents projected from a non-main edition (a what-if; see
-// Cover.edition) are never delivered to them, whatever the projector
-// returns. A named edition is nevertheless part of the default id and
-// source (main, which is unnamed, adds no segment), so a CloudEvent's
-// identity can never collide across timelines (e.g. in an edition's own
-// internal sinks or logs).
+// Editions. CloudEvents projected from an edition's events publish to the
+// configured sinks like main's (decision 14.107, DRAFT). A named edition
+// is part of the default id and source (main, which is unnamed, adds no
+// segment), so a CloudEvent's identity can never collide across
+// timelines.
 message CloudEvent {
   // Event type (e.g., "com.example.order.created").
   // Default: the original event's fully-qualified message name (the text

@@ -296,8 +296,8 @@ Angzarr uses coordinators to route messages between external clients and your bu
 service CommandHandlerCoordinatorService {
   // Route commands (and facts) to the domain's business logic, persist its events
   rpc Handle(CommandBook) returns (CommandResult);
-  // As Handle, and wait for the domain's synchronous projectors
-  rpc HandleSync(CommandBook) returns (CommandSyncResult);
+  // As Handle, and wait for the projectors the call names
+  rpc HandleSync(HandleSyncRequest) returns (CommandSyncResult);
 }
 
 message CommandResult {
