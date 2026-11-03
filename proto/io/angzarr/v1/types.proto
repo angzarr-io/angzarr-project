@@ -694,8 +694,7 @@ message EventMeta {
   // The full version of the business binary that decided (or ingested) the
   // event (e.g. "1.4.2+build.7"): baked in when the binary is built (e.g.
   // by versionator), never a label chosen by hand. Reported by the business
-  // logic with every answer (io.angzarr.handler.v1.DecideResponse and
-  // IngestResponse rules_version, a process manager's included) and stamped
+  // logic with every answer (io.angzarr.handler.v1.HandleResponse.rules_version, a process manager's included) and stamped
   // in full by the
   // coordinator from that response, so during a rolling deployment each
   // event names the build that decided it. Business code never sets it on
@@ -723,7 +722,7 @@ message EventMeta {
 // returned the state (rules_version, the business binary's full version).
 // The coordinator, never the business logic, decides whether a snapshot may
 // be used. It offers a snapshot with a delivery (the history of
-// io.angzarr.handler.v1.DecideRequest and IngestRequest, for an aggregate
+// io.angzarr.handler.v1.HandleRequest, for an aggregate
 // or a process manager alike) only if both hold:
 //   1. its state type URL equals the type_url of the StateDescriptor the
 //      component registered (the descriptor's StateDescriptor); and
@@ -763,8 +762,8 @@ message Snapshot {
   // prefix recorded by T (see TemporalQuery).
   //
   // Where snapshots come from. The client library returns the post-command
-  // state on EVERY accepted answer (io.angzarr.handler.v1.Decided.state and
-  // Ingested.state, for an aggregate or a process manager alike);
+  // state on EVERY answer (io.angzarr.handler.v1.HandleResponse.state, for
+  // an aggregate or a process manager alike);
   // business code never decides when. The coordinator persists it per the
   // domain's storage policy (default: keep the newest only), setting
   // sequence (the last event folded in) and rules_version (the response's,
@@ -781,7 +780,7 @@ message Snapshot {
   // above).
   google.protobuf.Any state = 3;
   // The rules version reported with the answer that returned `state`
-  // (io.angzarr.handler.v1.DecideResponse.rules_version), stamped in full by the
+  // (io.angzarr.handler.v1.HandleResponse.rules_version), stamped in full by the
   // coordinator, never by business code. Checked by the coordinator before
   // the snapshot is offered (see Validity above).
   string rules_version = 5;
@@ -841,8 +840,8 @@ message Projection {
 //                    other than the head step 3 loaded is refused
 //                    ExpectedSequenceMismatch (the concurrency region;
 //                    decision 14.94), and the handler is never called;
-//   5. business code CommandHandlerService.Decide for a command, Ingest
-//                    for a fact (the client library folds the delivered
+//   5. business code CommandHandlerService.HandleInput, for a command and
+//                    a fact alike (decision 14.98; the client library folds the delivered
 //                    state and dispatches by type), then the append at
 //                    the head step 3 loaded. A process manager's business
 //                    code is the same service (a PM is a domain; decision
@@ -922,10 +921,10 @@ message Handling {
 // coordinator answers its caller with that status, its ErrorInfo metadata
 // "type_url" holding the type URL as sent and "upcast_type_url" the type
 // URL the sidecar returned (the sent one when no rule applies). On
-// the wire the arm is the fact marker; in code, the handler registration (a
-// fact handler, e.g. #[handles_fact] / ingest, versus a command handler) is
-// the declaration, and the router refuses an arm that does not match the
-// registered handler's kind. There is no proto flag for facts. A process
+// the wire the arm is the fact marker; in code, one handler attribute
+// (#[handles]) serves both kinds, and the message's option, (command) or
+// (fact), is the declaration (decision 14.98, DRAFT): the router refuses an
+// arm that does not match it. There is no proto flag for facts. A process
 // manager's stream takes both arms, like any domain's (decision 14.31).
 //
 // A client's command or fact rides a CommandPage; a policy's output and a
@@ -1114,8 +1113,8 @@ enum DeliveryOutcome {
 // endregion
 
 // ContextualCommand, which was here, is deleted (decision 14.78): the
-// business logic is handed io.angzarr.handler.v1.DecideRequest or
-// IngestRequest, the same books with no conflict nonce (decision 46, Q5).
+// business logic is handed io.angzarr.handler.v1.HandleRequest, the same
+// books with no conflict nonce (decision 46, Q5).
 // It was never stored.
 
 // ============================================================================
@@ -1294,8 +1293,8 @@ enum ComponentKind {
 // answers Describe with it unchanged, and the client library's router never
 // builds or checks it. The client library's component host checks one thing
 // when the component is registered: that rules_version is the version the
-// component's answers report (DecideResponse.rules_version and
-// IngestResponse.rules_version, io/angzarr/handler/v1), which the
+// component's answers report (HandleResponse.rules_version,
+// io/angzarr/handler/v1), which the
 // coordinator would otherwise refuse on every answer; a descriptor of any
 // other version is refused at once, before anything is served
 // (HOST_REASON_DESCRIPTOR_RULES_VERSION_MISMATCH).
@@ -1316,7 +1315,7 @@ message ComponentDescriptor {
   string name = 1;
   // The business binary's full version, baked in when it is built: the same
   // value the component reports on every answer
-  // (io.angzarr.handler.v1.DecideResponse.rules_version). Required: the
+  // (io.angzarr.handler.v1.HandleResponse.rules_version). Required: the
   // coordinator refuses a descriptor with an empty rules_version, so a
   // binary built without a version is never registered and never delivered
   // to (see ComponentService for how the refusal surfaces). The coordinator

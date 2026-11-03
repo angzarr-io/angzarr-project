@@ -34,23 +34,28 @@ option ruby_package = "Angzarr::Handler";
 // CommandBook, under the input's cover, never transforming the payload.
 //
 // The command handler of an aggregate, and of a process manager (a domain
-// too, decision 14.31), is two calls, one per input arm (decision 46, Q3):
-// Decide for a command, which may be refused; Ingest for a fact, which
-// never is.
+// too, decision 14.31), is ONE call for both input kinds (decision 14.98,
+// DRAFT; the owner: "I want fact and command to use the same verb ...
+// moving from a fact to a command should be relatively simple to do"):
+// Handle, whose input book holds the command or the fact arm. Converting a
+// message between (command) and (fact) changes only its option; only a
+// command's handling may answer a refusal.
 
-// What Decide is handed: one command and the stream it addresses, after
-// the coordinator's pipeline steps 1-4 (io/angzarr/v1/types.proto,
-// Handling). The command is validated, its ids assigned, deduplicated,
-// admitted (a process manager's start rule) and, when it sets an expected
-// sequence, found at the head; every payload is in its current shape (upcast, decision 14.39).
-message DecideRequest {
-  // The command as the coordinator holds it: its cover (the stream), its
-  // page (command_id, correlation_id) and its Handling
-  // (page.command.handling) as the client sent it. A set expected_sequence
-  // equals history.next_sequence here: the coordinator refused any other
-  // before calling the handler (io.angzarr.v1.ExpectedSequenceMismatch;
-  // decision 14.94, DRAFT). The page's body is the Command arm.
-  io.angzarr.v1.CommandBook command = 1;
+// What Handle is handed: one command or fact and the stream it addresses,
+// after the coordinator's pipeline steps 1-4 (io/angzarr/v1/types.proto,
+// Handling). The input is validated, its ids assigned, deduplicated,
+// admitted (a process manager's start rule) and, for a command that sets
+// an expected sequence, found at the head; every payload is in its current
+// shape (upcast, decision 14.39).
+message HandleRequest {
+  // The input as the coordinator holds it: its cover (the stream), and its
+  // page (command_id, correlation_id) whose body is the Command arm (with
+  // its Handling as the client sent it; a set expected_sequence equals
+  // history.next_sequence here, decision 14.94) or the Fact arm (with its
+  // origin; a policy's fact or a refusal fact arrives as a
+  // ReactionDelivery, which the coordinator turns into this book with its
+  // derived origin).
+  io.angzarr.v1.CommandBook input = 1;
   // The stream as loaded: the starting state (a snapshot that passed the
   // coordinator's validity checks, see Snapshot) and every page after it
   // (decision 14.40), each with its sequence and EventMeta, and the head
@@ -60,29 +65,43 @@ message DecideRequest {
   // When the input was accepted: stamped by the runtime that accepted it
   // before the handler runs, never by the caller (decision 14.37).
   google.protobuf.Timestamp recorded_at = 3;
-  // A policy's command only: its trigger (ReactionDelivery.causation;
-  // decision 14.79). Unset for a client's command.
+  // A policy's output or a refusal fact only: its trigger
+  // (ReactionDelivery.causation; decision 14.79). Unset for a client's
+  // input.
   io.angzarr.v1.EventRef causation = 4;
 }
 
-// What Decide answers: SUCCESS ONLY, the accepted command's result and the
-// rules version that decided it (decision 14.95, DRAFT, reversing decision
-// 46's Q2; the owner: "grpc should carry the error (both retryable and
-// not)"). Every other outcome is a gRPC error status, per AIP-193 and
-// decision 14.37:
-//   - a refusal: the business status its refusal message declares
-//     ((io.angzarr.v1.refusal_status), required), with a
+// What Handle answers: SUCCESS ONLY (decision 14.95, DRAFT; the owner: "grpc
+// should carry the error (both retryable and not)"): the events, the state
+// and the rules version. Every other outcome is a gRPC error status, per
+// AIP-193 and decision 14.37:
+//   - a refusal, a COMMAND's only: the business status its refusal message
+//     declares ((io.angzarr.v1.refusal_status), required), with a
 //     google.rpc.ErrorInfo (reason ROUTER_REASON_COMMAND_REFUSED, metadata
 //     refusal_type) and the typed refusal object packed in the status
-//     details. The refusing domain records nothing;
+//     details. The refusing domain records nothing. A fact's handling never
+//     refuses;
 //   - a re-run ("re-read and re-decide"): ABORTED under the handler's own
 //     key and args;
 //   - a bug: its error status (ROUTER_REASON_UNHANDLED_HANDLER_ERROR and the
 //     router's other bug keys; io/angzarr/v1/command_handler.proto, status
 //     codes).
-message DecideResponse {
-  // The command is accepted: these are its events.
-  Decided decided = 1;
+// Any error status for a FACT is a bug: the fact is dead-lettered under the
+// status's key and args and alerted, and its sender answered OK, PARKED
+// (decision 14.72).
+message HandleResponse {
+  // The events, payloads only, in order: empty, one or many (decision
+  // 14.75). The coordinator wraps event i as an EventPage under the input's
+  // cover, at sequence head + i, with one EventMeta for the write
+  // (causation.command_id and correlation_id from the input's page,
+  // recorded_at, rules_version from this answer, and a fact's origin as
+  // EventMeta.fact).
+  repeated google.protobuf.Any events = 1;
+  // The state with the events folded in, filled by the client library on
+  // every answer, never by business code. The coordinator persists it as a
+  // Snapshot (sequence, state, rules_version) per the domain's storage
+  // policy; business code never decides whether or when.
+  google.protobuf.Any state = 2;
   // The full version of the business binary that produced this answer
   // (e.g. "1.4.2+build.7"), baked in when the binary is built, never a
   // label chosen by hand: the same value the component registered
@@ -92,35 +111,14 @@ message DecideResponse {
   // One that differs from the registered version (an empty one included) is
   // a handler bug: refused, nothing persisted,
   // COORDINATOR_REASON_RULES_VERSION_MISMATCH (decision 14.56).
-  string rules_version = 2;
-}
-
-// An accepted command's result: payloads and the post-decision state,
-// nothing the coordinator stamps.
-message Decided {
-  // The events, payloads only, in order: empty, one or many (decision
-  // 14.75). The coordinator wraps event i as an EventPage under the
-  // command's cover, at sequence head + i, with one EventMeta for the
-  // write (causation.command_id and correlation_id from the command's
-  // page, recorded_at, rules_version from this answer).
-  repeated google.protobuf.Any events = 1;
-  // The state with the command's events folded in, filled by the client
-  // library on every accepted answer, never by business code. The
-  // coordinator persists it as a Snapshot (sequence, state, rules_version)
-  // per the domain's storage policy; business code never decides whether
-  // or when.
-  google.protobuf.Any state = 2;
-  // There is no conflict report: the coordinator has no conflict concept
-  // (decision 14.92, DRAFT). The events are appended at the head the
-  // coordinator loaded, and a lost race is re-run on the new head.
+  string rules_version = 3;
 }
 
 // A business rejection as the refused policy's Translate receives it
 // (io/angzarr/handler/v1/policy.proto, TranslateRequest.refusal): the typed
 // refusal and the status it travelled as, which the policy's coordinator
 // reads off the target's gRPC status (decision 14.95, DRAFT). Typed only:
-// every refusal is one of its command's refuses messages (decision 14.95;
-// there is no untyped refusal).
+// every refusal is one of its command's refuses messages.
 message Refusal {
   // The business status the refusal travelled as: its message's declared
   // (io.angzarr.v1.refusal_status). Only business statuses are
@@ -130,42 +128,4 @@ message Refusal {
   // types (options.proto), packed, as it travelled in the status details.
   // Its type is the key and its fields the map.
   google.protobuf.Any typed = 2;
-}
-
-// What Ingest is handed: one fact and the stream it addresses, after the
-// same pipeline steps as Decide. A fact carries no Handling.
-message IngestRequest {
-  // The fact as the coordinator holds it: its cover, its page (command_id,
-  // correlation_id) and its Fact (payload, origin). A policy's fact or a
-  // refusal fact arrives as a ReactionDelivery, which the coordinator
-  // turns into this book with its derived origin.
-  io.angzarr.v1.CommandBook fact = 1;
-  // The stream as loaded, as for Decide.
-  io.angzarr.v1.EventBook history = 2;
-  // When the input was accepted, as for Decide.
-  google.protobuf.Timestamp recorded_at = 3;
-  // A policy's fact or a refusal fact only: its trigger
-  // (ReactionDelivery.causation; decision 14.79).
-  io.angzarr.v1.EventRef causation = 4;
-}
-
-// What Ingest answers: SUCCESS ONLY (decision 14.95, DRAFT). A fact is
-// never refused. Any error status from Ingest is a bug: the fact is
-// dead-lettered under the status's key and args and alerted, and its sender
-// answered OK, PARKED, as any failing fact handler's (decision 14.72).
-message IngestResponse {
-  // The fact is recorded: these are its events.
-  Ingested ingested = 1;
-  // As DecideResponse.rules_version.
-  string rules_version = 2;
-}
-
-// A recorded fact's result: payloads and the post-ingest state.
-message Ingested {
-  // The events, payloads only, in order; may be empty (decision 14.75).
-  // Wrapped as Decided.events are, with EventMeta.fact the fact's origin.
-  repeated google.protobuf.Any events = 1;
-  // The post-ingest state, filled by the client library, as
-  // Decided.state.
-  google.protobuf.Any state = 2;
 }

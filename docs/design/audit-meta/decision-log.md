@@ -4975,6 +4975,8 @@ decision 43 (no OPTIONAL annotations needed).
 
 > **Amended by 14.78 and 14.89 (DRAFT, pending review):** the domain-side refusal handler is gone; a policy has ONE refusal callback over its target's refusal messages, handling the refusals of the commands it sends, every other arm a Bug.
 
+> **Amended by 14.99 (DRAFT, pending review):** the rule that every command of a policy-targeted domain names a `refuses` type is DROPPED: with typed refusals only (14.95), an empty `refuses` means the command cannot refuse, so every sent command has a path by construction.
+
 **14.76 Every command a policy sends has a refusal path, and a generated
 policy always translates.** Ruled by the owner, 2026-11-02 (the 2026-10-31
 run's decision 42, on item S's escalations S-2 and S-4: "all commands must
@@ -5401,6 +5403,44 @@ run is marked only after its affirmative answer.** The owner's review round
   by (stream, sequence), which the request carries.
 - **The ledgers.** "The table ledger balances" (round.feature, table.feature)
   is rule L2, the table's own chips: a table-ledger assertion, not e2e.
+
+**14.98 (DRAFT) One verb for commands and facts: HandleInput.** The
+owner's review round 4, 2026-11-02: "I want fact and command to use the
+same verb for Handle or similar. moving from a fact to a command should be
+relatively simple to do". Amends decision 46's Q3 (14.78); React stays per
+trigger event.
+- **One RPC.** `CommandHandlerService.HandleInput(HandleRequest) ->
+  HandleResponse` replaces Decide and Ingest. Named HandleInput, not
+  Handle: Handle is the service's deleted RPC, and retyping it is a wire
+  break buf refuses.
+- **`HandleRequest { CommandBook input; EventBook history; recorded_at;
+  causation }`**: the input book's page holds the command or the fact arm.
+  **`HandleResponse { repeated Any events; Any state; rules_version }`.**
+  `DecideRequest`, `DecideResponse`, `Decided`, `IngestRequest`,
+  `IngestResponse` and `Ingested` (all new on this branch) are gone.
+- **Only a command's handling may refuse** (a gRPC status, 14.95); a fact's
+  never does, and any error for a fact is a bug (14.72).
+- **One attribute,** `#[handles]`, replacing `#[handles_cmd]` and
+  `#[handles_fact]`: the message's option, (command) or (fact), is the
+  declaration. Converting a message between the two changes only its
+  option; the generated handler's signature then gains or loses the
+  refusal return at compile time.
+
+**14.99 (DRAFT) No rule that a sent command name a refusal; skipped
+references warn; string type references are deliberate.** The owner's
+review round 4, 2026-11-02.
+- **14.76's rule dropped.** An empty `refuses` means the command cannot
+  refuse (typed only, 14.95), so a sent command always has a path. The
+  example's `DecideMoveRefused` existed only for that rule and is removed;
+  `DecideMove` refuses nothing. The table's `RecordMoveUndecided` and
+  `MoveUndecided` become unreachable, kept pending the owner's call.
+- **Skipped references warn.** A consumer component outside the generated
+  set is still a reference, but generation warns for each, by name:
+  cross-domain references, which generally should not exist, are flagged
+  so they get checked.
+- **Strings name types, deliberately.** Protobuf options cannot hold a
+  type reference; generation resolves every name and fails on an unknown
+  one.
 
 ## Corrections
 

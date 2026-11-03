@@ -264,10 +264,11 @@ message ReleaseSeat {
   string reason = 2;
 }
 
-// The player could not decide a move: the DOMESTIC fact that
-// policy-table-player's refusal callback returns from the player's
-// DecideMoveRefused (decision 14.76: every command a policy sends has a
-// refusal path, translated into a fact of its source). The table records
+// The player could not decide a move. UNREACHABLE since decision 14.99
+// (DRAFT): DecideMove cannot be refused, so policy-table-player never
+// translates a refusal into it; kept pending the owner's call. It was the
+// DOMESTIC fact policy-table-player's callback returned from the player's
+// DecideMoveRefused. The table records
 // MoveUndecided and STANDS THE HAND (the owner's ruling of 2026-11-02, so
 // the round always completes): HandStood, then as Stand goes on,
 // TurnStarted for the next seat on turn, or DealerPlayed + RoundSettled
@@ -285,7 +286,7 @@ message RecordMoveUndecided {
   };
   uint32 round = 1; // The refused DecideMove's round
   int32 seat = 2; // The refused DecideMove's seat
-  string reason = 3; // The player's DecideMoveRefused reason
+  string reason = 3; // Why the player could not decide
 }
 
 // -----------------------------------------------------------------------------

@@ -59,9 +59,8 @@ message TableWalletPolicy {
 // player, root = TurnStarted.player_root, carrying table_root (the event's
 // own stream root), round, seat, the hand's cards, total and soft,
 // dealer_up, can_double, stack and wager, unchanged. It forwards nothing
-// else: never the dealer's hole card or the shoe (R8). A refusal of
-// DecideMove is translated into the table's RecordMoveUndecided{round,
-// seat, reason} (decision 14.76).
+// else: never the dealer's hole card or the shoe (R8). DecideMove cannot be
+// refused (decision 14.99, DRAFT), so this policy translates no refusal.
 message TablePlayerPolicy {
   option (io.angzarr.v1.component) = {
     component_name: "policy-table-player"

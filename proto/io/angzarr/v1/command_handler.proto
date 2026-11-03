@@ -19,7 +19,7 @@ option ruby_package = "Angzarr";
 // (decision 14.64).
 
 // What the business logic answers is the handler layer's
-// (io.angzarr.handler.v1.DecideResponse and IngestResponse,
+// (io.angzarr.handler.v1.HandleResponse,
 // io/angzarr/handler/v1/command_handler.proto; decision 14.78, DRAFT).
 // CommandHandlerResponse and ConflictReport, which were here, are deleted:
 // they were never stored.

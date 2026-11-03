@@ -291,7 +291,7 @@ enum HostReason {
   }];
   // A component registered with a descriptor whose rules_version (`described`)
   // is not the version its answers report (`reported`: the rules_version of
-  // io.angzarr.handler.v1.DecideResponse and IngestResponse), generated or
+  // io.angzarr.handler.v1.HandleResponse), generated or
   // written by hand alike.
   // Refused at registration, before anything is served, and nothing is
   // registered: the coordinator would refuse every answer the component gave
@@ -518,8 +518,8 @@ enum CoordinatorReason {
     args: ["domain", "cause"]
     grpc_status: REASON_STATUS_UNAVAILABLE
   }];
-  // A handler's answer (io.angzarr.handler.v1.DecideResponse or
-  // IngestResponse) whose rules_version (`reported`, an empty one
+  // A handler's answer (io.angzarr.handler.v1.HandleResponse) whose
+  // rules_version (`reported`, an empty one
   // included) is not the version the component registered (`registered`: its
   // ComponentDescriptor.rules_version). Bug, fatal (decision 14.37): refused
   // and nothing persisted; a caller of Handle or HandleSync is answered it, an

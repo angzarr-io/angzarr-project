@@ -19,11 +19,12 @@ option ruby_package = "Angzarr::Component";
 //
 // CommandHandlerService: the business logic for one domain's aggregates,
 // implemented in a client library and called by the coordinator. Business
-// code behaves the same in every command mode. Two RPCs, one per input arm
-// (decision 46, Q3): the arm picks the RPC, so a command is never ingested
-// and a fact never decided.
+// code behaves the same in every command mode. ONE RPC for commands and
+// facts alike (decision 14.98, DRAFT, amending decision 46's Q3; the owner:
+// "I want fact and command to use the same verb"): the input book's body
+// arm says which, and only a command's handling may refuse.
 //
-// Before either is called the coordinator has run pipeline steps 1-4
+// Before HandleInput is called the coordinator has run pipeline steps 1-4
 // (io/angzarr/v1/types.proto, Handling): validated the input, assigned its
 // command_id and correlation_id, loaded and deduplicated it, admitted it
 // (a process manager's start rule; decision 14.42), and refused it if its
@@ -51,16 +52,17 @@ option ruby_package = "Angzarr::Component";
 // Handle or HandleSync is answered INTERNAL; an asynchronous or reaction
 // delivery is dead-lettered and alerted. Neither is a business rejection.
 service CommandHandlerService {
-  // Decide one command: on success its events, with the rules version that
-  // decided it. Every other outcome is a gRPC error status, per AIP-193
-  // and decision 14.37 (decision 14.95, DRAFT, reversing decision 46's Q2):
-  // a refusal under its message's declared business status, a re-run as
-  // ABORTED under the handler's own key, a bug as its error status.
+  // Handle one command or fact: on success its events, the state and the
+  // rules version. Every other outcome is a gRPC error status, per AIP-193
+  // and decision 14.37 (decision 14.95, DRAFT): a command's refusal under
+  // its message's declared business status, a re-run as ABORTED under the
+  // handler's own key, a bug as its error status. A fact's handling never
+  // refuses: any error status for a fact is a bug (decision 14.72).
   //
   // The handler always decides on the current state: the coordinator
   // appends at the head it loaded and re-runs a lost race on the new head
   // (types.proto, the concurrency region). A command whose expected
-  // sequence is not that head is refused before Decide is called
+  // sequence is not that head is refused before HandleInput is called
   // (ExpectedSequenceMismatch; decision 14.94, DRAFT).
   //
   // A refusal records nothing. It is typed (one of the command's refuses
@@ -71,16 +73,10 @@ service CommandHandlerService {
   // caller with that status unchanged; a refused HandleAsync command is
   // dead-lettered (AngzarrDeadLetter.reason and .refusal); a refused
   // policy command reaches the policy's Translate (the one refusal path;
-  // io/angzarr/v1/policy.proto, Refusals). There is no compensation input:
-  // the policy delivers a fact of the refusal to its own source domain
-  // (decision 14.31).
-  rpc Decide(io.angzarr.handler.v1.DecideRequest) returns (io.angzarr.handler.v1.DecideResponse);
-
-  // Ingest one fact: on success its events (decision 14.95, DRAFT). A fact
-  // is never refused (decision 14.34): any error status from Ingest is a
-  // bug, never a business rejection. The
-  // fact is dead-lettered (and alerted) under the key and args the process
-  // answered, and its sender answered OK, PARKED (C-0785, C-0786; decision
-  // 14.72).
-  rpc Ingest(io.angzarr.handler.v1.IngestRequest) returns (io.angzarr.handler.v1.IngestResponse);
+  // io/angzarr/v1/policy.proto, Refusals).
+  //
+  // Named HandleInput, not Handle: Handle is this service's deleted RPC
+  // (ContextualCommand -> CommandHandlerResponse), and retyping it is a
+  // wire break buf refuses (RPC_SAME_REQUEST_TYPE/RESPONSE_TYPE).
+  rpc HandleInput(io.angzarr.handler.v1.HandleRequest) returns (io.angzarr.handler.v1.HandleResponse);
 }

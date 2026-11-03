@@ -37,10 +37,9 @@ option ruby_package = "Angzarr::Examples";
 // aggregate decides on an empty stream as on any other), so nothing has to
 // open it before it is seated.
 //
-// Rejections: a player always decides, but DecideMove names a refuses type,
-// DecideMoveRefused, as every command a policy sends must (decision 14.76),
-// and policy-table-player translates such a refusal into the table's
-// RecordMoveUndecided. The table's refusal of the move a player decided
+// Rejections: a player always decides, so DecideMove names no refuses type
+// and cannot be refused (decision 14.99, DRAFT: DecideMoveRefused existed
+// only to satisfy 14.76's dropped rule). The table's refusal of the move a player decided
 // comes back as the player's RecordMoveRefused fact, translated by
 // policy-player-table.
 // Concurrency: DecideMove is a reaction command (no Handling); the player
@@ -57,7 +56,6 @@ message DecideMove {
   option (io.angzarr.v1.command) = {
     component: "io.angzarr.examples.v1.PlayerState"
     emits: "io.angzarr.examples.v1.MoveDecided"
-    refuses: "io.angzarr.examples.v1.DecideMoveRefused"
   };
   bytes table_root = 1; // The table asking (TurnStarted's own stream root)
   uint32 round = 2;
@@ -69,13 +67,6 @@ message DecideMove {
   bool can_double = 8; // First two cards and a stack at least the wager (AHR-10)
   int64 stack = 9; // The seat's stack, wager excluded
   int64 wager = 10; // The seat's wager this round
-}
-
-// The player's typed refusal of DecideMove (DecideMove's refuses): a
-// refusal object, never an event (decision 14.31).
-message DecideMoveRefused {
-  option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_FAILED_PRECONDITION;
-  string reason = 1;
 }
 
 // -----------------------------------------------------------------------------

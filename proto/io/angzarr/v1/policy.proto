@@ -108,7 +108,8 @@ option ruby_package = "Angzarr";
 //     2026-11-02: "it only needs the reversal/compensation for the commands
 //     its sending, not every possible command").
 //   - A policy angzarr-cli generates has that one callback, required
-//     (decision 14.76, as amended by 14.89): a source taking no fact fails
+//     (decision 14.76, as amended by 14.89 and 14.99), when its target has
+//     a command that can refuse; then a source taking no fact fails
 //     generation (options.proto, the refusals region). A policy written by
 //     hand whose router has no callback answers
 //     ROUTER_REASON_NO_REFUSAL_HANDLER (metadata command_type; decision

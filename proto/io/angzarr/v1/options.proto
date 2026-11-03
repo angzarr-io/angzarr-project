@@ -21,6 +21,14 @@ option ruby_package = "Angzarr";
 // local dispatch table; they do NOT emit gRPC service code — transport stays on
 // the generic framework services and the Any envelope so the coordinator
 // remains domain-blind.
+//
+// Type references are strings, deliberately (decision 14.99, DRAFT):
+// protobuf options cannot hold a type reference, so an option names a
+// message by its fully-qualified name (component, emits, refuses, an
+// (event) entry's component, starting_types). Generation resolves every
+// one against the descriptor set and fails on a name that names no
+// message (an (event) entry's out-of-set component excepted: a reference,
+// warned).
 
 // Component declaration carried on a message. The annotated message is the
 // component's anchor: for an aggregate or a process manager it is the
@@ -172,7 +180,8 @@ message ProjectorDecl {}
 // Marks a message as a COMMAND: a request its component decides and may
 // refuse (decision 14.91, DRAFT, amending 14.34). Generates one strict
 // handler method on the component that owns it, taking the typed message
-// as input (the scaffold writes #[handles_cmd]). It is owned by exactly one
+// as input (the scaffold writes #[handles], the one attribute for commands
+// and facts; decision 14.98). It is owned by exactly one
 // component, an aggregate or a process manager (a domain too; decision
 // 14.31). A FACT is declared by its own option, (io.angzarr.v1.fact)
 // (FactOptions, below): a message carries one of the two, never both
@@ -191,7 +200,7 @@ message CommandOptions {
   // to every response, nothing more: the
   // framework builds the EventBook, uses the command's cover, and stamps
   // sequences and EventMeta. A handler answers payloads only
-  // (io.angzarr.handler.v1.Decided), so it cannot choose a cover, a
+  // (io.angzarr.handler.v1.HandleResponse), so it cannot choose a cover, a
   // sequence or meta.
   repeated string emits = 2;
   // Fully-qualified type(s) of the typed REFUSAL objects this command's
@@ -209,10 +218,11 @@ message CommandOptions {
   // TranslateRequest.refusal. Generation fails on a refuses
   // type that does not resolve, or that is not a message of the command's
   // own domain (the refusals region). A fact (FactOptions) has no
-  // refuses: a fact cannot be refused. A command of a domain some
-  // policy targets (a policy may send any of its target's commands) must
-  // name at least one (decision 14.76): every command a policy sends has a
-  // refusal path, so one naming none fails generation and lint.
+  // refuses: a fact cannot be refused. An empty refuses means the command
+  // structurally cannot refuse (typed refusals only, decision 14.95), so
+  // every command a policy sends has a refusal path by construction: its
+  // refusals, or none (decision 14.99, DRAFT, dropping 14.76's rule that a
+  // policy-targeted command name at least one).
   repeated string refuses = 4;
   // Field 3 was starts, a switch marking a starting input; a process
   // manager now lists its starting inputs in its declaration
@@ -233,10 +243,12 @@ message CommandOptions {
 
 // Marks a message as a FACT: something that already happened, which its
 // component records and cannot refuse (decision 14.91, DRAFT, replacing
-// CommandOptions.fact; decision 14.34). Generates one infallible ingest
-// handler on the component that owns it (the scaffold writes
-// #[handles_fact]; a #[handles_cmd] on a fact, or a #[handles_fact] on a
-// command, fails generation). A fact is delivered in the Fact arm of a
+// CommandOptions.fact; decision 14.34). Generates one handler on the
+// component that owns it, under the same attribute as a command's
+// (#[handles]; decision 14.98, DRAFT), whose signature has no refusal
+// return: a fact's handling cannot refuse. Converting a message between
+// (command) and (fact) changes only its option; the generated signature
+// then gains or loses the refusal return at compile time. A fact is delivered in the Fact arm of a
 // CommandPage, or the fact arm of a ReactionDelivery (types.proto). A
 // policy sends what its destination declares (decision 14.69): a fact for
 // a type carrying (fact), a command for one carrying (command), so a
@@ -269,8 +281,12 @@ message EventConsumer {
   // The anchor message of the component that consumes this event. A
   // component outside the descriptor set being generated is a REFERENCE,
   // not an error (decision 14.50): the generator skips the entry, so one
-  // domain's protos generate alone; `angzarr lint app` reports a consumer
-  // an application lists but does not have.
+  // domain's protos generate alone. But it WARNS for each skipped entry, by
+  // the component's name (decision 14.99, DRAFT): "consumer <component> of
+  // <event> is outside this generation and was skipped; cross-domain
+  // references, which generally should not exist, are flagged this way:
+  // check it". `angzarr lint app` reports a consumer an application lists
+  // but does not have.
   string component = 1;
   // OVERRIDE ONLY (decision 14.78): the event's source domain, for an
   // event whose owner is outside the descriptor set (a contract-only proto,
@@ -430,17 +446,17 @@ extend google.protobuf.MessageOptions {
 // Rust, and is an abstract method of the Python base class). Its author
 // handles the refusals of the commands the policy sends and answers every
 // other arm with a Bug; it answers one of its source's facts or a Bug, and
-// cannot decline. So generation fails, as does
-// lint, for a policy whose target has a command naming no refuses type,
-// and for a policy that may send a command whose source takes no fact to
-// translate its refusal into. A policy written by hand whose router has no
+// cannot decline. Its choice holds one arm per refusal its target's
+// commands name; a target command naming none adds none (it cannot refuse;
+// decision 14.99, DRAFT). Generation fails, as does lint, for a policy
+// that may send a command that can refuse whose source takes no fact to
+// translate the refusal into. A policy written by hand whose router has no
 // refusal callback answers
 // ROUTER_REASON_NO_REFUSAL_HANDLER (decision 46, Q6).
 //
 // No declaration of what a policy sends ("declaring commands it may send is
-// a mistake, period": the owner, 2026-10-28). So the generator holds every
-// command of a policy's target to the rule above, sent or not. What the
-// generator checks: the refuses diagnostics above, every target command's
-// refuses, and its policy's source's facts. angzarr-cli selects no refusal
+// a mistake, period": the owner, 2026-10-28). What the generator checks:
+// the refuses diagnostics above and, for a policy whose target has a
+// command that can refuse, its source's facts. angzarr-cli selects no refusal
 // mode: there is one (its --translate switch is retired, decision 14.78).
 // endregion
