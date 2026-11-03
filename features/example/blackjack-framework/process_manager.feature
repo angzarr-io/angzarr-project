@@ -29,8 +29,9 @@ Feature: Buying in
   cannot refuse, so undoing can never fail or loop. A step that completes
   after the buy-in failed is recorded apart and undone at once, so nothing
   further is asked for it (decision 14.77). The buy-in hears of each
-  refusal through the policy that asked, which turns it into news of the
-  buy-in's own (decision 14.76). What the buy-in hears from
+  refusal through the policy that asked, whose one refusal callback
+  (PolicyService.Translate) turns it into news of the buy-in's own: the one
+  refusal path (decision 46 #5; decisions 14.76 and 14.89). What the buy-in hears from
   the table and the wallet is news too: neither refuses a buy-in's
   report, and the buy-in never refuses one (decision 14.69).
   Which refusals are business refusals, and which are bugs, waits on the

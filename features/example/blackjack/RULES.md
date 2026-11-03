@@ -37,7 +37,7 @@ citations.
 | L1 | Wallet, after every event: `bankroll >= sum(open holds) >= 0`, every open hold is positive, and `bankroll = deposited - withdrawn - sent to tables + received from tables`. |
 | L2 | Table, after every event: `sum(stacks) + sum(wagers) + house result = chips in - chips out`. |
 | L3 | Pairing: every seat confirmation pairs with exactly one spent buy-in hold for the same buy-in and amount; every chips-added with exactly one settled top-up; every cash-out with exactly one cash-out credit. |
-| L4 | System-wide, when nothing is in flight: `sum(bankrolls) + sum(stacks + wagers) + sum(house results) = deposits - withdrawals`. |
+| L4 | System-wide, once a run settles, across the wallet ledger and the table ledger: `sum(bankrolls) + sum(stacks + wagers) + sum(house results) = deposits - withdrawals` (an end-to-end assertion over both read models; decision 14.96). |
 
 ## Rule → scenarios
 
@@ -59,7 +59,7 @@ citations.
 | L1 | EU-1407 .. EU-1413, EU-1415, EU-1417 .. EU-1422, EU-1437 |
 | L2 | EU-1504 |
 | L3 | EA-0046 |
-| L4 | none yet (awaiting rulings) |
+| L4 | EA-0050 |
 
 Scenarios exempt as application or framework concepts: EU-1400..1406 and
 EU-1431..1435 (identity, loyalty, round history) and the remaining cluster
@@ -74,6 +74,7 @@ system-wide balance after a scripted session with top-ups and cash-outs
 constructs the latest `io.angzarr.v1` contract removes, so they are not in
 this tier yet; they are listed, by ID, in
 [`docs/design/blackjack-latest-proto-rulings.md`](../../../docs/design/blackjack-latest-proto-rulings.md).
-L4 is the one invariant no rule-tier scenario cites until then, and
-`check_rule_citations.py` lists it as awaiting a ruling rather than failing
-on it. The rules themselves are unchanged.
+L4 itself returns as an end-to-end assertion over the two ledgers once a run
+settles (EA-0050; decision 14.96): no read model pairs a transfer across the
+wallet and the table, so the invariant holds of a settled run, not "when
+nothing is in flight".
