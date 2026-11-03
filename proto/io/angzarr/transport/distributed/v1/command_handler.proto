@@ -53,9 +53,9 @@ service CommandHandlerCoordinatorService {
   // Validation happens before enqueueing: a malformed command (see Handling)
   // is refused here, never enqueued. A rejection happens later, with no caller to answer: like a reaction
   // command's, a retryable bug is retried up to its cap, and any other
-  // failure is dead-lettered and alerted (status codes, above); a business,
-  // fatal refusal records its key and args as AngzarrDeadLetter.reason
-  // (decision 14.47).
+  // failure is dead-lettered and alerted (status codes, above); a refusal
+  // is dead-lettered as its typed refusal (AngzarrDeadLetter's refusal
+  // arm; decisions 14.47 and 14.101).
   // A caller that needs the outcome
   // uses Handle, or follows the command's correlation_id
   // (EventStreamFilter).

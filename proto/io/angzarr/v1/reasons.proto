@@ -146,9 +146,10 @@ enum RouterReason {
     grpc_status: REASON_STATUS_INTERNAL
   }];
   // The key a TYPED refusal travels under, arg refusal_type its object's
-  // full type name: on the coordinator's gRPC status to a caller (the
-  // object in the status details) and as a dead letter's reason (the object
-  // as AngzarrDeadLetter.refusal). The router answers it on the status a
+  // full type name, on the coordinator's gRPC status to a caller (the
+  // object in the status details). A dead letter holds the refusal itself
+  // (AngzarrDeadLetter's refusal arm), its key implied as this one and its
+  // type the Any's type URL (decision 14.101, DRAFT). The router answers it on the status a
   // handler's refusal travels as (decision 14.95, DRAFT), with the status
   // the refusal message declares (its refusal_status; FAILED_PRECONDITION is
   // the most common), and the coordinator passes it on; the coordinator also
@@ -255,27 +256,17 @@ enum HostReason {
     args: ["component", "described", "reported"]
     grpc_status: REASON_STATUS_INTERNAL
   }];
-  // A projector that names no domain it reads: its descriptor's
-  // ProjectorDescriptor.input_domains is empty, as are its table's domains
-  // where the client builds the descriptor from the table. There is no wildcard domain (decision 14.53), so it would
-  // fold nothing. Refused at registration, before anything is served, and
-  // nothing is registered; a client's describe() of such a table refuses with
-  // it too (C-0747; decision 14.55).
-  HOST_REASON_PROJECTOR_NO_INPUT_DOMAIN = 4 [(reason) = {
-    args: ["component"]
-    grpc_status: REASON_STATUS_INTERNAL
-  }];
   // An upcaster given for `domain`, which no component of the host
   // handles: there is nothing for it to upcast. Refused at registration,
   // and nothing is registered (decision 14.65).
-  HOST_REASON_UPCASTER_UNKNOWN_DOMAIN = 5 [(reason) = {
+  HOST_REASON_UPCASTER_UNKNOWN_DOMAIN = 4 [(reason) = {
     args: ["domain"]
     grpc_status: REASON_STATUS_INTERNAL
   }];
   // The upcaster registered for `domain` upcasts another domain's
   // payloads (`upcaster`, the domain it names). Refused at registration,
   // and nothing is registered (decision 14.65).
-  HOST_REASON_UPCASTER_OTHER_DOMAIN = 6 [(reason) = {
+  HOST_REASON_UPCASTER_OTHER_DOMAIN = 5 [(reason) = {
     args: ["domain", "upcaster"]
     grpc_status: REASON_STATUS_INTERNAL
   }];
@@ -283,7 +274,7 @@ enum HostReason {
   // `domain`, which a coordinator elsewhere handles: its events are never
   // written or read here, so the component would never run. Refused at
   // registration, and nothing is registered (decision 14.65).
-  HOST_REASON_REMOTE_SOURCE = 7 [(reason) = {
+  HOST_REASON_REMOTE_SOURCE = 6 [(reason) = {
     args: ["component", "domain"]
     grpc_status: REASON_STATUS_INTERNAL
   }];
@@ -292,7 +283,7 @@ enum HostReason {
   // snapshots would never be offered back to it (the snapshot region of
   // types.proto). Refused at registration, and nothing is registered
   // (decision 14.65).
-  HOST_REASON_STATE_TYPE_MISMATCH = 8 [(reason) = {
+  HOST_REASON_STATE_TYPE_MISMATCH = 7 [(reason) = {
     args: ["component", "type_url", "state_type_url"]
     grpc_status: REASON_STATUS_INTERNAL
   }];
@@ -471,13 +462,15 @@ enum CoordinatorReason {
     args: ["stream", "command_type"]
     grpc_status: REASON_STATUS_INTERNAL
   }];
-  // A policy's descriptor (PolicyDescriptor) with no input_domain: its
-  // source, which angzarr-cli derives from the events it names (decision
-  // 14.78), is empty. Readiness, as every descriptor rule's (decision
-  // 14.65). Replaces the input count's one reachable case: a policy's
-  // source is a single field, so "more than one" cannot be said.
-  COORDINATOR_REASON_POLICY_NO_INPUT_DOMAIN = 16 [(reason) = {
-    args: ["component"]
+  // A policy or a projector descriptor that names no source: a policy's
+  // empty input_domain, a projector's empty input_domains (`component_kind`
+  // says which). Its sources are derived from the events it names (decision
+  // 14.78), and there is no wildcard domain (decision 14.53), so it would
+  // react to or fold nothing. One rule, the coordinator's, for both kinds
+  // (decision 14.101, DRAFT): readiness, as every descriptor rule's
+  // (decision 14.65).
+  COORDINATOR_REASON_NO_INPUT_DOMAIN = 16 [(reason) = {
+    args: ["component", "component_kind"]
     readiness: {}
   }];
   // A descriptor whose kind (the ComponentDescriptor.kind oneof) is unset,
@@ -508,5 +501,12 @@ enum CoordinatorReason {
   COORDINATOR_REASON_FACT_DEAD_LETTERED = 19 [(reason) = {
     args: ["stream", "cause"]
     grpc_status: REASON_STATUS_INTERNAL
+  }];
+  // An aggregate's or a process manager's descriptor with no domain: after
+  // the one component name (decision 14.87) the name no longer implies it.
+  // Readiness (decisions 14.65, 14.101, DRAFT).
+  COORDINATOR_REASON_DESCRIPTOR_NO_DOMAIN = 20 [(reason) = {
+    args: ["component", "component_kind"]
+    readiness: {}
   }];
 }

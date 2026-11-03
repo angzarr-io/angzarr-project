@@ -4161,6 +4161,8 @@ kept its events in angzarr-embedded's SQLite store since 2026-10-31.
 - Cost: every proto change is held to compatibility; the gate needs the
   draft fetched, and docker, as proto-lint does. GAP-3 is closed.
 
+> **Amended by 14.101 (DRAFT, pending review):** the coordinator owns every descriptor check: `HOST_REASON_PROJECTOR_NO_INPUT_DOMAIN` is retired, and an empty projector source is `COORDINATOR_REASON_NO_INPUT_DOMAIN`, one rule with the policy's.
+
 **14.55 A projector naming no source domain is refused.** Owner ruling,
 2026-10-31. Follows 14.53 and 14.44.
 - **The rule.** A projector whose descriptor names no input domain (its
@@ -5471,6 +5473,35 @@ sender is answered non-retryable.** The owner's review round 5, 2026-11-02.
 - **`Handling` stays** (the owner).
 - **A player always decides:** `RecordMoveUndecided`, `MoveUndecided` and
   the stand-the-hand rule (14.89) are removed.
+
+**14.101 (DRAFT) A dead letter's why is a oneof; one replay, as is; the
+descriptor names domains and types by name.** The owner's rulings, review
+round 5, 2026-11-02.
+- **Why.** `AngzarrDeadLetter` holds `oneof why { Any refusal; Diagnostic
+  reason }`. A typed refusal of an asynchronous command is the refusal arm,
+  its key implied (`ROUTER_REASON_COMMAND_REFUSED`), its type the Any's type
+  URL, its args its fields; every other failure is the reason arm. The
+  "refusal iff reason is COMMAND_REFUSED" rule and the duplicate
+  `refusal_type` arg go. `StoredDeadLetter` mirrors the oneof; the admin
+  filter takes `reason_code` (a refusal entry's implied key) and
+  `refusal_type`. `retry_count` stays.
+- **One replay, as is.** The `FRESH_SEQUENCE` mode, and with it the
+  `ReplayMode` enum and its three fields, are removed; a replayed stale
+  command is refused again, which is correct.
+- **Descriptor domains.** `AggregateDescriptor` and
+  `ProcessManagerDescriptor` carry a required `domain`, copied from the
+  declaration; empty is the new readiness key
+  `COORDINATOR_REASON_DESCRIPTOR_NO_DOMAIN`. After F8 the name no longer
+  implies the domain.
+- **Names, not type URLs.** `StateDescriptor.type_url` becomes `type_name`,
+  the state's fully-qualified name; the snapshot rule compares it with the
+  name the state's type URL ends in. `Any.type_url` is unchanged.
+- **The coordinator owns every descriptor check.**
+  `HOST_REASON_PROJECTOR_NO_INPUT_DOMAIN` is retired;
+  `COORDINATOR_REASON_POLICY_NO_INPUT_DOMAIN` becomes
+  `COORDINATOR_REASON_NO_INPUT_DOMAIN` (args component, component_kind), one
+  rule for a policy's and a projector's empty source. Amends 14.55.
+- `ComponentKind` stays as the bare tag.
 
 ## Corrections
 

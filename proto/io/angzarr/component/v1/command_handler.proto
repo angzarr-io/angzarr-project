@@ -71,7 +71,8 @@ service CommandHandlerService {
   // ROUTER_REASON_COMMAND_REFUSED with refusal_type, and the object packed in
   // the status details (decision 14.37). The coordinator answers a client
   // caller with that status unchanged; a refused HandleAsync command is
-  // dead-lettered (AngzarrDeadLetter.reason and .refusal); a refused
+  // dead-lettered with its refusal (AngzarrDeadLetter's refusal arm,
+  // decision 14.101); a refused
   // policy command reaches the policy's Translate (the one refusal path;
   // io/angzarr/v1/policy.proto, Refusals).
   rpc Handle(io.angzarr.handler.v1.HandleRequest) returns (io.angzarr.handler.v1.HandleResponse);

@@ -47,8 +47,7 @@ enum CoordinatorReason {
   // third-party library's text as `cause.ext_err_txt`). Bug, retryable
   // (decision 14.37): retried under the retry cap with backoff and jitter; at
   // the cap dead-lettered with this key and its args as its
-  // AngzarrDeadLetter.reason, processing_failed its details variant with this
-  // key as its failure, the retrieval's details on the DeadLetterEnvelope
+  // AngzarrDeadLetter.reason, the retrieval's details on the DeadLetterEnvelope
   // (payload_retrieval_failed), and alerted (C-0447). (Decision 14.51.)
   COORDINATOR_REASON_PAYLOAD_UNAVAILABLE = 3 [(io.angzarr.v1.reason) = {
     args: ["uri", "cause"]

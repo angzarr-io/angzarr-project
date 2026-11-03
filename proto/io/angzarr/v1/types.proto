@@ -298,8 +298,8 @@ message Cover {
 // by its (refusal_status) option. On the wire it travels as any typed
 // refusal: reason ROUTER_REASON_COMMAND_REFUSED, refusal_type
 // io.angzarr.v1.ExpectedSequenceMismatch, the object in the status details;
-// a HandleAsync command so refused is dead-lettered with that reason and
-// the object as AngzarrDeadLetter.refusal. Behind and ahead are one
+// a HandleAsync command so refused is dead-lettered with it as
+// AngzarrDeadLetter's refusal arm. Behind and ahead are one
 // refusal: either way the client decided against a version that is not the
 // head.
 message ExpectedSequenceMismatch {
@@ -718,8 +718,9 @@ message EventMeta {
 // be used. It offers a snapshot with a delivery (the history of
 // io.angzarr.handler.v1.HandleRequest, for an aggregate
 // or a process manager alike) only if both hold:
-//   1. its state type URL equals the type_url of the StateDescriptor the
-//      component registered (the descriptor's StateDescriptor); and
+//   1. the fully-qualified name its state's type URL ends in (the text
+//      after its last "/") equals the type_name of the StateDescriptor the
+//      component registered; and
 //   2. its rules_version passes the domain's compatibility rule against the
 //      version the component registered (ComponentDescriptor.rules_version).
 // The default rule: strip ONE leading "v" or "V" from each version, then
@@ -769,9 +770,9 @@ message Snapshot {
   // pages after it: the coordinator drops the pages it covers, and the
   // client library folds what it is given (decision 14.40).
   uint64 sequence = 1;
-  // The folded state. Its type URL is the state type recorded with the
-  // snapshot and checked before the snapshot is offered (see Validity
-  // above).
+  // The folded state. The name its type URL ends in is the state type
+  // recorded with the snapshot, checked before the snapshot is offered (see
+  // Validity above).
   google.protobuf.Any state = 2;
   // The rules version reported with the answer that returned `state`
   // (io.angzarr.handler.v1.HandleResponse.rules_version), stamped in full by the
@@ -845,8 +846,8 @@ message Projection {
 // twice). Loading first, a commit after the load is either seen by the
 // lookup or fails this delivery's append on its loaded head.
 // A HandleAsync command refused by business code has no caller to answer:
-// it is dead-lettered with its key and args as AngzarrDeadLetter.reason,
-// and alerted (decision 14.47); so is one refused at step 4. An append that
+// it is dead-lettered with its typed refusal (AngzarrDeadLetter's refusal
+// arm) and alerted (decisions 14.47, 14.101); so is one refused at step 4. An append that
 // loses an optimistic race re-runs from step 3, under the race re-run cap
 // (the concurrency region). On that re-run a command WITH an expected
 // sequence is stale (the head has moved past it) and is refused at step 4;
@@ -1121,10 +1122,10 @@ enum DeliveryOutcome {
 // rejected_reaction.cover, rejected_events.cover or
 // failed_edition_removal.cover); the entry does not repeat it.
 //
-// A dead letter is its payload, its reason and, for a typed refusal, the
-// refusal object (decision 14.78, from the owner's ruling #4). Everything
-// else about why is read from the reason: its key, its args and the key's
-// declared status (reasons.proto). Stores from before the rewrite cross it
+// A dead letter is its payload and why: a typed refusal, or a reason
+// (decisions 14.78 and 14.101, DRAFT). Everything else about why is read
+// from it: a refusal's type and fields, or a reason's key, args and the
+// key's declared status (reasons.proto). Stores from before the rewrite cross it
 // by export and import (decision 14.100, DRAFT).
 message AngzarrDeadLetter {
   oneof payload {
@@ -1132,10 +1133,9 @@ message AngzarrDeadLetter {
     // assigned (command_id and correlation_id as minted, derived or
     // supplied; pipeline step 2) and a command's Handling as sent, before
     // the coordinator resolved it (see Handling). A command refused at
-    // validation never reaches the DLQ with a minted id: it has none.
-    // Replay AS_IS keeps the Handling; FRESH_SEQUENCE clears
-    // page.command.handling.expected_sequence so the coordinator stamps
-    // the current head.
+    // validation never reaches the DLQ with a minted id: it has none. A
+    // replay re-sends it as it was, Handling included: a stale command is
+    // refused again (decision 14.101, DRAFT).
     CommandBook rejected_command = 1;
     // A policy's output or refusal fact that failed at its destination,
     // as delivered (decision 14.79). Replayed through Deliver, keeping its
@@ -1150,12 +1150,19 @@ message AngzarrDeadLetter {
     // amended).
     EventBook failed_edition_removal = 4;
   }
-  // Why it was dead-lettered: a key and its args, never text (decision
-  // 14.37). The one statement of why (decision 14.78).
-  //   - A typed business refusal of an asynchronous command is
-  //     ROUTER_REASON_COMMAND_REFUSED with arg refusal_type, as on the
-  //     wire; the object itself is `refusal`, below. Every refusal is
-  //     typed (decision 14.95, DRAFT).
+  // Why it was dead-lettered: exactly one of a typed refusal or a reason,
+  // never text (decision 14.37); the one statement of why (decisions 14.78
+  // and 14.101, DRAFT).
+  oneof why {
+    // A typed business refusal of an asynchronous command (every refusal
+    // is typed, decision 14.95): the refusal object, packed. Its key is
+    // implied (ROUTER_REASON_COMMAND_REFUSED, as on the wire), its type is
+    // the Any's own type URL, and its args are its fields.
+    google.protobuf.Any refusal = 5;
+    // Every other failure: a key and its args (below).
+    Diagnostic reason = 6;
+  }
+  // The reason arm, by failure:
   //   - A command with no caller waiting (HandleAsync, a reaction), or a
   //     fact, the coordinator gave up on after losing write races at the
   //     race re-run cap, is
@@ -1165,9 +1172,9 @@ message AngzarrDeadLetter {
   //   - A retryable bug dead-lettered at its cap records the bug's own key
   //     and args, as last answered, never
   //     COORDINATOR_REASON_RETRY_CAP_EXHAUSTED (decision 14.48, amended).
-  //   - An asynchronous command (HandleAsync) refused by its handler, or
-  //     answered with the handler's own abort, records that key and its
-  //     args (decision 14.47).
+  //   - An asynchronous command (HandleAsync) answered with its handler's
+  //     own abort records that key and its args (decision 14.47); one
+  //     refused is the refusal arm.
   //   - A policy step's trigger (rejected_events) records the policy bug's
   //     key: COORDINATOR_REASON_POLICY_COMMAND_NO_ROOT,
   //     COORDINATOR_REASON_POLICY_TARGETS_ITS_TRIGGER,
@@ -1175,7 +1182,7 @@ message AngzarrDeadLetter {
   //     COORDINATOR_REASON_CHAIN_TOO_DEEP, ROUTER_REASON_NO_REFUSAL_HANDLER
   //     or a handler's bug.
   // Whether the failure was transient is the key's declared status
-  // (ReasonOptions.status): UNAVAILABLE and the other retryable statuses
+  // (ReasonOptions' grpc_status): UNAVAILABLE and the other retryable statuses
   // are transient, every other status is not.
   // Never a dead letter's reason: the readiness keys, the HostReason keys,
   // ROUTER_REASON_NO_HANDLERS_REGISTERED, ROUTER_REASON_DUPLICATE_COMPONENT
@@ -1184,15 +1191,10 @@ message AngzarrDeadLetter {
   // COORDINATOR_REASON_UPCASTER_UNAVAILABLE and the distributed
   // transport's COORDINATOR_REASON_COMPONENT_NOT_REGISTERED (queued work
   // waits) and COORDINATOR_REASON_COMMANDS_NOT_SERVED (decision 14.51).
-  Diagnostic reason = 5;
   // The retries after the first attempt (0 when it was tried once): of a
   // retryable bug, or a policy step's ABORTED re-run, at its cap, and of an
   // edition removal (COORDINATOR_REASON_EDITION_REMOVAL_FAILED).
-  uint32 retry_count = 6;
-  // The typed refusal object, iff reason is ROUTER_REASON_COMMAND_REFUSED:
-  // one of the refused command's `refuses` types, packed, whose type is the
-  // reason's refusal_type arg.
-  google.protobuf.Any refusal = 7;
+  uint32 retry_count = 7;
   google.protobuf.Timestamp occurred_at = 8;
   string source_component = 9; // Which component sent to DLQ
   ComponentKind source_component_kind = 10; // Its kind
@@ -1247,11 +1249,17 @@ enum ComponentKind {
 // rules_version (COORDINATOR_REASON_MISSING_RULES_VERSION), or one that is
 // not SemVer (COORDINATOR_REASON_RULES_VERSION_NOT_SEMVER); no kind, the
 // oneof unset (COORDINATOR_REASON_DESCRIPTOR_NO_KIND); an aggregate or a
-// process manager with no state (COORDINATOR_REASON_MISSING_STATE_TYPE); a
-// policy with no input_domain (COORDINATOR_REASON_POLICY_NO_INPUT_DOMAIN)
-// or no output_domain (COORDINATOR_REASON_POLICY_NO_OUTPUT_DOMAIN). A projector with no
-// input_domains is refused by the component host
-// (HOST_REASON_PROJECTOR_NO_INPUT_DOMAIN, decision 14.55).
+// process manager with no domain (COORDINATOR_REASON_DESCRIPTOR_NO_DOMAIN)
+// or no state (COORDINATOR_REASON_MISSING_STATE_TYPE); a policy or a
+// projector with no source (COORDINATOR_REASON_NO_INPUT_DOMAIN: a policy's
+// empty input_domain, a projector's empty input_domains; decision 14.101,
+// DRAFT, one rule, the coordinator's); a policy with no output_domain
+// (COORDINATOR_REASON_POLICY_NO_OUTPUT_DOMAIN). The coordinator owns every
+// descriptor check.
+//
+// Type identity is a fully-qualified NAME everywhere in a descriptor (the
+// state's type_name, a process manager's starting_types), never a type URL
+// (decision 14.101).
 message ComponentDescriptor {
   string name = 1;
   // The business binary's full version, baked in when it is built: the same
@@ -1274,16 +1282,23 @@ message ComponentDescriptor {
 
 // An aggregate's descriptor.
 message AggregateDescriptor {
+  // The domain of the stream it owns, copied from its declaration
+  // (AggregateDecl.domain). Required: after the one component name (F8)
+  // the name no longer implies the domain (decision 14.101, DRAFT).
+  string domain = 1;
   // Its event-sourced state: generated from the state message's descriptor
   // by angzarr-cli, or written by hand to the same rules (see
   // StateDescriptor). Required.
-  StateDescriptor state = 1;
+  StateDescriptor state = 2;
 }
 
 // A process manager's descriptor (a PM is a domain, decision 14.31).
 message ProcessManagerDescriptor {
+  // The domain of its own workflow stream, copied from its declaration
+  // (ProcessManagerDecl.domain). Required (decision 14.101, DRAFT).
+  string domain = 1;
   // Its event-sourced state, as AggregateDescriptor.state. Required.
-  StateDescriptor state = 1;
+  StateDescriptor state = 2;
   // The fully-qualified type NAMES (no type URL prefix:
   // "examples.v1.OpenTable", never "/examples.v1.OpenTable") of the command
   // and fact types that are the PM's STARTING inputs, copied from its
@@ -1294,13 +1309,14 @@ message ProcessManagerDescriptor {
   // delivered only if its type is listed here; otherwise the coordinator
   // dead-letters a fact and refuses a command (ruling B1, adapted; decision
   // 14.31; see process_manager.proto, Starting an instance).
-  repeated string starting_types = 2;
+  repeated string starting_types = 3;
 }
 
 // A policy's descriptor: its one source and its one destination.
 message PolicyDescriptor {
   // The one domain whose events it reacts to: derived by angzarr-cli from
-  // the events it names (options.proto, decision 14.78). Required.
+  // the events it names (options.proto, decision 14.78). Required: empty is
+  // COORDINATOR_REASON_NO_INPUT_DOMAIN.
   string input_domain = 1;
   // The one domain its commands and facts go to (PolicyDecl.output_domain,
   // options.proto; decision 14.24). Every Output is addressed to it
@@ -1312,15 +1328,15 @@ message PolicyDescriptor {
 message ProjectorDescriptor {
   // The domains whose events it projects: derived by angzarr-cli from the
   // events it names (options.proto, decision 14.78). There is no wildcard
-  // domain (decision 14.53); an empty list is refused at registration
-  // (HOST_REASON_PROJECTOR_NO_INPUT_DOMAIN, decision 14.55).
+  // domain (decision 14.53); an empty list is refused by the coordinator,
+  // COORDINATOR_REASON_NO_INPUT_DOMAIN (decisions 14.55 and 14.101).
   repeated string input_domains = 1;
 }
 
 // A component's state message, as the domain-blind coordinator needs it:
 // its type, which the snapshot rule checks. Nothing of its schema.
 message StateDescriptor {
-  // The state message's type URL ("/" + its fully-qualified name; see the
-  // type URL rules at the top of this file).
-  string type_url = 1;
+  // The state message's fully-qualified name ("examples.v1.TableState",
+  // no type URL prefix; decision 14.101, DRAFT).
+  string type_name = 1;
 }
