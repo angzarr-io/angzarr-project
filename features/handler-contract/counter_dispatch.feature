@@ -2,9 +2,10 @@ Feature: Counter aggregate dispatch
   The CounterAggregate (fixture/FIXTURE.md) proves the dispatch mechanisms
   every router implements identically, the Rust one and the Python one:
   prior events fold into state, commands emit events with historical
-  context (passed through as the handler emitted them: the coordinator
-  stamps sequences and meta), business rules reject, and unclassified or
-  unknown commands surface as coded errors. Ported from angzarr-router's
+  context (answered as payloads only, HandleResponse.events: the
+  coordinator wraps them and stamps sequences and meta, decision 14.78),
+  business rules refuse with a typed refusal (decision 14.95), and
+  unclassified or unknown commands surface as coded errors. Ported from angzarr-router's
   own conformance features, so this tier is the router's complete contract
   (decision 14.42). The router guards no envelope: the coordinator builds
   every delivery well formed.
@@ -15,7 +16,7 @@ Feature: Counter aggregate dispatch
     Given a new counter
     When the operator increases the counter by <amount>
     Then <amount> increases are recorded
-    And the recorded events carry no router-stamped sequence
+    And the answer's events are Increased payloads alone, with no sequence, cover or metadata
 
     Examples:
       | amount |
@@ -33,10 +34,14 @@ Feature: Counter aggregate dispatch
 
   @counter
   @C-0695
-  Scenario: Increasing by zero is rejected and records nothing
+  Scenario: Increasing by zero is refused with its typed refusal and records nothing
+    # IncreaseBy names its one refusal, ValueNotPositive, which declares
+    # INVALID_ARGUMENT (fixture/counter.proto; decision 14.95).
     Given a new counter
     When the operator increases the counter by 0
-    Then the command is rejected as VALUE_NOT_POSITIVE
+    Then the command is refused INVALID_ARGUMENT with reason ANGZARR_REASON_COMMAND_REFUSED
+    And the refusal's error info carries refusal_type "test.counter.ValueNotPositive"
+    And the refusal's status details carry the ValueNotPositive with n 0
     And no events are recorded
 
   @counter
@@ -44,14 +49,14 @@ Feature: Counter aggregate dispatch
   Scenario: An unclassified failure surfaces as a coded error
     Given a new counter
     When the operator triggers a hard failure
-    Then the command fails with ROUTER_REASON_UNHANDLED_HANDLER_ERROR
+    Then the command fails INTERNAL with ANGZARR_REASON_UNHANDLED_HANDLER_ERROR
 
   @counter
   @C-0697
   Scenario: An unknown command is reported before any rebuild
     Given a new counter
     When an unhandled command is dispatched
-    Then the command fails with ROUTER_REASON_UNKNOWN_COMMAND_TYPE
+    Then the command fails with ANGZARR_REASON_UNKNOWN_COMMAND_TYPE
     And the refusal is INTERNAL naming the type URL "type.googleapis.com/test.counter.Reserve"
 
   @counter
@@ -59,7 +64,7 @@ Feature: Counter aggregate dispatch
   Scenario: A persisted event the fold cannot fold fails the command as a handler bug
     Given a counter whose history holds a corrupt event
     When the operator increases the counter by 1
-    Then the command fails with ROUTER_REASON_FOLD_FAILED
+    Then the command fails INTERNAL with ANGZARR_REASON_FOLD_FAILED
 
   @counter
   @C-0699
