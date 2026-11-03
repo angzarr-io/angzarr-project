@@ -74,7 +74,7 @@ message Cover {
 
 // region concurrency
 // The coordinator has no conflict-resolution concept (decision 14.92,
-// DRAFT): a per-stream optimistic append and capped race re-runs only.
+// ruled 2026-11-02): a per-stream optimistic append and capped race re-runs only.
 // docs/design/pipeline.md §4.
 //
 // The framework's one refusal (decisions 14.93 and 14.94): the client's
@@ -97,7 +97,7 @@ message ExpectedSequenceMismatch {
 // has no business-time field (EventMeta.recorded_at is when it was
 // recorded). docs/design/identity-and-streams.md §5.2.
 message EventPage {
-  // What the event is (decision 14.106, DRAFT): a domain's event, or the
+  // What the event is (decision 14.106): a domain's event, or the
   // framework's meta-event. Business code is handed only the event arm.
   oneof body {
     // A domain's event. Its type URL names the event type and version
@@ -157,7 +157,7 @@ message FactOrigin {
 // endregion
 
 // region meta_events
-// The framework's meta-events (decision 14.106, DRAFT: a type, an
+// The framework's meta-events (decision 14.106: a type, an
 // EventPage's meta_event arm, never a type-URL convention). What they do
 // is docs/design/edition-meta-events.md.
 message MetaEvent {
@@ -169,7 +169,7 @@ message MetaEvent {
 // The first event of an edition's version of a stream, appended by
 // EditionAdminService.ForkStream at the stream's fork sequence (its own
 // EventPage.sequence). The edition is the page's cover's. Nothing else to
-// say (decision 14.107, DRAFT).
+// say (decision 14.107).
 message EditionCreated {}
 // endregion
 
@@ -195,7 +195,7 @@ message Diagnostic {
 // one write share one EventMeta. docs/design/identity-and-streams.md §5.4.
 message EventMeta {
   // The event's direct cause, always set on a persisted event, its arm the
-  // producing input's kind (decision 14.102, DRAFT). Its command_id is the
+  // producing input's kind (decision 14.102). Its command_id is the
   // deduplication key on the stream (docs/design/identity-and-streams.md §7).
   oneof causation {
     // Produced by a command (a client's or a policy's).
@@ -266,7 +266,7 @@ message Projection {
   Cover cover = 1; // The stream projected
   string projector = 2; // Registered name of the projector
   // Recorded by the coordinator ONLY after the projector's affirmative
-  // answer (decision 14.97, DRAFT): an error status or no answer leaves it
+  // answer (decision 14.97): an error status or no answer leaves it
   // unrecorded, and the run is delivered again.
   // The projector's position in the stream after this projection: the
   // stream's next_sequence once the projected events are applied, i.e. the
@@ -277,14 +277,14 @@ message Projection {
 
 // region handling
 // How a client asks for one command to be treated: the Command arm's alone
-// (decision 14.79, DRAFT). Never persisted. The pipeline, normative in
+// (decision 14.79). Never persisted. The pipeline, normative in
 // every runtime and mode: docs/design/pipeline.md §2; what is malformed,
 // §3.
 message Handling {
   // The stream's next_sequence the client decided against ("I decided
   // having seen version N"). Set and not the head the coordinator loaded,
   // the command is refused ExpectedSequenceMismatch before business code
-  // (decision 14.94, DRAFT). Unset: the client stated none. The
+  // (decision 14.94). Unset: the client stated none. The
   // coordinator never stamps it. docs/design/pipeline.md §5.
   optional uint64 expected_sequence = 1;
 }
@@ -292,7 +292,7 @@ message Handling {
 
 // region command_page
 // The one command of a CommandBook: its identity and a body, a Command or
-// a Fact (decision 14.79, DRAFT). Dispatch by arm and payload type
+// a Fact (decision 14.79). Dispatch by arm and payload type
 // (ANGZARR_REASON_UNKNOWN_COMMAND_TYPE, ANGZARR_REASON_NO_FACT_HANDLER):
 // docs/design/pipeline.md §6.
 message CommandPage {
@@ -324,7 +324,7 @@ message Command {
 // A fact: something that already happened outside the system, delivered
 // through the command coordinator like any command. Its handler is
 // infallible; a failing one is a bug, dead-lettered (sender answered
-// INTERNAL ANGZARR_REASON_FACT_DEAD_LETTERED; decision 14.100, DRAFT).
+// INTERNAL ANGZARR_REASON_FACT_DEAD_LETTERED; decision 14.100).
 // docs/design/pipeline.md §7.2.
 message Fact {
   google.protobuf.Any payload = 1; // The fact; its type URL picks the ingest handler
@@ -347,7 +347,7 @@ message CommandBook {
 
 // region reaction_delivery
 // One output of a policy, or a refusal fact, as its coordinator delivers it
-// to the destination's coordinator (decision 14.79, DRAFT). Built only by a
+// to the destination's coordinator (decision 14.79). Built only by a
 // policy's coordinator, taken only by the framework-only Deliver RPC; no
 // Handling, no fact origin. docs/design/pipeline.md §10.
 message ReactionDelivery {
@@ -357,7 +357,7 @@ message ReactionDelivery {
   Cover cover = 1;
   // The command or fact, as the policy answered it, in the arm of its kind
   // (Output's arm; a refusal fact is always the fact arm). A oneof, not a
-  // flag (decision 14.91, DRAFT). Neither arm is core's Command or Fact: a
+  // flag (decision 14.91). Neither arm is core's Command or Fact: a
   // reaction carries no Handling, and its fact's origin is derived.
   oneof body {
     google.protobuf.Any command = 2;
@@ -381,7 +381,7 @@ message ReactionDelivery {
 
 // region outcome
 // What the runtime did with one delivery of a command, NEVER persisted;
-// answered beside the events (decision 14.105, DRAFT). A rejection is never
+// answered beside the events (decision 14.105). A rejection is never
 // an outcome: it is a gRPC error status. docs/design/pipeline.md §8.
 enum DeliveryOutcome {
   DELIVERY_OUTCOME_UNSPECIFIED = 0; // Not reported
@@ -396,7 +396,7 @@ enum DeliveryOutcome {
 
 // region dead_letter
 // Dead letter queue entry for failed messages requiring manual
-// intervention: its payload and why (decisions 14.78 and 14.101, DRAFT).
+// intervention: its payload and why (decisions 14.78 and 14.101).
 // Per-domain topics: angzarr.dlq.{domain}. What lands here, the reason by
 // failure, the keys never recorded, and replay: docs/design/dead-letters.md.
 message AngzarrDeadLetter {
@@ -409,7 +409,7 @@ message AngzarrDeadLetter {
     ReactionDelivery rejected_reaction = 2;
     EventBook rejected_events = 3; // Events that failed (policy/projector failures)
     // An edition removal that failed (DeleteEdition): the stream whose
-    // rows of the edition could not be removed (decision 14.107, DRAFT).
+    // rows of the edition could not be removed (decision 14.107).
     // Reason ANGZARR_REASON_EDITION_REMOVAL_FAILED (decision 14.48,
     // amended).
     Cover failed_edition_removal = 4;
@@ -426,7 +426,7 @@ message AngzarrDeadLetter {
     // args. Which key each failure records: docs/design/dead-letters.md §4.
     Diagnostic reason = 6;
     // A transport's own why: a message of the transport's package, packed,
-    // its key implied by its type (decision 14.107, DRAFT); today the
+    // its key implied by its type (decision 14.107); today the
     // distributed transport's PayloadRetrievalFailed. The angzarr-embedded
     // kernel never sets it.
     google.protobuf.Any transport = 7;
@@ -482,7 +482,7 @@ message ComponentDescriptor {
 // An aggregate's descriptor.
 message AggregateDescriptor {
   // The domain of the stream it owns, copied from its declaration
-  // (AggregateDecl.domain). Required (decision 14.101, DRAFT).
+  // (AggregateDecl.domain). Required (decision 14.101).
   string domain = 1;
   // Its event-sourced state (see StateDescriptor). Required.
   StateDescriptor state = 2;
@@ -491,7 +491,7 @@ message AggregateDescriptor {
 // A process manager's descriptor (a PM is a domain, decision 14.31).
 message ProcessManagerDescriptor {
   // The domain of its own workflow stream, copied from its declaration
-  // (ProcessManagerDecl.domain). Required (decision 14.101, DRAFT).
+  // (ProcessManagerDecl.domain). Required (decision 14.101).
   string domain = 1;
   // Its event-sourced state, as AggregateDescriptor.state. Required.
   StateDescriptor state = 2;
@@ -527,6 +527,6 @@ message ProjectorDescriptor {
 // its type, which the snapshot rule checks. Nothing of its schema.
 message StateDescriptor {
   // The state message's fully-qualified name ("examples.v1.TableState",
-  // no type URL prefix; decision 14.101, DRAFT).
+  // no type URL prefix; decision 14.101).
   string type_name = 1;
 }

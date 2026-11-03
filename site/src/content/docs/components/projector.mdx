@@ -48,7 +48,7 @@ One class per projector: state lives on the instance, handlers call into instanc
 ## Multi-Domain Projectors
 
 :::caution
-**Multi-domain projectors should be rare.** They are not substitutes for process managers or business logic: the capability exists for system capabilities such as the timekeeping module, global logging and the like (decision 14.96, DRAFT).
+**Multi-domain projectors should be rare.** They are not substitutes for process managers or business logic: the capability exists for system capabilities such as the timekeeping module, global logging and the like (decision 14.96).
 :::
 
 A multi-domain projector receives each stream's run of events independently, in any order across streams: there is no cross-stream order (decision 14.96).

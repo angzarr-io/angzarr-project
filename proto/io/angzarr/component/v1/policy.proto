@@ -11,7 +11,7 @@ option ruby_package = "Angzarr::Component";
 
 // PolicyService: a policy's business logic, the one service its business
 // process serves for it. Its messages are the handler layer's
-// (io/angzarr/handler/v1/policy.proto; decision 14.78, DRAFT). What a policy
+// (io/angzarr/handler/v1/policy.proto; decision 14.78). What a policy
 // is, its translation, its refusals and its outbox: docs/design/policies.md.
 service PolicyService {
   // React to one source event (decision 46, Q3): the commands and facts

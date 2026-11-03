@@ -10,7 +10,7 @@ option java_package = "io.angzarr.transport.distributed";
 option ruby_package = "Angzarr::Transport::Distributed";
 
 // The distributed transport's reason keys, DISTRIBUTED_REASON_* (decisions
-// 14.64 and 14.104, DRAFT): what only a distributed coordinator raises.
+// 14.64 and 14.104): what only a distributed coordinator raises.
 // The key rules (docs/design/reason-keys.md §1 to §7) hold here; its
 // English is reasons.en-US.ftl beside this file. Per-key behaviour:
 // docs/design/reason-keys.md §12.

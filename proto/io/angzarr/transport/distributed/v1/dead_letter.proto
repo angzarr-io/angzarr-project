@@ -32,7 +32,7 @@ message DeadLetterEnvelope {
 // Why a claim-checked payload (bus.proto) could not be retrieved: the
 // dead letter's why, packed in AngzarrDeadLetter's transport arm, its key
 // implied as DISTRIBUTED_REASON_PAYLOAD_UNAVAILABLE (decision 14.107,
-// DRAFT).
+// ruled 2026-11-02).
 message PayloadRetrievalFailed {
   PayloadReference reference = 1; // The payload that could not be retrieved
   io.angzarr.v1.Diagnostic failure = 2; // The retrieval's failure: its code and args, never its text (decision 14.37)

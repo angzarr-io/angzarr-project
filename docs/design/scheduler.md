@@ -1,6 +1,6 @@
 # The scheduler: alarms and time facts
 
-**Status:** DRAFT (decision 14.90), for the owner's review. Moved from `proto/io/angzarr/scheduler/v1/scheduler.proto`'s comments (decision 14.109). The messages are `io/angzarr/scheduler/v1/scheduler.proto`'s (`ArmAlarm`, `CancelAlarm`, `AlarmReached`): the time facts of the scheduler, and nothing else.
+**Status:** normative (decision 14.90). Moved from `proto/io/angzarr/scheduler/v1/scheduler.proto`'s comments (decision 14.109). The messages are `io/angzarr/scheduler/v1/scheduler.proto`'s (`ArmAlarm`, `CancelAlarm`, `AlarmReached`): the time facts of the scheduler, and nothing else.
 
 ## 1. The owner's direction
 

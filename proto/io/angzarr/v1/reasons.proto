@@ -11,7 +11,7 @@ option java_package = "io.angzarr";
 option ruby_package = "Angzarr";
 
 // The framework's reason keys (decisions 14.37, 14.42 and 14.44): every key
-// angzarr answers, once, named by LAYER (decision 14.104, DRAFT): core's
+// angzarr answers, once, named by LAYER (decision 14.104): core's
 // AngzarrReason here (ANGZARR_REASON_*), the transports' EmbeddedReason and
 // DistributedReason beside their packages. A key travels as its value's full
 // name, never its number; each value's (reason) option declares its args and
@@ -28,11 +28,11 @@ message ReasonOptions {
   // each a valid Fluent variable name. `cause` stands for itself and the
   // `cause.<arg>` names it flattens to (docs/design/reason-keys.md §4).
   repeated string args = 1;
-  // How the key surfaces, by kind (decision 14.91, DRAFT). Required: every
+  // How the key surfaces, by kind (decision 14.91). Required: every
   // live key names one.
   oneof surfaces {
     // The gRPC status the key travels with (decisions 14.65 and 14.104,
-    // DRAFT): google.rpc.Code itself, never OK. When an answerer may pick
+    // ruled 2026-11-02): google.rpc.Code itself, never OK. When an answerer may pick
     // another: docs/design/reason-keys.md §5.
     google.rpc.Code grpc_status = 2;
     // A readiness refusal: the key never travels as a status; it is logged
@@ -54,7 +54,7 @@ extend google.protobuf.EnumValueOptions {
 // endregion
 
 // Core's keys, ANGZARR_REASON_*, whichever core component raises them
-// (decision 14.104, DRAFT): the router and the component host (the client
+// (decision 14.104): the router and the component host (the client
 // library's, in every language) and the coordinator (core's and the
 // angzarr-embedded kernel's). Each key's comment opens with who raises it.
 // Per-key behaviour: docs/design/reason-keys.md §8 to §10.

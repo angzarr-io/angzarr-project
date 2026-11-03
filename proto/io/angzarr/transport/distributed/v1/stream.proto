@@ -12,7 +12,7 @@ option ruby_package = "Angzarr::Transport::Distributed";
 
 // region event_stream_service
 // EventStreamService: streams events to subscribers, catch-up then live
-// (decision 14.105, DRAFT).
+// (decision 14.105).
 service EventStreamService {
   // Subscribe to one target (SubscribeRequest.target): one stream, or
   // every stream of one correlation; catch-up from the resume point, then
@@ -32,7 +32,7 @@ service EventStreamService {
 // endregion
 
 // region subscribe_request
-// What to subscribe to, and from where (decision 14.105, DRAFT).
+// What to subscribe to, and from where (decision 14.105).
 message SubscribeRequest {
   oneof target {
     // One stream's pages.

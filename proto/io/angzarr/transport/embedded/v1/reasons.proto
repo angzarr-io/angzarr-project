@@ -10,7 +10,7 @@ option java_package = "io.angzarr.transport.embedded";
 option ruby_package = "Angzarr::Transport::Embedded";
 
 // The local-process transport's reason keys, EMBEDDED_REASON_* (decisions
-// 14.64 and 14.104, DRAFT): what whatever runs a child process answers when
+// 14.64 and 14.104): what whatever runs a child process answers when
 // the child breaks the launch protocol (docs/design/child-protocol.md §7).
 // The key rules (docs/design/reason-keys.md §1 to §7) hold here; its
 // English is reasons.en-US.ftl beside this file. Per-key behaviour:

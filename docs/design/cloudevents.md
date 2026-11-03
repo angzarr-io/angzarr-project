@@ -1,10 +1,10 @@
 # CloudEvents publishing
 
-**Status:** normative (DRAFT decision 14.108 pending review). Moved from the comments of `proto/io/angzarr/transport/distributed/v1/cloudevents.proto` (decision 14.109). The message is `io.angzarr.transport.distributed.v1.CloudEventsResponse`, a list of the official CloudEvents Protobuf Format's `io.cloudevents.v1.CloudEvent` (vendored at `proto/io/cloudevents/v1/cloudevents.proto`).
+**Status:** normative (decision 14.108). Moved from the comments of `proto/io/angzarr/transport/distributed/v1/cloudevents.proto` (decision 14.109). The message is `io.angzarr.transport.distributed.v1.CloudEventsResponse`, a list of the official CloudEvents Protobuf Format's `io.cloudevents.v1.CloudEvent` (vendored at `proto/io/cloudevents/v1/cloudevents.proto`).
 
 What a projector returns, in Projection.projection, to publish
 CloudEvents to the configured sinks (HTTP webhook, Kafka): the official
-CloudEvents Protobuf Format's events (decision 14.108, DRAFT; angzarr
+CloudEvents Protobuf Format's events (decision 14.108; angzarr
 defines no CloudEvent of its own).
 
 ## 1. The exact type match

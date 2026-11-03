@@ -1,6 +1,6 @@
 # The command pipeline: handling, validation, concurrency and outcomes
 
-**Status:** normative (decisions 1.4, 14.31, 14.36, 14.37, 14.39, 14.40, 14.46, 14.47, 14.69, 14.84, 14.85; as amended by the DRAFT decisions 14.79, 14.91 to 14.94, 14.98, 14.100, 14.101 and 14.105 pending review). Moved from `proto/io/angzarr/v1/types.proto`'s comments (decision 14.109). Covers how one command or fact is processed, in every runtime and every mode: the pipeline, what is malformed, the per-stream optimistic append and race re-runs, the expected sequence, dispatch by body arm and type, and what the runtime answers. The messages are `types.proto`'s `concurrency`, `handling`, `command_page`, `command_book`, `reaction_delivery` and `outcome` regions. The command modes and status codes are [command-handling.md](command-handling.md); identity and deduplication are [identity-and-streams.md](identity-and-streams.md).
+**Status:** normative (decisions 1.4, 14.31, 14.36, 14.37, 14.39, 14.40, 14.46, 14.47, 14.69, 14.84, 14.85; as amended by decisions 14.79, 14.91 to 14.94, 14.98, 14.100, 14.101 and 14.105). Moved from `proto/io/angzarr/v1/types.proto`'s comments (decision 14.109). Covers how one command or fact is processed, in every runtime and every mode: the pipeline, what is malformed, the per-stream optimistic append and race re-runs, the expected sequence, dispatch by body arm and type, and what the runtime answers. The messages are `types.proto`'s `concurrency`, `handling`, `command_page`, `command_book`, `reaction_delivery` and `outcome` regions. The command modes and status codes are [command-handling.md](command-handling.md); identity and deduplication are [identity-and-streams.md](identity-and-streams.md).
 
 ## 1. Handling
 
@@ -14,7 +14,7 @@ HandleAsync or HandleSync; see [command-handling.md](command-handling.md)
 §1).
 
 Handling is the Command arm's alone (Command.handling; decision 14.79,
-DRAFT; it was CommandBook.handling): a Fact has no field for it, and
+ruled 2026-11-02; it was CommandBook.handling): a Fact has no field for it, and
 neither has a ReactionDelivery. A reaction is delivered by the one
 framework-only RPC, Deliver. Command.handling is as sent before the
 coordinator, resolved after it.
@@ -97,7 +97,7 @@ it has none ([dead-letters.md](dead-letters.md) §2).
 
 ## 4. Concurrency
 
-Concurrency (decision 14.92, DRAFT; the owner's decision 47: "does the
+Concurrency (decision 14.92; the owner's decision 47: "does the
 coordinator need to care, at all, about conflicts, or should we just
 delegate it?" ... "and let the business logic handle it"). The
 coordinator has NO conflict-resolution concept: no resolution, no
@@ -129,7 +129,7 @@ What stays, and why it is not conflict handling:
 A client's expected sequence (Handling.expected_sequence: "I decided
 having seen version N", the stream's next_sequence the client decided
 against) is the one thing the coordinator checks of staleness (decision
-14.94, DRAFT; the owner's ruling, amending 14.93): set, and not the head
+14.94; the owner's ruling, amending 14.93): set, and not the head
 it loaded, the command is refused ExpectedSequenceMismatch before the
 handler is called (pipeline step 4), behind or ahead alike. There is no
 mode and no resolution: a command with no expected sequence (unset: the
@@ -154,7 +154,7 @@ A CommandPage is the one command of a CommandBook: its identity
 (command_id, correlation_id; [identity-and-streams.md](identity-and-streams.md)
 §6) and a body that is either a decision-requesting Command, with how it
 is to be handled, or an already-happened Fact, with where it came from
-(decision 14.79, DRAFT).
+(decision 14.79).
 
 Reflective dispatch. The framework picks the pipeline from which body arm
 is set (the arm's message type): a Command goes through decide
@@ -175,7 +175,7 @@ one when no rule applies).
 
 On the wire the arm is the fact marker; in code, one handler attribute
 (#[handles]) serves both kinds, and the message's option, (command) or
-(fact), is the declaration (decision 14.98, DRAFT): the router refuses an
+(fact), is the declaration (decision 14.98): the router refuses an
 arm that does not match it. There is no proto flag for facts. A process
 manager's stream takes both arms, like any domain's (decision 14.31).
 
@@ -221,7 +221,7 @@ with events that flag it, e.g. a payment received for an unknown order)
 and never reject it. A failing fact handler is a bug, not a business
 rejection: the fact is dead-lettered and alerted, and the sender is
 answered INTERNAL `ANGZARR_REASON_FACT_DEAD_LETTERED`, non-retryable
-(decision 14.100, DRAFT; the owner: "if retrying senders repark, it's a
+(decision 14.100; the owner: "if retrying senders repark, it's a
 logic bug"). The framework deduplicates on the command_id derived from
 origin.external_id, per addressed stream, before the handler runs; a
 dead-lettered fact wrote nothing, so a DLQ replay of it runs its handler
@@ -242,7 +242,7 @@ any stream, and replaying a stream cannot reproduce it. The command's
 business result is its events. A distributed coordinator answers it
 beside the events
 (io.angzarr.transport.distributed.v1.CommandResult.delivery and
-CommandSyncResult.delivery; decision 14.105, DRAFT), and the
+CommandSyncResult.delivery; decision 14.105), and the
 angzarr-embedded kernel answers the same pair, events and delivery.
 Deduplication is [identity-and-streams.md](identity-and-streams.md) §7.
 
@@ -257,7 +257,7 @@ Deduplication is [identity-and-streams.md](identity-and-streams.md) §7.
 
 A fact that could not be recorded is no outcome either: it is
 dead-lettered, and its sender answered INTERNAL
-`ANGZARR_REASON_FACT_DEAD_LETTERED` (decision 14.100, DRAFT).
+`ANGZARR_REASON_FACT_DEAD_LETTERED` (decision 14.100).
 
 A rejection is never an outcome: it is a gRPC error status, and it writes
 nothing, so the same command_id may be retried.
@@ -279,7 +279,7 @@ no request wrapper.
 
 A ReactionDelivery is one output of a policy, or a refusal fact, as its
 coordinator delivers it to the destination's coordinator (decision 14.79,
-DRAFT; owner ruling Q4 on decision 46). It is built only by a policy's
+ruled 2026-11-02; owner ruling Q4 on decision 46). It is built only by a policy's
 coordinator, from the policy's answer (io.angzarr.handler.v1.Output,
 TranslateResponse) and its trigger, and taken only by the framework-only
 Deliver RPC (the angzarr-embedded kernel passes it in process). A client
@@ -294,7 +294,7 @@ Its cover is the destination stream: the policy's output_domain and the
 output's root in the trigger's edition; for a refusal fact, the trigger's
 own stream. Its body is the command or fact, as the policy answered it,
 in the arm of its kind (Output's arm; a refusal fact is always the fact
-arm): a oneof, not a flag (decision 14.91, DRAFT). Neither arm is core's
+arm): a oneof, not a flag (decision 14.91). Neither arm is core's
 Command or Fact: a reaction carries no Handling, and its fact's origin is
 derived. Its command_id is derived from (trigger, policy, index) for an
 output ([identity-and-streams.md](identity-and-streams.md) §3.2); the

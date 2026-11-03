@@ -32,6 +32,6 @@ option ruby_package = "Angzarr";
 message EditionSummary {
   string name = 1; // Always non-empty (main is not an edition)
   // Every stream forked in it: each stream's EditionCreated (decision
-  // 14.107, DRAFT). The edition's stream count is this list's length.
+  // 14.107). The edition's stream count is this list's length.
   repeated EventRef forks = 2;
 }

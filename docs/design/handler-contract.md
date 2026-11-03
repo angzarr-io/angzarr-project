@@ -1,6 +1,6 @@
 # The handler contract: the layer rule, Handle and its outcomes
 
-**Status:** normative (decisions 14.37, 14.39, 14.40, 14.42, 14.56, 14.72, 14.75, 14.94, 14.101; as amended by the DRAFT decisions 14.78, 14.95, 14.98 and 14.100 pending review). Moved from `proto/io/angzarr/handler/v1/command_handler.proto`'s and `proto/io/angzarr/component/v1/command_handler.proto`'s comments (decision 14.109). The service is `io.angzarr.component.v1.CommandHandlerService`; the messages are `io/angzarr/handler/v1/command_handler.proto`'s (`HandleRequest`, `HandleResponse`, `Refusal`). The other kinds' messages follow the same layer rule: `io/angzarr/handler/v1/policy.proto` (docs/design/policies.md), `io/angzarr/handler/v1/projector.proto` (docs/design/projectors.md) and `io/angzarr/handler/v1/upcaster.proto` (docs/design/upcasting.md).
+**Status:** normative (decisions 14.37, 14.39, 14.40, 14.42, 14.56, 14.72, 14.75, 14.94, 14.101; as amended by decisions 14.78, 14.95, 14.98 and 14.100). Moved from `proto/io/angzarr/handler/v1/command_handler.proto`'s and `proto/io/angzarr/component/v1/command_handler.proto`'s comments (decision 14.109). The service is `io.angzarr.component.v1.CommandHandlerService`; the messages are `io/angzarr/handler/v1/command_handler.proto`'s (`HandleRequest`, `HandleResponse`, `Refusal`). The other kinds' messages follow the same layer rule: `io/angzarr/handler/v1/policy.proto` (docs/design/policies.md), `io/angzarr/handler/v1/projector.proto` (docs/design/projectors.md) and `io/angzarr/handler/v1/upcaster.proto` (docs/design/upcasting.md).
 
 What each kind of business logic takes and returns, and how the coordinator
 treats a command handler's answer. The pipeline, the command modes and
@@ -9,7 +9,7 @@ the boundary between the coordinator and the business logic.
 
 ## 1. The handler layer
 
-The handler layer (decision 14.78, DRAFT): what each kind of business
+The handler layer (decision 14.78): what each kind of business
 logic takes and returns, and nothing else. It sits between core
 (io.angzarr.v1, the coordinator's records and envelopes) and the component
 services (io.angzarr.component.v1, which bind these messages to gRPC). The
@@ -38,7 +38,7 @@ direction:
     it needs (the owner's ruling on decision 46, Q1).
   - A response carries only what business code decides on success:
     payloads, the post-decision state, the rules version. A refusal, a
-    re-run and a bug are gRPC error statuses (decision 14.95, DRAFT).
+    re-run and a bug are gRPC error statuses (decision 14.95).
     It has no field the coordinator stamps (a cover, a sequence, an id,
     EventMeta), so there is nothing for the coordinator to refuse.
 ```
@@ -51,7 +51,7 @@ CommandBook, under the input's cover, never transforming the payload.
 
 The command handler of an aggregate, and of a process manager (a domain
 too, decision 14.31), is ONE call for both input kinds (decision 14.98,
-DRAFT, amending decision 46's Q3; the owner: "I want fact and command to
+ruled 2026-11-02, amending decision 46's Q3; the owner: "I want fact and command to
 use the same verb ... moving from a fact to a command should be
 relatively simple to do"): Handle, whose input book holds the command or
 the fact arm. The input book's body arm says which. Converting a message
@@ -86,7 +86,7 @@ after it (decision 14.40).
 The handler always decides on the current state: the coordinator appends
 at the head it loaded and re-runs a lost race on the new head
 ([pipeline.md](pipeline.md) §4; docs/design/command-handling.md §4). A command whose expected sequence is not that head is refused before
-Handle is called (ExpectedSequenceMismatch; decision 14.94, DRAFT;
+Handle is called (ExpectedSequenceMismatch; decision 14.94;
 docs/design/command-handling.md §5).
 
 ## 5. In the client library
@@ -107,7 +107,7 @@ snapshot or comparing sequences with it.
 
 ## 6. What Handle answers: success only
 
-Handle answers SUCCESS ONLY (decision 14.95, DRAFT; the owner: "grpc
+Handle answers SUCCESS ONLY (decision 14.95; the owner: "grpc
 should carry the error (both retryable and not)"): on success its events,
 the state and the rules version (HandleResponse). Every other outcome is a
 gRPC error status, per AIP-193 and decision 14.37:
@@ -128,7 +128,7 @@ gRPC error status, per AIP-193 and decision 14.37:
 A fact's handling never refuses: any error status for a FACT is a bug
 (decision 14.72). The fact is dead-lettered under the status's key and
 args and alerted, and its sender answered INTERNAL
-ANGZARR_REASON_FACT_DEAD_LETTERED (decisions 14.72 and 14.100, DRAFT).
+ANGZARR_REASON_FACT_DEAD_LETTERED (decisions 14.72 and 14.100).
 
 A refusal records nothing. It is typed (one of the command's refuses
 messages; decision 14.95): its status is the message's declared
@@ -181,6 +181,6 @@ The handler layer's Refusal is a business rejection as the refused
 policy's Translate receives it (io/angzarr/handler/v1/policy.proto,
 TranslateRequest.refusal): the typed refusal and the status it travelled
 as, which the policy's coordinator reads off the target's gRPC status
-(decision 14.95, DRAFT). Typed only: every refusal is one of its command's
+(decision 14.95). Typed only: every refusal is one of its command's
 refuses messages. What the policy does with it is docs/design/policies.md
 §3.

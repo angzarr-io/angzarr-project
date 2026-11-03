@@ -30,7 +30,7 @@ message StoredDeadLetter {
   // it; never changes.
   bytes payload = 4;
   // AngzarrDeadLetter's why, mirrored (decisions 14.101 and 14.107,
-  // DRAFT): a typed refusal, a reason (a key and its args, never text;
+  // ruled 2026-11-02): a typed refusal, a reason (a key and its args, never text;
   // decision 14.37), or a transport's own why.
   oneof why {
     google.protobuf.Any refusal = 5;
@@ -122,7 +122,7 @@ message DeleteDeadLetterRequest {
 }
 
 // Idempotent: a row was removed, or none matched; either is a success,
-// and the arm says which (decision 14.91, DRAFT: no flag).
+// and the arm says which (decision 14.91: no flag).
 message DeleteDeadLetterResponse {
   oneof outcome {
     DeadLetterRemoved removed = 1;

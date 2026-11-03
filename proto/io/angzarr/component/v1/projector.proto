@@ -11,11 +11,11 @@ option ruby_package = "Angzarr::Component";
 
 // ProjectorService: a projector's business logic, projecting events to read
 // models. Its messages are the handler layer's
-// (io/angzarr/handler/v1/projector.proto; decision 14.78, DRAFT).
+// (io/angzarr/handler/v1/projector.proto; decision 14.78).
 // Per-stream delivery, editions, and positions marked only after an
 // affirmative answer (decision 14.97): docs/design/projectors.md.
 service ProjectorService {
-  // Project a run of one stream's events (decision 14.78, DRAFT): the
+  // Project a run of one stream's events (decision 14.78): the
   // projector persists its read model and answers the projection
   // (docs/design/projectors.md §1 and §5).
   rpc Project(io.angzarr.handler.v1.ProjectRequest) returns (io.angzarr.handler.v1.ProjectResponse);

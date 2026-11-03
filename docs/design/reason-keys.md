@@ -1,6 +1,6 @@
 # Reason keys: the framework's failure vocabulary
 
-**Status:** normative (decisions 14.37, 14.42, 14.44, 14.46, 14.48, 14.49, 14.51, 14.56, 14.60, 14.62, 14.64, 14.65, 14.69, 14.71, 14.80; as amended by the DRAFT decisions 14.84, 14.85, 14.88, 14.91, 14.92, 14.94, 14.95 and 14.100 to 14.107 pending review). Moved from the comments of `proto/io/angzarr/v1/reasons.proto`, `proto/io/angzarr/transport/embedded/v1/reasons.proto` and `proto/io/angzarr/transport/distributed/v1/reasons.proto` (decision 14.109). The enums are those files' AngzarrReason, EmbeddedReason and DistributedReason; the option is `reasons.proto`'s ReasonOptions (the reason region); the English is each file's `reasons.en-US.ftl`.
+**Status:** normative (decisions 14.37, 14.42, 14.44, 14.46, 14.48, 14.49, 14.51, 14.56, 14.60, 14.62, 14.64, 14.65, 14.69, 14.71, 14.80; as amended by decisions 14.84, 14.85, 14.88, 14.91, 14.92, 14.94, 14.95 and 14.100 to 14.107). Moved from the comments of `proto/io/angzarr/v1/reasons.proto`, `proto/io/angzarr/transport/embedded/v1/reasons.proto` and `proto/io/angzarr/transport/distributed/v1/reasons.proto` (decision 14.109). The enums are those files' AngzarrReason, EmbeddedReason and DistributedReason; the option is `reasons.proto`'s ReasonOptions (the reason region); the English is each file's `reasons.en-US.ftl`.
 
 Every key angzarr answers, once: how keys are named, what travels on the
 wire, what a key declares, and, per key, when it is raised, its class and
@@ -9,7 +9,7 @@ four) are `docs/design/command-handling.md` §3.
 
 ## 1. Keys by layer
 
-Keys are named by LAYER, never by role (decision 14.104, DRAFT): one enum
+Keys are named by LAYER, never by role (decision 14.104): one enum
 per layer, in the package of that layer.
 
 ```text
@@ -81,17 +81,17 @@ generated from it, as options.proto's options are read).
 ## 5. Surfaces and class
 
 How a key surfaces is required: every live key names one, by kind
-(decision 14.91, DRAFT).
+(decision 14.91).
 
 ```text
   grpc_status  the gRPC status the key travels with (decisions 14.65 and
-               14.104, DRAFT): google.rpc.Code itself, never OK. The
+               14.104): google.rpc.Code itself, never OK. The
                key's section says when an answerer may pick another (a
                retryable bug's status, C-0678).
   readiness    a readiness refusal: the key never travels as a status; it
                is logged and alerted as the coordinator's readiness
                ([component-registration.md](component-registration.md)
-               §8; decisions 14.88 and 14.91, DRAFT).
+               §8; decisions 14.88 and 14.91).
 ```
 
 Which class a status is (decision 14.37's four classes) is the
@@ -115,7 +115,7 @@ up (the coordinator, as the dead letter's reason, or a caller that owns
 its retries, as its last answer) reports the key, never a bare status.
 
 A key that is removed is simply gone from its enum; the decision log
-records what was removed and why (decision 14.100, DRAFT: the rewrite
+records what was removed and why (decision 14.100: the rewrite
 holds no reservations). The numbers are bookkeeping, contiguous.
 
 ## 8. Core keys raised by the router
@@ -206,7 +206,7 @@ INTERNAL, bug, fatal.
 ### 8.13 `ANGZARR_REASON_DUPLICATE_COMPONENT`
 
 A second component registered where one already is: one business process
-hosts one component. ONE owner and one arg set (decision 14.88, DRAFT):
+hosts one component. ONE owner and one arg set (decision 14.88):
 the router answers it, naming the component already registered
 (`registered`) and the one refused (`refused`), each by its component
 name. The component host does not check it again: it registers through
@@ -287,7 +287,7 @@ write to the same stream, until the race re-run cap (every input is re-run
 on the new head; decision 14.92). `attempts` is how many times business
 code ran, `cap` the configured limit reached. Nothing is persisted, and
 the command is not dead-lettered: its caller holds it (the owner's ruling
-of 2026-10-31; decision 14.85, DRAFT). INTERNAL, a fatal bug's status
+of 2026-10-31; decision 14.85). INTERNAL, a fatal bug's status
 (decision 14.37): the retries are spent.
 
 A command with no caller waiting (HandleAsync, a reaction) is
@@ -310,7 +310,7 @@ dead-lettered (the stream's cover as
 AngzarrDeadLetter.failed_edition_removal) with this key as its reason, and
 alerted. `attempts` is how many removals were tried, `cause` the store's
 failure. Never answered to a caller: DeleteEdition answers once every
-stream is removed or so dead-lettered (decision 14.107, DRAFT). (Decision
+stream is removed or so dead-lettered (decision 14.107). (Decision
 14.48, amended.)
 
 ### 10.8 `ANGZARR_REASON_POLICY_COMMAND_UNKNOWN_DOMAIN`
@@ -402,7 +402,7 @@ simply does not hold this stream. Checked when the input is loaded, before
 business code runs: nothing runs and nothing is persisted. Business, fatal
 (decision 14.37): a client forks the stream (ForkStream) and resends; a
 policy's reaction is dead-lettered with this key, as any failed delivery,
-and alerted. There is no automatic fork (decision 14.107, DRAFT). (C-0633;
+and alerted. There is no automatic fork (decision 14.107). (C-0633;
 decision 14.65.)
 
 ### 10.15 `ANGZARR_REASON_POLICY_TARGETS_ITS_TRIGGER`
@@ -425,7 +425,7 @@ input_domain, a projector's empty input_domains (`component_kind` says
 which). Its sources are derived from the events it names (decision 14.78;
 `docs/design/component-options.md` §4), and there is no wildcard domain
 (decision 14.53), so it would react to or fold nothing. One rule, the
-coordinator's, for both kinds (decision 14.101, DRAFT): readiness, as
+coordinator's, for both kinds (decision 14.101): readiness, as
 every descriptor rule's (decision 14.65).
 
 ### 10.17 `ANGZARR_REASON_DESCRIPTOR_NO_KIND`
@@ -436,7 +436,7 @@ an arm this coordinator does not know. Readiness (decision 14.65, 14.78).
 ### 10.18 `ANGZARR_REASON_FACT_DEAD_LETTERED`
 
 A fact that could not be recorded and is dead-lettered (decision 14.100,
-DRAFT; the owner: "non-retryable. if retrying senders repark, it's a logic
+ruled 2026-11-02; the owner: "non-retryable. if retrying senders repark, it's a logic
 bug. they shouldn't be retrying"): its handler failed, answered an error,
 or the fact lost a race at every write until the race re-run cap. `cause`
 is the dead letter's reason (its key and args, flattened), `stream` the
@@ -449,7 +449,7 @@ it again (`docs/design/policies.md` §2).
 
 An aggregate's or a process manager's descriptor with no domain: after the
 one component name (decision 14.87) the name no longer implies it.
-Readiness (decisions 14.65, 14.101, DRAFT).
+Readiness (decisions 14.65, 14.101).
 
 ### 10.20 `ANGZARR_REASON_STATE_TYPE_MISMATCH`
 
@@ -459,7 +459,7 @@ StateDescriptor.type_name): its snapshots would never be offered back to
 it. Bug, fatal (decision 14.37): refused, nothing persisted; a caller of
 Handle or HandleSync is answered it, any other delivery dead-lettered with
 it and alerted. The coordinator's equivalent of the retired host check
-(decision 14.102, DRAFT: the coordinator owns every descriptor check),
+(decision 14.102: the coordinator owns every descriptor check),
 beside ANGZARR_REASON_RULES_VERSION_MISMATCH, which is the equivalent for
 the rules version.
 
@@ -472,21 +472,21 @@ projector's failure, its key and args). The decision stays committed. Bug,
 retryable (decision 14.37): the caller resends with the same command_id,
 which deduplicates (DUPLICATE), answers the same events and waits on the
 named projectors again. Never a dead letter's reason: a caller waits, and
-nothing is undone. There is no partial answer (decision 14.105, DRAFT,
+nothing is undone. There is no partial answer (decision 14.105,
 deleting ProjectorFailure).
 
 ### 10.22 `ANGZARR_REASON_SYNC_NO_PROJECTORS`
 
 HandleSync with no projector named (HandleSyncRequest.projectors empty): a
 caller that waits for no projector calls Handle. Business, fatal (decision
-14.37): nothing runs. (Decision 14.107, DRAFT.)
+14.37): nothing runs. (Decision 14.107.)
 
 ### 10.23 `ANGZARR_REASON_SYNC_PROJECTOR_NOT_SUBSCRIBED`
 
 HandleSync naming a projector (`projector`) that is not subscribed to the
 command's domain (`domain`), a name no projector is registered under
 included. Business, fatal (decision 14.37): nothing runs. (Decision
-14.107, DRAFT.)
+14.107.)
 
 ## 11. The local-process transport's keys
 
@@ -563,7 +563,7 @@ third-party library's text as `cause.ext_err_txt`). Bug, retryable
 (decision 14.37): retried under the retry cap with backoff and jitter; at
 the cap dead-lettered with a PayloadRetrievalFailed as its why
 (AngzarrDeadLetter's transport arm, dead_letter.proto), whose type implies
-this key, and alerted (C-0447). (Decisions 14.51 and 14.107, DRAFT.)
+this key, and alerted (C-0447). (Decisions 14.51 and 14.107.)
 
 ### 12.4 `DISTRIBUTED_REASON_DEAD_LETTER_STORE_UNAVAILABLE`
 
@@ -571,17 +571,17 @@ DlqAdminService ([dlq-admin.md](dlq-admin.md) §1): the admin store of dead lett
 not be reached or failed to answer (`cause`, the store's failure, a
 third-party driver's text as `cause.ext_err_txt`). Bug, retryable
 (decision 14.37): the caller resends; nothing was changed by a failed
-Delete or Replay. (Decision 14.106, DRAFT, replacing the degraded
+Delete or Replay. (Decision 14.106, replacing the degraded
 envelope.)
 
 ### 12.5 `DISTRIBUTED_REASON_DEAD_LETTER_NOT_FOUND`
 
 DlqAdminService.GetDeadLetter or ReplayDeadLetter given an id (`id`) with
 no entry. Business, fatal (decision 14.37). DeleteDeadLetter never answers
-it: its no_entry arm says so. (Decision 14.106, DRAFT.)
+it: its no_entry arm says so. (Decision 14.106.)
 
 ### 12.6 `DISTRIBUTED_REASON_DEAD_LETTER_QUERY_INVALID`
 
 DlqAdminService.ListDeadLetters given a filter or a page token that does
 not parse (`field`: `filter` or `page_token`). Business, fatal (decision
-14.37): the caller fixes the request. (Decision 14.106, DRAFT.)
+14.37): the caller fixes the request. (Decision 14.106.)

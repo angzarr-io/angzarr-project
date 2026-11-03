@@ -1,6 +1,6 @@
 # Process managers
 
-**Status:** normative (decision 14.31 and its amendments; DRAFT decisions 14.78 to 14.102 pending review). Moved from `proto/io/angzarr/v1/process_manager.proto`, which defined no message (decision 14.103, DRAFT).
+**Status:** normative (decision 14.31 and its amendments; decisions 14.78 to 14.102). Moved from `proto/io/angzarr/v1/process_manager.proto`, which defined no message (decision 14.103).
 
 Process managers (decision 14.31): A PROCESS MANAGER IS A DOMAIN.
 
@@ -102,7 +102,7 @@ names (decision 14.41):
     ANGZARR_REASON_PM_NO_INSTANCE, and alerted, recording nothing; a
     fact is never refused, so its sender is answered INTERNAL
     ANGZARR_REASON_FACT_DEAD_LETTERED (cause the ANGZARR_REASON_PM_NO_INSTANCE key), never
-    retried (decision 14.100, DRAFT);
+    retried (decision 14.100);
   - a COMMAND is refused (owner's ruling; decision 14.31):
     FAILED_PRECONDITION, with a google.rpc.ErrorInfo of reason
     ANGZARR_REASON_PM_NO_INSTANCE, recording nothing, as any business rejection. A

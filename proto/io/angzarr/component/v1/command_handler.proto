@@ -12,8 +12,8 @@ option ruby_package = "Angzarr::Component";
 // CommandHandlerService: the business logic of one domain's aggregates (or
 // a process manager's), the one service its business process serves for it,
 // called by the coordinator. ONE RPC for commands and facts alike (decision
-// 14.98, DRAFT). Its messages are the handler layer's
-// (io/angzarr/handler/v1/command_handler.proto; decision 14.78, DRAFT).
+// 14.98). Its messages are the handler layer's
+// (io/angzarr/handler/v1/command_handler.proto; decision 14.78).
 // The contract, what the coordinator has done before Handle, and how the
 // client library dispatches: docs/design/handler-contract.md §1, §3 to §5;
 // an answer the coordinator refuses (ANGZARR_REASON_RULES_VERSION_MISMATCH):
@@ -22,7 +22,7 @@ service CommandHandlerService {
   // Handle one command or fact: on success its events, the state and the
   // rules version. Every other outcome (a command's typed refusal, a re-run
   // as ABORTED, a bug) is a gRPC error status, per AIP-193 and decision
-  // 14.37 (decision 14.95, DRAFT); for a fact, any error status is a bug
+  // 14.37 (decision 14.95); for a fact, any error status is a bug
   // (decision 14.72). The outcomes and where a refusal goes:
   // docs/design/handler-contract.md §6.
   rpc Handle(io.angzarr.handler.v1.HandleRequest) returns (io.angzarr.handler.v1.HandleResponse);

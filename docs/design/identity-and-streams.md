@@ -1,6 +1,6 @@
 # Identity: type URLs, UUIDs, streams, events and commands
 
-**Status:** normative (decisions 9.1, 12.2 to 12.4, 13.3, 13.4, 14.31, 14.36, 14.42, 14.64, 14.69; as amended by the DRAFT decisions 14.78, 14.79, 14.102 and 14.106 pending review). Moved from `proto/io/angzarr/v1/types.proto`'s comments (decision 14.109). Covers type URLs, UUIDs, derived and minted identifiers, stream identity (`Cover`), events and their identity (`EventPage`, `EventRef`, `EventMeta`), command identity (command id, correlation, causation, fact origin), deduplication and the security log. The messages are `types.proto`'s: the `uuid`, `derived_ids`, `minted_ids`, `cover`, `event_page`, `event_ref`, `command_identity`, `security_logs` and `event_meta` regions, and `FactOrigin`. Editions are [edition-meta-events.md](edition-meta-events.md); the pipeline and concurrency are [pipeline.md](pipeline.md).
+**Status:** normative (decisions 9.1, 12.2 to 12.4, 13.3, 13.4, 14.31, 14.36, 14.42, 14.64, 14.69; as amended by decisions 14.78, 14.79, 14.102 and 14.106). Moved from `proto/io/angzarr/v1/types.proto`'s comments (decision 14.109). Covers type URLs, UUIDs, derived and minted identifiers, stream identity (`Cover`), events and their identity (`EventPage`, `EventRef`, `EventMeta`), command identity (command id, correlation, causation, fact origin), deduplication and the security log. The messages are `types.proto`'s: the `uuid`, `derived_ids`, `minted_ids`, `cover`, `event_page`, `event_ref`, `command_identity`, `security_logs` and `event_meta` regions, and `FactOrigin`. Editions are [edition-meta-events.md](edition-meta-events.md); the pipeline and concurrency are [pipeline.md](pipeline.md).
 
 ## 1. Type URLs
 
@@ -207,7 +207,7 @@ EventMeta.recorded_at, and any business time (e.g. when an external fact
 originally occurred) belongs in the event payload.
 
 An event's body is a domain's event or the framework's meta-event
-(decision 14.106, DRAFT); the client library hands business code only the
+(decision 14.106); the client library hands business code only the
 event arm.
 
 An event's sequence is its position in its stream (domain, edition,
@@ -234,7 +234,7 @@ is the event's DIRECT cause (§6): its command arm or its fact arm (with
 the fact's origin), by the producing input's kind, every event's (a
 process manager's included; a PM is a domain, with no trigger-caused
 events; decision 14.31; the arm as CommandPage's body, decision 14.102,
-DRAFT). Its command_id, read from whichever arm is set, is the
+ruled 2026-11-02). Its command_id, read from whichever arm is set, is the
 deduplication key on the stream (§7). rules_version is always recorded
 from the business logic's report (empty only if the business logic
 reports none). A reaction command's causation (its trigger) is NOT
@@ -279,7 +279,7 @@ Why a command exists, and how it is deduplicated. Every command carries
 one command_id; reaction commands also carry the triggering event
 (causation); facts carry their source (Fact.origin). A client's command
 rides a CommandPage; a policy's, a ReactionDelivery (decision 14.79,
-DRAFT). This follows the established message-metadata convention
+ruled 2026-11-02). This follows the established message-metadata convention
 (KurrentDB's $correlationId / $causationId, NServiceBus, Marten and
 Wolverine): one message id, a correlation id, and a causation id naming
 the message's DIRECT cause. A command's direct cause is its trigger (its

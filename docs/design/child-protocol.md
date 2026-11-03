@@ -1,7 +1,7 @@
 # The child-process launch protocol (v1)
 
 **Status:** normative, decisions 14.59 (2026-10-31), 14.62 and 14.63
-(2026-11-01), as amended by 14.80 (DRAFT, 2026-11-02: no handshake line).
+(2026-11-01), as amended by 14.80 (ruled 2026-11-02: no handshake line).
 Scenarios:
 [`parity/client/child.feature`](../../parity/client/child.feature), run by
 every child shim, and
@@ -35,7 +35,7 @@ The key words MUST, MUST NOT, SHOULD and MAY are used as in RFC 2119.
   at most 103 bytes long: the portable minimum of a Unix socket address's
   `sun_path`, less its NUL. macOS and the BSDs give `sun_path` 104 bytes
   (103 usable), Linux 108 (107 usable), so 103 is the longest path every
-  platform a host or child may run on accepts (decision 14.108, DRAFT); a
+  platform a host or child may run on accepts (decision 14.108); a
   host refuses a socket directory too long to hold the names it
   gives.
 - Before launching, the host removes any file already at that path (a stale

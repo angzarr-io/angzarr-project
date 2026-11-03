@@ -10,7 +10,7 @@ option java_multiple_files = true;
 option java_package = "io.angzarr.handler";
 option ruby_package = "Angzarr::Handler";
 
-// A projector's business logic (decision 14.78, DRAFT), under the handler
+// A projector's business logic (decision 14.78), under the handler
 // layer's rule (docs/design/handler-contract.md §2).
 
 // What Project is handed: a run of one stream's events, in order, upcast;

@@ -153,7 +153,7 @@ message HoldFunds {
 }
 
 // The wallet's typed refusals of its client commands (decision 14.82,
-// DRAFT; the owner's ruling F3): one message per refusal, its args its
+// ruled 2026-11-02; the owner's ruling F3): one message per refusal, its args its
 // fields, its status its (io.angzarr.v1.refusal_status) message option
 // (declared on each, decision 14.95), each named in the refuses of every command
 // that refuses with it. Refusal objects, never events; on the wire each is

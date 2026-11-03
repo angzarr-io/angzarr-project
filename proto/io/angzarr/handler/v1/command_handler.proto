@@ -12,7 +12,7 @@ option java_multiple_files = true;
 option java_package = "io.angzarr.handler";
 option ruby_package = "Angzarr::Handler";
 
-// The handler layer (decision 14.78, DRAFT): what each kind of business
+// The handler layer (decision 14.78): what each kind of business
 // logic takes and returns, and nothing else. Depends on core only.
 // The layer and its rule (requests carry the books, read-only; responses
 // carry only decisions): docs/design/handler-contract.md §1 and §2. The
@@ -40,7 +40,7 @@ message HandleRequest {
   io.angzarr.v1.EventRef causation = 4;
 }
 
-// What Handle answers: SUCCESS ONLY (decision 14.95, DRAFT): the events, the
+// What Handle answers: SUCCESS ONLY (decision 14.95): the events, the
 // state and the rules version. A refusal (ANGZARR_REASON_COMMAND_REFUSED), a
 // re-run (ABORTED) and a bug are gRPC error statuses:
 // docs/design/handler-contract.md §6.
@@ -62,7 +62,7 @@ message HandleResponse {
 
 // A business rejection as the refused policy's Translate receives it
 // (io/angzarr/handler/v1/policy.proto, TranslateRequest.refusal): the typed
-// refusal and the status it travelled as (decision 14.95, DRAFT;
+// refusal and the status it travelled as (decision 14.95;
 // docs/design/handler-contract.md §8). Typed only.
 message Refusal {
   // The business status the refusal travelled as: its message's declared

@@ -1,6 +1,6 @@
 # The distributed transport: entry points, coordinators, the bus and dead letters
 
-**Status:** normative (decisions 14.37, 14.64; as amended by the DRAFT decisions 14.79, 14.105, 14.107 pending review; decision 46, Q3 and Q4). Moved from the comments of `proto/io/angzarr/transport/distributed/v1/command_handler.proto` (the `entry_points` region), `policy.proto`, `projector.proto`, `bus.proto` and `dead_letter.proto` (decision 14.109). The services are `CommandHandlerCoordinatorService`, `PolicyCoordinatorService` and `ProjectorCoordinatorService`; the messages are `bus.proto`'s (`BusEnvelope`, `ClaimCheck`, `PayloadReference`) and `dead_letter.proto`'s (`DeadLetterEnvelope`, `PayloadRetrievalFailed`), all in `io.angzarr.transport.distributed.v1`.
+**Status:** normative (decisions 14.37, 14.64; as amended by decisions 14.79, 14.105, 14.107; decision 46, Q3 and Q4). Moved from the comments of `proto/io/angzarr/transport/distributed/v1/command_handler.proto` (the `entry_points` region), `policy.proto`, `projector.proto`, `bus.proto` and `dead_letter.proto` (decision 14.109). The services are `CommandHandlerCoordinatorService`, `PolicyCoordinatorService` and `ProjectorCoordinatorService`; the messages are `bus.proto`'s (`BusEnvelope`, `ClaimCheck`, `PayloadReference`) and `dead_letter.proto`'s (`DeadLetterEnvelope`, `PayloadRetrievalFailed`), all in `io.angzarr.transport.distributed.v1`.
 
 What only the distributed transport adds around the core books: who may
 call which coordinator RPC, what the policy and projector coordinators do
@@ -14,7 +14,7 @@ docs/design/cloudevents.md.
 ## 1. Entry points and framework identity
 
 Clients use Handle, HandleAsync and HandleSync; framework components use
-them too, and alone use Deliver (decision 14.79, DRAFT).
+them too, and alone use Deliver (decision 14.79).
 
 A framework component (a policy coordinator delivering reaction
 commands and refusal facts, the outbox dispatcher, the DLQ replayer, a
@@ -83,7 +83,7 @@ ProjectorCoordinatorService orchestrates projection processing.
   calls this for each projector its caller named; an error status here
   fails that HandleSync with UNAVAILABLE
   ANGZARR_REASON_SYNC_PROJECTION_FAILED, this status's key its cause
-  (decision 14.105, DRAFT).
+  (decision 14.105).
 - HandleAsync: asynchronous processing: accept the events for projection
   and return without waiting (fire and forget). Named for the mode, as on
   the command coordinator (HandleAsync / HandleSync).
@@ -109,7 +109,7 @@ dead-lettered with a PayloadRetrievalFailed as its why
 A PayloadReference (the claim check pattern's reference to an externally
 stored payload) is carried only by a bus envelope, never by a persisted
 page. Its URI's scheme names the storage backend (decision 14.107,
-DRAFT: there is no separate storage type), for example:
+ruled 2026-11-02: there is no separate storage type), for example:
 
 ```text
   file:///var/angzarr/payloads/{hash}.bin

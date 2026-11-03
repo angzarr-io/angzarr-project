@@ -10,7 +10,7 @@ option java_multiple_files = true;
 option java_package = "io.angzarr.scheduler";
 option ruby_package = "Angzarr::Scheduler";
 
-// DRAFT (decision 14.90), for the owner's review: the time facts of the
+// Decision 14.90: the time facts of the
 // scheduler, and nothing else. The scheduler is a domain, one stream per
 // target stream; a domain's payloads, so its own package, importing only
 // core: docs/design/scheduler.md.

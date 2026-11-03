@@ -41,7 +41,7 @@ message ClaimCheck {
 // (docs/design/distributed-transport.md §4).
 message PayloadReference {
   // Location URI; its scheme names the storage backend (decision 14.107,
-  // DRAFT), e.g. s3://bucket/prefix/{hash}.bin.
+  // ruled 2026-11-02), e.g. s3://bucket/prefix/{hash}.bin.
   string uri = 1;
   // Content hash for integrity verification and deduplication (SHA-256)
   bytes content_hash = 2;

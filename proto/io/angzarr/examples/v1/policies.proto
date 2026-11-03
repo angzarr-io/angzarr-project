@@ -60,7 +60,7 @@ message TableWalletPolicy {
 // own stream root), round, seat, the hand's cards, total and soft,
 // dealer_up, can_double, stack and wager, unchanged. It forwards nothing
 // else: never the dealer's hole card or the shoe (R8). DecideMove cannot be
-// refused (decision 14.99, DRAFT), so this policy translates no refusal.
+// refused (decision 14.99), so this policy translates no refusal.
 message TablePlayerPolicy {
   option (io.angzarr.v1.component) = {
     component_name: "policy-table-player"

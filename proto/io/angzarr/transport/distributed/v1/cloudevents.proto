@@ -6,7 +6,7 @@ package io.angzarr.transport.distributed.v1;
 // github.com/cloudevents/spec, cloudevents/formats/cloudevents.proto
 // (commit bad81171bd3d1c0343ef43b4b2ad4ffca9dc2012), Apache-2.0 (the
 // CloudEvents Authors; proto/LICENSE-APACHE). Decision 14.108,
-// DRAFT.
+// ruled 2026-11-02.
 import "io/cloudevents/v1/cloudevents.proto";
 
 option csharp_namespace = "Angzarr.Transport.Distributed";
@@ -18,7 +18,7 @@ option ruby_package = "Angzarr::Transport::Distributed";
 // region cloud_event
 // What a projector returns, in Projection.projection, to publish CloudEvents
 // to the configured sinks: the official CloudEvents Protobuf Format's events
-// (decision 14.108, DRAFT). Publishing triggers only on this exact type;
+// (decision 14.108). Publishing triggers only on this exact type;
 // the attributes the framework fills: docs/design/cloudevents.md.
 message CloudEventsResponse {
   repeated io.cloudevents.v1.CloudEvent events = 1;

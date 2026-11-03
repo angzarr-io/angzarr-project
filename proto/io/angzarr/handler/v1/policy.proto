@@ -12,7 +12,7 @@ option java_package = "io.angzarr.handler";
 option ruby_package = "Angzarr::Handler";
 
 // A policy's business logic: React to one event of its source, and
-// Translate one refusal of a command it sent (decision 14.78, DRAFT), under
+// Translate one refusal of a command it sent (decision 14.78), under
 // the handler layer's rule (docs/design/handler-contract.md §2). The calls:
 // docs/design/policies.md §6.
 
@@ -45,7 +45,7 @@ message Output {
   // in. Required, 16 bytes.
   io.angzarr.v1.UUID root = 1;
   // The destination's command or fact: the arm is the kind (decision 14.91,
-  // DRAFT: no flag), picked by generated code from the destination's
+  // ruled 2026-11-02: no flag), picked by generated code from the destination's
   // declaration (docs/design/policies.md §6).
   oneof body {
     google.protobuf.Any command = 2;

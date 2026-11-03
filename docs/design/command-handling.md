@@ -1,6 +1,6 @@
 # Command handling: modes, the pipeline's outcomes and status codes
 
-**Status:** normative (decisions 14.37, 14.45 to 14.47, 14.51, 14.64; as amended by the DRAFT decisions 14.78 to 14.102 and 14.104 to 14.107 pending review). Moved from `proto/io/angzarr/v1/command_handler.proto`, which defined no message (decision 14.103, DRAFT). The services are `io.angzarr.component.v1.CommandHandlerService` and `io.angzarr.transport.distributed.v1.CommandHandlerCoordinatorService`; the pipeline is [pipeline.md](pipeline.md) (its message `types.proto`'s Handling). §10 moved from `proto/io/angzarr/transport/distributed/v1/command_handler.proto`'s comments (decision 14.109).
+**Status:** normative (decisions 14.37, 14.45 to 14.47, 14.51, 14.64; as amended by decisions 14.78 to 14.102 and 14.104 to 14.107). Moved from `proto/io/angzarr/v1/command_handler.proto`, which defined no message (decision 14.103). The services are `io.angzarr.component.v1.CommandHandlerService` and `io.angzarr.transport.distributed.v1.CommandHandlerCoordinatorService`; the pipeline is [pipeline.md](pipeline.md) (its message `types.proto`'s Handling). §10 moved from `proto/io/angzarr/transport/distributed/v1/command_handler.proto`'s comments (decision 14.109).
 
 What a command handler answers, and how every runtime handles a command.
 The handler's service is the component contract's
@@ -15,7 +15,7 @@ runtime's: core's coordinator and the angzarr-embedded kernel alike
 
 What the business logic answers is the handler layer's
 (io.angzarr.handler.v1.HandleResponse,
-io/angzarr/handler/v1/command_handler.proto; decision 14.78, DRAFT).
+io/angzarr/handler/v1/command_handler.proto; decision 14.78).
 
 CommandHandlerCoordinatorService (the distributed transport's) and the
 angzarr-embedded kernel: the entry points for commands and facts into a
@@ -41,12 +41,12 @@ a call-level choice, never part of the command: one RPC per mode.
 
 Impact ordering (lowest to highest): ASYNC < DECISION < SIMPLE.
 
-Each RPC has its one response (decision 14.105, DRAFT): Handle and Deliver
+Each RPC has its one response (decision 14.105): Handle and Deliver
 answer a CommandResult (the events and the delivery, APPLIED or
 DUPLICATE), HandleSync a CommandSyncResult (the same, and the
 projections). HandleSync takes a HandleSyncRequest: the command and the
 registered names of the projectors to wait for, a call-level choice (no
-projector carries a synchronous mode; decision 14.107, DRAFT). The list is
+projector carries a synchronous mode; decision 14.107). The list is
 required: an empty one is INVALID_ARGUMENT ANGZARR_REASON_SYNC_NO_PROJECTORS
 (a caller that waits for none calls Handle), and a named projector not
 subscribed to the command's domain is INVALID_ARGUMENT
@@ -98,12 +98,12 @@ one of four (decision 14.37):
               (AngzarrDeadLetter's refusal arm; decision 14.101), and
               alerted. A handler answers
               a business rejection as this gRPC status, its typed
-              refusal in the details (decision 14.95, DRAFT, reversing
+              refusal in the details (decision 14.95, reversing
               decision 46's Q2), and the coordinator passes it on.
   Business, immediate return: ABORTED, "re-read and re-decide": a
               handler's own choice, ABORTED under its own key. The
               coordinator has no conflict
-              of its own to answer (decision 14.92, DRAFT). Returned at once to an outside caller, who re-reads
+              of its own to answer (decision 14.92). Returned at once to an outside caller, who re-reads
               and decides again; for a policy step the runtime is the
               caller, reloading and re-running the step under the capped
               backoff below, then dead-lettering it and alerting. Never a
@@ -135,13 +135,13 @@ One cap bounds the coordinator's own re-runs of an input that loses a
 race at its write to another write to the same stream: the race re-run
 cap, configuration, a count of runs (the first included, default 10; at
 least 1, and a configuration of 0 is refused when it is loaded: decision
-14.84, DRAFT). Every input is re-run on the new head (the concurrency
+14.84). Every input is re-run on the new head (the concurrency
 waits with the exponential backoff and jitter above, never re-running at
 once. At the cap nothing is persisted. A caller waiting on Handle or
 HandleSync is answered INTERNAL ANGZARR_REASON_RETRY_CAP_EXHAUSTED
 (args attempts, cap), and its command is NOT dead-lettered: the caller
 holds it (the owner's ruling of 2026-10-31, "sync commands write no dead
-letter at the retry cap"; decision 14.46 as corrected by 14.85, DRAFT).
+letter at the retry cap"; decision 14.46 as corrected by 14.85).
 Only work with no caller waiting is dead-lettered and alerted: a
 HandleAsync command, and a reaction (Deliver) whose policy step then
 follows on_policy_bug.
@@ -164,7 +164,7 @@ A client's expected sequence (Handling.expected_sequence), when set and
 not the head the coordinator loaded, is refused before business code:
 FAILED_PRECONDITION, the framework's typed refusal
 io.angzarr.v1.ExpectedSequenceMismatch ([pipeline.md](pipeline.md) §5;
-decision 14.94, DRAFT). A race lost at the write re-runs the command, which is then stale
+decision 14.94). A race lost at the write re-runs the command, which is then stale
 and refused the same way; one without an expected sequence re-runs on
 the new head.
 
@@ -173,7 +173,7 @@ the new head.
 Reaction commands and refusal facts (policy output) are not delivered
 through these RPCs: a policy's coordinator delivers each as a
 ReactionDelivery through the framework-only Deliver (the distributed
-transport's) or in process (decision 14.79, DRAFT). Deliver answers as
+transport's) or in process (decision 14.79). Deliver answers as
 Handle does (DECISION): the policy needs the decision, a refusal
 included, to Translate it.
 
@@ -199,7 +199,7 @@ is no speculative RPC.
 
 Every command handler (an aggregate's or a process manager's, for a
 command and for a fact alike) returns an `Emit`, in every client library:
-the one return type (decision 14.104, DRAFT). `Emit::of(events)` is a
+the one return type (decision 14.104). `Emit::of(events)` is a
 list of events, applied in order; `.then(step)` optionally adds a
 continuation, run on the state with those events folded in, which returns
 an `Emit` of its own, and so on. A handler that needs no continuation
@@ -244,7 +244,7 @@ CommandPage.body.
   Fact:      a fact whose handler fails, or that lost a race at every
              write until the race re-run cap, is dead-lettered and its
              sender answered INTERNAL ANGZARR_REASON_FACT_DEAD_LETTERED
-             (non-retryable; decision 14.100, DRAFT; §4).
+             (non-retryable; decision 14.100; §4).
   Rejected:  a gRPC error status, and nothing is written (a handler's
              refusal, under its own key; a command that lost a race at
              every write until the race re-run cap is INTERNAL,
@@ -278,7 +278,7 @@ projectors the request names (HandleSyncRequest.projectors, each through
 its ProjectorCoordinatorService HandleSync) to project the persisted
 events; their results come back in projections, one per named projector.
 Which projectors to wait for is the call's choice: no projector carries a
-synchronous mode (decision 14.107, DRAFT).
+synchronous mode (decision 14.107).
 
 Refused before anything runs, INVALID_ARGUMENT: an empty list
 (ANGZARR_REASON_SYNC_NO_PROJECTORS; a caller that waits for no projector
@@ -289,13 +289,13 @@ name listed twice is waited for once.
 
 A named projector that fails after the decision committed fails the call
 with a RETRYABLE status: UNAVAILABLE ANGZARR_REASON_SYNC_PROJECTION_FAILED,
-naming the projector, its failure the cause (decision 14.105, DRAFT). The
+naming the projector, its failure the cause (decision 14.105). The
 decision stays committed; nothing is undone. There is no partial answer:
 the call either answers every projection or fails. The caller retries
 with the same command_id: the retry deduplicates (delivery DUPLICATE),
 answers the same events, and waits on the named projectors again.
 
-Deliver. A policy's output or refusal fact (decision 14.79, DRAFT; owner
+Deliver. A policy's output or refusal fact (decision 14.79; owner
 ruling Q4 on decision 46). Framework components only
 (docs/design/distributed-transport.md §1): a client is refused
 PERMISSION_DENIED. Answers as Handle (DECISION), with a CommandResult:

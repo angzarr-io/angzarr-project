@@ -1,12 +1,12 @@
 # Policies: translation, refusals and the transient outbox
 
-**Status:** normative (decisions 14.31, 14.42, 14.69, 14.71, 14.76; as amended by the DRAFT decisions 14.78 to 14.102 pending review). Moved from `proto/io/angzarr/v1/policy.proto`, which defined no message (decision 14.103, DRAFT); §6 moved from `proto/io/angzarr/component/v1/policy.proto`'s and `proto/io/angzarr/handler/v1/policy.proto`'s comments (decision 14.109). The services are `io.angzarr.component.v1.PolicyService` and `io.angzarr.transport.distributed.v1.PolicyCoordinatorService`; the messages are `io/angzarr/handler/v1/policy.proto`'s.
+**Status:** normative (decisions 14.31, 14.42, 14.69, 14.71, 14.76; as amended by decisions 14.78 to 14.102). Moved from `proto/io/angzarr/v1/policy.proto`, which defined no message (decision 14.103); §6 moved from `proto/io/angzarr/component/v1/policy.proto`'s and `proto/io/angzarr/handler/v1/policy.proto`'s comments (decision 14.109). The services are `io.angzarr.component.v1.PolicyService` and `io.angzarr.transport.distributed.v1.PolicyCoordinatorService`; the messages are `io/angzarr/handler/v1/policy.proto`'s.
 
 Policies: stateless translation from source events to the commands and
 facts their destination declares. The business logic's service is the
 component contract's (io.angzarr.component.v1.PolicyService,
 io/angzarr/component/v1/policy.proto), its messages the handler layer's
-(io/angzarr/handler/v1/policy.proto; decision 14.78, DRAFT), and the
+(io/angzarr/handler/v1/policy.proto; decision 14.78), and the
 coordinator's the distributed transport's (PolicyCoordinatorService,
 io/angzarr/transport/distributed/v1/policy.proto); what follows is every
 runtime's (decision 14.64). 
@@ -63,7 +63,7 @@ at the head it loaded, as for any input. It is delivered through the one framewo
     or whose business process answers it with an error (decision 14.72),
     is dead-lettered and alerted there and its sender answered INTERNAL
     ANGZARR_REASON_FACT_DEAD_LETTERED (docs/design/command-handling.md §3;
-    decision 14.100, DRAFT): to the policy that is its step done, never
+    decision 14.100): to the policy that is its step done, never
     retried or dead-lettered again, and its position moves on.
   - The descriptor names no fact types, so the policy's coordinator
     cannot check the arm: one its destination does not declare (a fact
@@ -92,13 +92,13 @@ policy's command the way it refuses any command: a business rejection,
 a gRPC business status carrying a TYPED refusal object of its own domain
 (one of the command's CommandOptions.refuses types, options.proto; e.g.
 InsufficientFunds { available, requested }) in its details (decisions
-14.37 and 14.95, DRAFT; typed only), and it records NOTHING. The refusal then yields the one unrefusable fact of it for the
+14.37 and 14.95; typed only), and it records NOTHING. The refusal then yields the one unrefusable fact of it for the
 policy's OWN source: the exact stream of its triggering event.
 ```text
   - The policy's coordinator calls PolicyService.Translate with the
     triggering event, the command as delivered and the target's refusal
     (TranslateRequest). The policy's ONE refusal callback (decision
-    14.89, DRAFT),
+    14.89),
       refused(command, refusal, ctx)
         -> <a fact type of the source domain>, or a Bug,
     takes the refused command (its target's command choice) and the
@@ -193,7 +193,7 @@ above), and dispatched and retried the same way.
 
 A policy's business logic has two calls: React to one event of its
 source, and Translate one refusal of a command it sent (decision 14.78,
-DRAFT). The handler layer's rule holds for both: a request carries the
+ruled 2026-11-02). The handler layer's rule holds for both: a request carries the
 books, read-only; a response carries only what business code decides
 (docs/design/handler-contract.md §2).
 
@@ -224,7 +224,7 @@ cannot set it:
 
 The root is required for every destination, an aggregate's or a process
 manager's alike: nothing fills one in. The arm is the kind (decision
-14.91, DRAFT: no flag). The policy's generated code picks it from the
+14.91: no flag). The policy's generated code picks it from the
 destination's declaration, (command) or (fact) (options.proto; decision
 14.73), never business code. A skewed arm (a fact sent as a command, or
 the reverse) is refused by the destination's router, as before (decision
@@ -241,7 +241,7 @@ dead-lettered and alerted, nothing delivered (§2).
 one fact of its own source (the one refusal path, decision 46 #5; §3). It
 is called by the policy's coordinator only, for every business rejection
 of one of its commands: every business refusal the target answered (a
-gRPC business status carrying a typed refusal; decision 14.95, DRAFT), and
+gRPC business status carrying a typed refusal; decision 14.95), and
 for nothing else: an ABORTED re-runs the step, and a bug is
 dead-lettered. The business process runs the policy's one refusal
 callback (decision 14.89) and answers the fact's payload. An error status

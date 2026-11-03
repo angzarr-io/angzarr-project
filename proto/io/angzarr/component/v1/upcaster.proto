@@ -11,7 +11,7 @@ option ruby_package = "Angzarr::Component";
 
 // UpcasterService: the upcaster sidecar's one service (decision 14.39). Its
 // messages are the handler layer's (io/angzarr/handler/v1/upcaster.proto;
-// decision 14.78, DRAFT). What an upcaster is, where it runs and who calls
+// decision 14.78). What an upcaster is, where it runs and who calls
 // it: docs/design/upcasting.md §1 to §3 and §6.
 service UpcasterService {
   // Bring payloads to their current shape, keyed by sequence or

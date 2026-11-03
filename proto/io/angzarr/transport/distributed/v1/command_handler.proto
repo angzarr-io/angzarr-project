@@ -41,18 +41,18 @@ service CommandHandlerCoordinatorService {
     };
   }
   // A policy's output or refusal fact; framework components only, no HTTP
-  // route (decision 14.79, DRAFT). docs/design/command-handling.md §10.
+  // route (decision 14.79). docs/design/command-handling.md §10.
   rpc Deliver(io.angzarr.v1.ReactionDelivery) returns (CommandResult);
 }
 
 // region entry_points
 // Clients use Handle, HandleAsync and HandleSync; framework components
 // (by mTLS identity) also use Deliver and PolicyCoordinatorService.Execute,
-// which refuse a client PERMISSION_DENIED (decision 14.79, DRAFT). The
+// which refuse a client PERMISSION_DENIED (decision 14.79). The
 // rule: docs/design/distributed-transport.md §1.
 // endregion
 
-// What HandleSync takes (decision 14.107, DRAFT): the command, and the
+// What HandleSync takes (decision 14.107): the command, and the
 // projectors to wait for.
 message HandleSyncRequest {
   io.angzarr.v1.CommandBook command = 1;
@@ -61,7 +61,7 @@ message HandleSyncRequest {
   repeated string projectors = 2;
 }
 
-// What Handle and Deliver answer (decision 14.105, DRAFT): one command's
+// What Handle and Deliver answer (decision 14.105): one command's
 // events and what the coordinator did with this delivery of it. Never
 // persisted.
 message CommandResult {
@@ -72,7 +72,7 @@ message CommandResult {
   io.angzarr.v1.DeliveryOutcome delivery = 2;
 }
 
-// What HandleSync answers (decision 14.105, DRAFT): a CommandResult's
+// What HandleSync answers (decision 14.105): a CommandResult's
 // fields and the named projectors' results. Never persisted.
 message CommandSyncResult {
   // As CommandResult.events.

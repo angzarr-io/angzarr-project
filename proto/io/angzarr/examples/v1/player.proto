@@ -38,7 +38,7 @@ option ruby_package = "Angzarr::Examples";
 // open it before it is seated.
 //
 // Rejections: a player always decides, so DecideMove names no refuses type
-// and cannot be refused (decision 14.99, DRAFT: DecideMoveRefused existed
+// and cannot be refused (decision 14.99: DecideMoveRefused existed
 // only to satisfy 14.76's dropped rule). The table's refusal of the move a player decided
 // comes back as the player's RecordMoveRefused fact, translated by
 // policy-player-table.

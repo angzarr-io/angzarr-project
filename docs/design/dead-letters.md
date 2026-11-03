@@ -1,6 +1,6 @@
 # Dead letters: payload, why, and replay
 
-**Status:** normative (decisions 14.37, 14.46 to 14.48, 14.51, 14.64, 14.95; as amended by the DRAFT decisions 14.78, 14.79, 14.100, 14.101 and 14.105 to 14.107 pending review). Moved from `proto/io/angzarr/v1/types.proto`'s comments (decision 14.109). Covers what a dead letter holds (its payload and its one statement of why), which reason each failure records, which keys are never a dead letter's reason, retry_count, and how each payload is replayed. The message is `types.proto`'s `dead_letter` region (`AngzarrDeadLetter`); the admin RPCs are `transport/distributed/v1/dlq_admin.proto`'s, and the distributed transport's envelope is `transport/distributed/v1/dead_letter.proto`'s.
+**Status:** normative (decisions 14.37, 14.46 to 14.48, 14.51, 14.64, 14.95; as amended by decisions 14.78, 14.79, 14.100, 14.101 and 14.105 to 14.107). Moved from `proto/io/angzarr/v1/types.proto`'s comments (decision 14.109). Covers what a dead letter holds (its payload and its one statement of why), which reason each failure records, which keys are never a dead letter's reason, retry_count, and how each payload is replayed. The message is `types.proto`'s `dead_letter` region (`AngzarrDeadLetter`); the admin RPCs are `transport/distributed/v1/dlq_admin.proto`'s, and the distributed transport's envelope is `transport/distributed/v1/dead_letter.proto`'s.
 
 ## 1. What a dead letter is
 
@@ -12,11 +12,11 @@ failing fact handler is a bug, never a business rejection
 ([pipeline.md](pipeline.md) §7.2).
 
 A dead letter is its payload and why: a typed refusal, or a reason
-(decisions 14.78 and 14.101, DRAFT). Everything else about why is read
+(decisions 14.78 and 14.101). Everything else about why is read
 from it: a refusal's type and fields, or a reason's key, args and the
 key's declared status (its (reason) option;
 [reason-keys.md](reason-keys.md) §5). Stores from before the rewrite
-cross it by export and import (decision 14.100, DRAFT).
+cross it by export and import (decision 14.100).
 
 The stream concerned is the payload's own cover (rejected_command.cover,
 rejected_reaction.cover, rejected_events.cover or
@@ -41,7 +41,7 @@ bare.
   rejected_events         events that failed (policy/projector failures).
   failed_edition_removal  an edition removal that failed (DeleteEdition):
                           the stream whose rows of the edition could not
-                          be removed (decision 14.107, DRAFT: a cover,
+                          be removed (decision 14.107: a cover,
                           since deletion records no event). Reason
                           ANGZARR_REASON_EDITION_REMOVAL_FAILED (decision
                           14.48, amended).
@@ -54,7 +54,7 @@ it has none.
 
 Why it was dead-lettered is exactly one of a typed refusal, a reason or a
 transport's own why, never text (decision 14.37); the one statement of
-why (decisions 14.78, 14.101 and 14.107, DRAFT).
+why (decisions 14.78, 14.101 and 14.107).
 
 - **refusal**: a typed business refusal of an asynchronous command (every
   refusal is typed, decision 14.95): the refusal object, packed. Its key
@@ -64,7 +64,7 @@ why (decisions 14.78, 14.101 and 14.107, DRAFT).
   and its args (a Diagnostic; [diagnostics.md](diagnostics.md)).
 - **transport**: a transport's own why: a message of the transport's
   package, packed, its key implied by its type, as a refusal's is
-  (decision 14.107, DRAFT). Core cannot name a transport's types, so it
+  (decision 14.107). Core cannot name a transport's types, so it
   holds them as an Any. Today the one such type is the distributed
   transport's PayloadRetrievalFailed
   (transport/distributed/v1/dead_letter.proto), key
@@ -106,9 +106,9 @@ statuses are transient, every other status is not.
   `DISTRIBUTED_REASON_COMPONENT_NOT_REGISTERED` (queued work waits) and
   `DISTRIBUTED_REASON_COMMANDS_NOT_SERVED` (decision 14.51);
 - `ANGZARR_REASON_SYNC_PROJECTION_FAILED`, whose decision committed and
-  whose caller retries (decision 14.105, DRAFT);
+  whose caller retries (decision 14.105);
 - the dead-letter admin's own keys (`DISTRIBUTED_REASON_DEAD_LETTER_*`;
-  decision 14.106, DRAFT).
+  decision 14.106).
 
 ## 6. retry_count
 
@@ -132,7 +132,7 @@ causation.
                           command (HandleAsync), carrying its original
                           ids. It is re-sent as it was, Handling
                           included: a stale command is refused again
-                          (decision 14.101, DRAFT).
+                          (decision 14.101).
   rejected_reaction       re-delivered through Deliver, as it was
                           delivered, keeping its ids and causation.
   rejected_events         re-delivered to the one component that failed

@@ -1,6 +1,6 @@
 # Component options: declaring components, and the generator's rules
 
-**Status:** normative (decisions 2.2, 14.24, 14.31, 14.34, 14.37, 14.42, 14.50, 14.52, 14.69, 14.74 to 14.76, 14.78; as amended by the DRAFT decisions 14.82, 14.87, 14.89, 14.91 and 14.93 to 14.99 pending review). Moved from `proto/io/angzarr/v1/options.proto`'s comments (decision 14.109). The options are that file's: `(io.angzarr.v1.component)` (ComponentOptions and its kind arms), `(io.angzarr.v1.command)` (CommandOptions), `(io.angzarr.v1.fact)` (FactOptions), `(io.angzarr.v1.event)` (EventConsumer) and `(io.angzarr.v1.refusal_status)` (RefusalStatus).
+**Status:** normative (decisions 2.2, 14.24, 14.31, 14.34, 14.37, 14.42, 14.50, 14.52, 14.69, 14.74 to 14.76, 14.78; as amended by decisions 14.82, 14.87, 14.89, 14.91 and 14.93 to 14.99). Moved from `proto/io/angzarr/v1/options.proto`'s comments (decision 14.109). The options are that file's: `(io.angzarr.v1.component)` (ComponentOptions and its kind arms), `(io.angzarr.v1.command)` (CommandOptions), `(io.angzarr.v1.fact)` (FactOptions), `(io.angzarr.v1.event)` (EventConsumer) and `(io.angzarr.v1.refusal_status)` (RefusalStatus).
 
 What the component options declare, and the rules angzarr-cli's code
 generator holds a descriptor set to. The refusal path a policy takes at
@@ -36,7 +36,7 @@ policy an empty marker message naming the policy.
 
 ## 2. Type references are strings
 
-Type references are strings, deliberately (decision 14.99, DRAFT):
+Type references are strings, deliberately (decision 14.99):
 protobuf options cannot hold a type reference, so an option names a
 message by its fully-qualified name (component, emits, refuses, an
 (event) entry's component, starting_types). Generation resolves every
@@ -59,7 +59,7 @@ that may not have it, and there is no per-kind validity table.
 ```
 
 The component's ONE name, ComponentOptions.component_name (decision
-14.87, DRAFT; the owner's ruling F8 of 2026-11-02, amending 14.50), is what
+14.87; the owner's ruling F8 of 2026-11-02, amending 14.50), is what
 the host config's [[component]] entry, the generated registration,
 hand-written code and the derived reaction ids (a policy's name seeds
 them) call it. REQUIRED: a declaration with an empty one fails generation.
@@ -135,11 +135,11 @@ coordinator addresses every one to PolicyDescriptor.output_domain
 A projector's one handler serves all its sources, dispatching each event
 by its type and receiving its source domain with it (decision 14.50). Each
 stream's run arrives independently, in any order across streams: there is
-no cross-stream order (decision 14.96, DRAFT). Multi-domain projectors
+no cross-stream order (decision 14.96). Multi-domain projectors
 should be rare. They are not substitutes for process managers or business
 logic: the capability exists for system capabilities such as the
 timekeeping module, global logging and the like (the owner, 2026-11-02;
-decision 14.96, DRAFT).
+decision 14.96).
 
 There are no compensation declarations: a process manager pairs each
 step with its undo in code, with its client library's compensation
@@ -158,7 +158,7 @@ message; its declaration lists which may start an instance
 ## 6. Commands
 
 (io.angzarr.v1.command) marks a message as a COMMAND: a request its
-component decides and may refuse (decision 14.91, DRAFT, amending 14.34).
+component decides and may refuse (decision 14.91, amending 14.34).
 It generates one strict handler method on the component that owns it,
 taking the typed message as input (the scaffold writes #[handles], the one
 attribute for commands and facts; decision 14.98). It is owned by exactly
@@ -189,7 +189,7 @@ parallel of emits, in the same form (decision 14.31, the owner's ruling). A
 command may name several (decision 14.50), e.g. a refusal several commands
 share beside a command's own (one message per refusal, decision 14.82).
 When set, the generated handler returns its typed events or one of these
-typed refusals; when empty, it cannot refuse (decision 14.95, DRAFT: typed
+typed refusals; when empty, it cannot refuse (decision 14.95: typed
 refusals only). The client library answers the chosen refusal object (the
 concrete message, e.g. InsufficientFunds) as a gRPC status: the message's
 declared refusal_status, its ErrorInfo, and the object packed in the
@@ -199,16 +199,16 @@ resolve, or that is not a message of the command's own domain (§11). A
 fact (FactOptions) has no refuses: a fact cannot be refused. An empty
 refuses means the command structurally cannot refuse (typed refusals only,
 decision 14.95), so every command a policy sends has a refusal path by
-construction: its refusals, or none (decision 14.99, DRAFT, dropping
+construction: its refusals, or none (decision 14.99, dropping
 14.76's rule that a policy-targeted command name at least one).
 
 ## 7. Facts
 
 (io.angzarr.v1.fact) marks a message as a FACT: something that already
 happened, which its component records and cannot refuse (decision 14.91,
-DRAFT, replacing CommandOptions.fact; decision 14.34). It generates one
+ruled 2026-11-02, replacing CommandOptions.fact; decision 14.34). It generates one
 handler on the component that owns it, under the same attribute as a
-command's (#[handles]; decision 14.98, DRAFT), whose signature has no
+command's (#[handles]; decision 14.98), whose signature has no
 refusal return: a fact's handling cannot refuse. Converting a message
 between (command) and (fact) changes only its option; the generated
 signature then gains or loses the refusal return at compile time. A fact
@@ -243,7 +243,7 @@ EventConsumer.component, the consumer's anchor message: a component
 outside the descriptor set being generated is a REFERENCE, not an error
 (decision 14.50): the generator skips the entry, so one domain's protos
 generate alone. But it WARNS for each skipped entry, by the component's
-name (decision 14.99, DRAFT): "consumer <component> of <event> is outside
+name (decision 14.99): "consumer <component> of <event> is outside
 this generation and was skipped; cross-domain references, which generally
 should not exist, are flagged this way: check it". `angzarr lint app`
 reports a consumer an application lists but does not have.
@@ -257,7 +257,7 @@ an owner in the set (a folding entry included), generation fails.
 ## 9. Starting a process manager
 
 ProcessManagerDecl.starting_types lists the fully-qualified names of the
-commands and facts that may START an instance (decision 14.91, DRAFT,
+commands and facts that may START an instance (decision 14.91,
 replacing the per-input CommandOptions.starts switch). What happens to an
 input for a correlation with no instance whose type is not listed (a fact
 dead-lettered, decision 14.69; a command refused, ruling B1, adapted;
@@ -270,7 +270,7 @@ can never start an instance, so the generator warns.
 ## 10. Refusal status
 
 The status a typed refusal is refused with (decision 14.52, as amended by
-14.82, DRAFT). Each refusal is its own message (§11), a business
+14.82). Each refusal is its own message (§11), a business
 rejection, fatal (decision 14.37); which of the six business statuses it
 travels as is a property of the message, marked on it:
 
@@ -284,7 +284,7 @@ travels as is a property of the message, marked on it:
   }
 ```
 
-Every refusal message DECLARES its status (decision 14.95, DRAFT): there
+Every refusal message DECLARES its status (decision 14.95): there
 is no default, and generation fails for a message some command's refuses
 names that sets no refusal_status, or sets REFUSAL_STATUS_UNSPECIFIED.
 The generated refusal is refused under the declared status, and a
@@ -308,7 +308,7 @@ Refusals (decision 14.31, amending 2.2; plan ruling 7, "REFUSAL
 WIRING"; `docs/design/policies.md` §3).
 
 A command handler refuses with a business rejection, a gRPC status
-(decision 14.95, DRAFT, reversing decision 46's Q2) under the status its
+(decision 14.95, reversing decision 46's Q2) under the status its
 refusal message declares (§10), carrying a TYPED refusal object of its own
 domain (typed only; decision 14.95), named by the command's annotation,
 exactly as emits names its events (the owner's ruling, for consistency):
@@ -334,12 +334,12 @@ resolve, or that is not a message of the command's own domain, fails
 generation. A command may name several refuses types (decision 14.50).
 
 The framework's one refusal, io.angzarr.v1.ExpectedSequenceMismatch
-(types.proto; decisions 14.93 and 14.94, DRAFT), is the coordinator's: it
+(types.proto; decisions 14.93 and 14.94), is the coordinator's: it
 refuses a command whose set expected sequence is not the head it loaded,
 before the handler runs (`docs/design/command-handling.md` §5). No command
 lists it in its refuses.
 
-One message per refusal (decision 14.82, DRAFT; the owner's ruling F3 of
+One message per refusal (decision 14.82; the owner's ruling F3 of
 2026-11-02, amending 14.50). A domain whose commands refuse for several
 reasons declares one message per reason, its args its fields, and names
 each in the refuses of every command that refuses with it:
@@ -368,7 +368,7 @@ nested code enum and no second keying by a code's name.
 The policy's side is ONE path (decision 46 #5, amending 14.31, 14.42,
 14.73 and 14.76), specified in `docs/design/policies.md` §3: when a
 policy's command is refused, the policy's coordinator calls
-PolicyService.Translate, whose ONE callback (decision 14.89, DRAFT),
+PolicyService.Translate, whose ONE callback (decision 14.89),
 
 ```text
     refused(command, refusal, ctx)
@@ -394,7 +394,7 @@ class). Its author handles the refusals of the commands the policy sends
 and answers every other arm with a Bug; it answers one of its source's
 facts or a Bug, and cannot decline. Its choice holds one arm per refusal
 its target's commands name; a target command naming none adds none (it
-cannot refuse; decision 14.99, DRAFT). Generation fails, as does lint, for
+cannot refuse; decision 14.99). Generation fails, as does lint, for
 a policy that may send a command that can refuse whose source takes no
 fact to translate the refusal into. A policy written by hand whose router
 has no refusal callback answers ANGZARR_REASON_NO_REFUSAL_HANDLER

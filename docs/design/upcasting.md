@@ -1,11 +1,11 @@
 # Upcasting
 
-**Status:** normative (decision 14.39; DRAFT decisions 14.96, 14.97 pending review). Moved from `proto/io/angzarr/v1/upcaster.proto`, which defined no message (decision 14.103, DRAFT); §6 moved from `proto/io/angzarr/component/v1/upcaster.proto`'s and `proto/io/angzarr/handler/v1/upcaster.proto`'s comments (decision 14.109). The service is `io.angzarr.component.v1.UpcasterService`; the messages are `io/angzarr/handler/v1/upcaster.proto`'s.
+**Status:** normative (decision 14.39; decisions 14.96, 14.97). Moved from `proto/io/angzarr/v1/upcaster.proto`, which defined no message (decision 14.103); §6 moved from `proto/io/angzarr/component/v1/upcaster.proto`'s and `proto/io/angzarr/handler/v1/upcaster.proto`'s comments (decision 14.109). The service is `io.angzarr.component.v1.UpcasterService`; the messages are `io/angzarr/handler/v1/upcaster.proto`'s.
 
 The upcaster's service is the component contract's
 (io.angzarr.component.v1.UpcasterService,
 io/angzarr/component/v1/upcaster.proto) and its messages the handler
-layer's (io/angzarr/handler/v1/upcaster.proto; decision 14.78, DRAFT);
+layer's (io/angzarr/handler/v1/upcaster.proto; decision 14.78);
 what follows is core's (decision 14.64). 
 
 UpcasterService: transforms old event versions to current versions.
@@ -50,7 +50,7 @@ Fact's payload through the SAME chain, by type URL, before it judges the
 input by its type (a process manager's start rule) and before dispatch.
 It sends the payload as the request's lone_payload (it has no stream
 sequence) and takes the answer entry keyed no_sequence (decision 14.97,
-DRAFT). An upcaster answers payloads keyed by sequence, or no_sequence
+ruled 2026-11-02). An upcaster answers payloads keyed by sequence, or no_sequence
 (UpcastResponse, decision 14.96): a page's sequence and EventMeta stay as
 stored. The business process (the client library's router) never
 upcasts and never sees an old shape. A payload whose type URL, after
@@ -102,10 +102,10 @@ contract (decision 14.64).
 
 An upcaster is handed either a stream's pages to bring to their current
 shape, with their sequences and EventMeta, read-only, or a lone command or
-fact payload, which has no stream sequence (decision 14.97, DRAFT).
+fact payload, which has no stream sequence (decision 14.97).
 
 It answers each payload in its current shape, transformed where a rule
-applies, keyed by the page's sequence (decision 14.96, DRAFT), or
+applies, keyed by the page's sequence (decision 14.96), or
 no_sequence for a lone payload (decision 14.97; the owner: "NO_SEQ or
 something similar"): matched to the request by key, never by position. A
 page's sequence and EventMeta are the coordinator's and stay as stored, so

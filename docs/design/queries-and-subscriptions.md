@@ -1,6 +1,6 @@
 # Queries and subscriptions
 
-**Status:** normative (decisions 13.3, 14.39, 14.51, 14.64; as amended by the DRAFT decisions 14.105 and 14.106 pending review). Moved from the comments of `proto/io/angzarr/transport/distributed/v1/query.proto` and `stream.proto` (decision 14.109). The services are `io.angzarr.transport.distributed.v1.EventQueryService` and `EventStreamService`; the messages are `query.proto`'s (`Query`, `TemporalQuery`, `CorrelationQuery`, `SequenceRange`, `SequenceSet`) and `stream.proto`'s (`SubscribeRequest`, `StreamFrom`, `CorrelationFrom`, `StreamCursor`).
+**Status:** normative (decisions 13.3, 14.39, 14.51, 14.64; as amended by decisions 14.105 and 14.106). Moved from the comments of `proto/io/angzarr/transport/distributed/v1/query.proto` and `stream.proto` (decision 14.109). The services are `io.angzarr.transport.distributed.v1.EventQueryService` and `EventStreamService`; the messages are `query.proto`'s (`Query`, `TemporalQuery`, `CorrelationQuery`, `SequenceRange`, `SequenceSet`) and `stream.proto`'s (`SubscribeRequest`, `StreamFrom`, `CorrelationFrom`, `StreamCursor`).
 
 How events are read back: EventQueryService for queries, and
 EventStreamService for live events with catch-up. Use GetEvents for bulk
@@ -150,7 +150,7 @@ case.
 ## 5. EventStreamService.Subscribe: catch-up, then live
 
 EventStreamService streams events to subscribers, catch-up then live
-(decision 14.105, DRAFT).
+(decision 14.105).
 
 Subscribe subscribes to one target (SubscribeRequest.target): one
 stream, or every stream of one correlation. Each answer is an EventBook
@@ -165,7 +165,7 @@ pages of different streams arrive in no defined order. There is no
 cross-stream order and no store-wide position: a resume point is one
 sequence per stream, the next one to deliver, inclusive, as
 SequenceRange.lower (StreamFrom.from_sequence, CorrelationFrom.seen;
-decision 14.106, DRAFT).
+decision 14.106).
 
 Refusals: a target that is unset, a cover with no domain or a root that
 is not 16 bytes, or a correlation_id unset or not 16 bytes, is
@@ -179,7 +179,7 @@ query parameters. A correlation subscription is POST
 its resume point (seen) is a list of messages, which a query string
 cannot carry. A browser's EventSource opens GET only, so a browser
 subscribes to a correlation with a fetch-based SSE reader (decision
-14.106, DRAFT: accepted). Path segments that are UUIDs take the UUID's
+14.106: accepted). Path segments that are UUIDs take the UUID's
 bytes field, so HTTP transcoding takes them as base64 (URL-safe), not as
 canonical UUID text (the accepted cost of UUID-typed ids;
 [identity-and-streams.md](identity-and-streams.md) §2).

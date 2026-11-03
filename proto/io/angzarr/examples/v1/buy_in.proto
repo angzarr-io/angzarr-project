@@ -98,7 +98,7 @@ option ruby_package = "Angzarr::Examples";
 // HoldReleaseDue, so the wallet releases the hold and the table is never
 // asked.
 //
-// NO REFUSED UNDO. An undo's target must be a fact (decision 14.83, DRAFT;
+// NO REFUSED UNDO. An undo's target must be a fact (decision 14.83;
 // the owner's ruling F4): both of the buy-in's are (ReleaseHold,
 // ReleaseSeat), so no undo can be refused, and a compensation whose undo
 // targeted a command would be refused at registration.

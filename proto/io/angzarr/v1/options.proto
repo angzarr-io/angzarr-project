@@ -12,7 +12,7 @@ option ruby_package = "Angzarr";
 // Custom options declaring dispatch components (aggregate, policy, process
 // manager, projector) on messages: the annotations are the declaration, and
 // there are no services or rpcs. Type references are fully-qualified message
-// names, as strings (decision 14.99, DRAFT). What the options declare and
+// names, as strings (decision 14.99). What the options declare and
 // the generator's rules: docs/design/component-options.md.
 
 // Component declaration carried on a message, its anchor: the state message
@@ -22,7 +22,7 @@ option ruby_package = "Angzarr";
 // declared: they are derived from the events named (§4). Streams and the
 // one-policy-per-pair rule: §5.
 message ComponentOptions {
-  // The component's ONE name (decision 14.87, DRAFT). Required: lower-case
+  // The component's ONE name (decision 14.87). Required: lower-case
   // ASCII letters, digits and "-", starting with a letter. Rules:
   // docs/design/component-options.md §3.
   string component_name = 1;
@@ -47,7 +47,7 @@ message ProcessManagerDecl {
   // angzarr.io/pm label.
   string domain = 1;
   // The fully-qualified names of the commands and facts that may START an
-  // instance (decision 14.91, DRAFT); copied into
+  // instance (decision 14.91); copied into
   // ProcessManagerDescriptor.starting_types. Rules:
   // docs/design/component-options.md §9 and docs/design/process-managers.md §4.
   repeated string starting_types = 2;
@@ -67,7 +67,7 @@ message PolicyDecl {
 message ProjectorDecl {}
 
 // Marks a message as a COMMAND: a request its component decides and may
-// refuse (decision 14.91, DRAFT). Owned by exactly one aggregate or process
+// refuse (decision 14.91). Owned by exactly one aggregate or process
 // manager. A message carries (command) or (fact), never both.
 // docs/design/component-options.md §6.
 message CommandOptions {
@@ -78,13 +78,13 @@ message CommandOptions {
   repeated string emits = 2;
   // Fully-qualified type(s) of the typed REFUSAL messages, of the
   // command's own domain, its handler may refuse with; empty means it
-  // cannot refuse (decision 14.95, DRAFT). docs/design/component-options.md
+  // cannot refuse (decision 14.95). docs/design/component-options.md
   // §6 and §11.
   repeated string refuses = 3;
 }
 
 // Marks a message as a FACT: something that already happened, which its
-// component records and cannot refuse (decision 14.91, DRAFT). Why its own
+// component records and cannot refuse (decision 14.91). Why its own
 // option: docs/design/component-options.md §7.
 message FactOptions {
   // The anchor message of the component that records this fact, as
@@ -126,7 +126,7 @@ extend google.protobuf.MessageOptions {
 
 // region refusal_status
 // The status a typed refusal is refused with (decision 14.52, as amended by
-// 14.82, DRAFT): one of the six business statuses, declared on each refusal
+// 14.82): one of the six business statuses, declared on each refusal
 // message, never defaulted. Each value's number is its google.rpc.Code
 // number. Also the type of io.angzarr.handler.v1.Refusal.status. Rules:
 // docs/design/component-options.md §10.
@@ -144,7 +144,7 @@ enum RefusalStatus {
 
 extend google.protobuf.MessageOptions {
   // On a typed refusal message: the status it is refused with (decision
-  // 14.82, DRAFT).
+  // 14.82).
   RefusalStatus refusal_status = 50104;
 }
 // endregion
@@ -152,7 +152,7 @@ extend google.protobuf.MessageOptions {
 // region refusals
 // Refusals (decision 14.31, amending 2.2): a command names its typed
 // refusal messages in CommandOptions.refuses, one message per refusal
-// (decision 14.82, DRAFT), each travelling under
+// (decision 14.82), each travelling under
 // ANGZARR_REASON_COMMAND_REFUSED; a refused policy command takes the one
 // path through PolicyService.Translate. The refusing side:
 // docs/design/component-options.md §11; the policy's side and the

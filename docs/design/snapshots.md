@@ -1,6 +1,6 @@
 # Snapshots: where they come from and when one is offered
 
-**Status:** normative (decisions 14.40, 14.66; as amended by the DRAFT decision 14.104, reversing 14.88's refusal, pending review). Moved from `proto/io/angzarr/v1/types.proto`'s comments (decision 14.109). Covers what a snapshot is for, how the coordinator writes and offers one, and the validity checks (state type and rules version) that decide whether it may be used. The message is `types.proto`'s `aggregate_snapshot` region (`Snapshot`); the registration it is checked against is `ComponentDescriptor` ([component-descriptors.md](component-descriptors.md)), and rules_version on events is [identity-and-streams.md](identity-and-streams.md) §5.4.
+**Status:** normative (decisions 14.40, 14.66; as amended by decision 14.104, reversing 14.88's refusal). Moved from `proto/io/angzarr/v1/types.proto`'s comments (decision 14.109). Covers what a snapshot is for, how the coordinator writes and offers one, and the validity checks (state type and rules version) that decide whether it may be used. The message is `types.proto`'s `aggregate_snapshot` region (`Snapshot`); the registration it is checked against is `ComponentDescriptor` ([component-descriptors.md](component-descriptors.md)), and rules_version on events is [identity-and-streams.md](identity-and-streams.md) §5.4.
 
 ## 1. A framework optimisation
 
@@ -62,7 +62,7 @@ both parse as SemVer 2.0.0 and their major and minor numbers are equal
 "1.4.7" are compatible. When either does not parse as SemVer 2.0.0 once
 so stripped, the two are compatible only when they are equal as recorded
 (exact string equality, nothing stripped): a rules_version that is not
-SemVer is accepted at registration (decision 14.104, DRAFT, reversing
+SemVer is accepted at registration (decision 14.104, reversing
 14.88's refusal), and a snapshot recorded under it is offered to that
 version alone.
 

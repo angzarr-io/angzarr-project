@@ -1,6 +1,6 @@
 # Diagnostics: reason keys, arguments and typed refusals
 
-**Status:** normative (decisions 14.37, 14.42, 14.44; as amended by the DRAFT decisions 14.95 and 14.104 pending review; C-0669). Moved from `proto/io/angzarr/v1/types.proto`'s comments (decision 14.109). Covers how every error travels: a key and an argument map, never rendered English, on a gRPC status and in a message; typed business refusals on the wire; handler aborts and bugs; the framework's reason keys; and how a wrapped cause is flattened. The message is `types.proto`'s `diagnostic` region (`Diagnostic`); the keys are each layer's `reasons.proto`.
+**Status:** normative (decisions 14.37, 14.42, 14.44; as amended by decisions 14.95 and 14.104; C-0669). Moved from `proto/io/angzarr/v1/types.proto`'s comments (decision 14.109). Covers how every error travels: a key and an argument map, never rendered English, on a gRPC status and in a message; typed business refusals on the wire; handler aborts and bugs; the framework's reason keys; and how a wrapped cause is flattened. The message is `types.proto`'s `diagnostic` region (`Diagnostic`); the keys are each layer's `reasons.proto`.
 
 ## 1. A key and an argument map
 
@@ -29,7 +29,7 @@ same names every time for a given code.
 
 ## 2. Typed business refusals
 
-A business rejection is TYPED, always (decision 14.95, DRAFT): its
+A business rejection is TYPED, always (decision 14.95): its
 refusal object (one of the command's CommandOptions.refuses types, packed
 as an Any) is the key, by its type, and the map, by its fields, so it
 carries no Diagnostic. On the wire it is a gRPC status under the
@@ -58,7 +58,7 @@ Every framework key, the component that answers it (the router, the
 component host or the coordinator, in its comment), the gRPC status it
 travels with and its arg names are listed once, as the enum of its layer
 (reasons.proto: core's AngzarrReason and each transport's;
-[reason-keys.md](reason-keys.md) §1; decisions 14.44 and 14.104, DRAFT);
+[reason-keys.md](reason-keys.md) §1; decisions 14.44 and 14.104);
 a key travels as its value's full name, prefix included
 (`ANGZARR_REASON_DUPLICATE_COMPONENT`). Which class a status is
 (decision 14.37's four classes) is the coordinator's to decide, never the

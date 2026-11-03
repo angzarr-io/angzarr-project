@@ -1,6 +1,6 @@
 # Dead-letter administration
 
-**Status:** normative (decisions 14.37, 14.47, 14.64, 14.79; as amended by the DRAFT decisions 14.91, 14.101, 14.106 and 14.107 pending review). Moved from the comments of `proto/io/angzarr/transport/distributed/v1/dlq_admin.proto` (decision 14.109). The service is `io.angzarr.transport.distributed.v1.DlqAdminService`; the messages are `dlq_admin.proto`'s (`StoredDeadLetter`, `DeadLetterReplay`, `ReplayOutcome` and the requests and responses).
+**Status:** normative (decisions 14.37, 14.47, 14.64, 14.79; as amended by decisions 14.91, 14.101, 14.106 and 14.107). Moved from the comments of `proto/io/angzarr/transport/distributed/v1/dlq_admin.proto` (decision 14.109). The service is `io.angzarr.transport.distributed.v1.DlqAdminService`; the messages are `dlq_admin.proto`'s (`StoredDeadLetter`, `DeadLetterReplay`, `ReplayOutcome` and the requests and responses).
 
 The Dead Letter Queue admin service serves the `angzarr-status`
 operations console. It reads, replays and deletes the dead letters the
@@ -17,7 +17,7 @@ transport's package holds its own services.
 
 The surface follows Google AIPs for resource naming, pagination and
 filtering. Every method returns its plain result (decision 14.106,
-DRAFT). A failure is a gRPC status with a google.rpc.ErrorInfo key
+ruled 2026-11-02). A failure is a gRPC status with a google.rpc.ErrorInfo key
 (decision 14.37):
 
 ```text
@@ -41,7 +41,7 @@ A StoredDeadLetter is one row from `dlq_entries`, surfaced via the API.
 Its `payload` bytes are the proto-encoded `DeadLetterEnvelope` exactly as
 the publisher wrote it; ReplayDeadLetter reuses these bytes. A console
 decodes `payload`, and the Anys inside it, with descriptors (decision
-14.106, DRAFT: there is no server-rendered view). What kind of failure a
+14.106: there is no server-rendered view). What kind of failure a
 dead letter is, is its reason's key.
 
 `payload` itself never changes; replays are recorded beside it, in
@@ -100,7 +100,7 @@ keeping its causation (decision 14.79). The replay itself (time,
 outcome) is recorded in the entry (StoredDeadLetter.replays), not on the
 replayed message; who asked for it goes to the security log.
 
-One replay, as-is (decision 14.101, DRAFT): the entry is re-sent exactly
+One replay, as-is (decision 14.101): the entry is re-sent exactly
 as it was dead-lettered, Handling included. A replayed stale command is
 refused again, which is correct; there is no mode that clears its
 expected sequence.
@@ -133,4 +133,4 @@ published.
 
 DeleteDeadLetter deletes a single entry and is idempotent: a row was
 removed, or none matched; either is a success, and the response's arm
-says which (decision 14.91, DRAFT: no flag).
+says which (decision 14.91: no flag).

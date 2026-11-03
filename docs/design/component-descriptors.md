@@ -1,6 +1,6 @@
 # Component descriptors: self-description and the coordinator's checks
 
-**Status:** normative (decisions 14.24, 14.31, 14.41, 14.42, 14.53, 14.55; as amended by the DRAFT decisions 14.78, 14.91, 14.101 and 14.102 pending review). Moved from `proto/io/angzarr/v1/types.proto`'s comments (decision 14.109). Covers what a component descriptor is, how it is generated or written by hand, its kinds, and the checks the coordinator makes of it. The messages are `types.proto`'s `ComponentKind`, `ComponentDescriptor`, `AggregateDescriptor`, `ProcessManagerDescriptor`, `PolicyDescriptor`, `ProjectorDescriptor` and `StateDescriptor`; the service is `component/v1/component.proto`'s `ComponentService`.
+**Status:** normative (decisions 14.24, 14.31, 14.41, 14.42, 14.53, 14.55; as amended by decisions 14.78, 14.91, 14.101 and 14.102). Moved from `proto/io/angzarr/v1/types.proto`'s comments (decision 14.109). Covers what a component descriptor is, how it is generated or written by hand, its kinds, and the checks the coordinator makes of it. The messages are `types.proto`'s `ComponentKind`, `ComponentDescriptor`, `AggregateDescriptor`, `ProcessManagerDescriptor`, `PolicyDescriptor`, `ProjectorDescriptor` and `StateDescriptor`; the service is `component/v1/component.proto`'s `ComponentService`.
 
 ## 1. What a descriptor is
 
@@ -31,7 +31,7 @@ builder per kind for it), and a hand-written descriptor is held to
 exactly the rules a generated one is. Either way the business process
 answers Describe with it unchanged, and the client library's router never
 builds or checks it, nor does the component host: the coordinator owns
-every descriptor check (decision 14.102, DRAFT).
+every descriptor check (decision 14.102).
 
 ## 3. Kinds
 
@@ -46,11 +46,11 @@ state's type_name, a process manager's starting_types), never a type URL
 - **Aggregate.** The domain of the stream it owns is copied from its
   declaration (AggregateDecl.domain). Required: after the one component
   name (F8) the name no longer implies the domain (decision 14.101,
-  DRAFT). Its event-sourced state is generated from the state message's
+  ruled 2026-11-02). Its event-sourced state is generated from the state message's
   descriptor by angzarr-cli, or written by hand to the same rules.
 - **Process manager** (a PM is a domain, decision 14.31). The domain of
   its own workflow stream is copied from its declaration
-  (ProcessManagerDecl.domain); required (decision 14.101, DRAFT). Its
+  (ProcessManagerDecl.domain); required (decision 14.101). Its
   state is as an aggregate's. Its starting_types are the fully-qualified
   type NAMES of its STARTING inputs (§5).
 - **Policy**: its one source and its one destination. The input_domain is
@@ -81,7 +81,7 @@ that has:
   (`ANGZARR_REASON_MISSING_STATE_TYPE`);
 - a policy or a projector with no source
   (`ANGZARR_REASON_NO_INPUT_DOMAIN`: a policy's empty input_domain, a
-  projector's empty input_domains; decision 14.101, DRAFT, one rule, the
+  projector's empty input_domains; decision 14.101, one rule, the
   coordinator's; for a projector also decision 14.55);
 - a policy with no output_domain
   (`ANGZARR_REASON_POLICY_NO_OUTPUT_DOMAIN`).

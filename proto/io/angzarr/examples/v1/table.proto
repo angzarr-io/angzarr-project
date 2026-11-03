@@ -268,7 +268,7 @@ message ReleaseSeat {
 // Refusals
 // -----------------------------------------------------------------------------
 
-// The table's typed refusals (decision 14.82, DRAFT; the owner's ruling F3
+// The table's typed refusals (decision 14.82; the owner's ruling F3
 // of 2026-11-02): one message per refusal, its args its fields, its status
 // its (io.angzarr.v1.refusal_status) message option, declared on each
 // (decision 14.95), each named in the refuses of every command that

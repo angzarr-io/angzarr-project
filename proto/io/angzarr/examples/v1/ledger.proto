@@ -10,7 +10,7 @@ option java_package = "io.angzarr.examples";
 option ruby_package = "Angzarr::Examples";
 
 // =============================================================================
-// The money read models: two single-domain projectors (decision 14.96, DRAFT)
+// The money read models: two single-domain projectors (decision 14.96)
 // =============================================================================
 //
 // The owner, 2026-11-02: "our examples should *not* use multi domain
@@ -107,7 +107,7 @@ message GetWalletBalanceRequest {
 }
 
 // A wallet's balance, or that the ledger has never seen the wallet: the
-// answer's shape says which (decision 14.91, DRAFT: no `found` flag beside
+// answer's shape says which (decision 14.91: no `found` flag beside
 // a row that is unset when it is false).
 message WalletBalanceView {
   oneof result {
