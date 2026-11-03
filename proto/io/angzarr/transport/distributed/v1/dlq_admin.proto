@@ -259,11 +259,23 @@ message DeleteDeadLetterRequest {
   int64 id = 1;
 }
 
-// Idempotent: `deleted = true` if a row was removed, `false` if no
-// row matched. Either is a success outcome.
+// Idempotent: a row was removed, or none matched; either is a success
+// outcome, and the arm says which (decision 14.91, DRAFT: no flag).
 message DeleteDeadLetterOk {
-  bool deleted = 1;
+  oneof outcome {
+    DeadLetterRemoved removed = 2;
+    NoDeadLetter no_entry = 3;
+  }
+  // Field 1 was deleted, a flag; retired by decision 14.91.
+  reserved 1;
+  reserved "deleted";
 }
+
+// The row was removed.
+message DeadLetterRemoved {}
+
+// No row matched the id.
+message NoDeadLetter {}
 
 message DeleteDeadLetterResponse {
   oneof state {

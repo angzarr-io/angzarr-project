@@ -82,9 +82,10 @@ option ruby_package = "Angzarr";
 // policy.proto, Refusals). The typed refusal objects a command's handler
 // may return are named by the command's annotation, CommandOptions.refuses,
 // as its events are by emits (the refusals region, below). A process
-// manager's inputs are declared like an aggregate's, as (command) entries
-// whose component is the PM's state message; they say which inputs may
-// start an instance (CommandOptions.starts).
+// manager's inputs are declared like an aggregate's, as (command) and
+// (fact) entries whose component is the PM's state message; its
+// declaration lists which may start an instance
+// (ProcessManagerDecl.starting_types).
 //
 //   option (io.angzarr.v1.component) = {
 //     component_name: "table" aggregate: { domain: "table" } };
@@ -136,6 +137,17 @@ message ProcessManagerDecl {
   // and its state is rebuilt from it. Required. Its angzarr.io/pm label
   // carries it.
   string domain = 1;
+  // The fully-qualified names of the commands and facts that may START an
+  // instance (decision 14.91, DRAFT, replacing the per-input
+  // CommandOptions.starts switch). An input for a correlation with no
+  // instance starts one only if its type is listed; any other is not
+  // delivered: a fact is dead-lettered (decision 14.69), and a command
+  // refused (ruling B1, adapted; decision 14.31; process_manager.proto,
+  // Starting an instance). Each must be one of this PM's own commands or
+  // facts (generation fails otherwise). The generator copies the list into
+  // the PM's descriptor (ProcessManagerDescriptor.starting_types). A PM
+  // listing none can never start an instance, so the generator warns.
+  repeated string starting_types = 2;
 }
 
 // A policy's declaration. Its source is derived from the events it names
@@ -151,11 +163,14 @@ message PolicyDecl {
 // its type and receiving its source domain with it (decision 14.50).
 message ProjectorDecl {}
 
-// Marks a message as a COMMAND or FACT payload (CommandOptions.fact says
-// which). Generates one strict handler method on the component that owns
-// it, taking the typed message as input. It is owned by exactly one component, an aggregate or a
-// process manager (a domain too; decision 14.31), whose handler decides a
-// command (and may reject it) or ingests a fact (infallibly).
+// Marks a message as a COMMAND: a request its component decides and may
+// refuse (decision 14.91, DRAFT, amending 14.34). Generates one strict
+// handler method on the component that owns it, taking the typed message
+// as input (the scaffold writes #[handles_cmd]). It is owned by exactly one
+// component, an aggregate or a process manager (a domain too; decision
+// 14.31). A FACT is declared by its own option, (io.angzarr.v1.fact)
+// (FactOptions, below): a message carries one of the two, never both
+// (generation fails on both), and nothing flags which.
 message CommandOptions {
   // The anchor message of the component that handles this command. Resolved
   // against the compiled descriptor set; generation fails on an unknown or
@@ -173,17 +188,6 @@ message CommandOptions {
   // (io.angzarr.handler.v1.Decided), so it cannot choose a cover, a
   // sequence or meta.
   repeated string emits = 2;
-  // PROCESS_MANAGER only: this command or fact type may START an
-  // instance. An input for a correlation with no PM instance starts one
-  // only if its entry sets starts; any other is not delivered: a fact is
-  // dead-lettered (decision 14.69), and a command refused (ruling B1,
-  // adapted; decision 14.31, owner's ruling; see process_manager.proto,
-  // Starting an instance). The generator advertises the starting inputs
-  // in the PM's descriptor (ProcessManagerDescriptor.starting_types). Setting
-  // starts on an aggregate's entry fails generation. A PM that declares no
-  // starting input can never start an instance, so the generator warns
-  // about it.
-  bool starts = 3;
   // Fully-qualified type(s) of the typed REFUSAL objects this command's
   // handler may refuse with: messages of the command's own domain (e.g.
   // InsufficientFunds { available, requested }), business-specific, never
@@ -198,34 +202,54 @@ message CommandOptions {
   // the answer's refusal (io.angzarr.handler.v1.Refusal.typed), and the
   // refused policy receives it in TranslateRequest.refusal. Generation fails on a refuses
   // type that does not resolve, or that is not a message of the command's
-  // own domain (the refusals region). Set on a FACT (fact, below),
-  // generation fails: a fact cannot be refused. A command of a domain some
+  // own domain (the refusals region). A fact (FactOptions) has no
+  // refuses: a fact cannot be refused. A command of a domain some
   // policy targets (a policy may send any of its target's commands) must
   // name at least one (decision 14.76): every command a policy sends has a
   // refusal path, so one naming none fails generation and lint.
   repeated string refuses = 4;
-  // Whether this input is a FACT (decision 14.34, the owner's ruling of
-  // 2026-10-28). Unset (false): a COMMAND, which its handler decides and
-  // may refuse; the scaffold writes #[handles_cmd]. Set: a FACT, something
-  // that already happened, which its handler records and cannot refuse
-  // (its handler is infallible); the scaffold writes #[handles_fact], and
-  // the generator checks a component's markup against this field (a
-  // #[handles_cmd] on a fact, or a #[handles_fact] on a command, fails
-  // generation). A fact is delivered as a CommandPage whose body is a Fact,
-  // a command as one whose body is a Command (types.proto). refuses on a
-  // fact fails generation; starts applies to both (a process manager may
-  // start from a command or from a fact); emits applies to both. A policy
-  // emits what this declares (decision 14.69): its generated code sends a
-  // Fact for a type that sets it and a Command for one that does not, so
-  // a policy's fact is never refused, and only its commands have a
-  // refusal path (policy.proto, PolicyService).
-  bool fact = 5;
+  // Field 3 was starts, a switch marking a starting input; a process
+  // manager now lists its starting inputs in its declaration
+  // (ProcessManagerDecl.starting_types). Field 5 was fact, a switch that
+  // made the message a fact; a fact is declared by its own option,
+  // (io.angzarr.v1.fact) (FactOptions, below). Both retired by decision
+  // 14.91 (DRAFT): a message is a command or a fact by the option it
+  // carries, never by a flag.
+  reserved 3, 5;
+  reserved "starts", "fact";
   // Field 6 was emits_cardinality (decision 14.50), with its enum
   // EmitsCardinality; removed by decision 14.75: every handling of a
   // command or a fact returns a list of its component's events, so there
   // is no cardinality to declare. Its number and name are reserved.
   reserved 6;
   reserved "emits_cardinality";
+}
+
+// Marks a message as a FACT: something that already happened, which its
+// component records and cannot refuse (decision 14.91, DRAFT, replacing
+// CommandOptions.fact; decision 14.34). Generates one infallible ingest
+// handler on the component that owns it (the scaffold writes
+// #[handles_fact]; a #[handles_cmd] on a fact, or a #[handles_fact] on a
+// command, fails generation). A fact is delivered in the Fact arm of a
+// CommandPage, or the fact arm of a ReactionDelivery (types.proto). A
+// policy sends what its destination declares (decision 14.69): a fact for
+// a type carrying (fact), a command for one carrying (command), so a
+// policy's fact is never refused, and only its commands have a refusal
+// path (policy.proto).
+//
+// Why its own option, not one message with a kind (a oneof of CommandOptions
+// and FactOptions under one extension): the two share only `component` and
+// `emits`, and a command alone has `refuses`. Separate options put each
+// field only where it means something, and read as the declaration they
+// are: `option (io.angzarr.v1.command) = {...}` or `option
+// (io.angzarr.v1.fact) = {...}`.
+message FactOptions {
+  // The anchor message of the component that records this fact, as
+  // CommandOptions.component.
+  string component = 1;
+  // Fully-qualified event type(s) this fact records, as
+  // CommandOptions.emits.
+  repeated string emits = 2;
 }
 
 // Marks a message as an EVENT consumed by ONE component. The extension is
@@ -256,6 +280,9 @@ message EventConsumer {
 extend google.protobuf.MessageOptions {
   ComponentOptions component = 50100;
   CommandOptions command = 50104;
+  // A fact's declaration (decision 14.91). 50112: after the refusal status
+  // (50111).
+  FactOptions fact = 50112;
   // Repeated: one entry per consuming component.
   repeated EventConsumer event = 50105;
   // On an aggregate's or a process manager's event-sourced STATE message:
@@ -301,13 +328,15 @@ extend google.protobuf.MessageOptions {
 // docs/guide/state-and-conflicts.md, explains all of this with examples.
 //
 // Marking. A state message opts in by listing COMMUTATIVE in its (state)
-// option. Each of its fields is then MARKED by carrying (conflict),
-// possibly empty:
-//   string title = 1 [(conflict) = {}];
-//   map<string, Item> items = 2 [(conflict) = {descend: true}];
-//   string notes = 3 [(conflict) = {whole_state: true}];
-// The ConflictUnit fields only refine how a marked field is split into
-// units; an empty ConflictUnit means "this field, at its natural unit".
+// option. Each of its fields is then MARKED by carrying (conflict), which
+// names its unit by one arm (decision 14.91, DRAFT: an arm per kind of
+// unit, never a flag):
+//   string title = 1 [(conflict) = {natural: {}}];
+//   map<string, Item> items = 2 [(conflict) = {inner_fields: {}}];
+//   repeated Column columns = 3 [(conflict) = {keyed: {element_key: "id" order_is_state: {} whole: {}}}];
+//   string notes = 4 [(conflict) = {wildcard: {}}];
+// natural is "this field, at its natural unit" (the table's plain rows). A
+// (conflict) with no arm fails generation.
 //
 // Units, by field kind. A unit path names one piece of state; changed()
 // returns the path of every unit whose value differs between before and
@@ -317,17 +346,17 @@ extend google.protobuf.MessageOptions {
 //   ----------------------------------  --------------------------------------------  ------------------
 //   scalar / string / bytes / enum      the field                                     title
 //   optional scalar (explicit presence) the field; set <-> unset is a change          deadline
-//   message, not descend                the whole message (deep equality, presence)   settings
-//   message with descend                each inner field, recursively, by these rules settings.cooldown_days
-//   map                                 one unit per key (added, removed or changed)  items[42]
-//   map of messages with descend        per key, then per inner field                 items[42].weight
-//   repeated message with element_key   per element by key; plus field[#order] if     columns[due]
-//                                       ordered and the order changed                 columns[#order]
-//   repeated message, no element_key    the whole list                                columns
+//   message, natural                    the whole message (deep equality, presence)   settings
+//   message, inner_fields               each inner field, recursively, by these rules settings.cooldown_days
+//   map, natural                        one unit per key (added, removed or changed)  items[42]
+//   map of messages, inner_fields       per key, then per inner field                 items[42].weight
+//   repeated message, keyed             per element by key; plus field[#order] when   columns[due]
+//                                       order_is_state and the order changed          columns[#order]
+//   repeated message, natural           the whole list                                columns
 //   repeated scalar / string / bytes    the whole list                                tags
 //   oneof                               the whole oneof (a case switch or a value     payment
 //                                       change)
-//   any field with whole_state          the wildcard: conflicts with everything       *notes
+//   any field, wildcard                 the wildcard: conflicts with everything       *notes
 //
 // Details of each rule:
 // - Scalars compare by value. A proto3 field without explicit presence has
@@ -343,7 +372,7 @@ extend google.protobuf.MessageOptions {
 //   field of the message, recursively, markers or not; map entries compare
 //   by key regardless of order. Message presence counts: an unset message
 //   differs from a set, empty one.
-// - descend: the inner message's own fields become units, each under the
+// - inner_fields ("descend"): the inner message's own fields become units, each under the
 //   rules in this table, by its own (conflict) marker (the inner message
 //   type needs no (state) option). Unmarked inner fields follow the
 //   unmarked-field rule below. A descended message going between unset and
@@ -354,23 +383,25 @@ extend google.protobuf.MessageOptions {
 //   is a change of `field[key]`. With
 //   descend (map values must be messages), a key present on both sides is
 //   split into its value's inner fields (`items[42].weight`).
-// - Keyed repeated (element_key names a field of the element message: a
-//   singular scalar, string, bytes or enum field): one unit per key,
-//   `field[key]`, like a map; with descend, split per inner field like a
-//   map. With ordered, the field also has the unit `field[#order]`, which
-//   changes iff the keys present on BOTH sides appear in a different
+// - Keyed repeated (keyed.element_key names a field of the element
+//   message: a singular scalar, string, bytes or enum field): one unit per
+//   key, `field[key]`, like a map; each element whole (keyed.whole) or split
+//   per inner field like a map (keyed.inner_fields), one of the two required.
+//   With keyed.order_is_state, the field also has the unit `field[#order]`,
+//   which changes iff the keys present on BOTH sides appear in a different
 //   relative order; adding or removing an element alone is not an order
-//   change. Without ordered, order is ignored. If the key is not unique
+//   change. With keyed.order_ignored, order is ignored. One of the two is
+//   required. If the key is not unique
 //   within before or within after, that field falls back to one unit for
 //   the whole list (`columns`), compared by deep equality.
 // - Oneofs: one unit named after the oneof (`payment`), which changes when
 //   the set case changes (including to or from none) or the set member's
 //   value changes (deep equality). The oneof is marked iff EVERY member
-//   carries (conflict); members carry only an empty ConflictUnit, or all
-//   carry whole_state (the oneof then reports the wildcard). A proto3
+//   carries (conflict); members carry only natural, or all carry
+//   wildcard (the oneof then reports the wildcard). A proto3
 //   `optional` field's synthetic oneof is not a oneof here: it is the
 //   optional-scalar row.
-// - whole_state: the field is marked, but as one piece that conflicts with
+// - wildcard: the field is marked, but as one piece that conflicts with
 //   every other change: if it differs, changed() reports the wildcard `*`
 //   followed by its path (`*notes`), exactly as for an unmarked field. It
 //   is the explicit, warning-free way to say "this field depends on the
@@ -438,27 +469,28 @@ extend google.protobuf.MessageOptions {
 //   warning unmarked-field          a field of a COMMUTATIVE state (or of a
 //                                   descended message) has no (conflict); it
 //                                   conflicts with everything. Silence it by
-//                                   marking the field, or with whole_state.
+//                                   marking the field, or with wildcard.
 //   error   no-marked-fields        a state lists COMMUTATIVE but marks no
 //                                   field.
 //   error   unspecified-resolution  (state) lists CONFLICT_RESOLUTION_UNSPECIFIED.
 //   error   marker-outside-state    (conflict) on a field of a message that
 //                                   is neither a COMMUTATIVE state nor
 //                                   reachable from one by descend.
-//   error   descend-non-message     descend on a non-message field, a map
+//   error   no-unit                 a (conflict) naming no arm, or a keyed
+//                                   naming no order or no element choice.
+//   error   descend-non-message     inner_fields on a non-message field, a map
 //                                   whose values are not messages, or a
-//                                   repeated message field without
-//                                   element_key.
-//   error   bad-element-key         element_key on anything but a repeated
-//                                   message field, or naming no singular
-//                                   scalar, string, bytes or enum field of
-//                                   the element.
-//   error   ordered-without-key     ordered without element_key.
-//   error   whole-state-combined    whole_state with descend, element_key
-//                                   or ordered.
-//   error   oneof-member-refined    a oneof member carries descend,
-//                                   element_key or ordered, or only some
-//                                   members carry whole_state.
+//                                   repeated message field (keyed is its
+//                                   arm).
+//   error   bad-element-key         keyed on anything but a repeated
+//                                   message field, or an element_key naming
+//                                   no singular scalar, string, bytes or
+//                                   enum field of the element.
+//   error   oneof-member-refined    a oneof member carries inner_fields
+//                                   or keyed, or only some members carry
+//                                   wildcard.
+// (ordered-without-key and whole-state-combined are retired: the arms make
+// both unrepresentable; decision 14.91.)
 //   error   oneof-partially-marked  some but not all members of a oneof
 //                                   carry (conflict).
 //
@@ -470,32 +502,75 @@ extend google.protobuf.MessageOptions {
 //     option (io.angzarr.v1.state) = {
 //       conflict_resolutions: [CONFLICT_RESOLUTION_COMMUTATIVE]
 //     };
-//     map<string, Item> items = 1 [(io.angzarr.v1.conflict) = {}];  // per item: items[<id>]
-//     repeated Column columns = 2 [(io.angzarr.v1.conflict) = {}];  // the whole column list
-//     Settings settings = 3 [(io.angzarr.v1.conflict) = {}];        // the whole settings message
+//     map<string, Item> items = 1 [(io.angzarr.v1.conflict) = {natural: {}}];  // per item: items[<id>]
+//     repeated Column columns = 2 [(io.angzarr.v1.conflict) = {natural: {}}];  // the whole column list
+//     Settings settings = 3 [(io.angzarr.v1.conflict) = {natural: {}}];        // the whole settings message
 //   }
 //
 // Two stale edits to different items commute (items[a] vs items[b]); two
 // edits to one item conflict; a column change conflicts with any other
 // column change but not with item or settings edits; a settings change
 // conflicts only with another settings change. Finer variants are one
-// marker away: {descend: true} on items gives per-field item units
-// (items[a].weight), and {element_key: "id", ordered: true} on columns gives
-// per-column units plus columns[#order].
+// marker away: {inner_fields: {}} on items gives per-field item units
+// (items[a].weight), and {keyed: {element_key: "id" order_is_state: {}
+// whole: {}}} on columns gives per-column units plus columns[#order].
 message ConflictUnit {
-  // Message fields (including map values and keyed list elements): split
-  // into the inner message's fields instead of comparing the message whole.
-  bool descend = 1;
-  // Repeated message fields only: the name of the element field whose value
-  // identifies an element, giving one unit per element (`columns[due]`).
-  string element_key = 2;
-  // With element_key only: the relative order of the elements is state too,
-  // reported as the unit `field[#order]`.
-  bool ordered = 3;
-  // The field conflicts with everything (the wildcard unit), deliberately:
-  // marked, so no unmarked-field warning. Exclusive with the fields above.
-  bool whole_state = 4;
+  // The field's unit, by kind (decision 14.91, DRAFT, replacing the
+  // descend, ordered and whole_state switches). Required.
+  oneof unit {
+    // The field at its natural unit (the table's plain rows).
+    Natural natural = 5;
+    // A message field, or a map of messages: split into the inner
+    // message's fields instead of comparing it whole.
+    Descend inner_fields = 6;
+    // A repeated message field: one unit per element, by key.
+    Keyed keyed = 7;
+    // The field conflicts with everything (the wildcard unit), deliberately:
+    // marked, so no unmarked-field warning.
+    WholeState wildcard = 8;
+  }
+  // Fields 1 (descend), 2 (element_key), 3 (ordered) and 4 (whole_state)
+  // were switches and their companion; retired by decision 14.91 for the
+  // unit oneof (element_key is Keyed's): the arms inner_fields and
+  // wildcard say what descend and whole_state did.
+  reserved 1, 2, 3, 4;
+  reserved "descend", "element_key", "ordered", "whole_state";
 }
+
+// The natural-unit arm: nothing to say but its choice.
+message Natural {}
+
+// The descend arm.
+message Descend {}
+
+// The wildcard arm.
+message WholeState {}
+
+// A keyed repeated message field's unit.
+message Keyed {
+  // The name of the element field whose value identifies an element,
+  // giving one unit per element (`columns[due]`).
+  string element_key = 1;
+  // Whether the elements' relative order is state. Required.
+  oneof order {
+    // Order is ignored.
+    OrderIgnored order_ignored = 2;
+    // The relative order is state too, reported as the unit `field[#order]`.
+    OrderIsState order_is_state = 3;
+  }
+  // How each element compares. Required.
+  oneof element {
+    // Each element whole, by deep equality.
+    Natural whole = 4;
+    // Each element split per inner field, like a map of messages with
+    // descend.
+    Descend inner_fields = 5;
+  }
+}
+
+// Keyed's order arms.
+message OrderIgnored {}
+message OrderIsState {}
 
 extend google.protobuf.FieldOptions {
   // Marks a field of a COMMUTATIVE state message (or of a message reached

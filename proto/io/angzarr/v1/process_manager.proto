@@ -80,8 +80,8 @@ option ruby_package = "Angzarr";
 // Starting an instance (ruling B1, adapted; decision 14.31). A PM instance
 // exists once its stream holds an event (in the input's edition, as read
 // there). An input for a root with no instance starts one only if
-// the PM declares its type as STARTING ((command) entry with starts set,
-// options.proto; advertised to the coordinator as
+// the PM declares its type as STARTING (ProcessManagerDecl.starting_types,
+// options.proto; decision 14.91; advertised to the coordinator as
 // ProcessManagerDescriptor.starting_types). It is then delivered with an empty
 // state. Any other input for a root with no instance is not
 // delivered; the coordinator decides, before the handler, by its type

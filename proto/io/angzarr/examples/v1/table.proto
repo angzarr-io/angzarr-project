@@ -258,10 +258,9 @@ message SeatNotConfirmable {
 // policy-buy-in-table sends it on SeatReleaseDue, the buy-in's undo of its
 // held seat when it rolls back (decision 14.74; buy_in.proto).
 message ReleaseSeat {
-  option (io.angzarr.v1.command) = {
+  option (io.angzarr.v1.fact) = {
     component: "io.angzarr.examples.v1.TableState"
     emits: "io.angzarr.examples.v1.SeatReleased"
-    fact: true
   };
   bytes buy_in_id = 1;
   string reason = 2;
@@ -278,14 +277,13 @@ message ReleaseSeat {
 // it records MoveUndecided alone. A player always decides (player.proto),
 // so it is never sent in play.
 message RecordMoveUndecided {
-  option (io.angzarr.v1.command) = {
+  option (io.angzarr.v1.fact) = {
     component: "io.angzarr.examples.v1.TableState"
     emits: "io.angzarr.examples.v1.MoveUndecided"
     emits: "io.angzarr.examples.v1.HandStood"
     emits: "io.angzarr.examples.v1.TurnStarted"
     emits: "io.angzarr.examples.v1.DealerPlayed"
     emits: "io.angzarr.examples.v1.RoundSettled"
-    fact: true
   };
   uint32 round = 1; // The refused DecideMove's round
   int32 seat = 2; // The refused DecideMove's seat

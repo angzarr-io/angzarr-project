@@ -49,9 +49,8 @@ message RefundDue {
 
 // The inventory's: a fact, so an undo to it can never be refused.
 message ReleaseStock {
-  option (io.angzarr.v1.command) = {
+  option (io.angzarr.v1.fact) = {
     component: "test.compensation.InventoryState"
-    fact: true
   };
   string reservation_id = 1;
 }
@@ -67,9 +66,8 @@ message RestockItems {
 
 // The payment domain's: a fact.
 message RefundPayment {
-  option (io.angzarr.v1.command) = {
+  option (io.angzarr.v1.fact) = {
     component: "test.compensation.PaymentState"
-    fact: true
   };
   string charge_id = 1;
 }

@@ -94,17 +94,46 @@ message GetWalletBalanceRequest {
   bytes player_root = 1;
 }
 
+// A wallet's balance, or that the ledger has never seen the wallet: the
+// answer's shape says which (decision 14.91, DRAFT: no `found` flag beside
+// a row that is unset when it is false).
 message WalletBalanceView {
+  oneof result {
+    WalletBalance balance = 4;
+    WalletNotSeen not_seen = 5;
+  }
+  // Fields 1 (wallet), 2 (available) and 3 (found) moved into the result
+  // arms; retired by decision 14.91.
+  reserved 1, 2, 3;
+  reserved "wallet", "available", "found";
+}
+
+// A wallet the ledger has seen.
+message WalletBalance {
   WalletLedgerRow wallet = 1;
   int64 available = 2; // bankroll - held
-  bool found = 3;
 }
+
+// A wallet the ledger has never seen.
+message WalletNotSeen {}
 
 message GetLedgerRequest {}
 
 message LedgerView {
   LedgerTotals totals = 1;
   repeated TableLedgerRow tables = 2;
-  // True when nothing is in flight and invariant L4 holds.
-  bool balanced = 3;
+  // Where the money stands (decision 14.91, DRAFT): the `balanced` flag's
+  // false said two things, money in flight or invariant L4 broken.
+  LedgerState state = 4;
+  // Field 3 was balanced; retired by decision 14.91.
+  reserved 3;
+  reserved "balanced";
+}
+
+// Where the ledger's money stands.
+enum LedgerState {
+  LEDGER_STATE_UNSPECIFIED = 0; // Never answered
+  LEDGER_STATE_BALANCED = 1; // Nothing in flight, and invariant L4 holds
+  LEDGER_STATE_IN_FLIGHT = 2; // A transfer is seen on one side only; L4 is not judged
+  LEDGER_STATE_UNBALANCED = 3; // Nothing in flight, and invariant L4 does not hold: a bug
 }

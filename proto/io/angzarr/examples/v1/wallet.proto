@@ -203,10 +203,9 @@ message InsufficientFunds {
 // records it and never refuses it. A hold that is not open (already
 // captured or released, or never placed) records nothing (decision 14.75).
 message CaptureFunds {
-  option (io.angzarr.v1.command) = {
+  option (io.angzarr.v1.fact) = {
     component: "io.angzarr.examples.v1.WalletState"
     emits: "io.angzarr.examples.v1.FundsCaptured"
-    fact: true
   };
   bytes hold_id = 1;
 }
@@ -217,10 +216,9 @@ message CaptureFunds {
 // buy-in's undo of its held funds when it rolls back (decision 14.74; see
 // buy_in.proto). A hold that is not open records nothing (decision 14.75).
 message ReleaseHold {
-  option (io.angzarr.v1.command) = {
+  option (io.angzarr.v1.fact) = {
     component: "io.angzarr.examples.v1.WalletState"
     emits: "io.angzarr.examples.v1.HoldReleased"
-    fact: true
   };
   bytes hold_id = 1;
   string reason = 2;
@@ -234,10 +232,9 @@ message ReleaseHold {
 // a round that is already settled. Recording the same (table_root, round)
 // twice records nothing (decision 14.75).
 message RecordRoundResult {
-  option (io.angzarr.v1.command) = {
+  option (io.angzarr.v1.fact) = {
     component: "io.angzarr.examples.v1.WalletState"
     emits: "io.angzarr.examples.v1.RoundResultRecorded"
-    fact: true
   };
   bytes table_root = 1;
   uint32 round = 2;
@@ -251,10 +248,9 @@ message RecordRoundResult {
 // be refused (it was refused with LOYALTY_NOT_ENROLLED): the wallet flags
 // it with an event, as a fact handler flags input it cannot use.
 message AwardLoyaltyPoints {
-  option (io.angzarr.v1.command) = {
+  option (io.angzarr.v1.fact) = {
     component: "io.angzarr.examples.v1.WalletState"
     emits: "io.angzarr.examples.v1.LoyaltyPointsAwarded"
-    fact: true
   };
   bytes table_root = 1;
   uint32 round = 2;

@@ -87,10 +87,9 @@ message DecideMoveRefused {
 // refusal (decision 14.76), so the player hears of it without the
 // table's protos. The player records MoveRefused.
 message RecordMoveRefused {
-  option (io.angzarr.v1.command) = {
+  option (io.angzarr.v1.fact) = {
     component: "io.angzarr.examples.v1.PlayerState"
     emits: "io.angzarr.examples.v1.MoveRefused"
-    fact: true
   };
   int32 seat = 1; // The refused move's seat
   MoveAction action = 2; // The refused move

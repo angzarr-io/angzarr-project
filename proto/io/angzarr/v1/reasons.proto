@@ -56,9 +56,9 @@ option ruby_package = "Angzarr";
 // (decision 14.65). A key
 // whose answerers differ declares every name any of them gives (the
 // comment says which gives which), and an answer gives none it does not
-// declare. A key whose option sets readiness never travels as a status: it
-// is a readiness refusal, logged and alerted (component/v1/component.proto),
-// and declares no status (decision 14.88, DRAFT). A `cause` arg flattens a
+// declare. A key whose option's surface is readiness never travels as a
+// status: it is a readiness refusal, logged and alerted
+// (component/v1/component.proto; decisions 14.88 and 14.91, DRAFT). A `cause` arg flattens a
 // wrapped key and its args as `cause` and `cause.<arg>` (types.proto, the
 // diagnostic region). Which class a status is (decision 14.37's four
 // classes) is the coordinator's to decide, not listed here. English for a
@@ -94,16 +94,23 @@ message ReasonOptions {
   // each a valid Fluent variable name. `cause` stands for itself and the
   // `cause.<arg>` names it flattens to; no other dotted name is declared.
   repeated string args = 1;
-  // The gRPC status the key travels with (decision 14.65). Every live key
-  // but a readiness key sets it: unset is no declaration, which `just
-  // check-reason-keys` refuses. The key's comment says when an answerer may
-  // pick another (a retryable bug's status, C-0678).
-  ReasonStatus status = 2;
-  // A readiness refusal (decision 14.88, DRAFT, replacing the pseudo-status
-  // REASON_STATUS_READINESS): the key never travels as a status; it is
-  // logged and alerted as the coordinator's readiness
-  // (component/v1/component.proto). Such a key sets no status.
-  bool readiness = 3;
+  // How the key surfaces, by kind (decision 14.91, DRAFT, replacing the
+  // `readiness` switch and, before it, the pseudo-status
+  // REASON_STATUS_READINESS). Required: every live key names one.
+  oneof surfaces {
+    // The gRPC status the key travels with (decision 14.65). The key's
+    // comment says when an answerer may pick another (a retryable bug's
+    // status, C-0678).
+    ReasonStatus grpc_status = 4;
+    // A readiness refusal: the key never travels as a status; it is logged
+    // and alerted as the coordinator's readiness
+    // (component/v1/component.proto).
+    Readiness readiness = 5;
+  }
+  // Field 2 was status, the gRPC status alone; retired by decision 14.91
+  // for the surfaces oneof (a field cannot move into a oneof compatibly).
+  reserved 2;
+  reserved "status";
 }
 
 // The status a reason key travels with (decision 14.65). Each value's
@@ -128,6 +135,9 @@ enum ReasonStatus {
   reserved "REASON_STATUS_READINESS";
 }
 
+// A readiness key's surface: nothing to say but its kind.
+message Readiness {}
+
 extend google.protobuf.EnumValueOptions {
   // On every live value of RouterReason, HostReason and
   // CoordinatorReason, here and in the transports' reasons.proto. Numbered after options.proto's extensions of
@@ -143,11 +153,11 @@ enum RouterReason {
   // (C-0678).
   ROUTER_REASON_UNHANDLED_HANDLER_ERROR = 1 [(reason) = {
     args: ["cause"]
-    status: REASON_STATUS_INTERNAL
+    grpc_status: REASON_STATUS_INTERNAL
   }];
   // Travels only as ROUTER_REASON_UNHANDLED_HANDLER_ERROR's cause.
   ROUTER_REASON_HANDLER_PANICKED = 2 [(reason) = {
-    status: REASON_STATUS_INTERNAL
+    grpc_status: REASON_STATUS_INTERNAL
   }];
   // The key a TYPED refusal travels under, arg refusal_type its object's
   // full type name: on the coordinator's gRPC status to a caller (the
@@ -157,34 +167,34 @@ enum RouterReason {
   // the coordinator puts this key on the status it answers.
   ROUTER_REASON_COMMAND_REFUSED = 3 [(reason) = {
     args: ["refusal_type"]
-    status: REASON_STATUS_FAILED_PRECONDITION
+    grpc_status: REASON_STATUS_FAILED_PRECONDITION
   }];
   ROUTER_REASON_FOLD_FAILED = 4 [(reason) = {
     args: ["sequence", "type_url", "first_sequence", "last_sequence", "state_type_url", "cause"]
-    status: REASON_STATUS_INTERNAL
+    grpc_status: REASON_STATUS_INTERNAL
   }];
   ROUTER_REASON_FOLD_FAILED_EMITTED = 5 [(reason) = {
     args: ["sequence", "type_url", "first_sequence", "last_sequence", "state_type_url", "cause"]
-    status: REASON_STATUS_INTERNAL
+    grpc_status: REASON_STATUS_INTERNAL
   }];
   ROUTER_REASON_PERSISTED_EVENT_CORRUPT = 6 [(reason) = {
     args: ["type_url"]
-    status: REASON_STATUS_DATA_LOSS
+    grpc_status: REASON_STATUS_DATA_LOSS
   }];
   ROUTER_REASON_ANY_DECODE_FAILED = 7 [(reason) = {
     args: ["message_type", "ext_err_txt"]
-    status: REASON_STATUS_INTERNAL
+    grpc_status: REASON_STATUS_INTERNAL
   }];
   // The router sends type_url only; the coordinator relays it with
   // upcast_type_url (14.39).
   ROUTER_REASON_UNKNOWN_COMMAND_TYPE = 8 [(reason) = {
     args: ["type_url", "upcast_type_url"]
-    status: REASON_STATUS_INTERNAL
+    grpc_status: REASON_STATUS_INTERNAL
   }];
   // Relayed as ROUTER_REASON_UNKNOWN_COMMAND_TYPE is.
   ROUTER_REASON_NO_FACT_HANDLER = 9 [(reason) = {
     args: ["type_url", "upcast_type_url"]
-    status: REASON_STATUS_INTERNAL
+    grpc_status: REASON_STATUS_INTERNAL
   }];
   // A POLICY's router handed a refusal (PolicyService.Translate), of a
   // command type (`command_type`), with no refusal callback: only a policy
@@ -197,13 +207,13 @@ enum RouterReason {
   // alerted.
   ROUTER_REASON_NO_REFUSAL_HANDLER = 10 [(reason) = {
     args: ["command_type"]
-    status: REASON_STATUS_INTERNAL
+    grpc_status: REASON_STATUS_INTERNAL
   }];
   ROUTER_REASON_NO_COMPONENT_OF_KIND = 12 [(reason) = {
-    status: REASON_STATUS_UNIMPLEMENTED
+    grpc_status: REASON_STATUS_UNIMPLEMENTED
   }];
   ROUTER_REASON_NO_HANDLERS_REGISTERED = 13 [(reason) = {
-    status: REASON_STATUS_INTERNAL
+    grpc_status: REASON_STATUS_INTERNAL
   }];
   // A second component registered where one already is: one business
   // process hosts one component. ONE owner and one arg set (decision 14.88,
@@ -213,7 +223,7 @@ enum RouterReason {
   // the router (C-0579; decision 14.44, amended).
   ROUTER_REASON_DUPLICATE_COMPONENT = 14 [(reason) = {
     args: ["registered", "refused"]
-    status: REASON_STATUS_INTERNAL
+    grpc_status: REASON_STATUS_INTERNAL
   }];
   // A limit a router may enforce: where a client library lets a handler's
   // decision continue in follow-on steps (each deciding from the state after
@@ -229,7 +239,7 @@ enum RouterReason {
   // never answers it. (Decision 14.49.)
   ROUTER_REASON_TOO_MANY_STEPS = 15 [(reason) = {
     args: ["limit"]
-    status: REASON_STATUS_INTERNAL
+    grpc_status: REASON_STATUS_INTERNAL
   }];
 
   // Retired by 14.81 (DRAFT): the state declares the conflict resolution,
@@ -271,11 +281,11 @@ enum HostReason {
   // An upcaster is its own sidecar (14.39), never hosted beside a component.
   HOST_REASON_UPCASTER_WITH_COMPONENT = 1 [(reason) = {
     args: ["component"]
-    status: REASON_STATUS_INTERNAL
+    grpc_status: REASON_STATUS_INTERNAL
   }];
   // A host with no component registered (C-0504).
   HOST_REASON_NO_COMPONENTS_REGISTERED = 2 [(reason) = {
-    status: REASON_STATUS_INTERNAL
+    grpc_status: REASON_STATUS_INTERNAL
   }];
   // A component registered with a descriptor whose rules_version (`described`)
   // is not the version its answers report (`reported`: the rules_version of
@@ -286,7 +296,7 @@ enum HostReason {
   // (types.proto, ComponentDescriptor; C-0743).
   HOST_REASON_DESCRIPTOR_RULES_VERSION_MISMATCH = 3 [(reason) = {
     args: ["component", "described", "reported"]
-    status: REASON_STATUS_INTERNAL
+    grpc_status: REASON_STATUS_INTERNAL
   }];
   // A projector that names no domain it reads: its descriptor's
   // ProjectorDescriptor.input_domains is empty, as are its table's domains
@@ -296,21 +306,21 @@ enum HostReason {
   // it too (C-0747; decision 14.55).
   HOST_REASON_PROJECTOR_NO_INPUT_DOMAIN = 4 [(reason) = {
     args: ["component"]
-    status: REASON_STATUS_INTERNAL
+    grpc_status: REASON_STATUS_INTERNAL
   }];
   // An upcaster given for `domain`, which no component of the host
   // handles: there is nothing for it to upcast. Refused at registration,
   // and nothing is registered (decision 14.65).
   HOST_REASON_UPCASTER_UNKNOWN_DOMAIN = 12 [(reason) = {
     args: ["domain"]
-    status: REASON_STATUS_INTERNAL
+    grpc_status: REASON_STATUS_INTERNAL
   }];
   // The upcaster registered for `domain` upcasts another domain's
   // payloads (`upcaster`, the domain it names). Refused at registration,
   // and nothing is registered (decision 14.65).
   HOST_REASON_UPCASTER_OTHER_DOMAIN = 13 [(reason) = {
     args: ["domain", "upcaster"]
-    status: REASON_STATUS_INTERNAL
+    grpc_status: REASON_STATUS_INTERNAL
   }];
   // A policy or projector here (`component`) reading the events of
   // `domain`, which a coordinator elsewhere handles: its events are never
@@ -318,7 +328,7 @@ enum HostReason {
   // registration, and nothing is registered (decision 14.65).
   HOST_REASON_REMOTE_SOURCE = 15 [(reason) = {
     args: ["component", "domain"]
-    status: REASON_STATUS_INTERNAL
+    grpc_status: REASON_STATUS_INTERNAL
   }];
   // A component whose state's descriptor names one type (`type_url`) while
   // the state it writes as its snapshot is another (`state_type_url`): its
@@ -327,7 +337,7 @@ enum HostReason {
   // (decision 14.65).
   HOST_REASON_STATE_TYPE_MISMATCH = 16 [(reason) = {
     args: ["component", "type_url", "state_type_url"]
-    status: REASON_STATUS_INTERNAL
+    grpc_status: REASON_STATUS_INTERNAL
   }];
 
   // Moved to io.angzarr.transport.embedded.v1 (decision 14.64), each
@@ -384,11 +394,11 @@ enum CoordinatorReason {
   // is.
   COORDINATOR_REASON_CONFLICT_OVERLAP = 2 [(reason) = {
     args: ["stream", "window_units", "command_units"]
-    status: REASON_STATUS_ABORTED
+    grpc_status: REASON_STATUS_ABORTED
   }];
   COORDINATOR_REASON_PM_NO_INSTANCE = 3 [(reason) = {
     args: ["stream", "type_url"]
-    status: REASON_STATUS_FAILED_PRECONDITION
+    grpc_status: REASON_STATUS_FAILED_PRECONDITION
   }];
   // A policy's output (io.angzarr.handler.v1.Output) whose root is unset or
   // not 16 bytes: nothing fills one in, for any destination (decision
@@ -397,19 +407,19 @@ enum CoordinatorReason {
   // 14.37).
   COORDINATOR_REASON_POLICY_COMMAND_NO_ROOT = 7 [(reason) = {
     args: ["domain", "command_type"]
-    status: REASON_STATUS_INTERNAL
+    grpc_status: REASON_STATUS_INTERNAL
   }];
   COORDINATOR_REASON_MISSING_RULES_VERSION = 13 [(reason) = {
     args: ["component"]
-    readiness: true
+    readiness: {}
   }];
   COORDINATOR_REASON_MISSING_STATE_TYPE = 14 [(reason) = {
     args: ["component", "component_kind"]
-    readiness: true
+    readiness: {}
   }];
   COORDINATOR_REASON_POLICY_NO_OUTPUT_DOMAIN = 18 [(reason) = {
     args: ["component"]
-    readiness: true
+    readiness: {}
   }];
   // STRICT only. The command, under STRICT, set
   // Command.handling.expected_sequence (`expected`) behind the stream's
@@ -427,7 +437,7 @@ enum CoordinatorReason {
   // 14.47).
   COORDINATOR_REASON_EXPECTED_SEQUENCE_STALE = 20 [(reason) = {
     args: ["stream", "expected", "actual"]
-    status: REASON_STATUS_ABORTED
+    grpc_status: REASON_STATUS_ABORTED
   }];
   // Commands only: the coordinator gave up on a command its caller is waiting
   // for (Handle, HandleSync): every run lost a race at the write to another
@@ -451,7 +461,7 @@ enum CoordinatorReason {
   // 1 (decision 14.84).
   COORDINATOR_REASON_RETRY_CAP_EXHAUSTED = 21 [(reason) = {
     args: ["stream", "attempts", "cap"]
-    status: REASON_STATUS_INTERNAL
+    grpc_status: REASON_STATUS_INTERNAL
   }];
   // Every resolution (STRICT, AGGREGATE_HANDLES, COMMUTATIVE). The command set
   // Command.handling.expected_sequence (`expected`) ahead of the stream's
@@ -471,7 +481,7 @@ enum CoordinatorReason {
   // 14.47.)
   COORDINATOR_REASON_EXPECTED_SEQUENCE_AHEAD = 22 [(reason) = {
     args: ["stream", "expected", "head"]
-    status: REASON_STATUS_INVALID_ARGUMENT
+    grpc_status: REASON_STATUS_INVALID_ARGUMENT
   }];
   // The rows of a deleted edition in one stream could not be removed
   // (transport/distributed/v1/meta.proto, DeleteEdition): the removal is
@@ -482,7 +492,7 @@ enum CoordinatorReason {
   // (Decision 14.48, amended.)
   COORDINATOR_REASON_EDITION_REMOVAL_FAILED = 24 [(reason) = {
     args: ["stream", "edition", "attempts", "cause"]
-    status: REASON_STATUS_INTERNAL
+    grpc_status: REASON_STATUS_INTERNAL
   }];
   // A reaction command (a policy's) addressed to a domain its coordinator
   // cannot route: no component of the domain is registered with it, and it
@@ -495,7 +505,7 @@ enum CoordinatorReason {
   // domain is the client's malformed input, never this. (Decision 14.49.)
   COORDINATOR_REASON_POLICY_COMMAND_UNKNOWN_DOMAIN = 28 [(reason) = {
     args: ["domain", "command_type"]
-    status: REASON_STATUS_INTERNAL
+    grpc_status: REASON_STATUS_INTERNAL
   }];
   // The coordinator could not reach the business process that handles
   // `domain`: its process is not running, the connection or the transport
@@ -512,7 +522,7 @@ enum CoordinatorReason {
   // 14.49.)
   COORDINATOR_REASON_HANDLER_UNAVAILABLE = 29 [(reason) = {
     args: ["stream", "domain", "cause"]
-    status: REASON_STATUS_UNAVAILABLE
+    grpc_status: REASON_STATUS_UNAVAILABLE
   }];
   // A limit a coordinator may enforce: where it follows a chain of reactions
   // from the input a caller sent (the input at depth 0, a policy's reaction to
@@ -527,7 +537,7 @@ enum CoordinatorReason {
   // follow chains never answers it. (Decision 14.49.)
   COORDINATOR_REASON_CHAIN_TOO_DEEP = 30 [(reason) = {
     args: ["limit"]
-    status: REASON_STATUS_INTERNAL
+    grpc_status: REASON_STATUS_INTERNAL
   }];
   // The coordinator's event store failed to answer (I/O, a timeout, a dropped
   // connection, a busy or locked database: `cause`, the store's failure, a
@@ -542,7 +552,7 @@ enum CoordinatorReason {
   // (Decision 14.51.)
   COORDINATOR_REASON_STORE_UNAVAILABLE = 32 [(reason) = {
     args: ["cause"]
-    status: REASON_STATUS_UNAVAILABLE
+    grpc_status: REASON_STATUS_UNAVAILABLE
   }];
   // The upcaster sidecar `domain`'s coordinator upcasts through (decision
   // 14.39) is configured but could not be reached, or answered under a
@@ -554,7 +564,7 @@ enum CoordinatorReason {
   // UpcastPayloads) is a handler bug, never this. (Decision 14.51.)
   COORDINATOR_REASON_UPCASTER_UNAVAILABLE = 33 [(reason) = {
     args: ["domain", "cause"]
-    status: REASON_STATUS_UNAVAILABLE
+    grpc_status: REASON_STATUS_UNAVAILABLE
   }];
   // A handler's answer (io.angzarr.handler.v1.DecideResponse or
   // IngestResponse) whose rules_version (`reported`, an empty one
@@ -566,7 +576,7 @@ enum CoordinatorReason {
   // C-0558, C-0559, C-0748). (Decision 14.56.)
   COORDINATOR_REASON_RULES_VERSION_MISMATCH = 37 [(reason) = {
     args: ["stream", "component", "registered", "reported"]
-    status: REASON_STATUS_INTERNAL
+    grpc_status: REASON_STATUS_INTERNAL
   }];
   // An outside input (a client's command or fact) to a stream in an
   // edition (`edition`) that is not forked there (`stream`, the input's
@@ -579,7 +589,7 @@ enum CoordinatorReason {
   // (edition_forks.feature). (C-0633; decision 14.65.)
   COORDINATOR_REASON_EDITION_NOT_FORKED = 39 [(reason) = {
     args: ["stream", "edition"]
-    status: REASON_STATUS_FAILED_PRECONDITION
+    grpc_status: REASON_STATUS_FAILED_PRECONDITION
   }];
   // A component whose descriptor's state lists a value that is not a
   // conflict resolution (UNSPECIFIED, or no value of ConflictResolution),
@@ -588,7 +598,7 @@ enum CoordinatorReason {
   // descriptor rule's (decision 14.65).
   COORDINATOR_REASON_STATE_RESOLUTIONS_INVALID = 40 [(reason) = {
     args: ["component"]
-    readiness: true
+    readiness: {}
   }];
   // A policy's reaction, a command or a fact, addressed to its trigger's own
   // stream (`stream`: the trigger's domain and root, and its edition, which
@@ -602,7 +612,7 @@ enum CoordinatorReason {
   // 14.71.)
   COORDINATOR_REASON_POLICY_TARGETS_ITS_TRIGGER = 41 [(reason) = {
     args: ["stream", "command_type"]
-    status: REASON_STATUS_INTERNAL
+    grpc_status: REASON_STATUS_INTERNAL
   }];
   // A policy's descriptor (PolicyDescriptor) with no input_domain: its
   // source, which angzarr-cli derives from the events it names (decision
@@ -611,14 +621,14 @@ enum CoordinatorReason {
   // source is a single field, so "more than one" cannot be said.
   COORDINATOR_REASON_POLICY_NO_INPUT_DOMAIN = 42 [(reason) = {
     args: ["component"]
-    readiness: true
+    readiness: {}
   }];
   // A descriptor whose kind (the ComponentDescriptor.kind oneof) is unset,
   // or an arm this coordinator does not know. Readiness (decision 14.65,
   // 14.78).
   COORDINATOR_REASON_DESCRIPTOR_NO_KIND = 43 [(reason) = {
     args: ["component"]
-    readiness: true
+    readiness: {}
   }];
   // A command handler's answer whose result is unset: a DecideResponse
   // neither decided, refused nor aborted (decision 46, Q2), or an
@@ -629,7 +639,7 @@ enum CoordinatorReason {
   // alerted. (Decisions 14.78, 14.89.)
   COORDINATOR_REASON_ANSWER_NO_RESULT = 44 [(reason) = {
     args: ["stream"]
-    status: REASON_STATUS_INTERNAL
+    grpc_status: REASON_STATUS_INTERNAL
   }];
   // A descriptor whose rules_version (`rules_version`), less one leading
   // "v" or "V", does not parse as SemVer 2.0.0: the snapshot rule compares
@@ -638,7 +648,7 @@ enum CoordinatorReason {
   // (decision 14.88, DRAFT, dropping the string-equality fallback).
   COORDINATOR_REASON_RULES_VERSION_NOT_SEMVER = 45 [(reason) = {
     args: ["component", "rules_version"]
-    readiness: true
+    readiness: {}
   }];
 
   // Moved to io.angzarr.transport.distributed.v1 (decision 14.64), each

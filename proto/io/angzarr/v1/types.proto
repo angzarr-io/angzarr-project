@@ -1101,11 +1101,11 @@ message Handling {
 // manager's stream takes both arms, like any domain's (decision 14.31).
 //
 // A client's command or fact rides a CommandPage; a policy's output and a
-// refusal fact ride a ReactionDelivery (below), whose fact flag is the arm
-// and whose causation is the trigger. A policy emits what its destination
+// refusal fact ride a ReactionDelivery (below), whose body is a oneof of the
+// two arms and whose causation is the trigger. A policy emits what its destination
 // declares (decision 14.69): a command for a declared command type, a fact
 // for a declared fact type, the arm chosen by its generated code from the
-// destination's (command).fact; one the destination does not declare is
+// destination's declaration, (command) or (fact); one the destination does not declare is
 // refused by its router, as above. A policy also delivers the refusal fact
 // of a refused command (the domestic fact its callback translates the
 // refusal into; the one refusal path, decision 46 #5), to the exact stream
@@ -1218,11 +1218,14 @@ message ReactionDelivery {
   // root in the trigger's edition; for a refusal fact, the trigger's own
   // stream.
   Cover cover = 1;
-  // The command or fact, as the policy answered it.
-  google.protobuf.Any payload = 2;
-  // Whether payload is a fact of the destination (Output.fact); a refusal
-  // fact always is.
-  bool fact = 3;
+  // The command or fact, as the policy answered it, in the arm of its kind
+  // (Output's arm; a refusal fact is always the fact arm). A oneof, not a
+  // flag (decision 14.91, DRAFT). Neither arm is core's Command or Fact: a
+  // reaction carries no Handling, and its fact's origin is derived.
+  oneof body {
+    google.protobuf.Any command = 2;
+    google.protobuf.Any fact = 3;
+  }
   // Derived from (trigger, policy, index) for an output (the derived_ids
   // region); the refused command's for a refusal fact.
   UUID command_id = 4;
@@ -1525,8 +1528,9 @@ message ProcessManagerDescriptor {
   StateDescriptor state = 1;
   // The fully-qualified type NAMES (no type URL prefix:
   // "examples.v1.OpenTable", never "/examples.v1.OpenTable") of the command
-  // and fact types that are the PM's STARTING inputs, generated from its
-  // (command) entries with starts set (options.proto). The coordinator
+  // and fact types that are the PM's STARTING inputs, copied from its
+  // declaration's starting_types (ProcessManagerDecl, options.proto;
+  // decision 14.91). The coordinator
   // matches an input by the name its type URL ends in, after upcasting
   // (decision 14.41). An input for a correlation with no PM instance is
   // delivered only if its type is listed here; otherwise the coordinator

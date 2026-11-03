@@ -37,7 +37,7 @@ message ReactResponse {
 }
 
 // One command or fact for the policy's destination. It names only the
-// destination stream's root, the payload and its arm. Everything else is
+// destination stream's root and the payload, in the arm of its kind. Everything else is
 // the coordinator's, so a policy cannot set it:
 //   - domain: the policy's one destination, PolicyDescriptor.output_domain;
 //   - edition: the trigger's;
@@ -57,14 +57,16 @@ message Output {
   // The destination stream's root, for every destination, an aggregate's
   // or a process manager's alike: nothing fills one in.
   io.angzarr.v1.UUID root = 1;
-  // The destination's command or fact.
-  google.protobuf.Any payload = 2;
-  // Whether payload is a fact of the destination: its (command).fact
-  // (options.proto). Set by the policy's generated code from the
-  // declaration (decision 14.73), never by business code. A skewed arm (a
-  // fact sent as a command, or the reverse) is refused by the
-  // destination's router, as before (decision 14.69).
-  bool fact = 3;
+  // The destination's command or fact: the arm is the kind (decision
+  // 14.91, DRAFT: no flag). The policy's generated code picks it from the
+  // destination's declaration, (command) or (fact) (options.proto;
+  // decision 14.73), never business code. A skewed arm (a fact sent as a
+  // command, or the reverse) is refused by the destination's router, as
+  // before (decision 14.69).
+  oneof body {
+    google.protobuf.Any command = 2;
+    google.protobuf.Any fact = 3;
+  }
 }
 
 // What Translate is handed: one business rejection of a command the policy

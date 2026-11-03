@@ -2466,6 +2466,8 @@ coordinator canon calls a saga is angzarr's process manager, a domain
 - Why: one word per concept, matching the literature: a saga keeps state
   across steps; this component never does.
 
+> **Amended by 14.91 (DRAFT, pending review):** a fact is declared by its own option, `(io.angzarr.v1.fact)` (`FactOptions`), never by `CommandOptions.fact`, which is reserved (5). A message is a command or a fact by which option it carries.
+
 **14.34 The proto says whether an input is a command or a fact.** Owner
 ruling, 2026-10-28. `CommandOptions.fact` (`options.proto`, field 5, a
 bool): unset, the `(command)` message is a COMMAND, which its handler
@@ -4710,6 +4712,8 @@ positions on its stream).
 - Cost: the positions of a purged stream stay until its driver forgets it;
   a store's `ListPositions` becomes `Processed`.
 
+> **Amended by 14.91 (DRAFT, pending review):** "what its destination declares" is the destination's `(command)` or `(fact)` option; the policy's output and a ReactionDelivery carry `oneof body { command; fact }`, not a payload and a flag.
+
 **14.69 A policy emits what its destination declares.** Ruled by the
 owner, 2026-11-01, on the 2026-10-31 run's decision 28, as re-ruled ("a
 policy emits what the destination declares. Facts: the destination's
@@ -4841,6 +4845,8 @@ implementation's reading that such a fact's step simply fails.
 - Why: the ruling. Only a command is refused (14.31); a rejection for a
   fact is no answer a sender can act on.
 - Cost: none on the wire.
+
+> **Amended by 14.91 (DRAFT, pending review):** the arm the generator emits is `Output.body`'s `command` or `fact` arm, read from the destination's `(command)` or `(fact)` option.
 
 **14.73 The generator emits each policy output's arm, and refusal handlers
 only where a command declares `refuses`.** Ruled by the owner: decision 28
@@ -5167,8 +5173,9 @@ each component's current name once. Amends 14.50.
 exception mechanism is removed (amends 14.70); a non-SemVer
 `rules_version` is refused at registration
 (`COORDINATOR_REASON_RULES_VERSION_NOT_SEMVER`), dropping the
-string-equality fallback; `ReasonOptions.readiness` replaces
-`REASON_STATUS_READINESS` (100, reserved);
+string-equality fallback; a readiness marker replaces
+`REASON_STATUS_READINESS` (100, reserved; the marker became a oneof arm in
+14.91);
 `ROUTER_REASON_DUPLICATE_COMPONENT` has one owner, the router, and one arg
 set (`registered`, `refused`). taskloom's `defers`/`initial` item is
 taskloom code and is not here.
@@ -5196,6 +5203,40 @@ whose `fact_origin.external_id` is derived from (target stream, alarm_id,
 at) so a repeated delivery deduplicates. One scheduler stream per target
 stream (D5 Q5); the target re-checks. Supersedes FUTURE.md's timer sketch
 where they differ.
+
+**14.91 (DRAFT) No boolean switches: a kind is a type, a oneof or its own
+option.** The owner's review of the draft, 2026-11-02: "stop using boolean
+switches. bool fact is anathema. fact should be their own message type";
+"if something needs to carry commands OR facts, have it be a oneof";
+"usually, bools are the wrong choice to begin with. they're almost always
+better served with an enum at this level of programming"; and "blackjacks
+bools are fine, as they implement fixed rules".
+- **A fact is its own declaration.** `CommandOptions.fact` (5) is reserved;
+  a fact carries `(io.angzarr.v1.fact)` = `FactOptions { component; emits }`
+  (MessageOptions 50112). A command keeps `(command)` with `refuses`. Every
+  example and the compensation fixture are re-annotated. Amends 14.34,
+  14.69 and 14.73.
+- **Starting inputs are listed by the PM.** `CommandOptions.starts` (3) is
+  reserved; `ProcessManagerDecl.starting_types` lists them, and the
+  descriptor's `starting_types` is copied from it.
+- **Command OR fact is a oneof.** `io.angzarr.handler.v1.Output` and
+  `ReactionDelivery` carry `oneof body { Any command; Any fact }` in place of
+  a payload and `bool fact`. (`CommandPage` already had its oneof.)
+- **Conflict units.** `ConflictUnit`'s `descend`, `ordered` and
+  `whole_state` switches (and `element_key`) are reserved for `oneof unit {
+  Natural natural; Descend inner_fields; Keyed keyed; WholeState wildcard
+  }`, with `Keyed { element_key; oneof order { order_ignored |
+  order_is_state }; oneof element { whole | inner_fields } }`.
+- **Reason surfaces.** `ReasonOptions.status` (2) is reserved for `oneof
+  surfaces { ReasonStatus grpc_status; Readiness readiness }`; the
+  `readiness` bool of 14.88 is gone.
+- **Shapes, not flags.** `DeleteDeadLetterOk.deleted` (1) becomes `oneof
+  outcome { removed | no_entry }`; the ledger's `WalletBalanceView.found`
+  becomes `oneof result { balance | not_seen }` and `LedgerView.balanced` the
+  enum `LedgerState` (BALANCED, IN_FLIGHT, UNBALANCED).
+- **Kept bools**, each data with two states only: blackjack's (the owner),
+  the wallet's `registered` and `loyalty_enrolled`, the compensation
+  fixture's `failed`, and the vendored `sererr` and `google.api` messages.
 
 ## Corrections
 

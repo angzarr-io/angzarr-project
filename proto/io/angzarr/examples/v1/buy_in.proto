@@ -133,11 +133,9 @@ option ruby_package = "Angzarr::Examples";
 
 // Start a buy-in (from SeatHeld). The starting input.
 message StartBuyIn {
-  option (io.angzarr.v1.command) = {
+  option (io.angzarr.v1.fact) = {
     component: "io.angzarr.examples.v1.BuyInState"
     emits: "io.angzarr.examples.v1.BuyInStarted"
-    starts: true
-    fact: true
   };
   bytes buy_in_id = 1;
   bytes player_root = 2;
@@ -150,12 +148,11 @@ message StartBuyIn {
 // After the buy-in failed, a late reply: recorded as BuyInLateFundsHeld
 // and undone at once (HoldReleaseDue).
 message RecordFundsHeld {
-  option (io.angzarr.v1.command) = {
+  option (io.angzarr.v1.fact) = {
     component: "io.angzarr.examples.v1.BuyInState"
     emits: "io.angzarr.examples.v1.BuyInFundsHeld"
     emits: "io.angzarr.examples.v1.BuyInLateFundsHeld"
     emits: "io.angzarr.examples.v1.HoldReleaseDue"
-    fact: true
   };
   bytes hold_id = 1;
   bytes table_root = 2;
@@ -164,10 +161,9 @@ message RecordFundsHeld {
 
 // The table seated the player (from PlayerSeated).
 message RecordPlayerSeated {
-  option (io.angzarr.v1.command) = {
+  option (io.angzarr.v1.fact) = {
     component: "io.angzarr.examples.v1.BuyInState"
     emits: "io.angzarr.examples.v1.BuyInSeated"
-    fact: true
   };
   bytes buy_in_id = 1;
   bytes player_root = 2;
@@ -177,10 +173,9 @@ message RecordPlayerSeated {
 
 // The wallet spent the hold (from FundsCaptured; hold_id = the buy_in_id).
 message RecordFundsCaptured {
-  option (io.angzarr.v1.command) = {
+  option (io.angzarr.v1.fact) = {
     component: "io.angzarr.examples.v1.BuyInState"
     emits: "io.angzarr.examples.v1.BuyInCompleted"
-    fact: true
   };
   bytes hold_id = 1;
   bytes table_root = 2;
@@ -192,11 +187,10 @@ message RecordFundsCaptured {
 // InsufficientFunds (decision 14.76), so the buy-in needs no wallet proto
 // for it. The PM rolls back.
 message FundsHoldRefused {
-  option (io.angzarr.v1.command) = {
+  option (io.angzarr.v1.fact) = {
     component: "io.angzarr.examples.v1.BuyInState"
     emits: "io.angzarr.examples.v1.BuyInFailed"
     emits: "io.angzarr.examples.v1.SeatReleaseDue"
-    fact: true
   };
   bytes buy_in_id = 1; // The refused HoldFunds' hold_id
   string reason = 2; // The refusal's reason, e.g. INSUFFICIENT_AVAILABLE_FUNDS
@@ -210,12 +204,11 @@ message FundsHoldRefused {
 // its handler is infallible, and the buy-in domain needs no table proto
 // for it. The PM rolls back.
 message SeatConfirmationRefused {
-  option (io.angzarr.v1.command) = {
+  option (io.angzarr.v1.fact) = {
     component: "io.angzarr.examples.v1.BuyInState"
     emits: "io.angzarr.examples.v1.BuyInSeatLost"
     emits: "io.angzarr.examples.v1.HoldReleaseDue"
     emits: "io.angzarr.examples.v1.SeatReleaseDue"
-    fact: true
   };
   bytes buy_in_id = 1; // The refused ConfirmSeat's buy_in_id
   string reason = 2; // The refusal's reason, e.g. SEAT_HOLD_NOT_FOUND
@@ -352,7 +345,10 @@ message HoldReleaseDue {
 message BuyInState {
   option (io.angzarr.v1.component) = {
     component_name: "pmg-buy-in"
-    process_manager: { domain: "buy-in" }
+    process_manager: {
+      domain: "buy-in"
+      starting_types: "io.angzarr.examples.v1.StartBuyIn"
+    }
   };
   enum Phase {
     PHASE_UNSPECIFIED = 0; // No buy-in started under this correlation

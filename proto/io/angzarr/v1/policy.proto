@@ -44,9 +44,9 @@ option ruby_package = "Angzarr";
 //
 // A policy emits what its destination declares (decision 14.69): for a type
 // the destination declares a command, a command, which it may refuse
-// (Refusals, below); for one it declares a fact (CommandOptions.fact,
-// options.proto), a fact, which it records and never refuses. The arm
-// (Output.fact) is the declaration's, which the policy's generated code
+// (Refusals, below); for one it declares a fact (its (fact) option,
+// options.proto; decision 14.91), a fact, which it records and never
+// refuses. The arm (Output's command or fact) is the declaration's, which the policy's generated code
 // reads; business code never picks it. An Output carries a root and a
 // payload and nothing else, so its coordinator addresses and stamps every
 // one alike: the destination domain (PolicyDescriptor.output_domain), the

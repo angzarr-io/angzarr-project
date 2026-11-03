@@ -31,7 +31,7 @@ enum CoordinatorReason {
   // COORDINATOR_REASON_HANDLER_UNAVAILABLE. (Decision 14.51.)
   COORDINATOR_REASON_COMPONENT_NOT_REGISTERED = 1 [(io.angzarr.v1.reason) = {
     args: ["domain"]
-    status: REASON_STATUS_UNAVAILABLE
+    grpc_status: REASON_STATUS_UNAVAILABLE
   }];
   // A command or fact sent to a standalone query server for `domain`'s event
   // store, which has no component behind it and takes no commands
@@ -41,7 +41,7 @@ enum CoordinatorReason {
   // reason: a query server queues nothing. (Decision 14.51.)
   COORDINATOR_REASON_COMMANDS_NOT_SERVED = 2 [(io.angzarr.v1.reason) = {
     args: ["domain"]
-    status: REASON_STATUS_UNIMPLEMENTED
+    grpc_status: REASON_STATUS_UNIMPLEMENTED
   }];
   // A claim-checked payload (PayloadReference, at `uri`) the coordinator could
   // not retrieve from its payload store (`cause`, the store's failure, a
@@ -53,7 +53,7 @@ enum CoordinatorReason {
   // (payload_retrieval_failed), and alerted (C-0447). (Decision 14.51.)
   COORDINATOR_REASON_PAYLOAD_UNAVAILABLE = 3 [(io.angzarr.v1.reason) = {
     args: ["uri", "cause"]
-    status: REASON_STATUS_UNAVAILABLE
+    grpc_status: REASON_STATUS_UNAVAILABLE
   }];
 
   // Retired by 14.37.

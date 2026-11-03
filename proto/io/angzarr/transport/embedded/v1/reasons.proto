@@ -32,7 +32,7 @@ enum HostReason {
   // sections 2 and 7; decisions 14.62 and 14.80).
   HOST_REASON_CHILD_NOT_SERVING = 4 [(io.angzarr.v1.reason) = {
     args: ["component", "status", "timeout_ms"]
-    status: REASON_STATUS_INTERNAL
+    grpc_status: REASON_STATUS_INTERNAL
   }];
   // A child that exited on its stdin's end with a status other
   // than 0 (`exit_code`), when a child shutting down exits with 0: what a
@@ -40,7 +40,7 @@ enum HostReason {
   // decision 14.62).
   HOST_REASON_CHILD_EXIT_STATUS = 5 [(io.angzarr.v1.reason) = {
     args: ["component", "exit_code"]
-    status: REASON_STATUS_INTERNAL
+    grpc_status: REASON_STATUS_INTERNAL
   }];
   // A child that did not exit by itself on its stdin's end
   // within its grace: `ended` is how it did end, `signalled` (a signal
@@ -49,7 +49,7 @@ enum HostReason {
   // (child-protocol.md, sections 5 and 7; decision 14.62).
   HOST_REASON_CHILD_NOT_EXITED = 6 [(io.angzarr.v1.reason) = {
     args: ["component", "ended"]
-    status: REASON_STATUS_INTERNAL
+    grpc_status: REASON_STATUS_INTERNAL
   }];
   // A host's conformance probe given an input a child
   // of its kind (`kind`, as its configuration names it: `domain`,
@@ -58,7 +58,7 @@ enum HostReason {
   // (child-protocol.md, section 7; decision 14.62).
   HOST_REASON_PROBE_INPUT = 7 [(io.angzarr.v1.reason) = {
     args: ["component", "kind"]
-    status: REASON_STATUS_INVALID_ARGUMENT
+    grpc_status: REASON_STATUS_INVALID_ARGUMENT
   }];
 
   // Retired by 14.80 (DRAFT): there is no handshake line, so nothing
