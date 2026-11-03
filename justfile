@@ -73,7 +73,7 @@ BUF_IMAGE := "bufbuild/buf:1.47.2"
 
 # The spec draft every wire change lands on, and the line `proto-breaking`
 # guards: bump it with the draft.
-DRAFT_BRANCH := "spec/20261019-draft"
+DRAFT_BRANCH := "spec/20261102-draft"
 
 # A ref to compare against instead of the merge base with the draft (a
 # manual check against some other line); empty in every gate.
