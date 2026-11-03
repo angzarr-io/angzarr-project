@@ -43,7 +43,8 @@ Like any domain, a PM takes:
     docs/design/policies.md §3): the domestic fact each such policy
     translates the refusal into (the one refusal path, decision 46 #5).
 ```
-Its (command) entries name both (options.proto); the handler
+Its (command) entries name both
+([component-options.md](component-options.md) §6); the handler
 registration says which is a command and which a fact, as for an
 aggregate.
 
@@ -61,7 +62,7 @@ are ordinary stored events, published like an aggregate's.
 A PM instance's stream is (the PM's domain, an edition, a
 root): domain is the one the PM owns (ProcessManagerDecl.domain), the
 edition is the input's cover's (a policy's command carries its trigger's
-edition; see Cover.edition), and the root is the one the input's cover
+edition; [edition-meta-events.md](edition-meta-events.md) §8), and the root is the one the input's cover
 names. A policy addressing a PM names that root, as it does for any
 target (decision 14.36, as amended): nothing fills one in, and a policy
 command with no root is a policy bug (ANGZARR_REASON_POLICY_COMMAND_NO_ROOT;
@@ -88,7 +89,7 @@ Starting an instance (ruling B1, adapted; decision 14.31). A PM instance
 exists once its stream holds an event (in the input's edition, as read
 there). An input for a root with no instance starts one only if
 the PM declares its type as STARTING (ProcessManagerDecl.starting_types,
-options.proto; decision 14.91; advertised to the coordinator as
+[component-options.md](component-options.md) §9; decision 14.91; advertised to the coordinator as
 ProcessManagerDescriptor.starting_types). It is then delivered with an empty
 state. Any other input for a root with no instance is not
 delivered; the coordinator decides, before the handler, by its type
@@ -149,8 +150,9 @@ the events the handler writes.
 
 Deduplication is the coordinator's job, never the handler's, as for any
 domain: by command_id (a fact's derived from its origin), on the
-PM's stream, before the handler runs (types.proto, the command_identity
-lookup.
+PM's stream, before the handler runs: the same (stream, command_id)
+lookup as any domain's ([identity-and-streams.md](identity-and-streams.md)
+§7 and §7.2).
 
 ## 8. No outbox
 

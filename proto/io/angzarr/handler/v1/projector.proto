@@ -10,34 +10,12 @@ option java_multiple_files = true;
 option java_package = "io.angzarr.handler";
 option ruby_package = "Angzarr::Handler";
 
-// A projector's business logic (decision 14.78, DRAFT). The layer rule is
-// command_handler.proto's.
+// A projector's business logic (decision 14.78, DRAFT), under the handler
+// layer's rule (docs/design/handler-contract.md §2).
 
-// What Project is handed: a run of one stream's events, in order, upcast.
-// A projector folds the run into one write, reading each page's context
-// from its EventMeta.
-//
-// A projector over several domains receives each stream's run
-// independently, in any order across streams: there is NO cross-stream
-// order (decision 14.96, DRAFT). Within one stream the pages are in
-// sequence order.
-//
-// Multi-domain projectors should be rare. They are not substitutes for
-// process managers or business logic: the capability exists for system
-// capabilities such as the timekeeping module, global logging and the like
-// (the owner, 2026-11-02; decision 14.96, DRAFT).
-//
-// A projector keys its read model by edition (Cover.edition, as
-// types.proto says), as by stream.
-//
-// Delivery (decision 14.97, DRAFT; the owner: "coordinator should not mark
-// as done until business logic responds with an affirmative"). The
-// coordinator records a run's position (its processed state, decision
-// 14.68) ONLY after the projector's affirmative ProjectResponse. An error
-// status, or no answer, leaves the run unmarked, and it is delivered again.
-// So a run whose read-model write landed but whose mark did not (a crash
-// between them) is delivered again: the projector skips what it has already
-// applied, by (stream, sequence), which every page of the request carries.
+// What Project is handed: a run of one stream's events, in order, upcast;
+// no cross-stream order (decision 14.96). Delivery and positions:
+// docs/design/projectors.md.
 message ProjectRequest {
   // The stream's cover and the run of pages, each with its sequence and
   // EventMeta.
@@ -45,11 +23,7 @@ message ProjectRequest {
 }
 
 // What Project answers: the projection, and nothing the coordinator
-// knows. The coordinator builds core's Projection from it: cover the run's,
-// projector the component's registered name, next_sequence the last page's
-// sequence + 1. That is what HandleSync answers its caller
-// (io.angzarr.transport.distributed.v1.CommandSyncResult.projections) and what
-// the projector's position records.
+// knows. What the coordinator builds from it: docs/design/projectors.md §5.
 message ProjectResponse {
   google.protobuf.Any projection = 1;
 }

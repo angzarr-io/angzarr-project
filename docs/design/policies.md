@@ -1,6 +1,6 @@
 # Policies: translation, refusals and the transient outbox
 
-**Status:** normative (decisions 14.31, 14.42, 14.69, 14.71, 14.76; as amended by the DRAFT decisions 14.78 to 14.102 pending review). Moved from `proto/io/angzarr/v1/policy.proto`, which defined no message (decision 14.103, DRAFT). The services are `io.angzarr.component.v1.PolicyService` and `io.angzarr.transport.distributed.v1.PolicyCoordinatorService`; the messages are `io/angzarr/handler/v1/policy.proto`'s.
+**Status:** normative (decisions 14.31, 14.42, 14.69, 14.71, 14.76; as amended by the DRAFT decisions 14.78 to 14.102 pending review). Moved from `proto/io/angzarr/v1/policy.proto`, which defined no message (decision 14.103, DRAFT); §6 moved from `proto/io/angzarr/component/v1/policy.proto`'s and `proto/io/angzarr/handler/v1/policy.proto`'s comments (decision 14.109). The services are `io.angzarr.component.v1.PolicyService` and `io.angzarr.transport.distributed.v1.PolicyCoordinatorService`; the messages are `io/angzarr/handler/v1/policy.proto`'s.
 
 Policies: stateless translation from source events to the commands and
 facts their destination declares. The business logic's service is the
@@ -14,12 +14,13 @@ runtime's (decision 14.64).
 A policy translates between exactly two domains: events of its one source
 domain into commands and facts for its one destination domain. Its source
 is derived from the events it names (PolicyDescriptor.input_domain;
-options.proto, decision 14.78) and its destination declared
+[component-options.md](component-options.md) §4, decision 14.78) and its
+destination declared
 (PolicyDecl.output_domain). One policy per (source domain, destination
 domain) pair: every reaction from one domain's events to another domain's
 inputs is part of that pair's single policy, and anything needing several
-destinations is a process manager (see ComponentOptions in
-options.proto).
+destinations is a process manager
+([component-options.md](component-options.md) §5).
 
 The destination may be an aggregate's domain or a process manager's: a
 process manager is a domain (decision 14.31), so a policy's commands and
@@ -50,11 +51,11 @@ one alike: the destination domain (PolicyDescriptor.output_domain), the
 trigger's edition, the derived command_id (commands and facts counted in
 one index space), the trigger's correlation_id,
 the causation (the event being reacted to), and the policy's name, as a
-ReactionDelivery (types.proto; decision 14.79); a fact's origin is
+ReactionDelivery ([pipeline.md](pipeline.md) §10; decision 14.79); a fact's origin is
 derived from them at the destination, external_id the command_id's
 canonical text and description naming the type and the policy. So a type its destination turns from a command
 into a fact keeps its id, and a re-run across the change is answered
-DUPLICATE. It carries no Handling (see Handling): the destination appends
+DUPLICATE. It carries no Handling ([pipeline.md](pipeline.md) §1): the destination appends
 at the head it loaded, as for any input. It is delivered through the one framework-only RPC, Deliver
 (decision 14.79).
 ```text
@@ -113,7 +114,7 @@ policy's OWN source: the exact stream of its triggering event.
   - A policy angzarr-cli generates has that one callback, required
     (decision 14.76, as amended by 14.89 and 14.99), when its target has
     a command that can refuse; then a source taking no fact fails
-    generation (options.proto, the refusals region). A policy written by
+    generation ([component-options.md](component-options.md) §12). A policy written by
     hand whose router has no callback answers
     ANGZARR_REASON_NO_REFUSAL_HANDLER (metadata command_type; decision
     46, Q6), and the step is dead-lettered and alerted at the policy.
@@ -187,3 +188,83 @@ determinism requirement: one run's output is recorded once and re-sent as
 recorded. A refusal fact is put into the outbox, as a new entry, in the
 same transaction that clears its refused command's entry (Refusals,
 above), and dispatched and retried the same way.
+
+## 6. React and Translate
+
+A policy's business logic has two calls: React to one event of its
+source, and Translate one refusal of a command it sent (decision 14.78,
+DRAFT). The handler layer's rule holds for both: a request carries the
+books, read-only; a response carries only what business code decides
+(docs/design/handler-contract.md §2).
+
+**React.** React reacts to one source event (decision 46, Q3: a policy is
+a function of one event, and is called once per trigger): it answers the
+commands and facts the destination domain declares (an aggregate's or a
+process manager's; decision 14.69), in the order business code returned
+them. Output i's index is i in the reaction's output
+([identity-and-streams.md](identity-and-streams.md) §3.2), commands and
+facts in one index space (decision
+14.69). An empty answer: the policy does nothing for this event.
+
+An Output names only the destination stream's root and the payload, in
+the arm of its kind. Everything else is the coordinator's, so a policy
+cannot set it:
+
+```text
+  - domain: the policy's one destination, PolicyDescriptor.output_domain;
+  - edition: the trigger's;
+  - command_id: derived from (trigger, policy, index)
+    ([identity-and-streams.md](identity-and-streams.md) §3.2);
+  - correlation_id: the trigger's;
+  - causation: the trigger's EventRef;
+  - a fact's origin: external_id the command_id's canonical text,
+    description naming the type and the policy;
+  - Handling: none; the destination stamps its head.
+```
+
+The root is required for every destination, an aggregate's or a process
+manager's alike: nothing fills one in. The arm is the kind (decision
+14.91, DRAFT: no flag). The policy's generated code picks it from the
+destination's declaration, (command) or (fact) (options.proto; decision
+14.73), never business code. A skewed arm (a fact sent as a command, or
+the reverse) is refused by the destination's router, as before (decision
+14.69; §2).
+
+The coordinator still refuses a root that is unset or not 16 bytes
+(ANGZARR_REASON_POLICY_COMMAND_NO_ROOT), an output to the trigger's own
+stream (ANGZARR_REASON_POLICY_TARGETS_ITS_TRIGGER), a destination it
+cannot route (ANGZARR_REASON_POLICY_COMMAND_UNKNOWN_DOMAIN) and a chain too
+deep (ANGZARR_REASON_CHAIN_TOO_DEEP): each a policy bug, the trigger
+dead-lettered and alerted, nothing delivered (§2).
+
+**Translate.** Translate turns one refusal of the policy's command into
+one fact of its own source (the one refusal path, decision 46 #5; §3). It
+is called by the policy's coordinator only, for every business rejection
+of one of its commands: every business refusal the target answered (a
+gRPC business status carrying a typed refusal; decision 14.95, DRAFT), and
+for nothing else: an ABORTED re-runs the step, and a bug is
+dead-lettered. The business process runs the policy's one refusal
+callback (decision 14.89) and answers the fact's payload. An error status
+is a policy bug (dead-lettered and alerted).
+
+Translate is handed the triggering event (a book of the source stream
+holding the one event the policy reacted to, the refused command's
+causation; its cover is also where the translated fact goes), the refused
+command exactly as it was delivered (decision 14.79: its cover, the
+identity the coordinator stamped, and its payload, which the policy's one
+refusal callback receives as its target's command choice; decision 14.89),
+and the target's refusal, read off the target's gRPC status
+(io.angzarr.handler.v1.Refusal; docs/design/handler-contract.md §8).
+
+It answers one fact of the policy's own source domain, payload only. The
+coordinator builds the rest: a ReactionDelivery addressed to the
+trigger's exact stream, a fact holding this payload, with the refused
+command's command_id, the trigger's correlation_id and causation the
+trigger (decision 14.79; §4). It is never refused, so compensation cannot
+loop.
+
+A fact with no payload (no type URL) is delivered like any other, and the
+source's router refuses it ANGZARR_REASON_NO_FACT_HANDLER: dead-lettered
+and alerted at the source. A policy's router with no refusal callback
+answers ANGZARR_REASON_NO_REFUSAL_HANDLER (a policy written by hand: a
+generated one has its one callback, decisions 14.76 and 14.89).

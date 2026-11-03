@@ -10,13 +10,12 @@ option java_multiple_files = true;
 option java_package = "io.angzarr.handler";
 option ruby_package = "Angzarr::Handler";
 
-// An upcaster's rules (decision 14.78, DRAFT; what an upcaster is, where it
-// runs and who calls it are docs/design/upcasting.md's). The layer rule
-// is command_handler.proto's.
+// An upcaster's rules (decision 14.78, DRAFT), under the handler layer's
+// rule (docs/design/handler-contract.md §2). What an upcaster is, where it
+// runs and who calls it: docs/design/upcasting.md.
 
-// What an upcaster is handed: a stream's pages to bring to their current
-// shape, with their sequences and EventMeta, read-only; or a lone command
-// or fact payload, which has no stream sequence (decision 14.97, DRAFT).
+// What an upcaster is handed: a stream's pages, read-only, or a lone
+// command or fact payload (decision 14.97, DRAFT).
 message UpcastRequest {
   // The domain whose streams, commands or facts these are.
   string domain = 1;
@@ -34,19 +33,13 @@ message UpcastPages {
 }
 
 // What an upcaster answers: each payload in its current shape, keyed by the
-// page's sequence (decision 14.96, DRAFT), or no_sequence for a lone
-// payload (decision 14.97): matched to the request by key, never by
-// position. A page's sequence and
-// EventMeta are the coordinator's and stay as stored, so an upcaster cannot
-// rewrite them. An answer missing a requested sequence, naming one not
-// requested, or naming one twice is a rule bug (an error from the
-// upcaster).
+// page's sequence (decision 14.96, DRAFT), or no_sequence for a lone payload
+// (decision 14.97). The keying rule: docs/design/upcasting.md §6.
 message UpcastResponse {
   repeated Upcasted pages = 1;
 }
 
-// One upcast payload, keyed (decision 14.97, DRAFT; the owner: "NO_SEQ or
-// something similar").
+// One upcast payload, keyed (decision 14.97, DRAFT).
 message Upcasted {
   oneof key {
     // The requested page's sequence.

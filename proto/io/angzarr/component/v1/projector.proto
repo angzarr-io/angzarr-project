@@ -9,34 +9,14 @@ option java_multiple_files = true;
 option java_package = "io.angzarr.component";
 option ruby_package = "Angzarr::Component";
 
-// ProjectorService: client logic that projects events to read models
-// client logic doesn't care about sync - coordinator decides
-//
-// A projector over several domains receives each stream's run
-// independently, in any order across streams: there is no cross-stream
-// order (decision 14.96, DRAFT).
-//
-// Multi-domain projectors should be rare. They are not substitutes for
-// process managers or business logic: the capability exists for system
-// capabilities such as the timekeeping module, global logging and the like
-// (the owner, 2026-11-02; decision 14.96, DRAFT).
-//
-// Events from a non-main edition are projected like any others; the
-// projection's output follows that edition's storage configuration (an
-// in-memory edition's projections are kept in memory; see Cover.edition).
-// Its CloudEvents publish to the configured sinks like main's (decision
-// 14.107, DRAFT).
-// Delivery (decision 14.97, DRAFT; the owner: "coordinator should not mark
-// as done until business logic responds with an affirmative"). The
-// coordinator records a run's position (its processed state, decision
-// 14.68) ONLY after the projector's affirmative ProjectResponse. An error
-// status, or no answer, leaves the run unmarked, and it is delivered again.
-// So a run whose read-model write landed but whose mark did not (a crash
-// between them) is delivered again: the projector skips what it has already
-// applied, by (stream, sequence), which every page of the request carries.
+// ProjectorService: a projector's business logic, projecting events to read
+// models. Its messages are the handler layer's
+// (io/angzarr/handler/v1/projector.proto; decision 14.78, DRAFT).
+// Per-stream delivery, editions, and positions marked only after an
+// affirmative answer (decision 14.97): docs/design/projectors.md.
 service ProjectorService {
   // Project a run of one stream's events (decision 14.78, DRAFT): the
-  // projector persists its read model and answers the projection; the
-  // coordinator builds core's Projection from it (ProjectResponse).
+  // projector persists its read model and answers the projection
+  // (docs/design/projectors.md §1 and §5).
   rpc Project(io.angzarr.handler.v1.ProjectRequest) returns (io.angzarr.handler.v1.ProjectResponse);
 }

@@ -117,7 +117,7 @@ correlation_id — the trigger's, unchanged
 
 A redelivered trigger therefore yields the same command ids, and the destination deduplicates them.
 
-A reaction command carries no `Handling` at all: the destination always stamps its head before business code, so no sequence check or conflict resolution applies (`Handling` in `io/angzarr/v1/types.proto`). The destination's own command handler is the business guard: if the command no longer makes sense for the current state, it refuses it, and the refusal comes back as above.
+A reaction command carries no `Handling` at all: the destination always stamps its head before business code, so no sequence check or conflict resolution applies (`docs/design/pipeline.md` §1 and §10). The destination's own command handler is the business guard: if the command no longer makes sense for the current state, it refuses it, and the refusal comes back as above.
 
 Policies never load target state or sequences: the coordinator invokes a policy with the triggering events only.
 

@@ -43,7 +43,7 @@ Every error angzarr sends carries a **key** and an **argument map**, never rende
 
 This holds for business code too. A handler's typed refusal is its refusal object; any other rejection, and every handler bug, carries a diagnostic code and its args. No free text crosses any boundary: a handler bug is answered `ANGZARR_REASON_UNHANDLED_HANDLER_ERROR`, carrying the handler's own diagnostic as its cause (a panic's cause is `ANGZARR_REASON_HANDLER_PANICKED`), and what the error or panic said stays in the handler's own log. A wrapped cause is flattened into the args: its code under the arg's name and its args under `<name>.<arg>`.
 
-Every distinct condition has its own reason key, so no two conditions share a key and differ only by text. The framework's keys are the enums of `io/angzarr/v1/reasons.proto` (in the Proto API reference), one per layer: core's `AngzarrReason` (`ANGZARR_REASON_*`), and each transport's own `reasons.proto` for what only it raises (`io/angzarr/transport/embedded/v1`'s `EmbeddedReason`, `EMBEDDED_REASON_*`: a child process's keys; `io/angzarr/transport/distributed/v1`'s `DistributedReason`, `DISTRIBUTED_REASON_*`: a distributed coordinator's; decisions 14.64 and 14.104). Which component raises a key is in its comment, never in its string; each value's comment giving its status and its `(reason)` option its args, with the English for every key in the `reasons.en-US.ftl` beside its file (decision 14.60); on the wire a key is the value's full name, its enum's prefix included (`ANGZARR_REASON_DUPLICATE_COMPONENT`). Some of them:
+Every distinct condition has its own reason key, so no two conditions share a key and differ only by text. The framework's keys are the enums of `io/angzarr/v1/reasons.proto` (in the Proto API reference), one per layer: core's `AngzarrReason` (`ANGZARR_REASON_*`), and each transport's own `reasons.proto` for what only it raises (`io/angzarr/transport/embedded/v1`'s `EmbeddedReason`, `EMBEDDED_REASON_*`: a child process's keys; `io/angzarr/transport/distributed/v1`'s `DistributedReason`, `DISTRIBUTED_REASON_*`: a distributed coordinator's; decisions 14.64 and 14.104). Which component raises a key is in its comment, never in its string; each value's `(reason)` option gives its status and its args, and what each key means is `docs/design/reason-keys.md`, with the English for every key in the `reasons.en-US.ftl` beside its file (decision 14.60); on the wire a key is the value's full name, its enum's prefix included (`ANGZARR_REASON_DUPLICATE_COMPONENT`). Some of them:
 
 | Condition | Reason | Status |
 |-----------|--------|--------|
@@ -61,7 +61,7 @@ Every distinct condition has its own reason key, so no two conditions share a ke
 
 ## Status Classes
 
-Every status belongs to one of four classes (decision 14.37). The authoritative list is the status-codes comment (the command_modes region) in `docs/design/command-handling.md`, every runtime's; each reason key's status is in its value comment in `io/angzarr/v1/reasons.proto`, and its args in the value's `(reason)` option.
+Every status belongs to one of four classes (decision 14.37). The authoritative list is the status codes, §3 of `docs/design/command-handling.md`, every runtime's; each reason key's status and args are in its value's `(reason)` option in `io/angzarr/v1/reasons.proto`, and the class each key is answered in is `docs/design/reason-keys.md`.
 
 | Class | Statuses | What happens |
 |-------|----------|--------------|

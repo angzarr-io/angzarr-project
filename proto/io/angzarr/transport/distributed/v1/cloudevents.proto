@@ -17,47 +17,9 @@ option ruby_package = "Angzarr::Transport::Distributed";
 
 // region cloud_event
 // What a projector returns, in Projection.projection, to publish CloudEvents
-// to the configured sinks (HTTP webhook, Kafka): the official CloudEvents
-// Protobuf Format's events (decision 14.108, DRAFT; angzarr defines no
-// CloudEvent of its own).
-//
-// External publishing triggers only when projection.type_url names exactly
-// this message, io.angzarr.transport.distributed.v1.CloudEventsResponse:
-// its full name after the last "/", as every type URL is read (types.proto,
-// Type URLs). A bare "CloudEventsResponse", or the same name in another
-// package, never triggers it.
-//
-// A projector may return 0 events (skip), 1 (typical) or N (fan-out, e.g.
-// multi-tenant notifications). It should pack a "public" message in each
-// event's data, omitting sensitive fields.
-//
-// The framework fills these attributes when the projector leaves them
-// empty, from the projected event:
-//   id                 {domain}:{root}:{sequence} on the main timeline
-//                      (Cover.edition unset: no edition segment), and
-//                      {domain}:{edition}:{root}:{sequence} on a named
-//                      edition. The shapes cannot collide: domains, roots
-//                      and sequences never contain ':', so a main id has
-//                      exactly three segments and an edition id at least
-//                      four. root is the root's canonical UUID text
-//                      (lowercase, hyphenated). The id is a string, as the
-//                      CloudEvents spec makes it; it is not a UUID.
-//   source             angzarr/{domain} on the main timeline, and
-//                      angzarr/{domain}/editions/{edition} on a named
-//                      edition.
-//   subject            the stream's root, as canonical UUID text (an
-//                      optional attribute, so in attributes, as ce_string).
-//   type               the projected event's fully-qualified message name
-//                      (the text after the last "/" of its type URL).
-//   spec_version       "1.0".
-//   correlationid      an extension attribute (in attributes, ce_string):
-//                      the event's EventMeta.correlation_id, always set,
-//                      as canonical UUID text (36 lowercase characters,
-//                      hyphenated; see UUID in io/angzarr/v1/types.proto).
-//   time               EventMeta.recorded_at (in attributes, ce_timestamp).
-// A named edition is part of the default id and source, so a CloudEvent's
-// identity never collides across timelines; an edition's CloudEvents
-// publish to the configured sinks like main's.
+// to the configured sinks: the official CloudEvents Protobuf Format's events
+// (decision 14.108, DRAFT). Publishing triggers only on this exact type;
+// the attributes the framework fills: docs/design/cloudevents.md.
 message CloudEventsResponse {
   repeated io.cloudevents.v1.CloudEvent events = 1;
 }

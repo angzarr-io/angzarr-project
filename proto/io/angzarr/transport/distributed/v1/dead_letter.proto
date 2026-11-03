@@ -18,18 +18,14 @@ option ruby_package = "Angzarr::Transport::Distributed";
 // region dead_letter_envelope
 // A dead letter as the distributed transport publishes and stores it: core's
 // AngzarrDeadLetter, whole and unchanged, wrapped with what only this
-// transport knows (decision 14.64). Per-domain topics: angzarr.dlq.{domain}.
-// The DLQ admin store keeps the envelope's bytes (dlq_admin.proto,
-// StoredDeadLetter.payload). The angzarr-embedded kernel stores the core
-// entry bare and never builds one.
+// transport knows (decision 14.64). Topics, storage and the embedded kernel:
+// docs/design/distributed-transport.md §5.
 message DeadLetterEnvelope {
   io.angzarr.v1.AngzarrDeadLetter dead_letter = 1; // The entry, as core defines it
   // The failure's cause chain, when one was captured: a flat array of
-  // captured errors (most-causal-first; the originating caught error is the
-  // LAST element), matching Sentry's `exception.values` shape; linkage via
-  // each entry's `mechanism.exception_id` / `mechanism.parent_id`. Empty
-  // when no capture was attempted. See sererr.fyi/spec/proto for the schema
-  // rationale.
+  // captured errors, Sentry's `exception.values` shape; empty when no
+  // capture was attempted. Order and linkage:
+  // docs/design/distributed-transport.md §5.
   repeated sererr.v1.CapturedError stack_trace = 2;
 }
 

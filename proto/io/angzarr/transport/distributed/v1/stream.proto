@@ -15,36 +15,10 @@ option ruby_package = "Angzarr::Transport::Distributed";
 // (decision 14.105, DRAFT).
 service EventStreamService {
   // Subscribe to one target (SubscribeRequest.target): one stream, or
-  // every stream of one correlation. Each answer is an EventBook of one
-  // stream's pages. The server first delivers every page the target holds
-  // after the subscriber's resume point (catch-up), then every page
-  // committed after, as it commits (live), with no gap and no duplicate
-  // between the two, so a subscriber that queried first loses nothing to
-  // the race between its query and its subscription.
-  //
-  // Order is per stream only: a stream's pages arrive in sequence order;
-  // pages of different streams arrive in no defined order. There is no
-  // cross-stream order and no store-wide position: a resume point is one
-  // sequence per stream, the next one to deliver, inclusive, as
-  // SequenceRange.lower (StreamFrom.from_sequence, CorrelationFrom.seen;
-  // decision 14.106, DRAFT).
-  //
-  // Refusals: a target that is unset, a cover with no domain or a root that
-  // is not 16 bytes, or a correlation_id unset or not 16 bytes, is
-  // INVALID_ARGUMENT; an unknown edition is NOT_FOUND (as
-  // EventQueryService).
-  //
-  // REST: Server-Sent Events (SSE). A stream subscription is GET
-  // /v1/stream/{domain}/{root}, with from_sequence and cover.edition as
-  // query parameters. A correlation subscription is POST
-  // /v1/stream/correlations/{correlation_id}, the request its body, since
-  // its resume point (seen) is a list of messages, which a query string
-  // cannot carry. A browser's EventSource opens GET only, so a browser
-  // subscribes to a correlation with a fetch-based SSE reader (decision
-  // 14.106, DRAFT: accepted). Path segments that are UUIDs take the UUID's bytes field,
-  // so HTTP transcoding takes them as base64 (URL-safe), not as canonical
-  // UUID text (the accepted cost of UUID-typed ids; see UUID in
-  // io/angzarr/v1/types.proto).
+  // every stream of one correlation; catch-up from the resume point, then
+  // live. Each answer is an EventBook of one stream's pages, in sequence
+  // order per stream only. Catch-up, ordering, refusals and the HTTP/SSE
+  // routes: docs/design/queries-and-subscriptions.md §5.
   rpc Subscribe(SubscribeRequest) returns (stream io.angzarr.v1.EventBook) {
     option (google.api.http) = {
       get: "/v1/stream/{stream.cover.domain}/{stream.cover.root.value}"
@@ -68,10 +42,9 @@ message SubscribeRequest {
   }
 }
 
-// One stream, from a sequence: every page of the stream with a sequence
-// at or above from_sequence, then live. The stream's timeline is
-// cover.edition, read as EventQueryService reads it. A subscriber that
-// reconnects sets from_sequence to the last sequence it received + 1.
+// One stream, from a sequence: every page at or above from_sequence on
+// cover.edition's timeline, then live
+// (docs/design/queries-and-subscriptions.md §6).
 message StreamFrom {
   io.angzarr.v1.Cover cover = 1;
   // The first sequence to deliver, inclusive, as SequenceRange.lower: 0 is
@@ -79,26 +52,19 @@ message StreamFrom {
   uint64 from_sequence = 2;
 }
 
-// One correlation, from a set of per-stream positions: every page whose
-// EventMeta.correlation_id is correlation_id, in every domain, from each
-// listed stream's cursor (inclusive), and from the start of any stream not
-// listed; then live.
-//
-// Building seen: for each EventBook received, the subscriber keeps its
-// cover and its last page's sequence + 1, the highest per cover. On
-// reconnect, seen is one StreamCursor per stream it kept. A stream it has
-// never received from is simply not listed.
+// One correlation, from a set of per-stream positions: every page of the
+// correlation, in every domain, from each listed stream's cursor and from
+// the start of any stream not listed; then live. How a subscriber builds
+// seen: docs/design/queries-and-subscriptions.md §6.
 message CorrelationFrom {
   // Required.
   io.angzarr.v1.UUID correlation_id = 1;
   // The streams the subscriber has already received from, each with the
-  // next sequence it needs. At most one cursor per stream; each cover's
-  // edition is the subscription's (a cursor of another edition, or two of
-  // one stream, is INVALID_ARGUMENT).
+  // next sequence it needs: at most one cursor per stream, each in the
+  // subscription's edition (else INVALID_ARGUMENT).
   repeated StreamCursor seen = 2;
   // The timeline, as CorrelationQuery.edition: unset = main; a set name
-  // must be non-empty and a known edition, and each stream is read as the
-  // edition reads it.
+  // must be non-empty and a known edition.
   optional string edition = 3;
 }
 

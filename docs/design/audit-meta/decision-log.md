@@ -5876,6 +5876,30 @@ and review round 11, 2026-11-02.
 - **14.107's `AngzarrDeadLetter.why` `Any transport` arm is accepted** as
   is.
 
+**14.109 (DRAFT) A fact at the race re-run cap stays dead-lettered; the
+protos hold no behaviour prose.** The owner's final items before approving
+the branch, 2026-11-02.
+- **Facts differ from commands at the cap.** A fact that loses a race at
+  every write until the race re-run cap is dead-lettered and its sender,
+  waiting or not, answered INTERNAL `ANGZARR_REASON_FACT_DEAD_LETTERED`
+  (as 14.100); a command with a waiting caller is answered
+  `ANGZARR_REASON_RETRY_CAP_EXHAUSTED` and is not dead-lettered (14.85).
+  command-handling.md §4 states the difference. Closes the guide's open
+  point 11.
+- **14.103's comment rule applied to every proto.** The behaviour prose of
+  types.proto, options.proto, reasons.proto (core and both transports),
+  the component and handler protos, the distributed transport's protos,
+  core meta.proto, scheduler.proto and child_protocol.proto moves to
+  `docs/design/`: new identity-and-streams.md, pipeline.md, snapshots.md,
+  diagnostics.md, dead-letters.md, component-descriptors.md,
+  component-options.md, reason-keys.md, distributed-transport.md,
+  queries-and-subscriptions.md, dlq-admin.md, cloudevents.md,
+  handler-contract.md, component-registration.md, projectors.md and
+  scheduler.md; extended command-handling.md, edition-meta-events.md,
+  policies.md, upcasting.md and child-protocol.md. Only comments change:
+  every declaration, option literal and region marker is unchanged.
+  References are re-pointed to the docs by section.
+
 ## Corrections
 
 Facts the earlier passes or the design note got wrong:

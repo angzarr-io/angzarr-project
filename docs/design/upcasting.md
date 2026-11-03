@@ -1,6 +1,6 @@
 # Upcasting
 
-**Status:** normative (decision 14.39; DRAFT decisions 14.96, 14.97 pending review). Moved from `proto/io/angzarr/v1/upcaster.proto`, which defined no message (decision 14.103, DRAFT). The service is `io.angzarr.component.v1.UpcasterService`; the messages are `io/angzarr/handler/v1/upcaster.proto`'s.
+**Status:** normative (decision 14.39; DRAFT decisions 14.96, 14.97 pending review). Moved from `proto/io/angzarr/v1/upcaster.proto`, which defined no message (decision 14.103, DRAFT); §6 moved from `proto/io/angzarr/component/v1/upcaster.proto`'s and `proto/io/angzarr/handler/v1/upcaster.proto`'s comments (decision 14.109). The service is `io.angzarr.component.v1.UpcasterService`; the messages are `io/angzarr/handler/v1/upcaster.proto`'s.
 
 The upcaster's service is the component contract's
 (io.angzarr.component.v1.UpcasterService,
@@ -34,7 +34,7 @@ The coordinator of the component that owns a stream
 upcasts that stream's events on EVERY read and publish path, by calling
 the sidecar: loading the stream for Handle (an aggregate's events, a
 process manager's state), answering queries (EventQueryService, see
-transport/distributed/v1/query.proto), and wherever stored events reach a subscriber: live
+[queries-and-subscriptions.md](queries-and-subscriptions.md) §1), and wherever stored events reach a subscriber: live
 publishing and every read of stored history (catch-up, gap fill,
 rebuild) alike. (Live publishing carries only what was just appended,
 which business code wrote in the current shape; old shapes reach
@@ -91,3 +91,24 @@ domain, cause; decision 14.51); queued and reaction deliveries stay
 queued. A
 rule that fails (an error status from Upcast, or an answer whose
 sequences are not exactly the requested pages') is a handler bug.
+
+## 6. The request and the answer
+
+UpcasterService is the upcaster sidecar's one service (decision 14.39).
+Its messages are the handler layer's, under its rule (a request carries
+the books, read-only; docs/design/handler-contract.md §2): the
+angzarr-embedded kernel runs a Rust upcaster in process under this same
+contract (decision 14.64).
+
+An upcaster is handed either a stream's pages to bring to their current
+shape, with their sequences and EventMeta, read-only, or a lone command or
+fact payload, which has no stream sequence (decision 14.97, DRAFT).
+
+It answers each payload in its current shape, transformed where a rule
+applies, keyed by the page's sequence (decision 14.96, DRAFT), or
+no_sequence for a lone payload (decision 14.97; the owner: "NO_SEQ or
+something similar"): matched to the request by key, never by position. A
+page's sequence and EventMeta are the coordinator's and stay as stored, so
+an upcaster cannot rewrite them. An answer missing a requested sequence,
+naming one not requested, or naming one twice is a rule bug (an error from
+the upcaster; §5).

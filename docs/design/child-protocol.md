@@ -164,3 +164,20 @@ restarts are not counted against the restart limit.
 
 - Which command launches a child of a given language: the host's
   configuration.
+
+## 10. The constants' declaration
+
+The protocol's declared constants (decision 14.64) are the words both
+sides of the protocol must spell alike: `ANGZARR_SOCKET` (section 1) and
+the 103-byte socket path limit (section 1). They are stated once, as the
+`(child_protocol)` file option of
+`proto/io/angzarr/transport/embedded/v1/child_protocol.proto`, for every
+language's code generator to read, as each reads the
+`(io.angzarr.v1.reason)` args.
+
+Why a file option: proto3 has no constants, an enum value holds a number
+and never a string, and the spec states no constant any other way. A
+custom option is the spec's existing idiom for data a generator reads off
+the descriptor (options.proto's `(component)`, `(state)` and `(conflict)`,
+reasons.proto's `(reason)`), so the constants are a typed message set as
+that file's option, read the same way, and nothing else on the wire.

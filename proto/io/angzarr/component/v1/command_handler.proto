@@ -9,71 +9,21 @@ option java_multiple_files = true;
 option java_package = "io.angzarr.component";
 option ruby_package = "Angzarr::Component";
 
-// The handler-side contract of an aggregate's (or a process manager's)
-// business logic: the one service its business process serves for it,
-// however the runtime reaches it (in process, a local child's socket, or the
-// network). Its messages are the handler layer's
-// (io/angzarr/handler/v1/command_handler.proto; decision 14.78, DRAFT):
-// each request carries the books, read-only, and each response only what
-// business code decides.
-//
-// CommandHandlerService: the business logic for one domain's aggregates,
-// implemented in a client library and called by the coordinator. Business
-// code behaves the same in every command mode. ONE RPC for commands and
-// facts alike (decision 14.98, DRAFT, amending decision 46's Q3; the owner:
-// "I want fact and command to use the same verb"): the input book's body
-// arm says which, and only a command's handling may refuse.
-//
-// Before Handle is called the coordinator has run pipeline steps 1-4
-// (io/angzarr/v1/types.proto, Handling): validated the input, assigned its
-// command_id and correlation_id, loaded and deduplicated it, admitted it
-// (a process manager's start rule; decision 14.42), and refused it if its
-// expected sequence is not the head (decision 14.94). Which coordinator RPC the caller
-// used (the command mode) is not passed on. It has upcast every payload
-// through the component's upcaster sidecar (decision 14.39) and dropped the
-// pages the snapshot covers (decision 14.40). Every delivery is well formed
-// (the coordinator builds it): the client library guards no envelope
-// (decision 14.42).
-//
-// In the client library: the type URL picks the handler. A type URL no
-// registered handler claims is refused INTERNAL (a bug: decision 14.37)
-// with reason ANGZARR_REASON_UNKNOWN_COMMAND_TYPE (ANGZARR_REASON_NO_FACT_HANDLER
-// for a fact), which is also the status message (a key, never text); the
-// status details carry a google.rpc.ErrorInfo whose metadata key "type_url"
-// holds the type URL the library was given. The coordinator answers its
-// caller with "type_url" as sent and "upcast_type_url" as delivered (see
-// docs/design/upcasting.md). The state the handler sees is the
-// starting state (history.snapshot.state, when present) decoded, with
-// every delivered page folded in order.
-//
-// The coordinator persists nothing from an answer it refuses: a
-// rules_version other than the registered one
-// (ANGZARR_REASON_RULES_VERSION_MISMATCH, decision 14.56). A caller of
-// Handle or HandleSync is answered INTERNAL; an asynchronous or reaction
-// delivery is dead-lettered and alerted. Neither is a business rejection.
+// CommandHandlerService: the business logic of one domain's aggregates (or
+// a process manager's), the one service its business process serves for it,
+// called by the coordinator. ONE RPC for commands and facts alike (decision
+// 14.98, DRAFT). Its messages are the handler layer's
+// (io/angzarr/handler/v1/command_handler.proto; decision 14.78, DRAFT).
+// The contract, what the coordinator has done before Handle, and how the
+// client library dispatches: docs/design/handler-contract.md §1, §3 to §5;
+// an answer the coordinator refuses (ANGZARR_REASON_RULES_VERSION_MISMATCH):
+// §7.
 service CommandHandlerService {
   // Handle one command or fact: on success its events, the state and the
-  // rules version. Every other outcome is a gRPC error status, per AIP-193
-  // and decision 14.37 (decision 14.95, DRAFT): a command's refusal under
-  // its message's declared business status, a re-run as ABORTED under the
-  // handler's own key, a bug as its error status. A fact's handling never
-  // refuses: any error status for a fact is a bug (decision 14.72).
-  //
-  // The handler always decides on the current state: the coordinator
-  // appends at the head it loaded and re-runs a lost race on the new head
-  // (types.proto, the concurrency region). A command whose expected
-  // sequence is not that head is refused before Handle is called
-  // (ExpectedSequenceMismatch; decision 14.94, DRAFT).
-  //
-  // A refusal records nothing. It is typed (one of the command's refuses
-  // messages; decision 14.95): its status is the message's declared
-  // (io.angzarr.v1.refusal_status), its google.rpc.ErrorInfo reason
-  // ANGZARR_REASON_COMMAND_REFUSED with refusal_type, and the object packed in
-  // the status details (decision 14.37). The coordinator answers a client
-  // caller with that status unchanged; a refused HandleAsync command is
-  // dead-lettered with its refusal (AngzarrDeadLetter's refusal arm,
-  // decision 14.101); a refused
-  // policy command reaches the policy's Translate (the one refusal path;
-  // docs/design/policies.md, Refusals).
+  // rules version. Every other outcome (a command's typed refusal, a re-run
+  // as ABORTED, a bug) is a gRPC error status, per AIP-193 and decision
+  // 14.37 (decision 14.95, DRAFT); for a fact, any error status is a bug
+  // (decision 14.72). The outcomes and where a refusal goes:
+  // docs/design/handler-contract.md §6.
   rpc Handle(io.angzarr.handler.v1.HandleRequest) returns (io.angzarr.handler.v1.HandleResponse);
 }

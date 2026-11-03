@@ -11,20 +11,10 @@ option java_package = "io.angzarr.transport.distributed";
 option ruby_package = "Angzarr::Transport::Distributed";
 
 // region bus_envelope
-// The message bus's envelope, and its claim check (decision 14.64): what
-// the distributed transport carries between its coordinators, wrapping the
-// core books unchanged. Nothing here is ever part of a persisted page:
-// EventPage and CommandPage payloads are always a plain
-// google.protobuf.Any, and the event store records the resolved payload.
-// The angzarr-embedded kernel has no bus and never sees an envelope.
-//
-// Claim check. A page whose payload exceeds the bus's size limit travels
-// with its payload unset and a ClaimCheck naming it in its place; the
-// receiving side resolves every claim check back into its page's payload
-// (and checks its content_hash) before anything else sees the book. A
-// payload that cannot be retrieved, after the retry cap, is
-// dead-lettered with a PayloadRetrievalFailed as its why
-// (dead_letter.proto; key DISTRIBUTED_REASON_PAYLOAD_UNAVAILABLE).
+// The message bus's envelope (decision 14.64): a core book, unchanged,
+// and the claim checks of any pages whose payloads travel out of band.
+// Never part of a persisted page. The envelope and the claim check:
+// docs/design/distributed-transport.md §4.
 message BusEnvelope {
   oneof body {
     io.angzarr.v1.EventBook events = 1; // A book of events, its claim-checked pages' payloads unset
@@ -47,13 +37,11 @@ message ClaimCheck {
 
 // region payload_reference
 // Reference to an externally stored payload (claim check pattern), carried
-// only by a bus envelope, never by a persisted page (see above).
+// only by a bus envelope, never by a persisted page
+// (docs/design/distributed-transport.md §4).
 message PayloadReference {
   // Location URI; its scheme names the storage backend (decision 14.107,
-  // DRAFT: there is no separate storage type):
-  // - file:///var/angzarr/payloads/{hash}.bin
-  // - gs://bucket/prefix/{hash}.bin
-  // - s3://bucket/prefix/{hash}.bin
+  // DRAFT), e.g. s3://bucket/prefix/{hash}.bin.
   string uri = 1;
   // Content hash for integrity verification and deduplication (SHA-256)
   bytes content_hash = 2;

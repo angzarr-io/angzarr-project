@@ -1,9 +1,13 @@
-// DOC: This file is referenced in docs/docs/reference/patterns.mdx
+// DOC: This file is referenced in site/src/content/docs/reference/patterns.mdx
 //      Update documentation when making changes to the concurrency
 //      region, Handling, Cover (editions), Snapshot, the command identity
 //      fields, or the CommandPage body. The command handling modes
 //      (DECISION, ASYNC, SIMPLE) are RPCs, documented in
 //      docs/design/command-handling.md.
+//
+// Behaviour of these messages: docs/design/identity-and-streams.md,
+// pipeline.md, snapshots.md, diagnostics.md, dead-letters.md,
+// component-descriptors.md and edition-meta-events.md (decision 14.109).
 
 syntax = "proto3";
 package io.angzarr.v1;
@@ -12,9 +16,8 @@ import "google/protobuf/any.proto";
 import "google/protobuf/timestamp.proto";
 import "io/angzarr/v1/options.proto";
 // Core imports nothing of angzarr's other packages and nothing of sererr
-// (decision 14.64): what a transport adds (a captured stack trace, a
-// claim-checked payload, a sync projector's result) rides that transport's
-// envelope around these messages, never a field of theirs.
+// (decision 14.64): what a transport adds rides that transport's envelope
+// around these messages, never a field of theirs.
 
 option csharp_namespace = "Angzarr";
 option go_package = "github.com/benjaminabbitt/angzarr/client/go/proto/io/angzarr/v1;angzarr";
@@ -22,273 +25,64 @@ option java_multiple_files = true;
 option java_package = "io.angzarr";
 option ruby_package = "Angzarr";
 
-// Type URLs. Every google.protobuf.Any an Angzarr implementation emits uses
-// the type URL "/" + the message's fully-qualified name (TYPE_URL_PREFIX =
-// "/"), e.g. "/io.angzarr.v1.EventPage", "/orders.OrderCreated". Readers
-// accept any prefix: a type URL identifies the message whose fully-qualified
-// name is the text after its last "/", so
-// "type.googleapis.com/orders.OrderCreated", "/orders.OrderCreated" and
-// "orders.OrderCreated" all name the same message.
-// Matching compares full names exactly: "orders.OrderCreated" never matches
-// "OrderCreated" or "orders.v2.OrderCreated".
+// Type URLs: emitted as "/" + the fully-qualified name; read by the text
+// after the last "/", matched exactly. docs/design/identity-and-streams.md §1.
 
 // region uuid
-// A UUID as its 16 bytes, most significant first (RFC 9562 byte order).
-// The ONE type for every UUID on the wire: roots, command ids and
-// correlation ids. 16 bytes, not 36 characters of text, because every
-// stored event carries several of them (pass 9, decision 9.1).
-//
-// Where a UUID comes from:
-//   - caller-chosen roots are any 16 bytes, never inspected;
-//   - framework-derived ids are UUIDv5 (RFC 9562, SHA-1 name-based) under a
-//     fixed angzarr namespace (see the derived_ids region): roots from
-//     compute_root, and the command id of every reaction command and every
-//     fact;
-//   - minted ids are UUIDv7 (see the minted_ids region).
-// Client-supplied command and correlation ids must be UUIDs too, of any
-// version: a set UUID whose value is not exactly 16 bytes (an empty value
-// included) is malformed and refused INVALID_ARGUMENT wherever it is
-// accepted. An unset UUID field means "not supplied". The framework checks
-// only the length, never the version or variant bits.
-//
-// Operations use UUID objects. Code compares, stores, hashes and passes the
-// 16 bytes; it never round-trips through text. Conversion to and from the
-// canonical text form (36 characters, lowercase hex, hyphenated 8-4-4-4-12,
-// RFC 9562) happens only at display and input boundaries (logs, consoles,
-// CLI arguments, URLs a human types), through per-language helpers (Rust:
-// angzarr-core's angzarr-proto crate, its Display and FromStr; the other
-// client libraries: backlog UU-1). Input helpers accept the hyphenated
-// form in either case and output helpers always write lowercase.
-//
-// Protobuf JSON (and so REST transcoding) renders the bytes as base64, e.g.
-// {"value": "1HQbGlLNQ8+t0T27lhVRCw=="}. That is accepted: storage cost wins
-// over JSON readability, and the display helpers are for humans.
+// A UUID as its 16 bytes, most significant first (RFC 9562 byte order):
+// the one type for every UUID on the wire (roots, command ids, correlation
+// ids; decision 9.1). A set value that is not exactly 16 bytes is
+// malformed (INVALID_ARGUMENT); unset means "not supplied". Sources, text
+// form and JSON: docs/design/identity-and-streams.md §2.
 message UUID {
   bytes value = 1;
 }
 // endregion
 
 // region derived_ids
-// Framework-derived identifiers: UUIDv5 (RFC 9562 section 5.5, SHA-1
-// name-based) under fixed angzarr namespace UUIDs. Every runtime (core, each
-// client library, angzarr-embedded) derives the same 16 bytes from the same name. The
-// name is always the UTF-8 encoding of the text shown, with no
-// normalisation.
-//
-// Derived roots: compute_root(domain, key) =
-//   UUIDv5(ANGZARR_ROOT_NAMESPACE, "{domain}:{key}")
-//   ANGZARR_ROOT_NAMESPACE = d4741b1a-52cd-43cf-add1-3dbb9615510b
-// The domain never contains ':' (see Cover.domain), so the first ':' splits
-// the name unambiguously whatever the key holds. Example:
-//   compute_root("player", "alice@example.com")
-//     = cfe936c0-2912-5ca9-96e6-f37c0b441759
-//
-// Reaction command ids (see the command_identity region). The command or
-// fact a policy emits as the index-th output (0-based, in emission order,
-// commands and facts counted together; decision 14.69) of its reaction to
-// the trigger event T has (a process manager emits no commands; decision
-// 14.31)
-//   command_id = UUIDv5(ANGZARR_COMMAND_NAMESPACE, name)
-//   ANGZARR_COMMAND_NAMESPACE = e2c9f744-9fe1-4b4b-bfee-ae514dde293b
-// where name is six netstrings, concatenated:
-//   ns(T.stream.domain) ns(T.stream.edition, "" when unset)
-//   ns(T.stream.root as canonical lowercase text)
-//   ns(T.sequence in decimal) ns(component) ns(index in decimal)
-// and ns(s) is a netstring: the byte length of the UTF-8 s in decimal, ':',
-// s itself, ','. component is the reacting component's registered name.
-// Netstrings make the split unambiguous whatever the strings hold (a
-// component or edition may contain ':' or ','), and a set edition is never
-// empty, so "0:," always means main. Worked example: the trigger
-// {domain "list", main, root 01920c8e-7b3a-7cc2-9f4e-5a1b2c3d4e5f, sequence
-// 7}, component "reminders", index 0 has the 70-byte name
-//   4:list,0:,36:01920c8e-7b3a-7cc2-9f4e-5a1b2c3d4e5f,1:7,9:reminders,1:0,
-// and the command id 45764676-e6e4-56fe-8c80-d782423577ee. Index 1 gives
-// e45bdfdf-d722-56c8-a4bd-35340c9c3c06; the same trigger in edition
-// "what-if" (name 4:list,7:what-if,36:...) gives
-// e2321e9e-d55a-5f48-bbe1-b09081c2e445; component "a,b:c" (name
-// ...,1:7,5:a,b:c,1:0,) gives 27ccb6bf-e37e-54bd-b0f0-9eac56ff5f93.
-// The name never includes the reactor's rules_version or anything else
-// about its code, so a re-run reproduces the same ids (see Reactor re-runs
-// in the command_identity region).
-//
-// Fact command ids and correlations. A fact's command id is
-//   UUIDv5(ANGZARR_FACT_CORRELATION_NAMESPACE, external_id)
+// Framework-derived identifiers: UUIDv5 under fixed angzarr namespaces.
+//   ANGZARR_ROOT_NAMESPACE             = d4741b1a-52cd-43cf-add1-3dbb9615510b
+//   ANGZARR_COMMAND_NAMESPACE          = e2c9f744-9fe1-4b4b-bfee-ae514dde293b
 //   ANGZARR_FACT_CORRELATION_NAMESPACE = e9ef0ae2-6fc6-4c14-b713-ef03971dd867
-// and a fact whose correlation_id is unset gets the same value as its
-// correlation (as a client command's absent correlation is its command id;
-// see the command_identity region). The namespace keeps its pass-9 name and
-// value, so pass-9 fact correlations are unchanged. Example: external_id
-// "pi_1234" = 917f26ae-ea2e-58af-86de-77013a69617e.
-//
-// A policy's fact for its destination takes the reaction command id above,
-// not the fact derivation below it, so a type its destination turns from a
-// command into a fact keeps its id (decision 14.69).
-//
-// Refusal facts take no derivation (decision 14.31): a refusal fact's
-// command_id IS the refused command's command_id, which is already a
-// reaction command id derived above (docs/design/policies.md §3;
-// the command_identity region).
-//
-// Three namespaces, not one: "{domain}:{key}" is also a valid external_id,
-// so under one namespace a fact's command id could equal a stream's root;
-// and a reaction's name could equal some external_id. Separate namespaces
-// keep the id spaces unrelated by construction. All three values were
-// generated once as random UUIDv4s, as RFC 9562 suggests for a new
-// namespace, and never change: changing one changes every derived id, and
-// with it every stored command id that deduplication looks up.
+// The derivations (compute_root, reaction command ids, fact command ids),
+// their name encodings and worked values:
+// docs/design/identity-and-streams.md §3.
 // endregion
 
 // region minted_ids
-// Minted identifiers. Every identifier the framework mints is a UUIDv7
-// (RFC 9562): time-ordered, so minted ids sort by creation time and index
-// well, with 74 random bits. This holds in angzarr (coordinator and client
-// libraries) and in angzarr-embedded alike. On the wire a minted id is a UUID message
-// (16 bytes). Today the framework mints:
-//   - CommandPage.command_id of a client Command that arrives without one;
-//   - correlation, only indirectly: an absent correlation on a client
-//     Command is its command id verbatim (see the command_identity region),
-//     which may be a minted one;
-//   - ids an SDK mints on its caller's behalf (a command helper's
-//     command_id, a new aggregate root); these count as client-supplied.
-// Client-supplied identifiers are never inspected beyond their shape: a
-// command_id, correlation_id or root is any 16 bytes (see UUID); an
-// external_id is an opaque string the framework never parses or reformats.
-// Not identifiers, so not covered: store-assigned row numbers (e.g. the
-// DLQ's int64 entry ids).
+// Minted identifiers are UUIDv7 (RFC 9562), as a UUID message on the wire.
+// What the framework mints: docs/design/identity-and-streams.md §4.
 // endregion
 
 // region cover
 // Stream identity, and nothing else: one stream is (domain, edition, root).
-// Everything that varies per write or per page (command id, correlation,
-// causation, fact source) lives on the page, the delivery and the meta
-// (CommandPage, ReactionDelivery, EventMeta), and how a command is handled
-// (the client's expected sequence) lives on Command.handling;
-// never on the Cover. Parent/child relationships between aggregates are
-// carried in domain event payloads, not in the Cover.
+// docs/design/identity-and-streams.md §5.1.
 message Cover {
   string domain = 1; // Domain name; never contains ':' (the root-derivation separator)
   // The stream's root: caller-chosen (any 16 bytes), derived by
-  // compute_root (UUIDv5; see the derived_ids region) or minted (UUIDv7).
-  // A process manager's stream is no exception: a command or fact
-  // addressed to it names its root, whatever its correlation_id; by
-  // convention a policy may set it to its trigger's correlation_id
-  // (docs/design/process-managers.md §3; decisions 14.30 and 14.36).
+  // compute_root (UUIDv5) or minted (UUIDv7); a process manager's too.
+  // docs/design/identity-and-streams.md §5.1.
   UUID root = 2;
-  // Edition: the NAME of the timeline the stream belongs to. An edition's
-  // main use is operations research and experimenting, but it is not
-  // restricted to that and may hold real data. It is a deliberately
-  // crafted system: whoever builds one forks each stream it holds,
-  // explicitly (decision 14.107, DRAFT; docs/design/edition-meta-events.md).
-  //
-  // Core, whatever the transport: the angzarr-embedded kernel and core's
-  // coordinator alike keep and read editions (the angzarr system layer);
-  // only their administration RPCs are the distributed transport's.
-  //
-  // Main timeline: unset (absent). The main timeline has no name; there is
-  // no magic value for it. A set edition is a named, non-main edition and
-  // must be non-empty: a set empty string is malformed and refused
-  // INVALID_ARGUMENT wherever a Cover is accepted. Editions are part of
-  // stream identity on the wire
-  // (here and in EventRef.stream), so an edition's events can never be
-  // mistaken for, or copied as, main-timeline events.
-  //
-  // Per-stream forks (decision 14.32; docs/design/edition-meta-events.md).
-  // An edition is a set of per-stream FORKS, and nothing else: there is no
-  // edition registry and no separate metadata store. Stream (D, X, R)
-  // exists in edition X from its fork: an EditionCreated meta-event (the
-  // meta_events region) appended by EditionAdminService.ForkStream
-  // (transport/distributed/v1/meta.proto), whose own sequence is its fork
-  // point (decision 14.86), at or below main's head for (D, main, R); above
-  // it is a conflict (decision 14.36). Every fork is explicit: there is no
-  // automatic propagation (decision 14.107, DRAFT).
-  //   - Read rule, per stream: (D, X, R) reads main's events BELOW ITS OWN
-  //     fork sequence, then X's own events (the fork event first). Main's
-  //     later events never reach it.
-  //   - A command or fact in X, from a client or a policy, addressed to a
-  //     stream with no fork in X is REFUSED: FAILED_PRECONDITION,
-  //     google.rpc.ErrorInfo reason ANGZARR_REASON_EDITION_NOT_FORKED
-  //     (decisions 14.65 and 14.107), checked before business code runs.
-  //     This covers an edition never created and one deleted.
-  //   - A query or subscription of a stream not forked in X reads main's
-  //     version (it is identical so far) and forks nothing; one naming an
-  //     edition no stream is forked in is refused NOT_FOUND.
-  //   - Deleting X (EditionAdminService.DeleteEdition) removes the rows of
-  //     every stream forked in X, found by their EditionCreated events.
-  //   - Main knows nothing of an edition: its lifecycle lives only in the
-  //     edition's streams and store (the editions region).
-  //
-  // What-if execution. A what-if is a command run in an edition: send an
-  // ordinary CommandBook whose cover names the edition. There is no
-  // separate speculative RPC. Reactions (policies) stay in the edition of the
-  // event they react to, and so do the commands and refusal facts they
-  // send.
-  //
-  // Storage. Where an edition's rows live is configuration (an edition
-  // name, or pattern, mapped to a store; otherwise the configured default
-  // edition store), which may be in memory, redis, another persistent
-  // store, or the existing production database (the edition is part of the
-  // storage key, and the edition column stays in every database schema so
-  // the existing database can host editions). Nothing is recorded about
-  // placement: there is no record. Placement never changes the wire
-  // contract. Projector output follows the edition's storage: an in-memory
-  // edition's projections are kept in memory.
-  //
-  // Lifetime follows the backend: memory lives as long as the process, redis
-  // as long as its TTL, a database persists. EditionAdminService.DeleteEdition
-  // (transport/distributed/v1/meta.proto) deletes a named edition explicitly: every row tagged with
-  // it, once its in-flight work is done; main cannot be named, so it can
-  // never be deleted.
+  // Edition: the NAME of the timeline the stream belongs to. Unset is the
+  // main timeline; a set edition must be non-empty (a set empty string is
+  // refused INVALID_ARGUMENT). Forks, the not-forked rule
+  // (ANGZARR_REASON_EDITION_NOT_FORKED), what-if execution, storage and
+  // deletion: docs/design/edition-meta-events.md.
   optional string edition = 4;
 }
 // endregion
 
 // region concurrency
-// Concurrency (decision 14.92, DRAFT; the owner's decision 47: "does the
-// coordinator need to care, at all, about conflicts, or should we just
-// delegate it?" ... "and let the business logic handle it"). The
-// coordinator has NO conflict-resolution concept: no resolution, no
-// conflict window, no conflict units, no conflict report. ConflictResolution,
-// StateOptions, the (state) and (conflict) options and ConflictUnit are
-// deleted.
-//
-// What stays, and why it is not conflict handling:
-//   - The store's per-stream optimistic append. The coordinator loads a
-//     stream (its snapshot, its pages, its head) and appends the decision's
-//     events AT THE HEAD IT LOADED. A handler cannot see concurrent
-//     writers, so write atomicity cannot be delegated to it.
-//   - A lost race is re-run on the new head by the coordinator (the kernel
-//     owns retries; the owner's ruling of 2026-10-30), so the handler always
-//     decides on current state. Re-runs are capped by the race re-run cap (a
-//     count of runs, the first included, default 10, at least 1; decision
-//     14.84), with exponential backoff and jitter between them
-//     (docs/design/command-handling.md §3; decision 14.46). At the cap
-//     nothing is persisted; a waiting caller is answered INTERNAL
-//     ANGZARR_REASON_RETRY_CAP_EXHAUSTED and nothing is dead-lettered,
-//     and work with no caller waiting is dead-lettered and alerted (a fact,
-//     dead-lettered and its sender answered INTERNAL
-//     ANGZARR_REASON_FACT_DEAD_LETTERED; decisions 14.85, 14.100). Ordering is per stream: no other stream's
-//     writes matter.
-//
-// A client's expected sequence (Handling.expected_sequence: "I decided
-// having seen version N") is the one thing the coordinator checks of
-// staleness (decision 14.94, DRAFT; the owner's ruling, amending 14.93):
-// set, and not the head it loaded, the command is refused
-// ExpectedSequenceMismatch (below) before the handler is called, behind or
-// ahead alike. There is no mode and no resolution: a command with no
-// expected sequence is decided on the current state, and one with it is
-// either at the head or refused.
+// The coordinator has no conflict-resolution concept (decision 14.92,
+// DRAFT): a per-stream optimistic append and capped race re-runs only.
+// docs/design/pipeline.md §4.
 //
 // The framework's one refusal (decisions 14.93 and 14.94): the client's
-// expected sequence is not the stream's head. Raised by the COORDINATOR,
-// never by business code, and listed in no command's refuses. FAILED_PRECONDITION
-// (business, fatal, decision 14.37: the caller re-reads and decides again),
-// by its (refusal_status) option. On the wire it travels as any typed
-// refusal: reason ANGZARR_REASON_COMMAND_REFUSED, refusal_type
-// io.angzarr.v1.ExpectedSequenceMismatch, the object in the status details;
-// a HandleAsync command so refused is dead-lettered with it as
-// AngzarrDeadLetter's refusal arm. Behind and ahead are one
-// refusal: either way the client decided against a version that is not the
-// head.
+// expected sequence is not the stream's head, behind or ahead alike.
+// Raised by the coordinator, never by business code; listed in no
+// command's refuses; FAILED_PRECONDITION by its (refusal_status) option,
+// travelling as any typed refusal (ANGZARR_REASON_COMMAND_REFUSED).
+// docs/design/pipeline.md §5.
 message ExpectedSequenceMismatch {
   option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_FAILED_PRECONDITION;
   // The command's expected sequence: the next_sequence it decided against.
@@ -299,17 +93,12 @@ message ExpectedSequenceMismatch {
 // endregion
 
 // region event_page
-// One persisted event. Sequences are uint64 wherever they appear (pages,
-// snapshots, next_sequence, query ranges, DLQ details): a stream's sequence
-// space is not bounded at 2^32.
-//
-// An event has no business-time field of its own: when it was recorded is
-// EventMeta.recorded_at, and any business time (e.g. when an external fact
-// originally occurred) belongs in the event payload.
+// One persisted event. Sequences are uint64 wherever they appear. An event
+// has no business-time field (EventMeta.recorded_at is when it was
+// recorded). docs/design/identity-and-streams.md §5.2.
 message EventPage {
   // What the event is (decision 14.106, DRAFT): a domain's event, or the
-  // framework's meta-event. The client library hands business code only
-  // the event arm.
+  // framework's meta-event. Business code is handed only the event arm.
   oneof body {
     // A domain's event. Its type URL names the event type and version
     // (versioned packages: pkg.v1.Foo -> pkg.v2.Foo).
@@ -318,17 +107,17 @@ message EventPage {
     MetaEvent meta_event = 4;
   }
   EventMeta meta = 2; // Provenance: which command, why, when recorded, under which rules (see EventMeta)
-  // The event's position in its stream (domain, edition, root). Always
-  // definite: assigned by the framework when the event is persisted, never
-  // deferred. Together with the stream it is the event's identity (EventRef).
+  // The event's position in its stream (domain, edition, root), assigned
+  // by the framework when the event is persisted. With the stream, the
+  // event's identity (EventRef).
   uint64 sequence = 3;
 }
 // endregion
 
 // region event_ref
-// Identifies one event: the page at `sequence` in the stream `stream`. This
-// is an event's identity — no separate event id is minted — and is how a
-// reaction names the event it reacted to (ReactionDelivery.causation).
+// Identifies one event: the page at `sequence` in the stream `stream`.
+// This is an event's identity (no separate event id is minted).
+// docs/design/identity-and-streams.md §5.3.
 message EventRef {
   Cover stream = 1; // The stream holding the event (domain, edition, root)
   uint64 sequence = 2; // The event's EventPage.sequence within that stream
@@ -336,227 +125,35 @@ message EventRef {
 // endregion
 
 // region command_identity
-// Why a command exists, and how it is deduplicated. Every command carries
-// one command_id; reaction commands also carry the triggering event
-// (causation); facts carry their source (Fact.origin). A client's command
-// rides a CommandPage; a policy's, a ReactionDelivery (decision 14.79,
-// DRAFT). This follows the established message-metadata
-// convention (KurrentDB's $correlationId / $causationId, NServiceBus,
-// Marten and Wolverine): one message id, a correlation id, and a causation
-// id naming the message's DIRECT cause. A command's direct cause is its
-// trigger (its causation); an event's direct cause is the command (or fact)
-// that produced it (EventMeta.causation). Every event has one: a process
-// manager's events too, since its only input is facts (decision 14.31).
-// Each event records only its own direct cause, never its command's
-// causation (decision 13.3).
-//
-// command_id: one per command, a UUID, assigned before deduplication:
-//   client Command  the caller's CommandPage.command_id (any UUID version,
-//                   reused verbatim on every retry of that command; an SDK
-//                   mints a v7), or, when the caller supplied none, a
-//                   UUIDv7 the coordinator mints (see the minted_ids
-//                   region). A caller that sends several commands (several
-//                   CommandBooks, e.g. one API call fanning out) uses one
-//                   command id per command and may group them by a shared
-//                   correlation_id it sets itself.
-//   reaction        a policy's Command or Fact (decision 14.69): derived,
-//                   UUIDv5 of (trigger EventRef, reacting component, index
-//                   in the reaction's output, commands and facts in one
-//                   index space); the exact name encoding and worked values
-//                   are in the derived_ids region. Stamped by the reactor's
-//                   coordinator, never by the reactor. Its fact's origin is
-//                   not sent: the destination derives it (external_id that
-//                   id's canonical text, description naming the type and
-//                   ReactionDelivery.component).
-//   Fact            from outside: derived, UUIDv5(ANGZARR_FACT_CORRELATION_NAMESPACE,
-//                   Fact.origin.external_id) (derived_ids region). A sender
-//                   may set it only to that value (an SDK may compute it);
-//                   any other value is malformed.
-// Every event the command produces records it as its causation
-// (EventMeta.causation's command_id).
-//
-// correlation_id: the workflow. The caller's when supplied (verbatim; a
-// UUID of any version). When absent, the coordinator sets it, before
-// business code: a client Command's correlation is its command_id (client
-// or minted), so every retry of a client-keyed command lands in one
-// correlation; a Fact's is its derived command_id. A reaction's (a
-// policy's command or fact) is its trigger's correlation, stamped by the
-// coordinator: a policy's answer has no correlation to set
-// (io.angzarr.handler.v1.Output). A refusal fact takes the refused
-// command's correlation (its trigger's) the same way: every command or
-// fact a policy sends, to any target, carries its trigger's correlation
-// unchanged, so correlation traces the causal chain (decision 14.36). A
-// command or Fact addressed to a process manager's stream with no
-// correlation_id is given its cover's root; a set one is kept, whatever
-// the root. Nothing fills in a root: a policy names its command's root
-// for every target, and an unset one is a policy bug
-// (ANGZARR_REASON_POLICY_COMMAND_NO_ROOT; io.angzarr.handler.v1.Output.root). A process
-// manager's events carry their command's or fact's correlation, like any
-// domain's.
-// Correlation is never unset on a persisted event, and the framework never
-// mints one of its own. It groups a workflow and is not an identity: two
-// sources' external ids can coincide, and a sender that must keep them
-// apart supplies correlation_id itself. Correlation is recorded per page
-// only (covers carry none); Query.correlation_id, CorrelationQuery and
-// EventStreamService.Subscribe (CorrelationFrom) select by it.
-//
-// causation (ReactionDelivery.causation): the command message's own
-// causation, as the standard defines it: the EventRef of the event a policy
-// reacted to, always the triggering event (a process manager emits nothing
-// but its own events, so it stamps none; decision 14.31). Set by a policy's
-// coordinator only: on reaction commands and facts, where it is the input
-// the reaction command_id is derived from, and on refusal facts, where it is
-// the refused command's own causation, so it names the very stream the
-// fact is addressed to (docs/design/policies.md §3).
-// It is transport and trace metadata, NOT persisted on the events the
-// command produces: their causation is the command itself
-// (EventMeta.causation's command_id). The coordinators record the trigger
-// edge in the command's trace and logs (OpenTelemetry), as Marten and
-// Wolverine do, so "which event led to these events" is answered from
-// traces, not from the event store (decision 13.3; see CorrelationQuery for
-// what the store still answers). Set by the runtime that delivers a
-// policy's output: core's coordinator, or the angzarr-embedded kernel,
-// whose checks read it (a refusal fact's address, a reaction's derived
-// id) in process. Over the distributed transport only the framework-only
-// Deliver RPC takes a ReactionDelivery
-// (transport/distributed/v1/command_handler.proto, the entry_points
-// region); a client's CommandBook has no field for it (decision 14.79).
-//
-// origin (Fact.origin): where a Fact came from (FactOrigin, below), kept
-// for audit and copied onto every event the fact produces (EventMeta's
-// fact cause).
-// Only the Fact arm has one, so a Command cannot carry one.
-//
-// Validation (refused before deduplication; see Handling for the full list):
-//   Fact      requires origin with a non-empty external_id; a set
-//             command_id must equal the derivation. A policy's output is
-//             the exception (decision 14.69): a fact delivered as a
-//             ReactionDelivery, its command_id taken as stamped, not
-//             re-derived, and its origin's external_id that command_id's
-//             canonical text. It is one of two kinds, told apart by
-//             payload alone, with no marker:
-//               - a policy's fact for its destination (14.69): its
-//                 command_id the reaction command id, accepted by the
-//                 stream it is addressed to;
-//               - a refusal fact (decision 14.31): its command_id the
-//                 refused command's, for the exact stream of the policy's
-//                 triggering event, which its issuing coordinator
-//                 addresses (decision 14.42): the policy answers a payload
-//                 only (io.angzarr.handler.v1.TranslateResponse). The same
-//                 id is thus in two streams by design: never applied in
-//                 the refusing (target) stream, and recorded as the
-//                 refusal in the source stream.
-// A client's malformed command is answered INVALID_ARGUMENT; a reaction
-// command has no caller to answer, so it is dead-lettered and alerted as a
-// reactor bug.
-//
-// Deduplication: by command_id, ON THE EVENTS. There is no separate key
-// store. "Already applied?" means: the addressed stream (CommandBook.cover)
-// already holds events whose EventMeta.causation's command_id (either arm)
-// is this
-// command's. Every backend keeps an index on (stream, command_id) for that
-// lookup; it is not unique, since one command may produce several events.
-// On a hit the coordinator does not run business code: it answers with
-// those events, in sequence order, and delivery DUPLICATE (DeliveryOutcome).
-// Deduplication is per addressed stream, the same command_id sent to two
-// streams is two commands, and because the id is written with the events it
-// is atomic with the append on every backend. (KurrentDB deduplicates
-// appends by event id the same way, and Equinox keeps processed ids in the
-// stream.)
-//
-// Concurrent deliveries of one command race on the append's optimistic
-// sequence check: exactly one commits. The losing append writes nothing,
-// and the coordinator runs the losing delivery again from the deduplication
-// lookup, which now finds the winner's events and answers DUPLICATE (or,
-// if the winner produced no events, decides again; see the costs below).
-//
-// Process managers. A process manager is a domain (decision 14.31): its
-// events are the events of the commands and facts addressed to it, with
-// causation.command_id, and are deduplicated by command_id like any
-// domain's. There is no trigger and no separate trigger lookup.
-//
-// Reactor re-runs. A reaction command_id depends only on (trigger,
-// component, index), never on the reactor's rules_version or code, so a
-// reactor run again over a trigger it already handled (a checkpoint reset)
-// emits the same ids, which every destination answers DUPLICATE, a
-// process manager included (and a command refused again yields a refusal
-// fact with the same id, which its source answers DUPLICATE). A re-run
-// never changes history: it adds nothing where the first run applied, even
-// if the reactor's code has changed since. Checkpoint resets are for
-// recovery only (output that was lost before it reached the outbox).
-// Repairing what a buggy reactor did is done with NEW commands, with new
-// ids, which append new events after the old ones; the buggy-era events
-// remain, append-only (decision 13.4).
-//
-// Accepted costs (decision 12.2):
-//   - A decision that produced NO events leaves nothing to find, so a
-//     redelivery of that command is decided again, against the stream as
-//     it is then (Equinox-style). It is answered APPLIED (with the events
-//     that decision produces, possibly none).
-//   - A command_id reused for a DIFFERENT command goes undetected: it is
-//     answered DUPLICATE with the first command's events. Payloads are not
-//     fingerprinted. A client must mint a new id for every new command.
-//     The same holds for a reactor re-run whose new code would emit
-//     different commands (above).
-//   - Deduplication is FOREVER: the events are permanent, so a command_id
-//     that applied on a stream can never apply on it again. There is no
-//     expiry, purge or retention window.
-// Rejections leave nothing: a rejected command (a gRPC error status) writes
-// no event, so a retry with the same command_id runs business code again.
-// The same holds for a dead-lettered Fact: it wrote nothing, and a DLQ
-// replay runs its handler again (its sender does not resend it; decision
-// 14.100).
+// Why a command exists, and how it is deduplicated: command_id,
+// correlation_id, causation (ReactionDelivery.causation) and origin
+// (Fact.origin). docs/design/identity-and-streams.md §6; deduplication by
+// command_id on the events, §7.
 // endregion
 
 // region security_logs
-// Who did it is not data. No message in these protos records an actor,
-// operator or principal: not events, not commands, not the edition or
-// dead-letter records. Every coordinator authenticates its caller (a
-// client principal, or a framework component by its mTLS identity) and
-// writes who called what, and when, with the command_id, to a separate
-// security log owned by the deployment. Events record why and under which
-// rules (EventMeta); the security log records who. Keeping identity out of
-// the event store keeps personal data out of immutable history, so erasing
-// or rotating it never rewrites an event (decision 12.3).
+// Who did it is not data: no message records an actor, operator or
+// principal; a separate security log does (decision 12.3).
+// docs/design/identity-and-streams.md §8.
 // endregion
 
 // Where a fact came from: something that already happened outside the
-// system (a webhook, an integration). Carried on the CommandPage of a Fact
-// (Fact.origin) and copied onto every event the fact produces
-// (EventMeta's fact cause). See Fact.
+// system. Carried as Fact.origin and copied onto every event the fact
+// produces (EventMeta's fact cause). docs/design/identity-and-streams.md
+// §6.4.
 message FactOrigin {
-  // The external system's id for this fact (e.g. "pi_1234" from Stripe).
-  // Required: a Fact whose external_id is empty is refused INVALID_ARGUMENT.
-  // A string, not a UUID: it is the external system's id, in that system's
-  // format. The fact's command_id is derived from it (see the
-  // command_identity region), so redeliveries of one external_id to one
-  // stream are deduplicated; a redelivery with a different payload is NOT
-  // detected (it is answered DUPLICATE with the first delivery's events).
-  // When the fact's command supplies no correlation_id, its correlation is
-  // the same derived value. external_id must be unique across all sources
-  // that address one stream; prefix it with the source when two might
-  // collide.
+  // The external system's id for this fact (e.g. "pi_1234" from Stripe),
+  // in that system's format. Required: empty is refused INVALID_ARGUMENT.
+  // The fact's command_id is derived from it.
+  // docs/design/identity-and-streams.md §6.4.
   string external_id = 1;
   string description = 2; // Human-readable origin (e.g. "Stripe webhook"); audit only, not part of the derivation
 }
 
 // region editions
-// An edition's forks are FRAMEWORK META-EVENTS in the edition's own
-// streams (decision 14.32): EditionCreated, an EventPage's meta_event arm
-// (the meta_events region; docs/design/edition-meta-events.md). Business
-// handlers never see them.
-//
-// Main knows nothing (the owner's invariant). Every datum and message of
-// an edition's lifecycle lives in the edition's own streams (D, X, R), in
-// the edition's configured store, and every row of X carries X in its key.
-// Nothing is appended to, recorded in, indexed against or read from main's
-// streams for an edition's lifecycle, except that a creation READS main's
-// head (its fork sequence) and a stream in X reads main's events below it.
-// Listing editions and checking that one exists query X's own creation
-// events. X's outbox entries, positions and deliveries are X's, kept apart
-// from main's. Main's coordinators, projectors and readers behave exactly
-// as if no edition existed: creating and deleting an edition leaves main's
-// streams, outbox and positions byte-for-byte unchanged.
+// An edition's forks are framework meta-events in the edition's own
+// streams (decision 14.32), and main knows nothing of them.
+// docs/design/edition-meta-events.md §7.
 // endregion
 
 // region meta_events
@@ -577,60 +174,9 @@ message EditionCreated {}
 // endregion
 
 // region diagnostic
-// Errors carry a KEY and an ARGUMENT MAP, never rendered English (decision
-// 14.37). Text is rendered only where it is displayed (a console, a UI, a
-// client's message()), from a Fluent catalog keyed by the code; logs show
-// the code and its args as they are. No free text crosses any boundary:
-// not a gRPC status message, not a dead letter, not a response field.
-//
-//   On a gRPC status   the status message IS the reason key; the
-//                      google.rpc.ErrorInfo (domain "angzarr.io") carries
-//                      the same key as its reason and the args as its
-//                      metadata. Every distinct condition has its own key:
-//                      two conditions never share one and differ only by
-//                      text.
-//   In a message       a Diagnostic, below.
-//
-// A business rejection is TYPED, always (decision 14.95, DRAFT): its
-// refusal object (one of the command's CommandOptions.refuses types,
-// packed as an Any) is the key, by its type, and the map, by its fields,
-// so it carries no Diagnostic. On the wire it is a gRPC status under the
-// message's declared refusal_status, its reason (and so its status message)
-// ANGZARR_REASON_COMMAND_REFUSED, its ErrorInfo metadata refusal_type the
-// object's fully-qualified type, and the object packed in the status
-// details. A handler's ABORTED and every handler bug carry a diagnostic
-// code and its args: an ABORTED's reason is the handler's own code; a
-// handler bug's reason is ANGZARR_REASON_UNHANDLED_HANDLER_ERROR, with the
-// handler's own code and args as its cause (flattened as below; a panic's
-// cause is ANGZARR_REASON_HANDLER_PANICKED), and what escaped stays in the handler's log.
-// A handler that fails with the language's unclassified error has no cause.
-// In a language with only exceptions (Python), the client library exports a
-// named unclassified exception for that (angzarr_client.UnclassifiedError): raising it is a bug with no
-// cause, and any other exception is a panic, cause ANGZARR_REASON_HANDLER_PANICKED
-// (decision 14.42; C-0669).
-//
-// The framework's reason keys. Every framework key, the component that
-// answers it (the router, the component host or the coordinator, in its
-// comment), the gRPC status it travels with and its arg names are listed
-// once, as the enum of its layer (reasons.proto: core's AngzarrReason and
-// each transport's; decisions 14.44 and 14.104, DRAFT); a key travels as its value's full name, prefix included
-// (ANGZARR_REASON_DUPLICATE_COMPONENT). Which class a status is
-// (decision 14.37's four classes) is the coordinator's to decide, never
-// the router's. A Fluent catalog keys a typed refusal by
-// its fully-qualified type name with each "." replaced by "-" (a Fluent id
-// has no dots).
-//
-// A cause wrapped inside a diagnostic is flattened into the args: the
-// cause's code under the arg's name, and each of its args under
-// "<name>.<arg>" (so "cause" = "angzarr-embedded-store-sql-io", "cause.errno" =
-// "10"). The same flattening serves ErrorInfo metadata.
-//
-// The one text an arg may hold: where angzarr converts a third-party
-// library's error (a store driver's, an I/O error, a transport or decode
-// error), that library's own text, verbatim, as the arg "ext_err_txt",
-// beside its numeric code where it has one ("cause.errno" = "5",
-// "cause.ext_err_txt" = "database is locked"). angzarr's own errors and a
-// handler's text never travel (decision 14.37).
+// An error in a message: a key and an argument map, never rendered English
+// (decision 14.37). Keys, typed refusals, flattening and ext_err_txt:
+// docs/design/diagnostics.md.
 message Diagnostic {
   // The key: a stable identifier, never reused for another meaning, and a
   // valid Fluent message id. Framework codes are SCREAMING_SNAKE
@@ -644,71 +190,35 @@ message Diagnostic {
 // endregion
 
 // region event_meta
-// Provenance of one persisted event, stamped by the framework. Every
-// persisted event carries meta. Business code cannot set meta: a handler
-// answers payloads only (io.angzarr.handler.v1, decision 14.78), and reads
-// meta on the pages it is handed.
-//
-// causation, correlation_id and recorded_at are always recorded. causation
-// is the event's DIRECT cause (see the command_identity region):
-// its command arm or its fact arm (with the fact's origin), by the
-// producing input's kind, every event's (a process manager's included; a
-// PM is a domain, with no trigger-caused events; decision 14.31).
-// rules_version is always recorded from the business logic's report
-// (empty only if the business logic reports none). A reaction command's
-// causation (its trigger) is NOT recorded: an event names its own
-// cause, not its cause's cause (decision 13.3; the trigger edge is in
-// traces).
-//
-// The event's own identity is the EventRef of its page (its stream plus
-// EventPage.sequence); EventMeta does not repeat it.
-//
-// One write is the events one command or fact produced. All pages of one
-// write share one EventMeta, so the events of one command are exactly the
-// pages with its command_id; the deduplication index (command_identity
-// region) is on that field. The
-// head the decision saw is not recorded: it is the sequence of the write's
-// first event (decision 12.4).
+// Provenance of one persisted event, stamped by the framework; every
+// persisted event carries it and business code cannot set it. All pages of
+// one write share one EventMeta. docs/design/identity-and-streams.md §5.4.
 message EventMeta {
   // The event's direct cause, always set on a persisted event, its arm the
-  // producing input's kind, as CommandPage's body (decision 14.102, DRAFT;
-  // a PM is a domain whose inputs are commands and facts, decision 14.31).
-  // Its command_id, read from whichever arm is set, is the deduplication key
-  // on the stream (the command_identity region).
+  // producing input's kind (decision 14.102, DRAFT). Its command_id is the
+  // deduplication key on the stream (docs/design/identity-and-streams.md §7).
   oneof causation {
     // Produced by a command (a client's or a policy's).
     CommandCause command = 1;
     // Produced by a fact: its id and its origin, copied.
     FactCause fact = 2;
   }
-  // The producing command's correlation (see the command_identity
-  // region). Never unset on a persisted event.
+  // The producing command's correlation. Never unset on a persisted event.
   UUID correlation_id = 3;
-  // When the event was durably recorded, stamped by the server that persisted
-  // it. The only timestamp an event carries; TemporalQuery.as_of_time selects
-  // by it.
-  //
-  // Non-decreasing per stream: the coordinator stamps
-  // max(previous event's recorded_at, now), so a clock step backwards never
-  // makes a later event look older. Events of one write share one
-  // recorded_at. Because of this, the events recorded at or before any time
-  // T are always a prefix of the stream (see TemporalQuery).
+  // When the event was durably recorded, stamped by the server that
+  // persisted it: the only timestamp an event carries. Non-decreasing per
+  // stream. docs/design/identity-and-streams.md §5.4.
   google.protobuf.Timestamp recorded_at = 4;
   // The full version of the business binary that decided (or ingested) the
-  // event (e.g. "1.4.2+build.7"): baked in when the binary is built (e.g.
-  // by versionator), never a label chosen by hand. Reported by the business
-  // logic with every answer (io.angzarr.handler.v1.HandleResponse.rules_version, a process manager's included) and stamped
-  // in full by the
-  // coordinator from that response, so during a rolling deployment each
-  // event names the build that decided it. Business code never sets it on
-  // an event. The framework reads it only to choose which snapshots to
-  // offer (see Snapshot); otherwise it explains a historical decision.
+  // event (e.g. "1.4.2+build.7"), stamped by the coordinator from the
+  // business logic's answer (io.angzarr.handler.v1.HandleResponse.rules_version).
+  // docs/design/identity-and-streams.md §5.4; docs/design/snapshots.md §3.
   string rules_version = 5;
 }
 
 // An event's cause when a command produced it.
 message CommandCause {
-  // The producing command's command_id (the command_identity region).
+  // The producing command's command_id (docs/design/identity-and-streams.md §6.1).
   UUID command_id = 1;
 }
 
@@ -723,82 +233,20 @@ message FactCause {
 // endregion
 
 // region aggregate_snapshot
-// Snapshot of aggregate state at a given sequence number.
-// State must be a protobuf Message to serialize into Any.
-//
-// Snapshots are a framework optimisation, never business data. How often
-// they are taken and how many are kept is framework/storage policy,
-// configured per domain and following the edition's storage configuration;
-// the default keeps the newest snapshot only. Business milestones are domain
-// events, never retained snapshots.
-//
-// Validity. A snapshot records what produced it: the state's type (the type
-// URL of `state`) and the rules version reported with the response that
-// returned the state (rules_version, the business binary's full version).
-// The coordinator, never the business logic, decides whether a snapshot may
-// be used. It offers a snapshot with a delivery (the history of
-// io.angzarr.handler.v1.HandleRequest, for an aggregate
-// or a process manager alike) only if both hold:
-//   1. the fully-qualified name its state's type URL ends in (the text
-//      after its last "/") equals the type_name of the StateDescriptor the
-//      component registered; and
-//   2. its rules_version passes the domain's compatibility rule against the
-//      version the component registered (ComponentDescriptor.rules_version).
-// The default rule: strip ONE leading "v" or "V" from each version, then
-// both parse as SemVer 2.0.0 and their major and minor numbers are equal
-// (patch, pre-release and build metadata are ignored), so "v1.4.2" and
-// "1.4.7" are compatible. When either does not parse as SemVer 2.0.0 once
-// so stripped, the two are compatible only when they are equal as recorded
-// (exact string equality, nothing stripped): a rules_version that is not SemVer is accepted at registration
-// (decision 14.104, DRAFT, reversing 14.88's refusal), and a snapshot
-// recorded under it is offered to that version alone.
-// Nothing replaces the default rule: no configuration of a domain accepts
-// or rejects snapshot versions by pattern (decision 14.66).
-// A snapshot that fails either check is simply not offered: the delivery
-// carries no snapshot and every page from sequence 0, and business code
-// folds the full history. The business logic declares no snapshot
-// compatibility and never checks or refuses a delivered snapshot. A
-// state-schema change or a rules change therefore never needs a snapshot
-// migration: the next load replays, and the next snapshot is written under
-// the current rules version.
-//
-// Queries (EventQueryService, including a TemporalQuery) choose snapshots
-// the same way: a coordinator answering a query returns a snapshot only if
-// it passes both checks against that coordinator's own registration (one
-// business process per coordinator; during a rolling deployment each
-// instance's coordinator judges by its own instance's version). A server
-// holding no registration (a coordinator before its first successful
-// Describe, or a standalone query server, which has no component behind
-// it; see transport/distributed/v1/query.proto) returns no snapshot and every page from sequence
-// 0.
+// Snapshot of aggregate state at a given sequence number: a framework
+// optimisation, never business data. Where snapshots come from and when
+// one is offered (state type and rules version checks):
+// docs/design/snapshots.md.
 message Snapshot {
-  // Sequence of the last event folded into `state`. A TemporalQuery
-  // as_of_time T may start from this snapshot iff that event's
-  // EventMeta.recorded_at <= T, i.e. iff the snapshot lies within the
-  // prefix recorded by T (see TemporalQuery).
-  //
-  // Where snapshots come from. The client library returns the post-command
-  // state on EVERY answer (io.angzarr.handler.v1.HandleResponse.state, for
-  // an aggregate or a process manager alike);
-  // business code never decides when. The coordinator persists it per the
-  // domain's storage policy (default: keep the newest only), setting
-  // sequence (the last event folded in) and rules_version (the response's,
-  // in full), and offers the stored bytes, unchanged, with the next
-  // delivery to that stream, subject to the Validity checks above. Neither
-  // side asks: there is no
-  // request flag. The coordinator decides when to write one; the client
-  // library never does. A delivery that offers a snapshot carries only the
-  // pages after it: the coordinator drops the pages it covers, and the
-  // client library folds what it is given (decision 14.40).
+  // Sequence of the last event folded into `state`
+  // (docs/design/snapshots.md §2, and §5 for a TemporalQuery).
   uint64 sequence = 1;
   // The folded state. The name its type URL ends in is the state type
-  // recorded with the snapshot, checked before the snapshot is offered (see
-  // Validity above).
+  // recorded with the snapshot (docs/design/snapshots.md §3).
   google.protobuf.Any state = 2;
   // The rules version reported with the answer that returned `state`
   // (io.angzarr.handler.v1.HandleResponse.rules_version), stamped in full by the
-  // coordinator, never by business code. Checked by the coordinator before
-  // the snapshot is offered (see Validity above).
+  // coordinator, never by business code (docs/design/snapshots.md §3).
   string rules_version = 3;
 }
 // endregion
@@ -807,7 +255,7 @@ message Snapshot {
 // A run of events from one stream. Every page shares the book's Cover.
 message EventBook {
   Cover cover = 1;
-  Snapshot snapshot = 2; // The starting state a delivery offers, when one is valid (see Snapshot)
+  Snapshot snapshot = 2; // The starting state a delivery offers, when one is valid (docs/design/snapshots.md §3)
   repeated EventPage pages = 3;
   uint64 next_sequence = 4; // Computed on load, never stored: (last page seq OR snapshot seq if no pages) + 1
 }
@@ -828,183 +276,56 @@ message Projection {
 }
 
 // region handling
-// How a client asks for one command to be treated. Never persisted
-// (EventMeta records what was decided, not how the command was handled),
-// and identity, business data and provenance never live here.
-//
-// How much of the processing the caller waits for is NOT handling: it is a
-// call-level choice, made by which coordinator RPC the caller uses (Handle,
-// HandleAsync or HandleSync; see docs/design/command-handling.md
-// §1).
-//
-// The pipeline. The coordinator's order, NORMATIVE in every runtime and
-// every mode:
-//   1. validate      the malformed list below; refuse before anything is
-//                    minted, looked up or stored;
-//   2. assign ids    mint or derive command_id, and set an absent
-//                    correlation_id (see the command_identity region);
-//   3. load, then    load the stream (snapshot and events, its head)
-//      deduplicate   FIRST, then look up (stream, command_id); a hit is
-//                    answered DUPLICATE with the stored events, and
-//                    nothing below runs. The loaded pages exclude those
-//                    the snapshot covers (decision 14.40), and the pages
-//                    and the input's payload are upcast through the
-//                    component's upcaster sidecar (decision 14.39; see
-//                    docs/design/upcasting.md) before anything below judges them;
-//   4. check         a command whose Handling sets expected_sequence
-//                    other than the head step 3 loaded is refused
-//                    ExpectedSequenceMismatch (the concurrency region;
-//                    decision 14.94), and the handler is never called;
-//   5. business code CommandHandlerService.Handle, for a command and
-//                    a fact alike (decision 14.98; the client library folds the delivered
-//                    state and dispatches by type), then the append at
-//                    the head step 3 loaded. A process manager's business
-//                    code is the same service (a PM is a domain; decision
-//                    14.31).
-// The load comes before the lookup: under READ COMMITTED, a lookup first
-// could miss an original delivery that commits before the load, and the
-// retry would append after the original's events with no conflict (applied
-// twice). Loading first, a commit after the load is either seen by the
-// lookup or fails this delivery's append on its loaded head.
-// A HandleAsync command refused by business code has no caller to answer:
-// it is dead-lettered with its typed refusal (AngzarrDeadLetter's refusal
-// arm) and alerted (decisions 14.47, 14.101); so is one refused at step 4. An append that
-// loses an optimistic race re-runs from step 3, under the race re-run cap
-// (the concurrency region). On that re-run a command WITH an expected
-// sequence is stale (the head has moved past it) and is refused at step 4;
-// one without re-runs on the new head as before. Deduplication (step 3)
-// comes first, so a retry of an applied command is answered DUPLICATE
-// whatever its expected sequence.
-//
-// Violations are refused loudly, never silently ignored. Each of these is
-// malformed, refused at step 1, before deduplication or business code:
-//   - a policy's output with no root, whatever its target (INTERNAL,
-//     google.rpc.ErrorInfo reason ANGZARR_REASON_POLICY_COMMAND_NO_ROOT, metadata domain
-//     and command_type; decision 14.36, as amended), refused by the
-//     policy's coordinator;
-//   - a client's Fact without origin, or with an empty external_id, or
-//     with a command_id other than its derivation (see the
-//     command_identity region);
-//   - a set UUID that is not 16 bytes, or a set empty Cover.edition.
-// A client's malformed command is answered INVALID_ARGUMENT, by every
-// coordinator RPC (HandleAsync included: it validates before enqueueing),
-// and an unknown edition (no fork event of it exists: never created, or
-// deleted) NOT_FOUND (see the entry_points region in
-// transport/distributed/v1/command_handler.proto). A reaction has no
-// caller to answer, so a malformed one is dead-lettered as a reactor bug
-// (and alerted), never delivered.
-//
-// Handling is the Command arm's alone (Command.handling; decision 14.79,
-// DRAFT): a Fact has no field for it, and neither has a ReactionDelivery.
-// A reaction is delivered by the one framework-only RPC, Deliver.
-//
-// A process manager is a domain (decision 14.31): Handling applies to the
-// commands addressed to it exactly as to an aggregate's.
+// How a client asks for one command to be treated: the Command arm's alone
+// (decision 14.79, DRAFT). Never persisted. The pipeline, normative in
+// every runtime and mode: docs/design/pipeline.md §2; what is malformed,
+// §3.
 message Handling {
   // The stream's next_sequence the client decided against ("I decided
   // having seen version N"). Set and not the head the coordinator loaded,
   // the command is refused ExpectedSequenceMismatch before business code
-  // (pipeline step 4; decision 14.94, DRAFT). Unset: the client stated
-  // none, and the command is decided on the current state. The coordinator
-  // never stamps it.
+  // (decision 14.94, DRAFT). Unset: the client stated none. The
+  // coordinator never stamps it. docs/design/pipeline.md §5.
   optional uint64 expected_sequence = 1;
 }
 // endregion
 
 // region command_page
-// The one command of a CommandBook: its identity (command_id,
-// correlation_id; see the command_identity region) and a body that is
-// either a decision-requesting Command, with how it is to be handled, or an
-// already-happened Fact, with where it came from (decision 14.79, DRAFT).
-//
-// Reflective dispatch. The framework picks the pipeline from which body arm
-// is set (the arm's message type): a Command goes through decide (fallible:
-// it may be rejected), a Fact through ingest (infallible). Within the
-// pipeline the payload's type URL picks the handler, after the
-// coordinator, through the component's upcaster sidecar, has brought an
-// old payload type up to the current one (decision 14.39; see
-// docs/design/upcasting.md); Command and Fact payloads alike are upcast, and the
-// client library never sees an old type. A payload whose type URL reaches
-// no handler is refused by the client library INTERNAL (a bug: decision
-// 14.37) with reason ANGZARR_REASON_UNKNOWN_COMMAND_TYPE (ANGZARR_REASON_NO_FACT_HANDLER for a fact),
-// which is also the status message (decision 14.37: a key, never text),
-// naming the type it was given as ErrorInfo metadata "type_url". The
-// coordinator answers its caller with that status, its ErrorInfo metadata
-// "type_url" holding the type URL as sent and "upcast_type_url" the type
-// URL the sidecar returned (the sent one when no rule applies). On
-// the wire the arm is the fact marker; in code, one handler attribute
-// (#[handles]) serves both kinds, and the message's option, (command) or
-// (fact), is the declaration (decision 14.98, DRAFT): the router refuses an
-// arm that does not match it. There is no proto flag for facts. A process
-// manager's stream takes both arms, like any domain's (decision 14.31).
-//
-// A client's command or fact rides a CommandPage; a policy's output and a
-// refusal fact ride a ReactionDelivery (below), whose body is a oneof of the
-// two arms and whose causation is the trigger. A policy emits what its destination
-// declares (decision 14.69): a command for a declared command type, a fact
-// for a declared fact type, the arm chosen by its generated code from the
-// destination's declaration, (command) or (fact); one the destination does not declare is
-// refused by its router, as above. A policy also delivers the refusal fact
-// of a refused command (the domestic fact its callback translates the
-// refusal into; the one refusal path, decision 46 #5), to the exact stream
-// of its trigger (decision 14.31, amending 2.2; PolicyService in
-// docs/design/policies.md §3).
+// The one command of a CommandBook: its identity and a body, a Command or
+// a Fact (decision 14.79, DRAFT). Dispatch by arm and payload type
+// (ANGZARR_REASON_UNKNOWN_COMMAND_TYPE, ANGZARR_REASON_NO_FACT_HANDLER):
+// docs/design/pipeline.md §6.
 message CommandPage {
   oneof body {
     Command command = 1; // Asks the aggregate to decide; may be rejected
     Fact fact = 2; // Records something that already happened; never rejected
   }
   // The command's id: client-supplied or minted (client Command), derived
-  // (Fact). Unset on arrival from a client means "mint one". Recorded on
-  // every event it produces as their causation
-  // (EventMeta.causation's command_id), and the deduplication key there.
+  // (Fact); unset from a client means "mint one". Recorded on every event
+  // it produces as their causation, and the deduplication key there
+  // (docs/design/identity-and-streams.md §6.1).
   UUID command_id = 3;
   // The workflow correlation; set by the coordinator when absent. Copied
   // onto every event (EventMeta.correlation_id).
   UUID correlation_id = 4;
 }
 
-// A command proper: a request for the aggregate to decide. decide may emit
-// events or reject it. A rejected command writes nothing, so the same
-// command_id may be retried.
-//
-// Commands may be upcast: the coordinator runs the payload through the
-// same upcaster chain as for events, by type URL, in the component's
-// upcaster sidecar, before dispatch (decision 14.39; see docs/design/upcasting.md,
-// which also explains why that is discouraged).
+// A command proper: a request for the aggregate to decide, which may emit
+// events or reject it. Upcast before dispatch (decision 14.39).
+// docs/design/pipeline.md §7.1.
 message Command {
   google.protobuf.Any payload = 1; // The domain command; its type URL picks the handler
   // How the system treats this command: as sent before the coordinator,
-  // resolved after it (see Handling). Never persisted. Was
+  // resolved after it (docs/design/pipeline.md §1). Never persisted. Was
   // CommandBook.handling (decision 14.79).
   Handling handling = 2;
 }
 
-// A fact: something that already happened outside the system (a webhook,
-// an integration), delivered through the command coordinator like any
-// command (Handle, HandleAsync or HandleSync).
-//
-// Facts are upcast like commands: the coordinator runs the payload through
-// the same upcaster chain, by type URL, in the component's upcaster
-// sidecar, before dispatch (decision 14.39; see docs/design/upcasting.md).
-//
-// Fact handlers are infallible: they record the fact (possibly together
-// with events that flag it, e.g. a payment received for an unknown order)
-// and never reject it. A failing fact handler is a bug, not a business
-// rejection: the fact is dead-lettered and alerted, and the sender is
-// answered INTERNAL ANGZARR_REASON_FACT_DEAD_LETTERED, non-retryable (decision
-// 14.100, DRAFT; the owner: "if retrying senders repark, it's a logic
-// bug"). The framework deduplicates on the command_id derived
-// from origin.external_id, per addressed stream, before
-// the handler runs; a dead-lettered fact wrote nothing, so a DLQ replay of
-// it runs its handler again. A fact that loses a race at its write to another write to
-// the same stream is re-run on the new head under the race re-run cap, and
-// one that reaches the cap is dead-lettered the same way (reason
-// ANGZARR_REASON_RETRY_CAP_EXHAUSTED, alerted, its sender answered
-// INTERNAL ANGZARR_REASON_FACT_DEAD_LETTERED; decisions 14.46, 14.100).
-//
-// A Fact has no Handling to set: it is appended at the head the coordinator
-// loaded, like any input (the concurrency region).
+// A fact: something that already happened outside the system, delivered
+// through the command coordinator like any command. Its handler is
+// infallible; a failing one is a bug, dead-lettered (sender answered
+// INTERNAL ANGZARR_REASON_FACT_DEAD_LETTERED; decision 14.100, DRAFT).
+// docs/design/pipeline.md §7.2.
 message Fact {
   google.protobuf.Any payload = 1; // The fact; its type URL picks the ingest handler
   // Where the fact came from, required: copied onto every event
@@ -1016,14 +337,8 @@ message Fact {
 
 // region command_book
 // Exactly one client command or fact addressed to one stream (decision
-// 1.4). A policy's output is a ReactionDelivery instead (decision 14.79). A CommandBook carries exactly one command, its
-// page. More than one is unsupported: deduplication, the expected-sequence
-// check, errors and the outcome are all per command. A caller with
-// several commands sends several CommandBooks (a client library may batch
-// such calls on its side). (EventBooks, by contrast, group the pages of one
-// stream under a shared Cover.) CommandBook is the request itself: the
-// coordinator's Handle, HandleAsync and HandleSync take it directly, with
-// no request wrapper.
+// 1.4); the request itself for Handle, HandleAsync and HandleSync.
+// docs/design/pipeline.md §9.
 message CommandBook {
   Cover cover = 1; // The target stream (domain, edition, root)
   CommandPage page = 2; // The one command
@@ -1032,16 +347,9 @@ message CommandBook {
 
 // region reaction_delivery
 // One output of a policy, or a refusal fact, as its coordinator delivers it
-// to the destination's coordinator (decision 14.79, DRAFT; owner ruling Q4
-// on decision 46). Built only by a policy's coordinator, from the policy's
-// answer (io.angzarr.handler.v1.Output, TranslateResponse) and its trigger,
-// and taken only by the framework-only Deliver RPC (the angzarr-embedded
-// kernel passes it in process). A client cannot send one.
-//
-// It carries no Handling (no expected sequence: a reactor never saw the
-// destination's state). It carries no fact origin:
-// the destination derives a fact's, external_id the command_id's canonical
-// text and description naming the payload's type and `component`.
+// to the destination's coordinator (decision 14.79, DRAFT). Built only by a
+// policy's coordinator, taken only by the framework-only Deliver RPC; no
+// Handling, no fact origin. docs/design/pipeline.md §10.
 message ReactionDelivery {
   // The destination stream: the policy's output_domain and the output's
   // root in the trigger's edition; for a refusal fact, the trigger's own
@@ -1055,14 +363,15 @@ message ReactionDelivery {
     google.protobuf.Any command = 2;
     google.protobuf.Any fact = 3;
   }
-  // Derived from (trigger, policy, index) for an output (the derived_ids
-  // region); the refused command's for a refusal fact.
+  // Derived from (trigger, policy, index) for an output
+  // (docs/design/identity-and-streams.md §3.2); the refused command's for a
+  // refusal fact.
   UUID command_id = 4;
   // The trigger's.
   UUID correlation_id = 5;
   // The trigger: the event the policy reacted to. The reaction command_id
   // is derived from it. NOT persisted on the events the delivery produces
-  // (their causation is the command; see the command_identity region).
+  // (docs/design/identity-and-streams.md §6.3).
   EventRef causation = 6;
   // The policy's registered component name: the fact origin's
   // description, and the reacting component of the derived id.
@@ -1071,29 +380,9 @@ message ReactionDelivery {
 // endregion
 
 // region outcome
-// What the runtime did with one delivery of a command: the result of its
-// handling, NEVER persisted. Nothing here is written to any stream, and
-// replaying a stream cannot reproduce it. The command's business result is
-// its events. A distributed coordinator answers it beside the events
-// (io.angzarr.transport.distributed.v1.CommandResult.delivery and
-// CommandSyncResult.delivery; decision 14.105, DRAFT), and the
-// angzarr-embedded kernel answers the same pair, events and delivery.
-//
-// What the coordinator did with this delivery of a command. Deduplication
-// is in the command_identity region.
-//
-//   APPLIED    business code ran and the result committed: the events are
-//              new (possibly none; a zero-event decision leaves nothing to
-//              deduplicate against, so a redelivery is APPLIED again).
-//   DUPLICATE  the addressed stream already held events with this
-//              command_id: business code did not run, and the events are
-//              those, re-read from the stream.
-// A fact that could not be recorded is no outcome either: it is
-// dead-lettered, and its sender answered INTERNAL
-// ANGZARR_REASON_FACT_DEAD_LETTERED (decision 14.100, DRAFT).
-//
-// A rejection is never an outcome: it is a gRPC error status, and it writes
-// nothing, so the same command_id may be retried.
+// What the runtime did with one delivery of a command, NEVER persisted;
+// answered beside the events (decision 14.105, DRAFT). A rejection is never
+// an outcome: it is a gRPC error status. docs/design/pipeline.md §8.
 enum DeliveryOutcome {
   DELIVERY_OUTCOME_UNSPECIFIED = 0; // Not reported
   DELIVERY_OUTCOME_APPLIED = 1; // Business code ran for this delivery; the events are new
@@ -1106,123 +395,44 @@ enum DeliveryOutcome {
 // ============================================================================
 
 // region dead_letter
-// Dead letter queue entry for failed messages requiring manual intervention.
-// Per-domain topics: angzarr.dlq.{domain}
-//
-// Among other failures, a fact whose ingest handler fails lands here: a
-// failing fact handler is a bug, never a business rejection (see Fact).
-//
-// Replay (see transport/distributed/v1/dlq_admin.proto). An entry is immutable once written; replays
-// of it are recorded beside it in the admin store (StoredDeadLetter.replays).
-// A replay keeps the original command_id, correlation_id and causation:
-// it is a redelivery of the same message, never a new command, so
-// deduplication answers it DUPLICATE if the original did apply after all.
-// Replays are delivered by a framework component (the DLQ replayer, mTLS
-// identity), so a reaction keeps its causation.
-//   rejected_command  re-sent to the coordinator as an asynchronous command
-//                     (HandleAsync), carrying its original ids.
-//   rejected_reaction re-delivered through Deliver, as it was delivered.
-//   rejected_events   re-delivered to the one component that failed
-//                     (source_component), never re-published to every
-//                     subscriber.
-//   failed_edition_removal  the removal of that stream's rows of the
-//                     edition attempted again (DeleteEdition,
-//                     transport/distributed/v1/meta.proto).
-//
-// A transport may wrap the entry with what only it knows: the distributed
-// transport's DeadLetterEnvelope adds the captured stack trace, metadata
-// and a claim-checked payload's retrieval details (decision 14.64). The
-// entry itself is whole without it: the angzarr-embedded kernel stores it
-// bare.
-//
-// The stream concerned is the payload's own cover (rejected_command.cover,
-// rejected_reaction.cover, rejected_events.cover or
-// failed_edition_removal.cover); the entry does not repeat it.
-//
-// A dead letter is its payload and why: a typed refusal, or a reason
-// (decisions 14.78 and 14.101, DRAFT). Everything else about why is read
-// from it: a refusal's type and fields, or a reason's key, args and the
-// key's declared status (reasons.proto). Stores from before the rewrite cross it
-// by export and import (decision 14.100, DRAFT).
+// Dead letter queue entry for failed messages requiring manual
+// intervention: its payload and why (decisions 14.78 and 14.101, DRAFT).
+// Per-domain topics: angzarr.dlq.{domain}. What lands here, the reason by
+// failure, the keys never recorded, and replay: docs/design/dead-letters.md.
 message AngzarrDeadLetter {
   oneof payload {
-    // A client's command or fact that failed, stored with its ids
-    // assigned (command_id and correlation_id as minted, derived or
-    // supplied; pipeline step 2) and a command's Handling as sent, before
-    // the coordinator resolved it (see Handling). A command refused at
-    // validation never reaches the DLQ with a minted id: it has none. A
-    // replay re-sends it as it was, Handling included: a stale command is
-    // refused again (decision 14.101, DRAFT).
+    // A client's command or fact that failed, stored with its ids assigned
+    // and a command's Handling as sent (docs/design/dead-letters.md §2, §7).
     CommandBook rejected_command = 1;
     // A policy's output or refusal fact that failed at its destination,
-    // as delivered (decision 14.79). Replayed through Deliver, keeping its
-    // ids and causation.
+    // as delivered (decision 14.79). Replayed through Deliver.
     ReactionDelivery rejected_reaction = 2;
     EventBook rejected_events = 3; // Events that failed (policy/projector failures)
     // An edition removal that failed (DeleteEdition): the stream whose
-    // rows of the edition could not be removed (decision 14.107, DRAFT: a
-    // cover, since deletion records no event).
+    // rows of the edition could not be removed (decision 14.107, DRAFT).
     // Reason ANGZARR_REASON_EDITION_REMOVAL_FAILED (decision 14.48,
     // amended).
     Cover failed_edition_removal = 4;
   }
   // Why it was dead-lettered: exactly one of a typed refusal, a reason or
-  // a transport's own why, never text (decision 14.37); the one statement
-  // of why (decisions 14.78, 14.101 and 14.107, DRAFT).
+  // a transport's own why, never text (decision 14.37).
+  // docs/design/dead-letters.md §3 to §5.
   oneof why {
-    // A typed business refusal of an asynchronous command (every refusal
-    // is typed, decision 14.95): the refusal object, packed. Its key is
-    // implied (ANGZARR_REASON_COMMAND_REFUSED, as on the wire), its type is
-    // the Any's own type URL, and its args are its fields.
+    // A typed business refusal of an asynchronous command, packed. Its key
+    // is implied (ANGZARR_REASON_COMMAND_REFUSED), its type is the Any's
+    // type URL, and its args are its fields.
     google.protobuf.Any refusal = 5;
     // Every other failure the framework's packages share: a key and its
-    // args (below).
+    // args. Which key each failure records: docs/design/dead-letters.md §4.
     Diagnostic reason = 6;
     // A transport's own why: a message of the transport's package, packed,
-    // its key implied by its type, as a refusal's is (decision 14.107,
-    // DRAFT). Core cannot name a transport's types, so it holds them as an
-    // Any. Today the one such type is the distributed transport's
-    // PayloadRetrievalFailed (transport/distributed/v1/dead_letter.proto),
-    // key DISTRIBUTED_REASON_PAYLOAD_UNAVAILABLE. The angzarr-embedded
+    // its key implied by its type (decision 14.107, DRAFT); today the
+    // distributed transport's PayloadRetrievalFailed. The angzarr-embedded
     // kernel never sets it.
     google.protobuf.Any transport = 7;
   }
-  // The reason arm, by failure:
-  //   - A command with no caller waiting (HandleAsync, a reaction), or a
-  //     fact, the coordinator gave up on after losing write races at the
-  //     race re-run cap, is
-  //     ANGZARR_REASON_RETRY_CAP_EXHAUSTED with args attempts and cap,
-  //     as answered to a waiting caller (decision 14.46); that key is for
-  //     write races only.
-  //   - A retryable bug dead-lettered at its cap records the bug's own key
-  //     and args, as last answered, never
-  //     ANGZARR_REASON_RETRY_CAP_EXHAUSTED (decision 14.48, amended).
-  //   - An asynchronous command (HandleAsync) answered with its handler's
-  //     own abort records that key and its args (decision 14.47); one
-  //     refused is the refusal arm.
-  //   - A policy step's trigger (rejected_events) records the policy bug's
-  //     key: ANGZARR_REASON_POLICY_COMMAND_NO_ROOT,
-  //     ANGZARR_REASON_POLICY_TARGETS_ITS_TRIGGER,
-  //     ANGZARR_REASON_POLICY_COMMAND_UNKNOWN_DOMAIN,
-  //     ANGZARR_REASON_CHAIN_TOO_DEEP, ANGZARR_REASON_NO_REFUSAL_HANDLER
-  //     or a handler's bug.
-  // Whether the failure was transient is the key's declared status
-  // (ReasonOptions' grpc_status): UNAVAILABLE and the other retryable statuses
-  // are transient, every other status is not.
-  // Never a dead letter's reason: the readiness keys, the component host's keys,
-  // ANGZARR_REASON_NO_HANDLERS_REGISTERED, ANGZARR_REASON_DUPLICATE_COMPONENT
-  // and ANGZARR_REASON_HANDLER_PANICKED (only ever a cause); and the
-  // retryable keys the coordinator only answers, never dead-letters:
-  // ANGZARR_REASON_UPCASTER_UNAVAILABLE and the distributed
-  // transport's DISTRIBUTED_REASON_COMPONENT_NOT_REGISTERED (queued work
-  // waits) and DISTRIBUTED_REASON_COMMANDS_NOT_SERVED (decision 14.51);
-  // ANGZARR_REASON_SYNC_PROJECTION_FAILED, whose decision committed and
-  // whose caller retries (decision 14.105, DRAFT); and the dead-letter
-  // admin's own keys (DISTRIBUTED_REASON_DEAD_LETTER_*; decision 14.106,
-  // DRAFT).
-  // The retries after the first attempt (0 when it was tried once): of a
-  // retryable bug, or a policy step's ABORTED re-run, at its cap, and of an
-  // edition removal (ANGZARR_REASON_EDITION_REMOVAL_FAILED).
+  // The retries after the first attempt (0 when it was tried once).
+  // docs/design/dead-letters.md §6.
   uint32 retry_count = 8;
   google.protobuf.Timestamp occurred_at = 9;
   string source_component = 10; // Which component sent to DLQ
@@ -1234,11 +444,10 @@ message AngzarrDeadLetter {
 // Component Descriptors - Self-description for topology discovery
 // ============================================================================
 
-// ComponentKind names a kind of dispatch component as a bare tag: in a
-// dead letter (AngzarrDeadLetter.source_component_kind, stored), in the
-// DLQ admin's StoredDeadLetter, and as a reason's component_kind arg. A
-// declaration and a descriptor say their kind by the case of their `kind`
-// oneof (decision 14.78), and each language derives this tag from it.
+// ComponentKind names a kind of dispatch component as a bare tag (a dead
+// letter's source_component_kind, StoredDeadLetter, a reason's
+// component_kind arg), derived from a descriptor's `kind` oneof (decision
+// 14.78). docs/design/component-descriptors.md §1.
 enum ComponentKind {
   COMPONENT_KIND_UNSPECIFIED = 0;
   COMPONENT_KIND_AGGREGATE = 1;
@@ -1247,57 +456,21 @@ enum ComponentKind {
   COMPONENT_KIND_PROJECTOR = 4;
 }
 
-// Component self-description: the one component a business process is.
-// The coordinator pulls it from the business process
-// (ComponentService.Describe in component/v1/component.proto); holding it
-// is what makes the component registered. Never stored.
-//
-// Generated or written by hand, then validated (decision 14.42, amended).
-// angzarr-cli generates the whole descriptor at build time from the
-// component's protos (its (component) declaration, its (command) and
-// (event) entries and its (state) message), with rules_version the build's
-// baked-in version, and a policy's and a projector's sources derived from
-// the events they name (options.proto, decision 14.78). Generated code is
-// hand-replaceable: business code may write the descriptor itself instead,
-// to this message's documented schema (a client library may offer one
-// builder per kind for it), and a hand-written descriptor is held to
-// exactly the rules a generated one is. Either way the business process
-// answers Describe with it unchanged, and the client library's router never
-// builds or checks it, nor does the component host: the coordinator owns
-// every descriptor check (decision 14.102, DRAFT). An answer whose
-// rules_version or state type is not the registered one is the
-// coordinator's to refuse (ANGZARR_REASON_RULES_VERSION_MISMATCH,
-// ANGZARR_REASON_STATE_TYPE_MISMATCH).
-//
-// The kind is a oneof (decision 14.78, from the owner's ruling #2): each arm
-// holds exactly what that kind has, so no field is set on a kind that may
-// not have it. The COORDINATOR validates what a type cannot hold to, and
-// refuses (see ComponentService, Refusal) a descriptor that has: an empty
-// rules_version (ANGZARR_REASON_MISSING_RULES_VERSION); no kind, the
-// oneof unset (ANGZARR_REASON_DESCRIPTOR_NO_KIND); an aggregate or a
-// process manager with no domain (ANGZARR_REASON_DESCRIPTOR_NO_DOMAIN)
-// or no state (ANGZARR_REASON_MISSING_STATE_TYPE); a policy or a
-// projector with no source (ANGZARR_REASON_NO_INPUT_DOMAIN: a policy's
-// empty input_domain, a projector's empty input_domains; decision 14.101,
-// DRAFT, one rule, the coordinator's); a policy with no output_domain
-// (ANGZARR_REASON_POLICY_NO_OUTPUT_DOMAIN). The coordinator owns every
-// descriptor check.
-//
-// Type identity is a fully-qualified NAME everywhere in a descriptor (the
-// state's type_name, a process manager's starting_types), never a type URL
-// (decision 14.101).
+// Component self-description: the one component a business process is,
+// pulled by the coordinator through ComponentService.Describe
+// (docs/design/component-registration.md §3); held, it is the component's
+// registration (§4), and refused when a check fails (§6); never stored.
+// Generated by angzarr-cli or written by hand, and checked by the
+// coordinator only: docs/design/component-descriptors.md.
 message ComponentDescriptor {
   string name = 1;
   // The business binary's full version, baked in when it is built: the same
   // value the component reports on every answer
-  // (io.angzarr.handler.v1.HandleResponse.rules_version). Required: the
-  // coordinator refuses a descriptor with an empty rules_version, so a
-  // binary built without a version is never registered and never delivered
-  // to (see ComponentService for how the refusal surfaces). The coordinator
-  // checks snapshot versions against it before offering a snapshot (see
-  // Snapshot), and refuses an answer that reports any other version.
+  // (io.angzarr.handler.v1.HandleResponse.rules_version). Required
+  // (ANGZARR_REASON_MISSING_RULES_VERSION).
+  // docs/design/component-descriptors.md §4.
   string rules_version = 2;
-  // Which kind of component, and what that kind has.
+  // Which kind of component, and what that kind has (decision 14.78).
   oneof kind {
     AggregateDescriptor aggregate = 3;
     ProcessManagerDescriptor process_manager = 4;
@@ -1309,12 +482,9 @@ message ComponentDescriptor {
 // An aggregate's descriptor.
 message AggregateDescriptor {
   // The domain of the stream it owns, copied from its declaration
-  // (AggregateDecl.domain). Required: after the one component name (F8)
-  // the name no longer implies the domain (decision 14.101, DRAFT).
+  // (AggregateDecl.domain). Required (decision 14.101, DRAFT).
   string domain = 1;
-  // Its event-sourced state: generated from the state message's descriptor
-  // by angzarr-cli, or written by hand to the same rules (see
-  // StateDescriptor). Required.
+  // Its event-sourced state (see StateDescriptor). Required.
   StateDescriptor state = 2;
 }
 
@@ -1325,37 +495,31 @@ message ProcessManagerDescriptor {
   string domain = 1;
   // Its event-sourced state, as AggregateDescriptor.state. Required.
   StateDescriptor state = 2;
-  // The fully-qualified type NAMES (no type URL prefix:
-  // "examples.v1.OpenTable", never "/examples.v1.OpenTable") of the command
-  // and fact types that are the PM's STARTING inputs, copied from its
-  // declaration's starting_types (ProcessManagerDecl, options.proto;
-  // decision 14.91). The coordinator
-  // matches an input by the name its type URL ends in, after upcasting
-  // (decision 14.41). An input for a correlation with no PM instance is
-  // delivered only if its type is listed here; otherwise the coordinator
-  // dead-letters a fact and refuses a command (ruling B1, adapted; decision
-  // 14.31; see docs/design/process-managers.md §4).
+  // The fully-qualified type NAMES (no type URL prefix) of the command and
+  // fact types that are the PM's STARTING inputs, copied from its
+  // declaration's starting_types (decision 14.91).
+  // docs/design/component-descriptors.md §5.
   repeated string starting_types = 3;
 }
 
 // A policy's descriptor: its one source and its one destination.
 message PolicyDescriptor {
   // The one domain whose events it reacts to: derived by angzarr-cli from
-  // the events it names (options.proto, decision 14.78). Required: empty is
+  // the events it names (docs/design/component-options.md §4; decision
+  // 14.78). Required: empty is
   // ANGZARR_REASON_NO_INPUT_DOMAIN.
   string input_domain = 1;
   // The one domain its commands and facts go to (PolicyDecl.output_domain,
-  // options.proto; decision 14.24). Every Output is addressed to it
-  // (io.angzarr.handler.v1.Output). Required.
+  // options.proto; decision 14.24). Required.
   string output_domain = 2;
 }
 
 // A projector's descriptor: its sources.
 message ProjectorDescriptor {
   // The domains whose events it projects: derived by angzarr-cli from the
-  // events it names (options.proto, decision 14.78). There is no wildcard
-  // domain (decision 14.53); an empty list is refused by the coordinator,
-  // ANGZARR_REASON_NO_INPUT_DOMAIN (decisions 14.55 and 14.101).
+  // events it names (docs/design/component-options.md §4; decision 14.78).
+  // No wildcard domain
+  // (decision 14.53); empty is ANGZARR_REASON_NO_INPUT_DOMAIN.
   repeated string input_domains = 1;
 }
 

@@ -544,8 +544,8 @@ their upcasters are permanent.
 You shipped a saga or process manager with a bug, fixed it, and released a
 new build (so a new `rules_version`, which is the build's version). The
 events it caused are wrong. Re-running the reactor
-will **not** fix them, by design. The normative text is the
-`command_identity` region of `types.proto` (Reactor re-runs); the
+will **not** fix them, by design. The normative text is
+`docs/design/identity-and-streams.md` §7.4 (Reactor re-runs); the
 reasoning is decision 13.4 and `docs/design/audit-meta/idempotency.md`.
 
 **What deduplicates.** Each command a reactor emits gets a derived id:
@@ -571,7 +571,8 @@ position store). Do not use them to repair.
 1. Find what to fix. `GetCorrelatedEvents` gives you each affected
    workflow; `EventMeta.rules_version` tells you which events the buggy
    version decided. (Which trigger led to which reaction command is in the
-   coordinators' traces, not on the events; see `CorrelationQuery`.)
+   coordinators' traces, not on the events; see
+   `docs/design/queries-and-subscriptions.md` §4.)
 2. Decide the correction as a business question. Often it is a
    compensating command ("reverse charge", "reissue reminder"), not "do it
    again": downstream readers may already have acted on the wrong events.

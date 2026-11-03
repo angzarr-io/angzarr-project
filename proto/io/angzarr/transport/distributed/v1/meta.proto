@@ -18,67 +18,38 @@ option ruby_package = "Angzarr::Transport::Distributed";
 
 // region edition_admin
 // EditionAdminService: forks streams into editions, lists editions, and
-// deletes them (see Cover.edition in io/angzarr/v1/types.proto).
+// deletes them (docs/design/edition-meta-events.md).
 service EditionAdminService {
-  // Fork one stream into an edition at the sequence the request states
-  // (fork_sequence): append EditionCreated at that sequence to (the
-  // stream's domain, edition, root), creating the edition if no fork event
-  // of it exists yet. Every stream an edition holds is forked this way:
-  // there is no automatic propagation, and an input in the edition to a
-  // stream not forked is refused ANGZARR_REASON_EDITION_NOT_FORKED
-  // (docs/design/edition-meta-events.md; decision 14.107, DRAFT). Answers
-  // the fork event's EventRef.
-  //   INVALID_ARGUMENT     edition is empty or unset (main is unnamed and
-  //                        cannot be forked into), or the cover names no
-  //                        domain or root;
-  //   ALREADY_EXISTS       the stream is already forked in this edition;
-  //   ABORTED              fork_sequence is above main's head for the
-  //                        stream.
+  // Fork one stream into an edition at the stated fork_sequence, creating
+  // the edition if needed; answers the fork event's EventRef. Behaviour and
+  // status codes: docs/design/edition-meta-events.md §5.
   rpc ForkStream(ForkStreamRequest) returns (io.angzarr.v1.EventRef) {
     option (google.api.http) = {
       post: "/v1/admin/editions/{stream.edition}/forks"
       body: "*"
     };
   }
-  // List the editions: a query over the edition stores' fork events (no
-  // record is kept anywhere else, and main is never read for it).
+  // List the editions, from their fork events
+  // (docs/design/edition-meta-events.md §5).
   rpc ListEditions(ListEditionsRequest) returns (ListEditionsResponse) {
     option (google.api.http) = {get: "/v1/admin/editions"};
   }
-  // Delete an edition by enumeration (decision 14.107, DRAFT): find every
-  // stream forked in it by its EditionCreated, as ListEditions does, and
-  // remove each stream's rows of the edition directly: events (the fork
-  // event included), snapshots, projector output, outbox entries and
-  // positions. Nothing is appended and nothing propagates. A stream whose
-  // removal fails is retried under the retry cap, then dead-lettered
-  // (AngzarrDeadLetter.failed_edition_removal, reason
-  // ANGZARR_REASON_EDITION_REMOVAL_FAILED) and alerted. Answers once every
-  // stream is removed or so dead-lettered. A later input in the edition is
-  // refused by the not-forked rule; only ForkStream brings the name back.
-  // Main is never touched.
-  //   INVALID_ARGUMENT  name is empty (a name is required; main is unnamed
-  //                     and can never be deleted);
-  //   NOT_FOUND         the edition is unknown (no stream of it is
-  //                     forked).
+  // Delete an edition by enumeration of its forked streams. Behaviour and
+  // status codes: docs/design/edition-meta-events.md §4 and §5.
   rpc DeleteEdition(DeleteEditionRequest) returns (google.protobuf.Empty) {
     option (google.api.http) = {delete: "/v1/admin/editions/{name}"};
   }
 }
 
+// What ForkStream takes: the stream and its fork point.
 message ForkStreamRequest {
   // The stream, named in the edition to create or extend: domain, root,
-  // and edition (required, non-empty). Its main version is forked. The
-  // fork is per stream (one domain and root): there is no global position
-  // to fork at and no cross-stream snapshot (decisions 14.35 and 14.36).
+  // and edition (required, non-empty). Its main version is forked.
   io.angzarr.v1.Cover stream = 1;
   // The fork point, always stated by the caller (decision 14.36): the
-  // sequence the EditionCreated is appended at, which is its own fork
-  // point (decision 14.86). Main is authoritative and is never written for
-  // it: the fork is the edition's alone. 0 is a valid fork at
-  // the start of the stream; there is no "head when unset". Any sequence
-  // at or below main's head (main's next sequence for the stream) is
-  // taken; one above it is refused ABORTED (the store's conflict, the
-  // status for a failed test-and-set), writing nothing.
+  // sequence the EditionCreated is appended at; 0 is the stream's start,
+  // and one above main's head is refused ABORTED
+  // (docs/design/edition-meta-events.md §5).
   uint64 fork_sequence = 2;
 }
 

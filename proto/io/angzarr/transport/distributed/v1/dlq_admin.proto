@@ -1,25 +1,7 @@
 // Dead Letter Queue admin service for the `angzarr-status` operations
-// console. Reads, replays and deletes the dead letters the distributed
-// transport's DLQ publishers persist: each a DeadLetterEnvelope
-// (dead_letter.proto) around core's AngzarrDeadLetter
-// (io/angzarr/v1/types.proto).
-//
-// Part of the distributed transport (decision 14.64): only a distributed
-// deployment runs an admin store of dead letters, and a transport's package
-// holds its own services.
-//
-// Surface follows Google AIPs for resource naming, pagination and
-// filtering. Every method returns its plain result (decision 14.106,
-// DRAFT). A failure is a gRPC status with a google.rpc.ErrorInfo key
-// (decision 14.37): the admin store unreachable is UNAVAILABLE
-// DISTRIBUTED_REASON_DEAD_LETTER_STORE_UNAVAILABLE, an id with no entry
-// NOT_FOUND DISTRIBUTED_REASON_DEAD_LETTER_NOT_FOUND, a filter or page
-// token that does not parse INVALID_ARGUMENT
-// DISTRIBUTED_REASON_DEAD_LETTER_QUERY_INVALID
-// (transport/distributed/v1/reasons.proto). A console renders a failed
-// call as that panel's error. An HTTP gateway may map gRPC statuses to
-// `application/problem+json` (RFC 9457) at the edge; that is the gateway's
-// concern, and no proto message carries it.
+// console: reads, replays and deletes the distributed transport's stored
+// dead letters (decision 14.64). Failures and their keys, filtering,
+// pagination and replay: docs/design/dlq-admin.md.
 
 syntax = "proto3";
 
@@ -36,19 +18,16 @@ option java_multiple_files = true;
 option java_package = "io.angzarr.transport.distributed";
 option ruby_package = "Angzarr::Transport::Distributed";
 
-// What kind of failure a dead letter is, is its reason's key.
-
-// One row from `dlq_entries`, surfaced via the API. The `payload`
-// bytes are the proto-encoded `DeadLetterEnvelope` exactly as the
-// publisher wrote it; ReplayDeadLetter reuses these bytes.
-// A console decodes `payload`, and the Anys inside it, with descriptors
-// (decision 14.106, DRAFT: there is no server-rendered view).
+// One row from `dlq_entries`, surfaced via the API
+// (docs/design/dlq-admin.md §2).
 message StoredDeadLetter {
   int64 id = 1; // Store-assigned row number (not an identifier, so not a UUID)
   string domain = 2;
   // The dead-lettered message's correlation (a UUID; see
   // io.angzarr.v1.UUID).
   io.angzarr.v1.UUID correlation_id = 3;
+  // The proto-encoded DeadLetterEnvelope exactly as the publisher wrote
+  // it; never changes.
   bytes payload = 4;
   // AngzarrDeadLetter's why, mirrored (decisions 14.101 and 14.107,
   // DRAFT): a typed refusal, a reason (a key and its args, never text;
@@ -62,10 +41,8 @@ message StoredDeadLetter {
   io.angzarr.v1.ComponentKind source_component_kind = 9; // AngzarrDeadLetter.source_component_kind
   google.protobuf.Timestamp occurred_at = 10;
   google.protobuf.Timestamp created_at = 11;
-  // Every replay of this entry, oldest first: the record of when it was
-  // replayed and with what result (who replayed it is in the security
-  // log, not here). `payload` itself never
-  // changes; replays are recorded here, beside it.
+  // Every replay of this entry, oldest first: when and with what result
+  // (who is in the security log; docs/design/dlq-admin.md §2).
   repeated DeadLetterReplay replays = 12;
 }
 
@@ -93,23 +70,13 @@ enum ReplayOutcome {
 // ----- ListDeadLetters --------------------------------------------------
 
 message ListDeadLettersRequest {
-  // AIP-160 filter string. Grammar (simple AND-only for v1):
-  //   field "=" string-literal { "AND" field "=" string-literal }
-  // Recognised fields: domain, correlation_id, reason_code (the reason's
-  // key, StoredDeadLetter.reason.code; for a refusal entry its implied key,
-  // ANGZARR_REASON_COMMAND_REFUSED; for a transport why, its type's
-  // implied key), refusal_type (a refusal entry's type,
-  // its Any's fully-qualified type name), source_component,
-  // occurred_after, occurred_before. The filter is text,
-  // so it is an input boundary: a correlation_id literal is the UUID's
-  // canonical text (hyphenated 8-4-4-4-12 hex, either case), parsed by the
-  // server; a filter that does not parse is INVALID_ARGUMENT
-  // DISTRIBUTED_REASON_DEAD_LETTER_QUERY_INVALID.
-  // Example: `domain = "player" AND reason_code = "ANGZARR_REASON_RETRY_CAP_EXHAUSTED"`
+  // AIP-160 filter string, AND-only; one that does not parse is
+  // INVALID_ARGUMENT DISTRIBUTED_REASON_DEAD_LETTER_QUERY_INVALID. Grammar
+  // and recognised fields: docs/design/dlq-admin.md §3.
   string filter = 1;
 
-  // AIP-158 pagination. `page_size = 0` → server picks the default;
-  // values above the server cap are silently clamped (no error).
+  // AIP-158 pagination: 0 is the server's default, and values above the
+  // server cap are clamped (docs/design/dlq-admin.md §3).
   int32 page_size = 2;
   string page_token = 3;
 }
@@ -123,6 +90,7 @@ message ListDeadLettersResponse {
 
 // ----- GetDeadLetter ----------------------------------------------------
 
+// The entry to fetch, by id.
 message GetDeadLetterRequest {
   int64 id = 1;
 }
@@ -130,49 +98,14 @@ message GetDeadLetterRequest {
 
 // ----- ReplayDeadLetter -------------------------------------------------
 
-// Replay semantics.
-//
-// Same message, same ids. A replay is a redelivery, never a new command: it
-// keeps the original command_id, correlation_id and causation (the dead
-// letter stores the command, or the reaction, with its ids assigned). If the original
-// did apply after all, deduplication answers the replay DUPLICATE, so a
-// replay can never apply a command twice (except one whose original
-// decision produced no events, which is decided again; see the
-// command_identity region of io/angzarr/v1/types.proto). The replayer delivers as a
-// framework component (mTLS identity): a reaction
-// (AngzarrDeadLetter.rejected_reaction) is replayed through Deliver, keeping
-// its causation (decision 14.79). The replay itself (time, outcome) is recorded in the
-// entry (StoredDeadLetter.replays), not on the replayed message; who asked
-// for it goes to the security log.
-//
-// One replay, as-is (decision 14.101, DRAFT): the entry is re-sent exactly
-// as it was dead-lettered, Handling included. A replayed stale command is
-// refused again, which is correct; there is no mode that clears its
-// expected sequence.
-//
-// Command entries. Published to the command bus and processed as an ASYNC
-// command (the coordinator's HandleAsync): the call returns once the command
-// is enqueued, not when it is decided; the recorded replay's outcome is
-// PENDING until then. There is no hardcoded or per-replay sync mode. A
-// replayed command that fails again is retried or dead-lettered like any
-// asynchronous command.
-//
-// There is no age limit: deduplication by command_id is permanent, so an
-// entry of any age replays safely.
-//
-// Event entries (rejected_events). Re-delivered to the one component that
-// failed (AngzarrDeadLetter.source_component), never re-published to every
-// subscriber.
-
+// The entry to replay, by id. A replay is a redelivery with the original
+// ids, as-is: docs/design/dlq-admin.md §4.
 message ReplayDeadLetterRequest {
   int64 id = 1;
 }
 
-// A replay was requested. The dead-letter row stays in `dlq_entries`
-// (the operator can `Delete` it explicitly once the outcome is confirmed),
-// and the replay is recorded in it (StoredDeadLetter.replays). The replayed
-// message keeps its original correlation_id; follow that, or re-read the
-// entry, for the outcome.
+// A replay was requested; the row stays, with the replay recorded in it
+// (docs/design/dlq-admin.md §4).
 message ReplayDeadLetterResponse {
   // The original correlation_id, kept on the replayed message.
   io.angzarr.v1.UUID correlation_id = 1;
@@ -183,6 +116,7 @@ message ReplayDeadLetterResponse {
 
 // ----- DeleteDeadLetter -------------------------------------------------
 
+// The entry to delete, by id.
 message DeleteDeadLetterRequest {
   int64 id = 1;
 }
@@ -213,7 +147,6 @@ service DlqAdminService {
   }
 
   // Fetch a single entry by primary key (AIP-131: the resource itself).
-  // An id with no entry is NOT_FOUND DISTRIBUTED_REASON_DEAD_LETTER_NOT_FOUND.
   rpc GetDeadLetter(GetDeadLetterRequest) returns (StoredDeadLetter) {
     option (google.api.http) = {
       get: "/api/dlq/{id}"
@@ -227,11 +160,8 @@ service DlqAdminService {
     };
   }
 
-  // Replay a dead-letter entry: a command through the command bus
-  // (HandleAsync), an event book to the component that failed. The
-  // original row is left in place, and the replay is recorded in it;
-  // operators delete explicitly after confirming the outcome. An id with
-  // no entry is NOT_FOUND DISTRIBUTED_REASON_DEAD_LETTER_NOT_FOUND.
+  // Replay a dead-letter entry: a command through HandleAsync, an event
+  // book to the component that failed (docs/design/dlq-admin.md §4).
   rpc ReplayDeadLetter(ReplayDeadLetterRequest) returns (ReplayDeadLetterResponse) {
     option (google.api.http) = {
       post: "/api/dlq/{id}/replay"

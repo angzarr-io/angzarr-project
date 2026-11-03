@@ -13,12 +13,8 @@ option ruby_package = "Angzarr::Transport::Distributed";
 
 // ProjectorCoordinatorService: orchestrates projection processing
 service ProjectorCoordinatorService {
-  // Synchronous processing: project the events and return the projection.
-  // "Sync" is in the name; the request is the EventBook itself, with no
-  // mode wrapper. The command coordinator's HandleSync (SIMPLE) calls this
-  // for each projector its caller named; an error status here fails that
-  // HandleSync with UNAVAILABLE ANGZARR_REASON_SYNC_PROJECTION_FAILED, this
-  // status's key its cause (decision 14.105, DRAFT).
+  // Synchronous processing: project the events and return the projection
+  // (docs/design/distributed-transport.md §3).
   rpc HandleSync(io.angzarr.v1.EventBook) returns (io.angzarr.v1.Projection) {
     option (google.api.http) = {
       post: "/v1/projector/sync"
@@ -26,8 +22,7 @@ service ProjectorCoordinatorService {
     };
   }
   // Asynchronous processing: accept the events for projection and return
-  // without waiting (fire and forget). Named for the mode, as on the command
-  // coordinator (HandleAsync / HandleSync).
+  // without waiting (fire and forget).
   rpc HandleAsync(io.angzarr.v1.EventBook) returns (google.protobuf.Empty) {
     option (google.api.http) = {
       post: "/v1/projector/async"
