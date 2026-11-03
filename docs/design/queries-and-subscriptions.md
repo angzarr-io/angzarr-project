@@ -142,10 +142,11 @@ produce"; that question goes to the traces, whose retention the
 deployment chooses. Rejected commands leave no events, so they do not
 appear (see the attempt-audit sink in the design record).
 
-The GetCorrelatedEvents RPC's own comment summarised this as "exact for
-process events, by correlation only for reaction commands' events"; the
-CorrelationQuery text above names refusal facts' events as the exact
-case.
+"Process events", which an older summary called the exact case, were a
+process manager's trigger-caused events (decision 13.2); a process manager
+is a domain since decision 14.31 and records no such events, so the exact
+case is refusal facts' events, as above. (The RPC's comment that held the
+older summary is gone from query.proto, decision 14.109.)
 
 ## 5. EventStreamService.Subscribe: catch-up, then live
 
@@ -155,7 +156,8 @@ EventStreamService streams events to subscribers, catch-up then live
 Subscribe subscribes to one target (SubscribeRequest.target): one
 stream, or every stream of one correlation. Each answer is an EventBook
 of one stream's pages. The server first delivers every page the target
-holds after the subscriber's resume point (catch-up), then every page
+holds from the subscriber's resume point, inclusive (catch-up; decision
+14.106), then every page
 committed after, as it commits (live), with no gap and no duplicate
 between the two, so a subscriber that queried first loses nothing to the
 race between its query and its subscription.

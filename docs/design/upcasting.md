@@ -90,7 +90,9 @@ UNAVAILABLE ANGZARR_REASON_UPCASTER_UNAVAILABLE (retryable; args
 domain, cause; decision 14.51); queued and reaction deliveries stay
 queued. A
 rule that fails (an error status from Upcast, or an answer whose
-sequences are not exactly the requested pages') is a handler bug.
+keys are not exactly the requested pages' sequences, or no_sequence for a
+lone payload; §6) is a rule bug, the upcaster's: a bug in decision
+14.37's sense, with no key of its own.
 
 ## 6. The request and the answer
 

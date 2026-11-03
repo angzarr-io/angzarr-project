@@ -217,6 +217,7 @@ kept in memory.
 Lifetime follows the backend: memory lives as long as the process, redis
 as long as its TTL, a database persists.
 EditionAdminService.DeleteEdition (§5) deletes a named edition
-explicitly: every row tagged with it, once its in-flight work is done
-(§4); main cannot be named, so it can never be
-deleted.
+explicitly: every row tagged with it, by enumeration of its forked streams
+(§4). It does not wait for work in flight: such work that reaches a removed
+stream is refused by the not-forked rule (§2; decision 14.107). Main
+cannot be named, so it can never be deleted.

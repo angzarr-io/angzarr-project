@@ -69,8 +69,8 @@ run or rebuilds projections afterwards.
 ## 2. The pipeline and deduplication
 
 Every mode follows the one pipeline ([pipeline.md](pipeline.md) §2:
-validate, assign ids, load and deduplicate, business code and the
-append) and refuses a malformed command loudly, with the codes listed in
+validate, assign ids, load and deduplicate, check the expected sequence
+(decision 14.94), business code and the append) and refuses a malformed command loudly, with the codes listed in
 [pipeline.md](pipeline.md) §3, never ignoring the offending field.
 
 Deduplication is the same in every mode
@@ -230,8 +230,9 @@ docs/design/distributed-transport.md §1.
 
 Handle (DECISION). Process one command and answer with its decision. The
 CommandBook is the request; a command's handling carries the client's
-expected sequence, as data for its handler ([pipeline.md](pipeline.md)
-§1 and §5; §5 above). Facts
+expected sequence, which the coordinator checks against the head it
+loaded before the handler runs ([pipeline.md](pipeline.md) §1 and §5; §5
+above; decision 14.94). Facts
 (external realities) are injected here too, in the Fact arm of
 CommandPage.body.
 
@@ -246,7 +247,8 @@ CommandPage.body.
              sender answered INTERNAL ANGZARR_REASON_FACT_DEAD_LETTERED
              (non-retryable; decision 14.100; §4).
   Rejected:  a gRPC error status, and nothing is written (a handler's
-             refusal, under its own key; a command that lost a race at
+             typed refusal, or the coordinator's ExpectedSequenceMismatch,
+             under ANGZARR_REASON_COMMAND_REFUSED; a command that lost a race at
              every write until the race re-run cap is INTERNAL,
              ANGZARR_REASON_RETRY_CAP_EXHAUSTED, and not dead-lettered:
              the caller holds it; see the status codes, §3 and §4).

@@ -61,18 +61,18 @@ is recorded once, below.
 
 ## Where angzarr-embedded follows angzarr
 
-- **`rules_version` is the same** (decision 14.104, DRAFT, which closes
+- **`rules_version` is the same** (decision 14.104, which closes
   its divergence). In both runtimes it is the business binary's
   full build version (e.g. `"1.4.2+build.7"`), baked in at build time,
   reported with every response and at registration
   (`ComponentDescriptor.rules_version`), and stamped in full. Both accept
   a version that is not SemVer at registration, and both offer a snapshot
-  under the same rule (types.proto, Snapshot): strip one leading `v` or
+  under the same rule (`docs/design/snapshots.md` §4): strip one leading `v` or
   `V`, then equal major.minor when both parse as SemVer 2.0.0, otherwise
   exact equality of the versions as recorded. The proto comment on
   `EventMeta.rules_version` no longer notes a divergence.
 - **`EventMeta` is the same** (pass 13, revised by 14.31): `causation`
-  (a oneof, decision 14.102, DRAFT: `command` with its `command_id`, or
+  (a oneof, decision 14.102: `command` with its `command_id`, or
   `fact` with its `command_id` and origin; a PM is a domain with no
   triggers, so `triggering_event` is deleted), `correlation_id`,
   `recorded_at` and `rules_version`. There is no actor (who-did-it goes to
@@ -81,25 +81,26 @@ is recorded once, below.
 - **Reactor re-runs** (pass 13): the same derivation, with no
   `rules_version` in it, so a re-run dedupes in angzarr-embedded too, and repairs are
   new commands (decision 13.4).
-- **The same pipeline order**: validate, assign ids, load the stream then
-  the dedup lookup, resolve and check Handling, business code. angzarr-embedded's
-  in-process coordinator struct loads the snapshot and newer events (or
-  events up to the command's expected sequence) before it looks the
-  command up. Under STRICT, a command whose expected
-  sequence is not the head is rejected as stale.
-- **Conflict resolution: all three strategies, and COMMUTATIVE is the
-  default in both runtimes** where the state declares conflict units,
-  otherwise STRICT (decision 12.7). angzarr-embedded reads each state's resolutions
-  from its registry (the same `StateDescriptor`), looked up by
-  `cover.domain`. AGGREGATE_HANDLES and COMMUTATIVE get the window since the
-  expected sequence (with a snapshot at or below expected−1), as in angzarr.
-- **COMMUTATIVE uses the same conflict units.** angzarr-embedded's `changed()` is
-  generated from the same `(state)` and `(conflict)` markers (`options.proto`,
-  `conflict_units` region) and must pass the same golden fixture suite as
-  the client libraries (backlog CR-1), so a state message resolves
-  identically under both runtimes. The COMMUTATIVE risk (dependent values
-  split across units) applies equally; see
-  [the developer guide](../../guide/state-and-conflicts.md).
+- **The same pipeline order** (`docs/design/pipeline.md` §2): validate,
+  assign ids, load the stream then the dedup lookup, check the expected
+  sequence, business code and the append. angzarr-embedded's in-process
+  coordinator struct loads the snapshot and newer events before it looks
+  the command up. A command whose set expected sequence is not the head is
+  refused `ExpectedSequenceMismatch` before business code (decision 14.94).
+- **The same concurrency, and no conflict concept** (decision 14.92,
+  decision 47; `docs/design/pipeline.md` §4). Neither runtime has a
+  conflict resolution, a conflict window or conflict units: both append at
+  the head they loaded and re-run a lost race on the new head under the
+  race re-run cap (at least 1; decision 14.84), with the same answers at the
+  cap (a waiting command's caller `ANGZARR_REASON_RETRY_CAP_EXHAUSTED` and
+  no dead letter; a no-caller command dead-lettered; a fact dead-lettered
+  and its sender answered `ANGZARR_REASON_FACT_DEAD_LETTERED`; decisions
+  14.85, 14.100, 14.109). Business code handles concurrent intent on the
+  current state ([the developer guide](../../guide/state-and-conflicts.md)
+  §5). angzarr-embedded's conflict-resolution code as built
+  (`Catalog::supports`, `Malformed::{Unknown,Unsupported}ConflictResolution`)
+  is implementation lag that the
+  implementation pass removes, not a divergence.
 - **The same command ids**: a client-supplied id or a minted UUIDv7; reaction
   ids from `angzarr_proto::ids::policy_command_id`; fact ids from
   `angzarr_proto::ids::fact_command_id`. Correlation, when absent, is the
@@ -113,7 +114,7 @@ is recorded once, below.
 - **Derived roots** are `angzarr_proto::ids::compute_root(domain, key)`.
 - Facts use an infallible `ingest`, which gets a read-only context (the
   recorded time, the correlation, the fact source and the rules version). A
-  Fact with any Handling field is malformed. Strict replay: an unknown event
+  Fact carries no Handling (decision 14.79). Strict replay: an unknown event
   type URL fails, naming it.
 - **Commands may be upcast**, with the same discouragement (decision 12.11).
   The kernel upcasts them, through the domain's upcaster sidecar or a Rust
