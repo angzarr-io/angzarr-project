@@ -74,6 +74,7 @@ message DecideMove {
 // The player's typed refusal of DecideMove (DecideMove's refuses): a
 // refusal object, never an event (decision 14.31).
 message DecideMoveRefused {
+  option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_FAILED_PRECONDITION;
   string reason = 1;
 }
 

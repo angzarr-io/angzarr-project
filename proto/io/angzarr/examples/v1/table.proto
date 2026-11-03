@@ -42,8 +42,9 @@ option ruby_package = "Angzarr::Examples";
 // decision 14.82), each named in the refuses of the commands that refuse
 // with it. ConfirmSeat refuses with its own SeatNotConfirmable. Each
 // refusal's status is its (io.angzarr.v1.refusal_status) message option,
-// unset FAILED_PRECONDITION: InvalidTableConfig, SeatOutOfRange,
-// BuyInOutOfRange, BetOutOfRange and BetNotEven are INVALID_ARGUMENT.
+// declared on each (decision 14.95): InvalidTableConfig, SeatOutOfRange,
+// BuyInOutOfRange, BetOutOfRange and BetNotEven are INVALID_ARGUMENT, the
+// rest FAILED_PRECONDITION.
 //
 // Every handling returns a list of the table's events (decision 14.75): a
 // repeated RequestSeat, ConfirmSeat or ReleaseSeat emits none; DealRound,
@@ -245,6 +246,7 @@ message ConfirmSeat {
 // refusal object, never an event, returned with the rejection (decision
 // 14.31).
 message SeatNotConfirmable {
+  option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_FAILED_PRECONDITION;
   string reason = 1; // SEAT_HOLD_NOT_FOUND or PLAYER_ALREADY_SEATED
 }
 
@@ -292,8 +294,8 @@ message RecordMoveUndecided {
 
 // The table's typed refusals (decision 14.82, DRAFT; the owner's ruling F3
 // of 2026-11-02): one message per refusal, its args its fields, its status
-// its (io.angzarr.v1.refusal_status) message option (unset:
-// FAILED_PRECONDITION), each named in the refuses of every command that
+// its (io.angzarr.v1.refusal_status) message option, declared on each
+// (decision 14.95), each named in the refuses of every command that
 // refuses with it. Refusal objects, never events. On the wire each travels
 // as ROUTER_REASON_COMMAND_REFUSED with its type as refusal_type, as every
 // typed refusal does. Was TableRefused, one message with an 18-code Reason
@@ -302,6 +304,7 @@ message RecordMoveUndecided {
 
 // CreateTable on a table that already exists.
 message TableAlreadyExists {
+  option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_FAILED_PRECONDITION;
   string name = 1; // The existing table's name
 }
 
@@ -313,50 +316,61 @@ message InvalidTableConfig {
 
 // Any command but CreateTable, ConfirmSeat and ReleaseSeat before the table is created.
 message TableNotFound {
+  option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_FAILED_PRECONDITION;
 }
 
 // RequestSeat for a seat that is held or taken.
 message SeatTaken {
+  option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_FAILED_PRECONDITION;
   int32 seat = 1;
 }
 
 // RequestSeat from a player already seated here.
 message PlayerAlreadySeated {
+  option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_FAILED_PRECONDITION;
 }
 
 // LeaveTable or PlaceBet for an empty seat.
 message NotSeated {
+  option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_FAILED_PRECONDITION;
   int32 seat = 1;
 }
 
 // PlaceBet once the round is dealt, or DealRound during one.
 message RoundInProgress {
+  option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_FAILED_PRECONDITION;
 }
 
 // PlaceBet a second time on one seat in one round.
 message AlreadyBet {
+  option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_FAILED_PRECONDITION;
   int32 seat = 1;
 }
 
 // PlaceBet or DoubleDown the stack cannot cover.
 message InsufficientStack {
+  option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_FAILED_PRECONDITION;
 }
 
 // DealRound with no bet placed.
 message NoBets {
+  option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_FAILED_PRECONDITION;
 }
 
 // Hit, Stand or DoubleDown between rounds.
 message NoRoundInProgress {
+  option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_FAILED_PRECONDITION;
 }
 
 // Hit, Stand or DoubleDown from a seat not on turn.
 message NotYourTurn {
+  option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_FAILED_PRECONDITION;
   int32 seat = 1;
 }
 
 // DoubleDown on more than two cards.
 message DoubleNotAllowed {
+  option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_FAILED_PRECONDITION;
 }
 
 // RequestSeat for a seat the table does not have.
@@ -386,6 +400,7 @@ message BetNotEven {
 
 // LeaveTable while the seat has a wager in the round.
 message WagerInPlay {
+  option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_FAILED_PRECONDITION;
   int32 seat = 1;
 }
 

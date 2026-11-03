@@ -162,9 +162,11 @@ enum RouterReason {
   // The key a TYPED refusal travels under, arg refusal_type its object's
   // full type name: on the coordinator's gRPC status to a caller (the
   // object in the status details) and as a dead letter's reason (the object
-  // as AngzarrDeadLetter.refusal). The router itself answers a refusal in
-  // band (io.angzarr.handler.v1.DecideResponse.refused, decision 46, Q2);
-  // the coordinator puts this key on the status it answers.
+  // as AngzarrDeadLetter.refusal). The router answers it on the status a
+  // handler's refusal travels as (decision 14.95, DRAFT), with the status
+  // the refusal message declares (its refusal_status; FAILED_PRECONDITION is
+  // the most common), and the coordinator passes it on; the coordinator also
+  // answers it for its own ExpectedSequenceMismatch (decision 14.94).
   ROUTER_REASON_COMMAND_REFUSED = 3 [(reason) = {
     args: ["refusal_type"]
     grpc_status: REASON_STATUS_FAILED_PRECONDITION
@@ -571,17 +573,6 @@ enum CoordinatorReason {
     args: ["component"]
     readiness: {}
   }];
-  // A command handler's answer whose result is unset: a DecideResponse
-  // neither decided, refused nor aborted (decision 46, Q2), or an
-  // IngestResponse neither ingested nor aborted (decision 14.89). Bug, fatal
-  // (decision 14.37): refused, nothing persisted; a caller of Handle or
-  // HandleSync is answered it (a fact's sender, OK PARKED), and any other
-  // delivery dead-lettered with it as its AngzarrDeadLetter.reason and
-  // alerted. (Decisions 14.78, 14.89.)
-  COORDINATOR_REASON_ANSWER_NO_RESULT = 44 [(reason) = {
-    args: ["stream"]
-    grpc_status: REASON_STATUS_INTERNAL
-  }];
   // A descriptor whose rules_version (`rules_version`), less one leading
   // "v" or "V", does not parse as SemVer 2.0.0: the snapshot rule compares
   // versions by major and minor only (types.proto, Snapshot), so it has no
@@ -657,6 +648,11 @@ enum CoordinatorReason {
     "COORDINATOR_REASON_EXPECTED_SEQUENCE_STALE",
     "COORDINATOR_REASON_EXPECTED_SEQUENCE_AHEAD",
     "COORDINATOR_REASON_STATE_RESOLUTIONS_INVALID";
+
+  // Retired by 14.95 (DRAFT, reversing decision 46's Q2): a handler's answer
+  // is success only, so it has no result to leave unset.
+  reserved 44;
+  reserved "COORDINATOR_REASON_ANSWER_NO_RESULT";
 
   // Retired by 14.37.
   reserved

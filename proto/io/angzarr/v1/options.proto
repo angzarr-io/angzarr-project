@@ -194,12 +194,12 @@ message CommandOptions {
   // owner's ruling). A command may name several (decision 14.50), e.g. a
   // refusal several commands share beside a command's own (one message per refusal, decision 14.82). When
   // set, the generated handler returns its typed events or one of these
-  // typed refusals; when empty, it may refuse with a
-  // raw refusal payload (google.protobuf.Any), or with a message only.
-  // Either way the client library packs the chosen refusal object (the
-  // concrete message, e.g. InsufficientFunds) as a google.protobuf.Any into
-  // the answer's refusal (io.angzarr.handler.v1.Refusal.typed), and the
-  // refused policy receives it in TranslateRequest.refusal. Generation fails on a refuses
+  // typed refusals; when empty, it cannot refuse (decision 14.95, DRAFT:
+  // typed refusals only). The client library answers the chosen refusal
+  // object (the concrete message, e.g. InsufficientFunds) as a gRPC status:
+  // the message's declared refusal_status, its ErrorInfo, and the object
+  // packed in the status details; the refused policy receives it in
+  // TranslateRequest.refusal. Generation fails on a refuses
   // type that does not resolve, or that is not a message of the command's
   // own domain (the refusals region). A fact (FactOptions) has no
   // refuses: a fact cannot be refused. A command of a domain some
@@ -299,17 +299,21 @@ extend google.protobuf.MessageOptions {
 // below), a business rejection, fatal (decision 14.37); which of the six
 // business statuses it travels as is a property of the message, marked on
 // it:
-//   message SeatTaken {                          // FAILED_PRECONDITION
+//   message SeatTaken {
+//     option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_FAILED_PRECONDITION;
 //     int32 seat = 1;
 //   }
 //   message BetNotEven {
 //     option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_INVALID_ARGUMENT;
 //   }
-// Unset (REFUSAL_STATUS_UNSPECIFIED) is FAILED_PRECONDITION, the default
-// for a business rejection. The generated refusal is refused under the
-// marked status, and a hand-written handler's helper reads the same
-// option, so the two agree. Generation fails when the option is set on a
-// message no command's refuses names.
+// Every refusal message DECLARES its status (decision 14.95, DRAFT): there
+// is no default, and generation fails for a message some command's refuses
+// names that sets no refusal_status, or sets REFUSAL_STATUS_UNSPECIFIED.
+// The generated refusal is refused under the declared status, and a
+// hand-written handler's helper reads the same option, so the two agree.
+// Generation fails when the option is set on a message no command's
+// refuses names (the framework's ExpectedSequenceMismatch, which the
+// coordinator raises, excepted).
 //
 // RefusalStatus holds the business statuses only, so a bug's or a
 // retryable status (INTERNAL, UNAVAILABLE, ABORTED, ...) cannot be marked:
@@ -319,7 +323,8 @@ extend google.protobuf.MessageOptions {
 // any other. Each value's number is its google.rpc.Code number, so the status
 // on the wire is the value's number, read without a table.
 enum RefusalStatus {
-  // FAILED_PRECONDITION: the default, what unset means.
+  // proto3's zero: no status. Never a refusal's declaration (generation
+  // fails on it).
   REFUSAL_STATUS_UNSPECIFIED = 0;
   REFUSAL_STATUS_INVALID_ARGUMENT = 3;
   REFUSAL_STATUS_NOT_FOUND = 5;
@@ -345,10 +350,10 @@ extend google.protobuf.MessageOptions {
 // WIRING"; PolicyService in policy.proto, Refusals).
 //
 // The refusing side. A command handler refuses with a business rejection,
-// answered in band (io.angzarr.handler.v1.DecideResponse.refused; decision
-// 46, Q2) under FAILED_PRECONDITION or the status its refusal message marks (the
-// refusal_status region), carrying either a diagnostic code and its args
-// (never text; decision 14.37) or a TYPED refusal object of its own domain, named by the command's annotation,
+// a gRPC status (decision 14.95, DRAFT, reversing decision 46's Q2) under
+// the status its refusal message declares (the refusal_status region),
+// carrying a TYPED refusal object of its own domain (typed only; decision
+// 14.95), named by the command's annotation,
 // exactly as emits names its events (the owner's ruling, for
 // consistency):
 //   message HoldFunds {
@@ -362,8 +367,8 @@ extend google.protobuf.MessageOptions {
 // of the refuses types (a typed choice the generator builds in each
 // language). The client
 // library packs the chosen refusal object, the concrete message, as a
-// google.protobuf.Any into the answer's refusal (Refusal.typed), and the
-// coordinator hands that refusal on to the policy's Translate unchanged
+// google.protobuf.Any into the status details, and the coordinator hands
+// it, with its status, to the policy's Translate
 // (TranslateRequest.refusal). The refusing
 // domain records nothing. Generator diagnostics, mirroring emits': a
 // refuses type that does not resolve, or that is not a message of the
@@ -391,8 +396,8 @@ extend google.protobuf.MessageOptions {
 // Every typed refusal travels under one wire key: ROUTER_REASON_COMMAND_REFUSED,
 // its refusal_type the message's fully-qualified name, the object in the
 // status details (types.proto, the diagnostic region). Its status is the
-// message's (io.angzarr.v1.refusal_status), FAILED_PRECONDITION unset (the
-// refusal_status region). There is no nested code enum and no second
+// message's declared (io.angzarr.v1.refusal_status) (the refusal_status
+// region). There is no nested code enum and no second
 // keying by a code's name.
 //
 // The policy's side: ONE path (decision 46 #5, amending 14.31, 14.42, 14.73
@@ -403,7 +408,7 @@ extend google.protobuf.MessageOptions {
 //       -> <a fact of the source domain>, or a Bug,
 // takes the refused command and the refusal as a choice of the target's
 // refusal messages (one arm per refusal message the target's commands
-// name, and one arm for an untyped refusal), reads it and returns a DOMESTIC fact, so the source never refers
+// name; typed only), reads it and returns a DOMESTIC fact, so the source never refers
 // to the foreign protos (the policy already does). The coordinator delivers
 // it to the trigger's exact stream. There is no pass-through: no standard
 // refusal fact, no source-domain dispatch by the refused command's type,

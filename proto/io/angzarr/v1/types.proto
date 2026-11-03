@@ -577,15 +577,16 @@ message FactOrigin {
 //                      text.
 //   In a message       a Diagnostic, below.
 //
-// A business rejection is one of two things. A TYPED rejection is its
+// A business rejection is TYPED, always (decision 14.95, DRAFT): its
 // refusal object (one of the command's CommandOptions.refuses types,
-// packed as an Any): the object's type is the key and its fields are the
-// map, so it carries no Diagnostic. On the wire its reason (and so its
-// status message) is ROUTER_REASON_COMMAND_REFUSED, its ErrorInfo metadata refusal_type
-// names the object's fully-qualified type, and the object itself is packed
-// in the status details. Any other rejection, and every handler bug,
-// carries a diagnostic code and its args: an untyped rejection's reason is
-// its own code; a handler bug's reason is ROUTER_REASON_UNHANDLED_HANDLER_ERROR, with the
+// packed as an Any) is the key, by its type, and the map, by its fields,
+// so it carries no Diagnostic. On the wire it is a gRPC status under the
+// message's declared refusal_status, its reason (and so its status message)
+// ROUTER_REASON_COMMAND_REFUSED, its ErrorInfo metadata refusal_type the
+// object's fully-qualified type, and the object packed in the status
+// details. A handler's ABORTED and every handler bug carry a diagnostic
+// code and its args: an ABORTED's reason is the handler's own code; a
+// handler bug's reason is ROUTER_REASON_UNHANDLED_HANDLER_ERROR, with the
 // handler's own code and args as its cause (flattened as below; a panic's
 // cause is ROUTER_REASON_HANDLER_PANICKED), and what escaped stays in the handler's log.
 // A handler that fails with the language's unclassified error has no cause.
@@ -1196,8 +1197,8 @@ message AngzarrDeadLetter {
   // 14.37). The one statement of why (decision 14.78).
   //   - A typed business refusal of an asynchronous command is
   //     ROUTER_REASON_COMMAND_REFUSED with arg refusal_type, as on the
-  //     wire; the object itself is `refusal`, below. A handler's own
-  //     business key is an untyped refusal, its code and args here.
+  //     wire; the object itself is `refusal`, below. Every refusal is
+  //     typed (decision 14.95, DRAFT).
   //   - A command with no caller waiting (HandleAsync, a reaction), or a
   //     fact, the coordinator gave up on after losing write races at the
   //     race re-run cap, is

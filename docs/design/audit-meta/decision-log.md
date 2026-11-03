@@ -5053,6 +5053,8 @@ owner, 2026-11-02 (the 2026-10-31 run's decision 44, option (a)).
 > guide (`proto-layers-review.md`, session inept-sixth-stick) lists the
 > points open in each.
 
+> **Amended by 14.95 (DRAFT, pending review):** Q2 is REVERSED: errors travel as gRPC statuses. Decide and Ingest answer success only; a refusal is a business status with its typed object in the details, a re-run ABORTED, a bug its error status. `COORDINATOR_REASON_ANSWER_NO_RESULT` is retired, and refusals are typed only.
+
 **14.78 (DRAFT) The handler layer: handlers get the books and return only
 what they decide.** From decision 46 ("we need to wrap things by
 layers/more proto ...") and its rulings Q1-Q3, Q5-Q7, #2-#5 (2026-11-02).
@@ -5064,7 +5066,8 @@ layers/more proto ...") and its rulings Q1-Q3, Q5-Q7, #2-#5 (2026-11-02).
   post-decision state, the rules version, a conflict report, a refusal.
 - **Messages.** `DecideRequest { CommandBook command; EventBook history;
   recorded_at }` -> `DecideResponse { oneof result { Decided decided;
-  Refusal refused; Diagnostic aborted }; rules_version }` (Q2: in band);
+  Refusal refused; Diagnostic aborted }; rules_version }` (Q2: in band;
+  REVERSED by 14.95: success only, errors as gRPC statuses);
   `IngestRequest` -> `IngestResponse`; `ReactRequest { EventBook trigger }`
   (one page, one call per trigger, Q3) -> `ReactResponse { repeated Output
   { root, payload, fact } }`; `TranslateRequest { trigger, command,
@@ -5329,6 +5332,29 @@ ruling, 2026-11-02. Amends 14.92 and 14.93.
   `AngzarrDeadLetter.refusal`.
 - **Not declared.** No command lists it in `refuses`; the own-domain rule
   for `refuses` is back to as it was.
+
+**14.95 (DRAFT) Errors travel as gRPC statuses; refusals are typed
+only.** The owner's review, 2026-11-02: "grpc should carry the error (both
+retryable and not)". REVERSES decision 46's Q2 (14.78); amends 14.37's
+untyped rejection, 14.52's default status and 14.89's Ingest oneof.
+- **Success only.** `DecideResponse { Decided decided; rules_version }` and
+  `IngestResponse { Ingested ingested; rules_version }`: no result oneofs,
+  no `aborted` arms. `COORDINATOR_REASON_ANSWER_NO_RESULT` (44) is retired
+  and reserved.
+- **Every other outcome is a gRPC status** (AIP-193, 14.37): a refusal is
+  the business status its message declares, with a `google.rpc.ErrorInfo`
+  (`ROUTER_REASON_COMMAND_REFUSED`, `refusal_type`) and the typed refusal
+  in the status details; a re-run is ABORTED under the handler's own key; a
+  bug is its error status. Any error from Ingest is a bug (14.72).
+- **Typed refusals only.** The untyped `Diagnostic` refusal is gone: a
+  command whose `refuses` names nothing cannot refuse.
+- **Every refusal declares its status.** `REFUSAL_STATUS_UNSPECIFIED` no
+  longer means FAILED_PRECONDITION: generation fails for a refusal message
+  that sets no `refusal_status`. The example refusals now declare it.
+- **`Refusal`** stays only as `TranslateRequest.refusal`: `{ RefusalStatus
+  status; Any typed }`, read off the target's status by the policy's
+  coordinator.
+- **Facts keep arriving in a CommandBook** (the owner's call; no change).
 
 ## Corrections
 

@@ -85,12 +85,11 @@ option ruby_package = "Angzarr";
 //
 // Refusals: ONE path (decision 46 #5, amending 2.2, 14.31, 14.42, 14.73 and
 // 14.76). A target, an aggregate or a process manager alike, refuses a
-// policy's command the way it refuses any command: a business rejection
-// (DecideResponse.refused) carrying either a TYPED refusal object of its
-// own domain (one of the command's CommandOptions.refuses types,
-// options.proto; e.g. InsufficientFunds { available, requested }) or a
-// diagnostic code and its args, never text (decision 14.37), and it records
-// NOTHING. The refusal then yields the one unrefusable fact of it for the
+// policy's command the way it refuses any command: a business rejection,
+// a gRPC business status carrying a TYPED refusal object of its own domain
+// (one of the command's CommandOptions.refuses types, options.proto; e.g.
+// InsufficientFunds { available, requested }) in its details (decisions
+// 14.37 and 14.95, DRAFT; typed only), and it records NOTHING. The refusal then yields the one unrefusable fact of it for the
 // policy's OWN source: the exact stream of its triggering event.
 //   - The policy's coordinator calls PolicyService.Translate with the
 //     triggering event, the command as delivered and the target's refusal
@@ -100,8 +99,8 @@ option ruby_package = "Angzarr";
 //         -> <a fact type of the source domain>, or a Bug,
 //     takes the refused command (its target's command choice) and the
 //     refusal as a choice of its target's refusal messages (one arm per
-//     refusal message its target's commands name, and one for an untyped
-//     refusal's code and args), reads it and returns a DOMESTIC fact,
+//     refusal message its target's commands name; typed only, decision
+//     14.95), reads it and returns a DOMESTIC fact,
 //     which the business process answers as the fact's payload alone
 //     (TranslateResponse), so the source never refers to the foreign
 //     protos (the policy already does). The author handles the refusals of
@@ -138,10 +137,9 @@ option ruby_package = "Angzarr";
 //     nothing twice. The angzarr-embedded kernel makes the same calls
 //     directly, in the chain.
 //   - The fact is unrefusable, so compensation cannot loop.
-//   - Only a business rejection reaches Translate, and the answer's arm
-//     decides which is one: DecideResponse.refused, whose status is a
-//     business status by type (RefusalStatus). It is never retried.
-//     DecideResponse.aborted (re-read and re-decide) makes the runtime
+//   - Only a business rejection reaches Translate: a business status
+//     (RefusalStatus's set) carrying a typed refusal. It is never retried.
+//     ABORTED (re-read and re-decide) makes the runtime
 //     reload and re-run the policy step under the capped backoff, then
 //     dead-letter it and alert. A fatal bug (INTERNAL, UNKNOWN, DATA_LOSS)
 //     is dead-lettered and alerted at once; any other failure is a

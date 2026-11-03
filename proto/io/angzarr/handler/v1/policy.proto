@@ -71,9 +71,10 @@ message Output {
 
 // What Translate is handed: one business rejection of a command the policy
 // sent, and what it reacted to (the one refusal path, decision 46 #5).
-// Called by the policy's coordinator for every refused arm of the target's
-// DecideResponse, and for nothing else: an aborted arm re-runs the step,
-// and a bug is dead-lettered.
+// Called by the policy's coordinator for every business refusal the target
+// answered (a gRPC business status carrying a typed refusal; decision 14.95,
+// DRAFT), and for nothing else: an ABORTED re-runs the step, and a bug is
+// dead-lettered.
 message TranslateRequest {
   // The triggering event: a book of the source stream holding the one
   // event the policy reacted to (the refused command's causation). Its
@@ -84,7 +85,8 @@ message TranslateRequest {
   // stamped, and its payload, which the policy's one refusal callback
   // receives as its target's command choice (decision 14.89).
   io.angzarr.v1.ReactionDelivery command = 2;
-  // The target's refusal, exactly its DecideResponse.refused.
+  // The target's refusal: its typed object and the status it travelled as,
+  // read off the target's gRPC status.
   Refusal refusal = 3;
 }
 

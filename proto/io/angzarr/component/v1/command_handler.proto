@@ -47,13 +47,15 @@ option ruby_package = "Angzarr::Component";
 //
 // The coordinator persists nothing from an answer it refuses: a
 // rules_version other than the registered one
-// (COORDINATOR_REASON_RULES_VERSION_MISMATCH, decision 14.56) or, from
-// Decide, no result (COORDINATOR_REASON_ANSWER_NO_RESULT). A caller of
+// (COORDINATOR_REASON_RULES_VERSION_MISMATCH, decision 14.56). A caller of
 // Handle or HandleSync is answered INTERNAL; an asynchronous or reaction
 // delivery is dead-lettered and alerted. Neither is a business rejection.
 service CommandHandlerService {
-  // Decide one command: its events, a refusal, or the handler's own abort,
-  // in band (decision 46, Q2), with the rules version that decided it.
+  // Decide one command: on success its events, with the rules version that
+  // decided it. Every other outcome is a gRPC error status, per AIP-193
+  // and decision 14.37 (decision 14.95, DRAFT, reversing decision 46's Q2):
+  // a refusal under its message's declared business status, a re-run as
+  // ABORTED under the handler's own key, a bug as its error status.
   //
   // The handler always decides on the current state: the coordinator
   // appends at the head it loaded and re-runs a lost race on the new head
@@ -61,23 +63,22 @@ service CommandHandlerService {
   // sequence is not that head is refused before Decide is called
   // (ExpectedSequenceMismatch; decision 14.94, DRAFT).
   //
-  // A refusal (DecideResponse.refused) records nothing. Its status is a
-  // business status by type (RefusalStatus). The coordinator answers a
-  // client caller with it as a gRPC status, unchanged on the client's wire:
-  // the status, the reason (ROUTER_REASON_COMMAND_REFUSED with refusal_type
-  // for a typed refusal, the diagnostic's code otherwise) and the typed
-  // object packed in the status details. A refused HandleAsync command is
-  // dead-lettered (AngzarrDeadLetter.reason and .refusal), and a refused
+  // A refusal records nothing. It is typed (one of the command's refuses
+  // messages; decision 14.95): its status is the message's declared
+  // (io.angzarr.v1.refusal_status), its google.rpc.ErrorInfo reason
+  // ROUTER_REASON_COMMAND_REFUSED with refusal_type, and the object packed in
+  // the status details (decision 14.37). The coordinator answers a client
+  // caller with that status unchanged; a refused HandleAsync command is
+  // dead-lettered (AngzarrDeadLetter.reason and .refusal); a refused
   // policy command reaches the policy's Translate (the one refusal path;
   // io/angzarr/v1/policy.proto, Refusals). There is no compensation input:
   // the policy delivers a fact of the refusal to its own source domain
   // (decision 14.31).
   rpc Decide(io.angzarr.handler.v1.DecideRequest) returns (io.angzarr.handler.v1.DecideResponse);
 
-  // Ingest one fact: its events, or the handler's abort (decision 14.89). A
-  // fact is never refused (decision 14.34), so the answer has no refusal
-  // arm: an abort, a failing fact handler, or one that answers any error
-  // status, is a bug, never a business rejection. The
+  // Ingest one fact: on success its events (decision 14.95, DRAFT). A fact
+  // is never refused (decision 14.34): any error status from Ingest is a
+  // bug, never a business rejection. The
   // fact is dead-lettered (and alerted) under the key and args the process
   // answered, and its sender answered OK, PARKED (C-0785, C-0786; decision
   // 14.72).

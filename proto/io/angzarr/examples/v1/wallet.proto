@@ -31,9 +31,9 @@ option ruby_package = "Angzarr::Examples";
 // 14.82), each named in the refuses of the client commands that refuse with
 // it (each command of a domain a policy targets names one, decision 14.76);
 // HoldFunds refuses with InsufficientFunds. Each refusal's status is its
-// (io.angzarr.v1.refusal_status) message option, unset FAILED_PRECONDITION:
-// AmountNotPositive, DisplayNameRequired and EmailRequired are
-// INVALID_ARGUMENT.
+// (io.angzarr.v1.refusal_status) message option, declared on each
+// (decision 14.95): AmountNotPositive, DisplayNameRequired and EmailRequired
+// are INVALID_ARGUMENT, the rest FAILED_PRECONDITION.
 // A hold for no wallet, of nothing, or reusing a hold id for another hold
 // (HOLD_CONFLICT) is the buy-in's bug.
 //
@@ -155,21 +155,24 @@ message HoldFunds {
 // The wallet's typed refusals of its client commands (decision 14.82,
 // DRAFT; the owner's ruling F3): one message per refusal, its args its
 // fields, its status its (io.angzarr.v1.refusal_status) message option
-// (unset: FAILED_PRECONDITION), each named in the refuses of every command
+// (declared on each, decision 14.95), each named in the refuses of every command
 // that refuses with it. Refusal objects, never events; on the wire each is
 // ROUTER_REASON_COMMAND_REFUSED with its type as refusal_type. Was
 // WalletRefused, one message with a 6-code Reason enum and optional args.
 
 // RegisterWallet or ImportWallet for a wallet that exists.
 message WalletAlreadyExists {
+  option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_FAILED_PRECONDITION;
 }
 
 // Any client command but RegisterWallet and ImportWallet before either.
 message WalletNotFound {
+  option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_FAILED_PRECONDITION;
 }
 
 // WithdrawFunds beyond what is available (the bankroll minus open holds).
 message InsufficientAvailableFunds {
+  option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_FAILED_PRECONDITION;
   int64 available = 1; // Funds available
   int64 requested = 2; // The amount asked for
 }
@@ -195,6 +198,7 @@ message EmailRequired {
 // never an event; packed as an Any into the refusal, which the issuing
 // policy's Translate reads (decision 14.78).
 message InsufficientFunds {
+  option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_FAILED_PRECONDITION;
   int64 available = 1; // Funds available to hold
   int64 requested = 2; // The amount asked for
 }

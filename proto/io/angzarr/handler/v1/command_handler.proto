@@ -24,8 +24,9 @@ option ruby_package = "Angzarr::Handler";
 //     coordinator built (CommandBook, EventBook), with every id, cover,
 //     sequence and EventMeta it stamped or loaded. Business logic gets what
 //     it needs (the owner's ruling on decision 46, Q1).
-//   - A response carries only what business code decides: payloads, the
-//     post-decision state, the rules version, a refusal.
+//   - A response carries only what business code decides on success:
+//     payloads, the post-decision state, the rules version. A refusal, a
+//     re-run and a bug are gRPC error statuses (decision 14.95, DRAFT).
 //     It has no field the coordinator stamps (a cover, a sequence, an id,
 //     EventMeta), so there is nothing for the coordinator to refuse.
 // The coordinator alone converts between this layer and core's: it wraps
@@ -64,39 +65,34 @@ message DecideRequest {
   io.angzarr.v1.EventRef causation = 4;
 }
 
-// What Decide answers: exactly one result, and the rules version that
-// decided it. A refusal travels here, in band, never as a gRPC status
-// (decision 46, Q2). A handler BUG is not an answer: it is an error status,
-// as before (ROUTER_REASON_UNHANDLED_HANDLER_ERROR and the router's other
-// bug keys; io/angzarr/v1/command_handler.proto, status codes).
-//
-// A response whose result is unset is a handler bug: the coordinator
-// refuses it, persists nothing, and answers COORDINATOR_REASON_ANSWER_NO_RESULT
-// (a caller of Handle or HandleSync) or dead-letters it with that key (any
-// other delivery), and alerts.
+// What Decide answers: SUCCESS ONLY, the accepted command's result and the
+// rules version that decided it (decision 14.95, DRAFT, reversing decision
+// 46's Q2; the owner: "grpc should carry the error (both retryable and
+// not)"). Every other outcome is a gRPC error status, per AIP-193 and
+// decision 14.37:
+//   - a refusal: the business status its refusal message declares
+//     ((io.angzarr.v1.refusal_status), required), with a
+//     google.rpc.ErrorInfo (reason ROUTER_REASON_COMMAND_REFUSED, metadata
+//     refusal_type) and the typed refusal object packed in the status
+//     details. The refusing domain records nothing;
+//   - a re-run ("re-read and re-decide"): ABORTED under the handler's own
+//     key and args;
+//   - a bug: its error status (ROUTER_REASON_UNHANDLED_HANDLER_ERROR and the
+//     router's other bug keys; io/angzarr/v1/command_handler.proto, status
+//     codes).
 message DecideResponse {
-  oneof result {
-    // The command is accepted: these are its events.
-    Decided decided = 1;
-    // The command is refused, a business rejection (business, fatal;
-    // decision 14.37). The refusing domain records nothing.
-    Refusal refused = 2;
-    // The handler's own ABORTED, "re-read and re-decide", under its own
-    // key and args (decision 14.37). The coordinator answers its caller
-    // ABORTED with this key; a policy step is re-run under the capped
-    // backoff. Never a policy's Translate.
-    io.angzarr.v1.Diagnostic aborted = 3;
-  }
+  // The command is accepted: these are its events.
+  Decided decided = 1;
   // The full version of the business binary that produced this answer
   // (e.g. "1.4.2+build.7"), baked in when the binary is built, never a
   // label chosen by hand: the same value the component registered
   // (ComponentDescriptor.rules_version). The client library fills it on
-  // every answer, whatever its result. The coordinator stamps it in full
-  // onto every event (EventMeta.rules_version) and any snapshot written
-  // from this answer. One that differs from the registered version (an
-  // empty one included) is a handler bug: refused, nothing persisted,
+  // every answer. The coordinator stamps it in full onto every event
+  // (EventMeta.rules_version) and any snapshot written from this answer.
+  // One that differs from the registered version (an empty one included) is
+  // a handler bug: refused, nothing persisted,
   // COORDINATOR_REASON_RULES_VERSION_MISMATCH (decision 14.56).
-  string rules_version = 4;
+  string rules_version = 2;
 }
 
 // An accepted command's result: payloads and the post-decision state,
@@ -119,30 +115,21 @@ message Decided {
   // coordinator loaded, and a lost race is re-run on the new head.
 }
 
-// A business rejection: business, fatal (decision 14.37). Exactly what the
-// refused policy's Translate receives (io/angzarr/handler/v1/policy.proto,
-// TranslateRequest.refusal).
+// A business rejection as the refused policy's Translate receives it
+// (io/angzarr/handler/v1/policy.proto, TranslateRequest.refusal): the typed
+// refusal and the status it travelled as, which the policy's coordinator
+// reads off the target's gRPC status (decision 14.95, DRAFT). Typed only:
+// every refusal is one of its command's refuses messages (decision 14.95;
+// there is no untyped refusal).
 message Refusal {
-  // Which of the business statuses the rejection travels as (the
-  // refusal_status region of options.proto): a typed refusal's is its
-  // message's (io.angzarr.v1.refusal_status) option, an untyped one's the
-  // handler's choice. UNSPECIFIED is FAILED_PRECONDITION. Only business
-  // statuses are representable: a bug or a retryable status cannot be a
-  // refusal.
+  // The business status the refusal travelled as: its message's declared
+  // (io.angzarr.v1.refusal_status). Only business statuses are
+  // representable.
   io.angzarr.v1.RefusalStatus status = 1;
-  // Exactly one: the rejection's key and its map, never text (decision
-  // 14.37).
-  oneof reason {
-    // A typed refusal object: one of the command's CommandOptions.refuses
-    // types (options.proto), packed. Its type is the key and its fields
-    // the map. On the coordinator's wire to a client it travels as reason
-    // ROUTER_REASON_COMMAND_REFUSED with arg refusal_type, the object in
-    // the status details, as before.
-    google.protobuf.Any typed = 2;
-    // An untyped rejection: its code and args. On the coordinator's wire
-    // the code is the status message and the ErrorInfo reason.
-    io.angzarr.v1.Diagnostic diagnostic = 3;
-  }
+  // The typed refusal object: one of the command's CommandOptions.refuses
+  // types (options.proto), packed, as it travelled in the status details.
+  // Its type is the key and its fields the map.
+  google.protobuf.Any typed = 2;
 }
 
 // What Ingest is handed: one fact and the stream it addresses, after the
@@ -162,24 +149,15 @@ message IngestRequest {
   io.angzarr.v1.EventRef causation = 4;
 }
 
-// What Ingest answers: exactly one result, and the rules version (decision
-// 14.89, DRAFT). A fact is never refused, so there is NO refusal arm. An
-// abort is the handler's own report that it could not record the fact: a
-// bug, never a business outcome, so the fact is dead-lettered under the
-// abort's key and args and alerted, and its sender answered OK, PARKED, as
-// any failing fact handler's (decision 14.72). A handler's error status is
-// the same bug. A response whose result is unset is refused as
-// COORDINATOR_REASON_ANSWER_NO_RESULT.
+// What Ingest answers: SUCCESS ONLY (decision 14.95, DRAFT). A fact is
+// never refused. Any error status from Ingest is a bug: the fact is
+// dead-lettered under the status's key and args and alerted, and its sender
+// answered OK, PARKED, as any failing fact handler's (decision 14.72).
 message IngestResponse {
-  oneof result {
-    // The fact is recorded: these are its events.
-    Ingested ingested = 1;
-    // The handler could not record it: its key and args (a bug,
-    // dead-lettered; decision 14.72).
-    io.angzarr.v1.Diagnostic aborted = 2;
-  }
+  // The fact is recorded: these are its events.
+  Ingested ingested = 1;
   // As DecideResponse.rules_version.
-  string rules_version = 3;
+  string rules_version = 2;
 }
 
 // A recorded fact's result: payloads and the post-ingest state.
