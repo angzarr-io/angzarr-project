@@ -39,23 +39,23 @@ Every error angzarr sends carries a **key** and an **argument map**, never rende
 |-------|---------|---------|
 | A gRPC status | The status message, and the `google.rpc.ErrorInfo` reason (domain `angzarr.io`) | The `ErrorInfo` metadata |
 | A message (`RefusalResponse`, `ProjectorFailure`, `AngzarrDeadLetter`, the DLQ details) | `Diagnostic.code` | `Diagnostic.args` |
-| A typed refusal object | Its type (on the wire, reason `ROUTER_REASON_COMMAND_REFUSED` with metadata `refusal_type`) | Its fields |
+| A typed refusal object | Its type (on the wire, reason `ANGZARR_REASON_COMMAND_REFUSED` with metadata `refusal_type`) | Its fields |
 
-This holds for business code too. A handler's typed refusal is its refusal object; any other rejection, and every handler bug, carries a diagnostic code and its args. No free text crosses any boundary: a handler bug is answered `ROUTER_REASON_UNHANDLED_HANDLER_ERROR`, carrying the handler's own diagnostic as its cause (a panic's cause is `ROUTER_REASON_HANDLER_PANICKED`), and what the error or panic said stays in the handler's own log. A wrapped cause is flattened into the args: its code under the arg's name and its args under `<name>.<arg>`.
+This holds for business code too. A handler's typed refusal is its refusal object; any other rejection, and every handler bug, carries a diagnostic code and its args. No free text crosses any boundary: a handler bug is answered `ANGZARR_REASON_UNHANDLED_HANDLER_ERROR`, carrying the handler's own diagnostic as its cause (a panic's cause is `ANGZARR_REASON_HANDLER_PANICKED`), and what the error or panic said stays in the handler's own log. A wrapped cause is flattened into the args: its code under the arg's name and its args under `<name>.<arg>`.
 
-Every distinct condition has its own reason key, so no two conditions share a key and differ only by text. The framework's keys are the enums of `io/angzarr/v1/reasons.proto` (in the Proto API reference), one per component that answers them (`RouterReason`, `HostReason`, `CoordinatorReason`), and of each transport's own `reasons.proto` for what only it raises (`io/angzarr/transport/embedded/v1`: a child process's keys; `io/angzarr/transport/distributed/v1`: a distributed coordinator's; decision 14.64), each value's comment giving its status and its `(reason)` option its args, with the English for every key in the `reasons.en-US.ftl` beside its file (decision 14.60); on the wire a key is the value's full name, its enum's prefix included (`ROUTER_REASON_DUPLICATE_COMPONENT`). Some of them:
+Every distinct condition has its own reason key, so no two conditions share a key and differ only by text. The framework's keys are the enums of `io/angzarr/v1/reasons.proto` (in the Proto API reference), one per layer: core's `AngzarrReason` (`ANGZARR_REASON_*`), and each transport's own `reasons.proto` for what only it raises (`io/angzarr/transport/embedded/v1`'s `EmbeddedReason`, `EMBEDDED_REASON_*`: a child process's keys; `io/angzarr/transport/distributed/v1`'s `DistributedReason`, `DISTRIBUTED_REASON_*`: a distributed coordinator's; decisions 14.64 and 14.104). Which component raises a key is in its comment, never in its string; each value's comment giving its status and its `(reason)` option its args, with the English for every key in the `reasons.en-US.ftl` beside its file (decision 14.60); on the wire a key is the value's full name, its enum's prefix included (`ANGZARR_REASON_DUPLICATE_COMPONENT`). Some of them:
 
 | Condition | Reason | Status |
 |-----------|--------|--------|
-| A fold fails on a persisted event | `ROUTER_REASON_FOLD_FAILED` | `INTERNAL` |
-| A fold fails on an event the command emitted | `ROUTER_REASON_FOLD_FAILED_EMITTED` | `INTERNAL` |
-| A command type no handler claims, after the coordinator upcast it | `ROUTER_REASON_UNKNOWN_COMMAND_TYPE` (metadata `type_url` as sent, `upcast_type_url` as delivered; the router itself reports only `type_url`, the type it was given) | `INTERNAL` |
-| A fact type no handler claims, after the coordinator upcast it | `ROUTER_REASON_NO_FACT_HANDLER` (metadata as for `ROUTER_REASON_UNKNOWN_COMMAND_TYPE`) | `INTERNAL` |
-| A pass-through `CommandRefused` the source has no `on_refused_<Command>` for | `ROUTER_REASON_NO_REFUSAL_HANDLER` (metadata `command_type`) | `INTERNAL` |
-| A dispatch to a kind the business process does not host | `ROUTER_REASON_NO_COMPONENT_OF_KIND` | `UNIMPLEMENTED` |
-| A second component, built with or registered beside the one hosted | `ROUTER_REASON_DUPLICATE_COMPONENT` (metadata `component`, `component_kind`) | `INTERNAL` |
+| A fold fails on a persisted event | `ANGZARR_REASON_FOLD_FAILED` | `INTERNAL` |
+| A fold fails on an event the command emitted | `ANGZARR_REASON_FOLD_FAILED_EMITTED` | `INTERNAL` |
+| A command type no handler claims, after the coordinator upcast it | `ANGZARR_REASON_UNKNOWN_COMMAND_TYPE` (metadata `type_url` as sent, `upcast_type_url` as delivered; the router itself reports only `type_url`, the type it was given) | `INTERNAL` |
+| A fact type no handler claims, after the coordinator upcast it | `ANGZARR_REASON_NO_FACT_HANDLER` (metadata as for `ANGZARR_REASON_UNKNOWN_COMMAND_TYPE`) | `INTERNAL` |
+| A pass-through `CommandRefused` the source has no `on_refused_<Command>` for | `ANGZARR_REASON_NO_REFUSAL_HANDLER` (metadata `command_type`) | `INTERNAL` |
+| A dispatch to a kind the business process does not host | `ANGZARR_REASON_NO_COMPONENT_OF_KIND` | `UNIMPLEMENTED` |
+| A second component, built with or registered beside the one hosted | `ANGZARR_REASON_DUPLICATE_COMPONENT` (metadata `component`, `component_kind`) | `INTERNAL` |
 | A policy's translated refusal fact that is more than a payload (the coordinator's check) | One key per fault: `COORDINATOR_REASON_REFUSAL_FACT_ADDRESSED`, `COORDINATOR_REASON_REFUSAL_FACT_NO_PAGE`, `COORDINATOR_REASON_REFUSAL_FACT_NOT_A_FACT`, `COORDINATOR_REASON_REFUSAL_FACT_IDENTIFIED` | `INTERNAL` |
-| Bytes that do not decode as the message expected | `ROUTER_REASON_ANY_DECODE_FAILED` (metadata `message_type`, and the decoder's own text as `ext_err_txt`) | `INTERNAL` |
+| Bytes that do not decode as the message expected | `ANGZARR_REASON_ANY_DECODE_FAILED` (metadata `message_type`, and the decoder's own text as `ext_err_txt`) | `INTERNAL` |
 
 ---
 
@@ -84,7 +84,7 @@ A command may name the stream head it was decided against (`Handling.expected_se
 | `AGGREGATE_HANDLES` or `COMMUTATIVE`, with an expected sequence | At the write, after the window was delivered | The coordinator re-delivers the widened window with a fresh nonce and the rule decides again, under the retry cap (decision 14.45). |
 | No expected sequence (the coordinator stamps the head) | At the write | The coordinator re-runs the command on the new head, waiting with backoff and jitter between runs, under the race re-run cap: a count of runs, the first included, default 10 (decision 14.46). Never the stale key. |
 
-At either cap the command is dead-lettered and alerted, nothing is persisted, and a caller waiting on `Handle` or `HandleSync` is answered `INTERNAL`, `COORDINATOR_REASON_RETRY_CAP_EXHAUSTED` (args `attempts`, `cap`). It is `INTERNAL`, a fatal bug's status, because the retries are spent and the dead letter holds the command: no caller retries it again, and a policy step follows `on_policy_bug`. `HandleAsync` has no caller to answer.
+At either cap the command is dead-lettered and alerted, nothing is persisted, and a caller waiting on `Handle` or `HandleSync` is answered `INTERNAL`, `ANGZARR_REASON_RETRY_CAP_EXHAUSTED` (args `attempts`, `cap`). It is `INTERNAL`, a fatal bug's status, because the retries are spent and the dead letter holds the command: no caller retries it again, and a policy step follows `on_policy_bug`. `HandleAsync` has no caller to answer.
 
 Facts (a timeout, a webhook) are never refused. A fact is always stamped, so a lost race re-runs it under the race re-run cap; at the cap it is dead-lettered and alerted, and its sender is answered "accepted, parked" (OK, `Outcome.delivery` `PARKED`, no events), never the cap key, exactly as for a fact whose ingest handler fails.
 
@@ -119,7 +119,7 @@ Every dead letter records why in `AngzarrDeadLetter.reason`: a key and its args,
 |----------|--------|
 | A fatal bug (`INTERNAL`, `UNKNOWN`, `DATA_LOSS`) | Dead-lettered and alerted at once |
 | A retryable bug that reaches the retry cap | Dead-lettered and alerted |
-| A race lost at every write until the retry cap or the race re-run cap | Dead-lettered and alerted, reason `COORDINATOR_REASON_RETRY_CAP_EXHAUSTED` (args `attempts`, `cap`); a waiting command caller answered `INTERNAL` with that key, a fact's sender `PARKED` |
+| A race lost at every write until the retry cap or the race re-run cap | Dead-lettered and alerted, reason `ANGZARR_REASON_RETRY_CAP_EXHAUSTED` (args `attempts`, `cap`); a waiting command caller answered `INTERNAL` with that key, a fact's sender `PARKED` |
 | A fact whose ingest handler fails | Dead-lettered and alerted; the sender answered `PARKED` |
 | A queued command with a caller-provided expected sequence answered `ABORTED` | Dead-lettered with `SequenceMismatchDetails`: resending it verbatim cannot succeed |
 | An event handler (policy, projector) failed | Dead-lettered after its retries |
@@ -184,16 +184,16 @@ A target that refuses a policy's command (a business rejection, optionally with 
 | What happened | What happens |
 |---------------|--------------|
 | A business rejection | The refusal fact goes to the policy's source, retried, deduplicated by the refused command's id |
-| A pass-through refusal the source has no handler for | The fact is refused `ROUTER_REASON_NO_REFUSAL_HANDLER`, dead-lettered for a human, and alerted; found only at run time, since nothing declares what a policy sends |
+| A pass-through refusal the source has no handler for | The fact is refused `ANGZARR_REASON_NO_REFUSAL_HANDLER`, dead-lettered for a human, and alerted; found only at run time, since nothing declares what a policy sends |
 | The translating callback fails | The refusal is dead-lettered and alerted |
 | A retryable failure | The command is retried |
 | Any other terminal failure | The command is dead-lettered and alerted: a bug |
-| A policy's command names no root, whatever its target | Refused `INTERNAL`, `COORDINATOR_REASON_POLICY_COMMAND_NO_ROOT` (with `domain` and `command_type`); dead-lettered and alerted, never delivered |
+| A policy's command names no root, whatever its target | Refused `INTERNAL`, `ANGZARR_REASON_POLICY_COMMAND_NO_ROOT` (with `domain` and `command_type`); dead-lettered and alerted, never delivered |
 | A policy's command carries a correlation other than its trigger's | Refused `INTERNAL`, `COORDINATOR_REASON_POLICY_COMMAND_OTHER_CORRELATION`; dead-lettered and alerted, never delivered |
 | A policy's command sets a `command_id` or `causation_id` other than the one its coordinator stamps | Refused `INTERNAL`, `COORDINATOR_REASON_POLICY_COMMAND_OTHER_IDENTITY` (with `domain`, `command_type` and `field`); dead-lettered and alerted, never delivered |
 | A policy's command or fact carries a `fact_origin` of its own | Refused `INTERNAL`, `COORDINATOR_REASON_POLICY_COMMAND_FACT_ORIGIN`; dead-lettered and alerted, never delivered |
 | A policy's fact whose handler fails at its destination | Dead-lettered and alerted there, answered `OK`, `PARKED`; the policy's step completes |
-| A policy's command or fact of an arm its destination does not declare | Refused `INTERNAL` by the destination (`ROUTER_REASON_UNKNOWN_COMMAND_TYPE`, `ROUTER_REASON_NO_FACT_HANDLER`); dead-lettered and alerted |
+| A policy's command or fact of an arm its destination does not declare | Refused `INTERNAL` by the destination (`ANGZARR_REASON_UNKNOWN_COMMAND_TYPE`, `ANGZARR_REASON_NO_FACT_HANDLER`); dead-lettered and alerted |
 
 ## Process Manager Failures
 
@@ -202,7 +202,7 @@ A process manager is a domain, so its failures are an aggregate's: a refused com
 | What happened | What the coordinator does | What the sender sees |
 |---------------|---------------------------|----------------------|
 | A non-starting fact for a correlation with no instance | Skips it; nothing is recorded, dead-lettered or alerted | `APPLIED` with no events |
-| A non-starting command for a correlation with no instance | Refuses it, recording nothing | `FAILED_PRECONDITION`, `COORDINATOR_REASON_PM_NO_INSTANCE` |
+| A non-starting command for a correlation with no instance | Refuses it, recording nothing | `FAILED_PRECONDITION`, `ANGZARR_REASON_PM_NO_INSTANCE` |
 
 ---
 
@@ -248,7 +248,7 @@ def on_refused_join_table(self, refusal, state):
     return [FundsReleased(amount=state.reserved, reason="table refused the seat")]
 ```
 
-A refusal with no handler is answered `ROUTER_REASON_NO_REFUSAL_HANDLER`, dead-lettered and alerted: found only at run time.
+A refusal with no handler is answered `ANGZARR_REASON_NO_REFUSAL_HANDLER`, dead-lettered and alerted: found only at run time.
 
 ### 4. Monitor DLQ Depth
 

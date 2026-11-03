@@ -83,12 +83,12 @@ message HandleRequest {
 //     refuses;
 //   - a re-run ("re-read and re-decide"): ABORTED under the handler's own
 //     key and args;
-//   - a bug: its error status (ROUTER_REASON_UNHANDLED_HANDLER_ERROR and the
+//   - a bug: its error status (ANGZARR_REASON_UNHANDLED_HANDLER_ERROR and the
 //     router's other bug keys; docs/design/command-handling.md, status
 //     codes).
 // Any error status for a FACT is a bug: the fact is dead-lettered under the
 // status's key and args and alerted, and its sender answered INTERNAL
-// COORDINATOR_REASON_FACT_DEAD_LETTERED (decisions 14.72 and 14.100, DRAFT).
+// ANGZARR_REASON_FACT_DEAD_LETTERED (decisions 14.72 and 14.100, DRAFT).
 message HandleResponse {
   // The events, payloads only, in order: empty, one or many (decision
   // 14.75). The coordinator wraps event i as an EventPage under the input's
@@ -111,7 +111,7 @@ message HandleResponse {
   // (EventMeta.rules_version) and any snapshot written from this answer.
   // One that differs from the registered version (an empty one included) is
   // a handler bug: refused, nothing persisted,
-  // COORDINATOR_REASON_RULES_VERSION_MISMATCH (decision 14.56).
+  // ANGZARR_REASON_RULES_VERSION_MISMATCH (decision 14.56).
   string rules_version = 3;
 }
 

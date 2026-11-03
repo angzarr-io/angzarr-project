@@ -1,6 +1,6 @@
 # Command handling: modes, the pipeline's outcomes and status codes
 
-**Status:** normative (decisions 14.37, 14.45 to 14.47, 14.51, 14.64; as amended by the DRAFT decisions 14.78 to 14.102 pending review). Moved from `proto/docs/design/command-handling.md`, which defined no message (decision 14.103, DRAFT). The services are `io.angzarr.component.v1.CommandHandlerService` and `io.angzarr.transport.distributed.v1.CommandHandlerCoordinatorService`; the pipeline is `types.proto`'s Handling region.
+**Status:** normative (decisions 14.37, 14.45 to 14.47, 14.51, 14.64; as amended by the DRAFT decisions 14.78 to 14.102 and 14.104 pending review). Moved from `proto/io/angzarr/v1/command_handler.proto`, which defined no message (decision 14.103, DRAFT). The services are `io.angzarr.component.v1.CommandHandlerService` and `io.angzarr.transport.distributed.v1.CommandHandlerCoordinatorService`; the pipeline is `types.proto`'s Handling region.
 
 What a command handler answers, and how every runtime handles a command.
 The handler's service is the component contract's
@@ -92,11 +92,11 @@ one of four (decision 14.37):
               backoff below, then dead-lettering it and alerting. Never a
               policy's Translate.
   Bug, fatal: INTERNAL, UNKNOWN, DATA_LOSS (a handler bug is INTERNAL
-              ROUTER_REASON_UNHANDLED_HANDLER_ERROR, its own key the cause). Never
+              ANGZARR_REASON_UNHANDLED_HANDLER_ERROR, its own key the cause). Never
               retried; alerted and dead-lettered at once, and never a
               policy's Translate.
   Bug, retryable: UNAVAILABLE, DEADLINE_EXCEEDED, RESOURCE_EXHAUSTED
-              (a handler's retryable bug picks one: ROUTER_REASON_UNHANDLED_HANDLER_ERROR,
+              (a handler's retryable bug picks one: ANGZARR_REASON_UNHANDLED_HANDLER_ERROR,
               its own key the cause), UNIMPLEMENTED and every other code.
               Retried, on by default, with exponential backoff and jitter
               up to a cap (the scale, the jitter factor and the cap are
@@ -121,7 +121,7 @@ least 1, and a configuration of 0 is refused when it is loaded: decision
 14.84, DRAFT). Every input is re-run on the new head (the concurrency
 waits with the exponential backoff and jitter above, never re-running at
 once. At the cap nothing is persisted. A caller waiting on Handle or
-HandleSync is answered INTERNAL COORDINATOR_REASON_RETRY_CAP_EXHAUSTED
+HandleSync is answered INTERNAL ANGZARR_REASON_RETRY_CAP_EXHAUSTED
 (args attempts, cap), and its command is NOT dead-lettered: the caller
 holds it (the owner's ruling of 2026-10-31, "sync commands write no dead
 letter at the retry cap"; decision 14.46 as corrected by 14.85, DRAFT).
@@ -130,9 +130,9 @@ HandleAsync command, and a reaction (Deliver) whose policy step then
 follows on_policy_bug. A fact is re-run the same way, but a fact is
 never refused: at the cap it is dead-lettered and alerted, nothing is
 persisted, and its sender is answered INTERNAL
-COORDINATOR_REASON_FACT_DEAD_LETTERED (non-retryable; decision 14.100, DRAFT). Either way the dead
+ANGZARR_REASON_FACT_DEAD_LETTERED (non-retryable; decision 14.100, DRAFT). Either way the dead
 letter's reason (AngzarrDeadLetter.reason) is
-COORDINATOR_REASON_RETRY_CAP_EXHAUSTED with the same args.
+ANGZARR_REASON_RETRY_CAP_EXHAUSTED with the same args.
 There is no opt-out: the coordinator owns race re-runs (the owner's
 ruling of 2026-10-30; decision 14.84).
 ## 5. The expected sequence
@@ -170,3 +170,29 @@ on the wire.
 
 What-if execution is an ordinary command whose cover names an edition
 (see Cover.edition), in any mode; there is no speculative RPC.
+
+## 9. What a handler returns: Emit
+
+Every command handler (an aggregate's or a process manager's, for a
+command and for a fact alike) returns an `Emit`, in every client library:
+the one return type (decision 14.104, DRAFT). `Emit::of(events)` is a
+list of events, applied in order; `.then(step)` optionally adds a
+continuation, run on the state with those events folded in, which returns
+an `Emit` of its own, and so on. A handler that needs no continuation
+returns `Emit::of(events)` and nothing more.
+
+All of it is one decision: a refusal or a bug from the handler or from any
+step refuses or fails it all, and what is answered is every step's events,
+in order, as one list. The wire stays that one list
+(io.angzarr.handler.v1.HandleResponse.events): a continuation is the
+client library's, never the coordinator's, and the coordinator cannot tell
+an answer built with steps from one built without.
+
+A step must be idempotent on its own result: run again on the state its
+own events produce, it emits nothing and continues nowhere. Each client
+library gives a test helper that checks it.
+
+There is no step cap, and no key for one. The accepted cost: a step that
+always continues never terminates, so its decision never answers. That is
+a handler bug, with no framework guard; the idempotence rule and its test
+helper are the defence.

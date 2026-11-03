@@ -2,31 +2,31 @@
 """Reason-key gate for the framework's reasons.proto files (decisions 14.44
 and 14.64).
 
-The framework's reason keys are the enums of three files, one per package
-whose code raises them (decision 14.64): core's
-``io/angzarr/v1/reasons.proto`` (AngzarrReason, RouterReason, HostReason,
-CoordinatorReason), the local-process transport's
-``io/angzarr/transport/embedded/v1/reasons.proto`` (HostReason) and the
-distributed transport's ``io/angzarr/transport/distributed/v1/reasons.proto``
-(CoordinatorReason). A key travels as its value's full name, its enum's
-prefix included. Only live keys are checked: a removed key leaves nothing
+The framework's reason keys are the enums of three files, one per layer
+(decisions 14.64 and 14.104): core's ``io/angzarr/v1/reasons.proto``
+(AngzarrReason, ``ANGZARR_REASON_*``), the local-process transport's
+``io/angzarr/transport/embedded/v1/reasons.proto`` (EmbeddedReason,
+``EMBEDDED_REASON_*``) and the distributed transport's
+``io/angzarr/transport/distributed/v1/reasons.proto`` (DistributedReason,
+``DISTRIBUTED_REASON_*``). A key travels as its value's full name, its enum's
+prefix included; which component raises it is in its comment, never its
+string. Only live keys are checked: a removed key leaves nothing
 behind (no reserved name or number), and the live keys stay numbered
 densely. This checks those spec-level rules on the compiled descriptor,
 ``buf build -o -#format=json`` of the three files (``just check-reason-keys``
 runs buf in its pinned container):
 
-- each file declares exactly its enums (REASON_FILES), and core's its
-  statuses' (STATUS_ENUMS), which no key rule applies to;
+- each file declares exactly its enum (REASON_FILES);
 - each key enum's 0 is ``<PREFIX>UNSPECIFIED``, and its live keys are
   numbered densely from 1;
 - every live key is ``<PREFIX><SCREAMING_SNAKE>``, the prefix not alone, and
   no key is in two enums, in any file: a key's string is what travels;
-- the two HostReasons hold exactly their keys, in number order (HOST_KEYS);
+- EmbeddedReason holds exactly its keys, in number order (EXACT_KEYS);
 - the keys an owner's decision pins (PINNED) are live;
 - every live key declares its args on its ``(io.angzarr.v1.reason)``
   option, each name snake_case and declared once (decision 14.60), and
-  exactly one surface: its gRPC status (``grpc_status``, never
-  ``REASON_STATUS_UNSPECIFIED``, decision 14.65) or ``readiness``, a
+  exactly one surface: its gRPC status (``grpc_status``, a google.rpc.Code,
+  never ``OK``; decisions 14.65 and 14.104) or ``readiness``, a
   readiness refusal that travels as no status;
 - every key that concerns one stream (STREAM_KEYS) declares a ``stream``
   arg (decision 14.65), and the keys a decision pins with a status and
@@ -60,15 +60,10 @@ CORE = "io/angzarr/v1/reasons.proto"
 EMBEDDED = "io/angzarr/transport/embedded/v1/reasons.proto"
 DISTRIBUTED = "io/angzarr/transport/distributed/v1/reasons.proto"
 REASON_FILES = {
-    CORE: ("AngzarrReason", "RouterReason", "HostReason", "CoordinatorReason"),
-    EMBEDDED: ("HostReason",),
-    DISTRIBUTED: ("CoordinatorReason",),
+    CORE: ("AngzarrReason",),
+    EMBEDDED: ("EmbeddedReason",),
+    DISTRIBUTED: ("DistributedReason",),
 }
-
-# The enums a reasons.proto declares beside its key enums: core's statuses
-# (decision 14.65), which keep google.rpc.Code's numbers and which no key
-# enum's rules apply to.
-STATUS_ENUMS = {CORE: ("ReasonStatus",)}
 
 # Each file's en-US catalog sits beside it, under this name.
 CATALOG_NAME = "reasons.en-US.ftl"
@@ -79,95 +74,91 @@ REASON_OPTION = "[io.angzarr.v1.reason]"
 GRPC_STATUS = "grpcStatus"
 READINESS_SURFACE = "readiness"
 
+# Each enum's prefix: its layer (decision 14.104), never a role.
 PREFIXES = {
     "AngzarrReason": "ANGZARR_REASON_",
-    "RouterReason": "ROUTER_REASON_",
-    "HostReason": "HOST_REASON_",
-    "CoordinatorReason": "COORDINATOR_REASON_",
+    "EmbeddedReason": "EMBEDDED_REASON_",
+    "DistributedReason": "DISTRIBUTED_REASON_",
 }
 
-# Each HostReason's keys, exactly, in number order: core's component host's
-# configuration and composition keys, and whatever runs a child's.
-HOST_KEYS = {
-    CORE: (
-        "HOST_REASON_UPCASTER_WITH_COMPONENT",
-        "HOST_REASON_NO_COMPONENTS_REGISTERED",
-        "HOST_REASON_UPCASTER_UNKNOWN_DOMAIN",
-        "HOST_REASON_UPCASTER_OTHER_DOMAIN",
-        "HOST_REASON_REMOTE_SOURCE",
-    ),
-    EMBEDDED: (
-        "HOST_REASON_CHILD_NOT_SERVING",
-        "HOST_REASON_CHILD_EXIT_STATUS",
-        "HOST_REASON_CHILD_NOT_EXITED",
-        "HOST_REASON_PROBE_INPUT",
+# The enums whose keys a decision pins exactly, in number order: whatever
+# runs a child's (decision 14.62).
+EXACT_KEYS = {
+    (EMBEDDED, "EmbeddedReason"): (
+        "EMBEDDED_REASON_CHILD_NOT_SERVING",
+        "EMBEDDED_REASON_CHILD_EXIT_STATUS",
+        "EMBEDDED_REASON_CHILD_NOT_EXITED",
+        "EMBEDDED_REASON_PROBE_INPUT",
     ),
 }
 
 # Keys an owner's decision pinned; each must be live.
 PINNED = (
-    "ROUTER_REASON_DUPLICATE_COMPONENT",
-    "COORDINATOR_REASON_PM_NO_INSTANCE",
+    "ANGZARR_REASON_DUPLICATE_COMPONENT",
+    "ANGZARR_REASON_PM_NO_INSTANCE",
     # 14.46
-    "COORDINATOR_REASON_RETRY_CAP_EXHAUSTED",
+    "ANGZARR_REASON_RETRY_CAP_EXHAUSTED",
     # 14.48, amended
-    "COORDINATOR_REASON_EDITION_REMOVAL_FAILED",
+    "ANGZARR_REASON_EDITION_REMOVAL_FAILED",
     # 14.49
-    "COORDINATOR_REASON_POLICY_COMMAND_UNKNOWN_DOMAIN",
-    "COORDINATOR_REASON_HANDLER_UNAVAILABLE",
-    "COORDINATOR_REASON_CHAIN_TOO_DEEP",
-    "ROUTER_REASON_TOO_MANY_STEPS",
+    "ANGZARR_REASON_POLICY_COMMAND_UNKNOWN_DOMAIN",
+    "ANGZARR_REASON_HANDLER_UNAVAILABLE",
+    "ANGZARR_REASON_CHAIN_TOO_DEEP",
     # 14.51
-    "COORDINATOR_REASON_STORE_UNAVAILABLE",
-    "COORDINATOR_REASON_UPCASTER_UNAVAILABLE",
-    "COORDINATOR_REASON_COMPONENT_NOT_REGISTERED",
-    "COORDINATOR_REASON_COMMANDS_NOT_SERVED",
-    "COORDINATOR_REASON_PAYLOAD_UNAVAILABLE",
+    "ANGZARR_REASON_STORE_UNAVAILABLE",
+    "ANGZARR_REASON_UPCASTER_UNAVAILABLE",
+    "DISTRIBUTED_REASON_COMPONENT_NOT_REGISTERED",
+    "DISTRIBUTED_REASON_COMMANDS_NOT_SERVED",
+    "DISTRIBUTED_REASON_PAYLOAD_UNAVAILABLE",
     # 14.56
-    "COORDINATOR_REASON_RULES_VERSION_MISMATCH",
+    "ANGZARR_REASON_RULES_VERSION_MISMATCH",
     # 14.62
-    "HOST_REASON_CHILD_NOT_SERVING",
-    "HOST_REASON_CHILD_EXIT_STATUS",
-    "HOST_REASON_CHILD_NOT_EXITED",
-    "HOST_REASON_PROBE_INPUT",
+    "EMBEDDED_REASON_CHILD_NOT_SERVING",
+    "EMBEDDED_REASON_CHILD_EXIT_STATUS",
+    "EMBEDDED_REASON_CHILD_NOT_EXITED",
+    "EMBEDDED_REASON_PROBE_INPUT",
+    # the component host's, once pinned exactly as core's HostReason
+    # (merged into AngzarrReason by 14.104)
+    "ANGZARR_REASON_UPCASTER_WITH_COMPONENT",
+    "ANGZARR_REASON_NO_COMPONENTS_REGISTERED",
     # 14.65
-    "COORDINATOR_REASON_EDITION_NOT_FORKED",
-    "HOST_REASON_UPCASTER_UNKNOWN_DOMAIN",
-    "HOST_REASON_UPCASTER_OTHER_DOMAIN",
-    "HOST_REASON_REMOTE_SOURCE",
+    "ANGZARR_REASON_EDITION_NOT_FORKED",
+    "ANGZARR_REASON_UPCASTER_UNKNOWN_DOMAIN",
+    "ANGZARR_REASON_UPCASTER_OTHER_DOMAIN",
+    "ANGZARR_REASON_REMOTE_SOURCE",
     # 14.71
-    "COORDINATOR_REASON_POLICY_TARGETS_ITS_TRIGGER",
+    "ANGZARR_REASON_POLICY_TARGETS_ITS_TRIGGER",
 )
 
 # The coordinator's keys that concern one stream, each declaring a `stream`
 # arg, the stream's text (decision 14.65, from the owner's ruling on
 # decision 11 of the 2026-10-31 run).
 STREAM_KEYS = (
-    "COORDINATOR_REASON_PM_NO_INSTANCE",
-    "COORDINATOR_REASON_RETRY_CAP_EXHAUSTED",
-    "COORDINATOR_REASON_EDITION_REMOVAL_FAILED",
-    "COORDINATOR_REASON_HANDLER_UNAVAILABLE",
-    "COORDINATOR_REASON_RULES_VERSION_MISMATCH",
-    "COORDINATOR_REASON_EDITION_NOT_FORKED",
-    "COORDINATOR_REASON_POLICY_TARGETS_ITS_TRIGGER",
-    "COORDINATOR_REASON_FACT_DEAD_LETTERED",
-    "COORDINATOR_REASON_STATE_TYPE_MISMATCH",
+    "ANGZARR_REASON_PM_NO_INSTANCE",
+    "ANGZARR_REASON_RETRY_CAP_EXHAUSTED",
+    "ANGZARR_REASON_EDITION_REMOVAL_FAILED",
+    "ANGZARR_REASON_HANDLER_UNAVAILABLE",
+    "ANGZARR_REASON_RULES_VERSION_MISMATCH",
+    "ANGZARR_REASON_EDITION_NOT_FORKED",
+    "ANGZARR_REASON_POLICY_TARGETS_ITS_TRIGGER",
+    "ANGZARR_REASON_FACT_DEAD_LETTERED",
+    "ANGZARR_REASON_STATE_TYPE_MISMATCH",
 )
 
 # The statuses and args a decision pins (14.65).
 PINNED_STATUS = {
-    "COORDINATOR_REASON_EDITION_NOT_FORKED": "REASON_STATUS_FAILED_PRECONDITION",
-    "COORDINATOR_REASON_POLICY_TARGETS_ITS_TRIGGER": "REASON_STATUS_INTERNAL",
+    "ANGZARR_REASON_EDITION_NOT_FORKED": "FAILED_PRECONDITION",
+    "ANGZARR_REASON_POLICY_TARGETS_ITS_TRIGGER": "INTERNAL",
 }
 PINNED_ARGS = {
-    "COORDINATOR_REASON_EDITION_NOT_FORKED": ["stream", "edition"],
-    "COORDINATOR_REASON_POLICY_TARGETS_ITS_TRIGGER": ["stream", "command_type"],
+    "ANGZARR_REASON_EDITION_NOT_FORKED": ["stream", "edition"],
+    "ANGZARR_REASON_POLICY_TARGETS_ITS_TRIGGER": ["stream", "command_type"],
 }
 
-# A status option left unset, which no live key may; and what
+# google.rpc.Code's zero, a status no live key travels with; and what
 # declared_statuses answers for a key whose surface is readiness, which
-# travels as no status (no ReasonStatus value is named so).
-NO_STATUS = "REASON_STATUS_UNSPECIFIED"
+# travels as no status (no google.rpc.Code value is named so).
+NO_STATUS = "OK"
 READINESS = "READINESS"
 
 SCREAMING_SNAKE = re.compile(r"^[A-Z0-9_]+$")
@@ -195,7 +186,7 @@ def check(descriptor: dict[str, Any]) -> list[str]:
     live: dict[tuple[str, str], list[str]] = {}
     for path, enums in files.items():
         names = sorted(e.get("name", "") for e in enums)
-        expected = sorted(REASON_FILES[path] + STATUS_ENUMS.get(path, ()))
+        expected = sorted(REASON_FILES[path])
         if names != expected:
             problems.append(f"{path}: enums are {names}, expected {expected}")
         for e in enums:
@@ -204,10 +195,10 @@ def check(descriptor: dict[str, Any]) -> list[str]:
     every = [k for keys in live.values() for k in keys]
     for key in sorted({k for k in every if every.count(k) > 1}):
         problems.append(f"{key}: a key in two enums")
-    for path, keys in HOST_KEYS.items():
-        found = live.get((path, "HostReason"))
+    for (path, enum), keys in EXACT_KEYS.items():
+        found = live.get((path, enum))
         if found is not None and tuple(found) != keys:
-            problems.append(f"{path}: HostReason: keys are {found}, expected {list(keys)}")
+            problems.append(f"{path}: {enum}: keys are {found}, expected {list(keys)}")
     for key in PINNED:
         if key not in every:
             problems.append(f"{key}: a decision pins it, and it is not a live key")
@@ -292,7 +283,7 @@ def declared_args(descriptor: dict[str, Any], path: str | None = None) -> dict[s
 
 def _surface(option: dict[str, Any]) -> str:
     """The surface a (reason) option declares: its grpc_status's name (a
-    ReasonStatus value's), READINESS for a readiness key (when it declares
+    google.rpc.Code value's), READINESS for a readiness key (when it declares
     no status beside it), or NO_STATUS when it declares neither."""
     if GRPC_STATUS in option:
         return str(option[GRPC_STATUS])
@@ -303,7 +294,7 @@ def _surface(option: dict[str, Any]) -> str:
 
 def declared_statuses(descriptor: dict[str, Any]) -> dict[str, str]:
     """Each live key's declared surface, by key, across every reasons.proto:
-    its grpc_status's name (a ReasonStatus value's), READINESS for a key
+    its grpc_status's name (a google.rpc.Code value's), READINESS for a key
     whose surface is readiness, NO_STATUS for one that declares neither."""
     return {
         v.get("name", ""): _surface(v.get("options", {}).get(REASON_OPTION, {}))

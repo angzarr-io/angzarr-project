@@ -5,10 +5,10 @@ title: Dead Letter Queue (DLQ)
 
 A destination for messages that cannot be processed automatically. Messages are routed to the DLQ when:
 
-1. **Sequence mismatch**: a queued command with a caller-provided expected sequence answered `ABORTED` (resending it verbatim cannot succeed), or a command or fact that lost a race at every write until a retry cap (`COORDINATOR_REASON_RETRY_CAP_EXHAUSTED`; decisions 14.45 and 14.46)
+1. **Sequence mismatch**: a queued command with a caller-provided expected sequence answered `ABORTED` (resending it verbatim cannot succeed), or a command or fact that lost a race at every write until a retry cap (`ANGZARR_REASON_RETRY_CAP_EXHAUSTED`; decisions 14.45 and 14.46)
 2. **Processing failures** after retry exhaustion
 3. **Payload retrieval failures** (external storage unavailable)
-4. **Failed edition removals**: a deleted edition's rows in one stream that could not be removed (`COORDINATOR_REASON_EDITION_REMOVAL_FAILED`)
+4. **Failed edition removals**: a deleted edition's rows in one stream that could not be removed (`ANGZARR_REASON_EDITION_REMOVAL_FAILED`)
 5. **Unrecoverable errors** in handlers
 
 ## DLQ Entry Types

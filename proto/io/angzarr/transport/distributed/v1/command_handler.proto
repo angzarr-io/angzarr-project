@@ -27,12 +27,12 @@ service CommandHandlerCoordinatorService {
   // carries those events, re-read from the stream, with outcome.delivery
   // DUPLICATE. A fact whose handler fails, or that lost a race at every
   // write until the race re-run cap, is dead-lettered and its sender
-  // answered INTERNAL COORDINATOR_REASON_FACT_DEAD_LETTERED (non-retryable; decision
+  // answered INTERNAL ANGZARR_REASON_FACT_DEAD_LETTERED (non-retryable; decision
   // 14.100, DRAFT). outcome.projections and outcome.projector_failures are
   // always empty. Rejected: a gRPC error status, and nothing is written (a
   // handler's refusal, under its own key; a command that lost a race at
   // every write until the race re-run cap is INTERNAL,
-  // COORDINATOR_REASON_RETRY_CAP_EXHAUSTED, and not dead-lettered: the
+  // ANGZARR_REASON_RETRY_CAP_EXHAUSTED, and not dead-lettered: the
   // caller holds it; see the status codes above).
   rpc Handle(io.angzarr.v1.CommandBook) returns (CommandResponse) {
     option (google.api.http) = {

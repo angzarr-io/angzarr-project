@@ -1,6 +1,6 @@
 # Upcasting
 
-**Status:** normative (decision 14.39; DRAFT decisions 14.96, 14.97 pending review). Moved from `proto/docs/design/upcasting.md`, which defined no message (decision 14.103, DRAFT). The service is `io.angzarr.component.v1.UpcasterService`; the messages are `io/angzarr/handler/v1/upcaster.proto`'s.
+**Status:** normative (decision 14.39; DRAFT decisions 14.96, 14.97 pending review). Moved from `proto/io/angzarr/v1/upcaster.proto`, which defined no message (decision 14.103, DRAFT). The service is `io.angzarr.component.v1.UpcasterService`; the messages are `io/angzarr/handler/v1/upcaster.proto`'s.
 
 The upcaster's service is the component contract's
 (io.angzarr.component.v1.UpcasterService,
@@ -55,7 +55,7 @@ DRAFT). An upcaster answers payloads keyed by sequence, or no_sequence
 stored. The business process (the client library's router) never
 upcasts and never sees an old shape. A payload whose type URL, after
 upcasting, reaches no handler is refused by the router INTERNAL (a bug:
-decision 14.37) with reason ROUTER_REASON_UNKNOWN_COMMAND_TYPE (ROUTER_REASON_NO_FACT_HANDLER for a
+decision 14.37) with reason ANGZARR_REASON_UNKNOWN_COMMAND_TYPE (ANGZARR_REASON_NO_FACT_HANDLER for a
 fact), which is also the status message, naming the type it was given as
 ErrorInfo metadata "type_url". The coordinator answers its caller with
 that status, its ErrorInfo metadata "type_url" holding the type URL as
@@ -86,7 +86,7 @@ away, so their upcasters are permanent.
 A sidecar that is configured but unreachable stalls what needs
 it: the coordinator delivers nothing it would have to upcast and
 reports NOT_SERVING; a synchronous caller and a query are answered
-UNAVAILABLE COORDINATOR_REASON_UPCASTER_UNAVAILABLE (retryable; args
+UNAVAILABLE ANGZARR_REASON_UPCASTER_UNAVAILABLE (retryable; args
 domain, cause; decision 14.51); queued and reaction deliveries stay
 queued. A
 rule that fails (an error status from Upcast, or an answer whose

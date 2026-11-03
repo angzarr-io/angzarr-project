@@ -16,7 +16,7 @@ A policy translates between **exactly two domains**: events of its one source do
 
 The destination may be an aggregate's domain or a [process manager](/components/process-manager)'s: a process manager is a domain, so a policy's commands reach it like any other domain's. Anything that needs several destinations, or state, is a process manager.
 
-The coordinator enforces the shape when the component registers: a policy with other than exactly one input, or with no output domain, is refused (`COORDINATOR_REASON_POLICY_INPUT_COUNT`, `COORDINATOR_REASON_POLICY_NO_OUTPUT_DOMAIN`).
+The coordinator enforces the shape when the component registers: a policy with other than exactly one input, or with no output domain, is refused (`COORDINATOR_REASON_POLICY_INPUT_COUNT`, `ANGZARR_REASON_POLICY_NO_OUTPUT_DOMAIN`).
 
 ---
 
@@ -100,7 +100,7 @@ When a target **refuses** one of a policy's commands, the target records nothing
 
 The refusal fact is unrefusable. A policy's facts for its destination are never refused at all, so only its commands come back this way. The source decides what the refusal means and records its own events. There is no compensation side channel: the refusal is an ordinary fact in the source's own stream.
 
-Every command of a domain a policy targets names a `refuses` type, and the generator refuses one that names none. A hand-written policy's refusal with no path (a pass-through `CommandRefused` whose command type the source has no handler for) is answered `ROUTER_REASON_NO_REFUSAL_HANDLER`, dead-lettered and alerted; a generated policy never reaches it. See [Error Recovery](/operations/error-recovery#policy-refusals).
+Every command of a domain a policy targets names a `refuses` type, and the generator refuses one that names none. A hand-written policy's refusal with no path (a pass-through `CommandRefused` whose command type the source has no handler for) is answered `ANGZARR_REASON_NO_REFUSAL_HANDLER`, dead-lettered and alerted; a generated policy never reaches it. See [Error Recovery](/operations/error-recovery#policy-refusals).
 
 ---
 

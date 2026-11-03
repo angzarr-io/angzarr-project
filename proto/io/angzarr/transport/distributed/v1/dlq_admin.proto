@@ -118,7 +118,7 @@ message ListDeadLettersRequest {
   // so it is an input boundary: a correlation_id literal is the UUID's
   // canonical text (hyphenated 8-4-4-4-12 hex, either case), parsed by the
   // server; one that does not parse is INVALID_ARGUMENT.
-  // Example: `domain = "player" AND reason_code = "COORDINATOR_REASON_RETRY_CAP_EXHAUSTED"`
+  // Example: `domain = "player" AND reason_code = "ANGZARR_REASON_RETRY_CAP_EXHAUSTED"`
   string filter = 1;
 
   // AIP-158 pagination. `page_size = 0` → server picks the default;

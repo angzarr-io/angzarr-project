@@ -23,7 +23,7 @@ option ruby_package = "Angzarr::Transport::Distributed";
 // receiving side resolves every claim check back into its page's payload
 // (and checks its content_hash) before anything else sees the book. A
 // payload that cannot be retrieved, after the retry cap, is
-// dead-lettered with reason COORDINATOR_REASON_PAYLOAD_UNAVAILABLE
+// dead-lettered with reason DISTRIBUTED_REASON_PAYLOAD_UNAVAILABLE
 // (reasons.proto, here), its details on the envelope
 // (DeadLetterEnvelope.payload_retrieval_failed).
 message BusEnvelope {

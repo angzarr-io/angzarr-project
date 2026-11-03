@@ -48,10 +48,10 @@ message ReactResponse {
 //     description naming the type and the policy;
 //   - Handling: none; the destination stamps its head.
 // The coordinator still refuses a root that is unset or not 16 bytes
-// (COORDINATOR_REASON_POLICY_COMMAND_NO_ROOT), an output to the trigger's
-// own stream (COORDINATOR_REASON_POLICY_TARGETS_ITS_TRIGGER), a
-// destination it cannot route (COORDINATOR_REASON_POLICY_COMMAND_UNKNOWN_DOMAIN)
-// and a chain too deep (COORDINATOR_REASON_CHAIN_TOO_DEEP): each a policy
+// (ANGZARR_REASON_POLICY_COMMAND_NO_ROOT), an output to the trigger's
+// own stream (ANGZARR_REASON_POLICY_TARGETS_ITS_TRIGGER), a
+// destination it cannot route (ANGZARR_REASON_POLICY_COMMAND_UNKNOWN_DOMAIN)
+// and a chain too deep (ANGZARR_REASON_CHAIN_TOO_DEEP): each a policy
 // bug, the trigger dead-lettered and alerted, nothing delivered.
 message Output {
   // The destination stream's root, for every destination, an aggregate's
@@ -99,9 +99,9 @@ message TranslateRequest {
 // refused, so compensation cannot loop.
 //
 // A fact with no payload (no type URL) is delivered like any other, and the
-// source's router refuses it ROUTER_REASON_NO_FACT_HANDLER: dead-lettered
+// source's router refuses it ANGZARR_REASON_NO_FACT_HANDLER: dead-lettered
 // and alerted at the source. A policy's router with no refusal callback
-// answers ROUTER_REASON_NO_REFUSAL_HANDLER (a policy written by hand: a
+// answers ANGZARR_REASON_NO_REFUSAL_HANDLER (a policy written by hand: a
 // generated one has its one callback, decisions 14.76 and 14.89).
 message TranslateResponse {
   google.protobuf.Any fact = 1;

@@ -20,7 +20,7 @@ option ruby_package = "Angzarr::Transport::Distributed";
 // standalone, as a read-only query server for downstream readers with no
 // component behind it; such a server serves no command RPCs: a command or
 // fact sent to it is answered UNIMPLEMENTED
-// COORDINATOR_REASON_COMMANDS_NOT_SERVED (arg domain; decision 14.51).
+// DISTRIBUTED_REASON_COMMANDS_NOT_SERVED (arg domain; decision 14.51).
 //
 // Snapshots. A coordinator judges a snapshot against its own registration
 // (see Snapshot in io/angzarr/v1/types.proto). A standalone query server holds no

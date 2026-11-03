@@ -66,7 +66,7 @@ The coordinator handles a fact the way it handles any command, through the one p
 
 1. Validates it (`fact_origin` with a non-empty `external_id`; no `Handling`)
 2. Derives its `command_id` from `fact_origin.external_id` and deduplicates on the addressed stream
-3. Routes it to the component's **fact handler** for its type (`ROUTER_REASON_NO_FACT_HANDLER` if there is none)
+3. Routes it to the component's **fact handler** for its type (`ANGZARR_REASON_NO_FACT_HANDLER` if there is none)
 4. Appends the events the handler records at the stream's head, each carrying the fact's origin (`EventMeta.fact`)
 5. Publishes them to downstream consumers, with ordinary sequence numbers
 
@@ -126,7 +126,7 @@ def on_shipment_dispatched_fact(self, state, fact):
 | Situation | Result |
 |-----------|--------|
 | Fact type with a fact handler | Routed to it; recorded |
-| No handler for the fact's type | Refused as a wiring error: `INTERNAL`, `ROUTER_REASON_NO_FACT_HANDLER`; nothing persisted |
+| No handler for the fact's type | Refused as a wiring error: `INTERNAL`, `ANGZARR_REASON_NO_FACT_HANDLER`; nothing persisted |
 | `refuses` set on a fact type | Generation fails: a fact cannot be refused |
 
 A policy sends the facts its destination declares: for a type the destination declares a fact, the policy's generated code emits a Fact, which the destination records and never refuses. A policy also delivers the refusal fact of a refused command, to the stream of its trigger (see [Policies: Refusals](/components/policy#refusals)).

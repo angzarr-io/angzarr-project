@@ -151,13 +151,13 @@ contracts: proto-lint proto-breaking test-check-feature-ids check-feature-ids ch
 
 # The features, the protos and the site docs (the generated Proto API page
 # aside) name no live reason key without its enum's prefix (decision 14.44).
-# The reasons.proto files (core's and each transport's, decision 14.64) are
-# the list of live keys; a removed key leaves nothing in them to check for.
+# The reasons.proto files (core's and each transport's, decision 14.64;
+# prefixed by layer, decision 14.104) are the list of live keys; a removed key leaves nothing in them to check for.
 check-reason-names:
     #!/usr/bin/env bash
     set -euo pipefail
     protos=(proto/io/angzarr/v1/reasons.proto proto/io/angzarr/transport/embedded/v1/reasons.proto proto/io/angzarr/transport/distributed/v1/reasons.proto)
-    prefixes='(ANGZARR|ROUTER|HOST|COORDINATOR)_REASON_'
+    prefixes='(ANGZARR|EMBEDDED|DISTRIBUTED)_REASON_'
     live=$(grep -ohE "^[[:space:]]+${prefixes}[A-Z0-9_]+ = [1-9]" "${protos[@]}" \
         | sed -E "s/^[[:space:]]+${prefixes}//; s/ = .*//" | sort -u | paste -sd'|')
     [ -n "$live" ] || { echo "FAIL check-reason-names: no keys read from ${protos[*]}" >&2; exit 1; }
@@ -170,10 +170,11 @@ test-check-feature-ids:
     python3 -m unittest scripts/test_check_feature_ids.py
 
 # The reasons.proto files' keys (core's and each transport's, decision
-# 14.64) keep decision 14.44's rules for LIVE keys (every key carries its
-# enum's prefix, numbered densely, in one enum only; retired keys are not
-# checked, decision 14.102) and 14.60's (every key declares its args and one
-# surface, a gRPC status or readiness; the reasons.en-US.ftl beside each
+# 14.64; one enum per layer, decision 14.104) keep decision 14.44's rules
+# for LIVE keys (every key carries its layer's prefix, numbered densely, in
+# one enum only; retired keys are not checked, decision 14.102) and 14.60's
+# (every key declares its args and one surface, a google.rpc.Code status or
+# readiness; the reasons.en-US.ftl beside each
 # file holds one message per key of that file, naming only its args), read
 # from the descriptor buf builds in its pinned container. The Rust crates' own
 # reason tests (generated code) live with angzarr-proto in angzarr-core.

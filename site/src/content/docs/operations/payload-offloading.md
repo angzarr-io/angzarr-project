@@ -166,7 +166,7 @@ curl -X POST http://localhost:9099/admin/payload-store/cleanup?age=7d
 
 ## Retrieval Failures
 
-When payload retrieval fails, angzarr routes to DLQ under `COORDINATOR_REASON_PAYLOAD_UNAVAILABLE`: the core entry carries `processing_failed`, and the retrieval's details ride the distributed transport's `DeadLetterEnvelope`:
+When payload retrieval fails, angzarr routes to DLQ under `DISTRIBUTED_REASON_PAYLOAD_UNAVAILABLE`: the core entry carries `processing_failed`, and the retrieval's details ride the distributed transport's `DeadLetterEnvelope`:
 
 ```protobuf file=proto/io/angzarr/transport/distributed/v1/dead_letter.proto region=dead_letter_envelope
 ```

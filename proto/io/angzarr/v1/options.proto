@@ -415,7 +415,7 @@ extend google.protobuf.MessageOptions {
 // that may send a command that can refuse whose source takes no fact to
 // translate the refusal into. A policy written by hand whose router has no
 // refusal callback answers
-// ROUTER_REASON_NO_REFUSAL_HANDLER (decision 46, Q6).
+// ANGZARR_REASON_NO_REFUSAL_HANDLER (decision 46, Q6).
 //
 // No declaration of what a policy sends ("declaring commands it may send is
 // a mistake, period": the owner, 2026-10-28). What the generator checks:

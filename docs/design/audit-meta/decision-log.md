@@ -3548,6 +3548,8 @@ standard names.** Owner rulings, 2026-10-30. Amends 14.37 and 14.42.
 
 > **Superseded by 14.92 (DRAFT, pending review; the owner's decision 47):** the coordinator has no conflict-resolution concept. A client's expected sequence is data for its handler; `COORDINATOR_REASON_EXPECTED_SEQUENCE_STALE` is retired. The race re-run on the new head stays.
 
+> **Amended by 14.104 (DRAFT, pending review):** keys are named by LAYER, not by owner: one enum per layer, `ANGZARR_REASON_*` (core: the router's, the component host's and the coordinator's keys, merged into `AngzarrReason`), `EMBEDDED_REASON_*` and `DISTRIBUTED_REASON_*`. Which component raises a key is in its comment, not its string.
+
 **14.45 A stale expected sequence is STRICT's key; a command that loses
 a race at its write is re-run or re-delivered.** Owner ruling, 2026-10-30,
 amended twice the same day (below). Follows 14.35, 14.37, 14.42 and 14.44.
@@ -3933,6 +3935,8 @@ that does not enforce it never answers it.
   `retry_count` that took it for the attempts count one fewer.
 
 > **Amended by 14.78, 14.82 and 14.87 (DRAFT, pending review):** sources are derived from the events named, not declared; a refusal is one message per reason, not a code enum; a component has one required name, with no per-kind default formulas.
+
+> **Amended by 14.104 (DRAFT, pending review):** `ROUTER_REASON_TOO_MANY_STEPS` is retired with the step cap (C-0739 retired): `Emit` is the one return type, with no step cap. A step that always continues never terminates, a handler bug with no framework guard.
 
 **14.50 Generation reads cardinality, sources, names and refusal codes from
 the proto; the host config is strict.** Owner rulings, 2026-10-31 (the
@@ -4579,6 +4583,8 @@ protos into four packages". Restores 1.12, and amends 14.60's one catalog.
   changes meaning: core keeps its name, and no runtime ever set a stripped
   field.
 
+> **Amended by 14.104 (DRAFT, pending review):** each package's keys are one enum, prefixed by its layer: core's `AngzarrReason`, the embedded transport's `EmbeddedReason`, the distributed transport's `DistributedReason`. A moved key's string is now its layer's.
+
 **14.65 A key declares its status, a key of one stream names it, and the
 keys a runtime lacked are added.** Ruled by the owner, 2026-11-01, on the 2026-10-31 run's
 decisions 11 ("add `stream` to the coordinator keys that concern a single
@@ -4639,6 +4645,8 @@ Amends 14.60.
   and two scenarios named behaviour no key carried.
 - Cost: a new arg on ten keys (none removed); every runtime's raised
   statuses now come from the generated table.
+
+> **Amended by 14.104 (DRAFT, pending review):** a key's status is `google.rpc.Code` itself (vendored `google/rpc/code.proto`); `ReasonStatus` is deleted. `RefusalStatus` stays, the business-only subset for refusals.
 
 **14.66 The E2 divergences, settled.** Ruled by the owner, 2026-11-01, on
 the 2026-10-31 run's decision 26, group by group. Amends 14.32 (the main
@@ -4981,6 +4989,8 @@ decision 43 (no OPTIONAL annotations needed).
 
 > **Amended by 14.99 (DRAFT, pending review):** the rule that every command of a policy-targeted domain names a `refuses` type is DROPPED: with typed refusals only (14.95), an empty `refuses` means the command cannot refuse, so every sent command has a path by construction.
 
+> **Amended by 14.104 (DRAFT, pending review):** in every client library a command handler returns an `Emit` (`Emit::of(events)`, optionally `.then(step)`); the wire is still the one list.
+
 **14.76 Every command a policy sends has a refusal path, and a generated
 policy always translates.** Ruled by the owner, 2026-11-02 (the 2026-10-31
 run's decision 42, on item S's escalations S-2 and S-4: "all commands must
@@ -5203,6 +5213,8 @@ string-equality fallback; a readiness marker replaces
 `ROUTER_REASON_DUPLICATE_COMPONENT` has one owner, the router, and one arg
 set (`registered`, `refused`). taskloom's `defers`/`initial` item is
 taskloom code and is not here.
+
+> **Reversed in part by 14.104 (DRAFT, pending review):** the SemVer refusal (item 2) is REVERSED: a non-SemVer `rules_version` is accepted at registration, and snapshots of a non-SemVer version are offered by exact string equality, as angzarr-embedded does. `COORDINATOR_REASON_RULES_VERSION_NOT_SEMVER` is retired. The other three items stand.
 
 **14.89 (DRAFT) Ingest answers ingested or aborted; one refusal callback
 per policy; a refused move stands the hand.** Owner rulings, 2026-11-02.
@@ -5538,6 +5550,8 @@ owner's review round 6, 2026-11-02.
   with the justfile's `DRAFT_BRANCH` pointed at it, when the owner
   approves.
 
+> **Amended by 14.104 (DRAFT, pending review):** the rules_version divergence is closed, by the spec moving to angzarr-embedded's rule (14.88's SemVer refusal reversed); the note on `EventMeta.rules_version` is dropped.
+
 **14.103 (DRAFT) Narrative is not proto.** The owner: "If its
 narrative/normative text, why is it proto?"
 - The four core protos that defined nothing are deleted:
@@ -5552,6 +5566,111 @@ narrative/normative text, why is it proto?"
 - **The comment rule from now on:** a proto comment says what a field or
   message IS; behaviour, pipelines and rules go in the design docs. Applied
   to the moved text; the other protos are flagged for review, not churned.
+
+**14.104 (DRAFT) Keys by layer; statuses are google.rpc.Code; Emit with no
+step cap; the SemVer refusal reversed.** The owner's review round 7, from
+the reasons review, 2026-11-02.
+- **Key prefixes by LAYER, not role.** Core's keys are one enum,
+  AngzarrReason in package io.angzarr.v1, prefixed `ANGZARR_REASON_`: RouterReason,
+  HostReason, CoordinatorReason and 14.102's AngzarrReason are merged into
+  it. The embedded transport's are `EmbeddedReason`, `EMBEDDED_REASON_*`;
+  the distributed transport's `DistributedReason`, `DISTRIBUTED_REASON_*`.
+  Each key's comment opens with the component that raises it ("Raised by
+  the router.", "... the component host ...", "... the coordinator."); the
+  role is not in the string. Every key keeps its suffix, so the rename is
+  the prefix only. The reasons header no longer says "the key also names
+  its owner".
+- **Why one merged enum, not four enums sharing a prefix.** buf's
+  ENUM_VALUE_PREFIX requires every value to carry ITS enum's name as its
+  prefix, so `RouterReason` with `ANGZARR_REASON_*` values fails lint, and
+  the repo keeps STANDARD lint with no exception. Protobuf also scopes enum
+  values as siblings of their enum, so four enums in `io.angzarr.v1` could
+  not each have their own `ANGZARR_REASON_UNSPECIFIED`. One enum per layer
+  is the only clean form.
+- **A key's status is `google.rpc.Code`.** `ReasonOptions.grpc_status` is
+  `google.rpc.Code` directly, from `google/rpc/code.proto`, vendored
+  verbatim beside `google/api` (the protos build with protoc as well as
+  buf, and `just proto-docs` runs protoc-gen-doc on the tree; buf resolves
+  the vendored file from the module, with no dependency or network). buf
+  lint ignores the vendored `google` tree, Google's files and not
+  angzarr's. `ReasonStatus` is deleted; `OK` is no key's status.
+  `RefusalStatus` stays, the business-only subset a refusal declares.
+- **`Emit` is the one return type, with no step cap.** The owner: "emit,
+  optional, no step cap. the step cap is accidental complexity". Every
+  command handler, in every client library, returns
+  `Emit::of(events)`, optionally `.then(step)`; the wire stays one event
+  list. `ROUTER_REASON_TOO_MANY_STEPS` and all step-cap text are removed,
+  and C-0739 is retired. A step must be idempotent on its own result. The
+  accepted cost: a step that always continues never terminates, a handler
+  bug with no framework guard (`docs/design/command-handling.md` §9).
+- **The SemVer refusal is reversed** (14.88's item 2). A non-SemVer
+  `rules_version` is accepted at registration, and snapshots of a
+  non-SemVer version are offered by exact string equality of the versions
+  as recorded, as angzarr-embedded does
+  (`crates/angzarr-embedded/src/catalog.rs`, `compatible`).
+  `COORDINATOR_REASON_RULES_VERSION_NOT_SEMVER` is retired, the
+  divergence note on `EventMeta.rules_version` is dropped, and
+  `annals-divergence.md` lists `rules_version` where the runtimes agree.
+- **Old to new, for clients and the importer:** every old key string maps
+  to its new one by prefix (`ROUTER_REASON_`, `HOST_REASON_` and
+  `COORDINATOR_REASON_` of core to `ANGZARR_REASON_`; the embedded
+  transport's `HOST_REASON_` to `EMBEDDED_REASON_`; the distributed
+  transport's `COORDINATOR_REASON_` to `DISTRIBUTED_REASON_`), except the
+  two retired keys, which map to nothing. The prefix alone does not say
+  which: core's `HOST_REASON_` keys and the embedded transport's differ, so
+  the map is this table, key by key. A stored dead letter's
+  `Diagnostic.code`, a stored `StoredDeadLetter.reason_code` and a
+  catalog's message ids are rewritten by it.
+  (`ANGZARR_REASON_COMMAND_REFUSED` keeps its string.)
+
+  | Old key | New key |
+  |---|---|
+  | `ROUTER_REASON_UNHANDLED_HANDLER_ERROR` | `ANGZARR_REASON_UNHANDLED_HANDLER_ERROR` |
+  | `ROUTER_REASON_HANDLER_PANICKED` | `ANGZARR_REASON_HANDLER_PANICKED` |
+  | `ROUTER_REASON_FOLD_FAILED` | `ANGZARR_REASON_FOLD_FAILED` |
+  | `ROUTER_REASON_FOLD_FAILED_EMITTED` | `ANGZARR_REASON_FOLD_FAILED_EMITTED` |
+  | `ROUTER_REASON_PERSISTED_EVENT_CORRUPT` | `ANGZARR_REASON_PERSISTED_EVENT_CORRUPT` |
+  | `ROUTER_REASON_ANY_DECODE_FAILED` | `ANGZARR_REASON_ANY_DECODE_FAILED` |
+  | `ROUTER_REASON_UNKNOWN_COMMAND_TYPE` | `ANGZARR_REASON_UNKNOWN_COMMAND_TYPE` |
+  | `ROUTER_REASON_NO_FACT_HANDLER` | `ANGZARR_REASON_NO_FACT_HANDLER` |
+  | `ROUTER_REASON_NO_REFUSAL_HANDLER` | `ANGZARR_REASON_NO_REFUSAL_HANDLER` |
+  | `ROUTER_REASON_NO_COMPONENT_OF_KIND` | `ANGZARR_REASON_NO_COMPONENT_OF_KIND` |
+  | `ROUTER_REASON_NO_HANDLERS_REGISTERED` | `ANGZARR_REASON_NO_HANDLERS_REGISTERED` |
+  | `ROUTER_REASON_DUPLICATE_COMPONENT` | `ANGZARR_REASON_DUPLICATE_COMPONENT` |
+  | `HOST_REASON_UPCASTER_WITH_COMPONENT` | `ANGZARR_REASON_UPCASTER_WITH_COMPONENT` |
+  | `HOST_REASON_NO_COMPONENTS_REGISTERED` | `ANGZARR_REASON_NO_COMPONENTS_REGISTERED` |
+  | `HOST_REASON_UPCASTER_UNKNOWN_DOMAIN` | `ANGZARR_REASON_UPCASTER_UNKNOWN_DOMAIN` |
+  | `HOST_REASON_UPCASTER_OTHER_DOMAIN` | `ANGZARR_REASON_UPCASTER_OTHER_DOMAIN` |
+  | `HOST_REASON_REMOTE_SOURCE` | `ANGZARR_REASON_REMOTE_SOURCE` |
+  | `COORDINATOR_REASON_PM_NO_INSTANCE` | `ANGZARR_REASON_PM_NO_INSTANCE` |
+  | `COORDINATOR_REASON_POLICY_COMMAND_NO_ROOT` | `ANGZARR_REASON_POLICY_COMMAND_NO_ROOT` |
+  | `COORDINATOR_REASON_MISSING_RULES_VERSION` | `ANGZARR_REASON_MISSING_RULES_VERSION` |
+  | `COORDINATOR_REASON_MISSING_STATE_TYPE` | `ANGZARR_REASON_MISSING_STATE_TYPE` |
+  | `COORDINATOR_REASON_POLICY_NO_OUTPUT_DOMAIN` | `ANGZARR_REASON_POLICY_NO_OUTPUT_DOMAIN` |
+  | `COORDINATOR_REASON_RETRY_CAP_EXHAUSTED` | `ANGZARR_REASON_RETRY_CAP_EXHAUSTED` |
+  | `COORDINATOR_REASON_EDITION_REMOVAL_FAILED` | `ANGZARR_REASON_EDITION_REMOVAL_FAILED` |
+  | `COORDINATOR_REASON_POLICY_COMMAND_UNKNOWN_DOMAIN` | `ANGZARR_REASON_POLICY_COMMAND_UNKNOWN_DOMAIN` |
+  | `COORDINATOR_REASON_HANDLER_UNAVAILABLE` | `ANGZARR_REASON_HANDLER_UNAVAILABLE` |
+  | `COORDINATOR_REASON_CHAIN_TOO_DEEP` | `ANGZARR_REASON_CHAIN_TOO_DEEP` |
+  | `COORDINATOR_REASON_STORE_UNAVAILABLE` | `ANGZARR_REASON_STORE_UNAVAILABLE` |
+  | `COORDINATOR_REASON_UPCASTER_UNAVAILABLE` | `ANGZARR_REASON_UPCASTER_UNAVAILABLE` |
+  | `COORDINATOR_REASON_RULES_VERSION_MISMATCH` | `ANGZARR_REASON_RULES_VERSION_MISMATCH` |
+  | `COORDINATOR_REASON_EDITION_NOT_FORKED` | `ANGZARR_REASON_EDITION_NOT_FORKED` |
+  | `COORDINATOR_REASON_POLICY_TARGETS_ITS_TRIGGER` | `ANGZARR_REASON_POLICY_TARGETS_ITS_TRIGGER` |
+  | `COORDINATOR_REASON_NO_INPUT_DOMAIN` | `ANGZARR_REASON_NO_INPUT_DOMAIN` |
+  | `COORDINATOR_REASON_DESCRIPTOR_NO_KIND` | `ANGZARR_REASON_DESCRIPTOR_NO_KIND` |
+  | `COORDINATOR_REASON_FACT_DEAD_LETTERED` | `ANGZARR_REASON_FACT_DEAD_LETTERED` |
+  | `COORDINATOR_REASON_DESCRIPTOR_NO_DOMAIN` | `ANGZARR_REASON_DESCRIPTOR_NO_DOMAIN` |
+  | `COORDINATOR_REASON_STATE_TYPE_MISMATCH` | `ANGZARR_REASON_STATE_TYPE_MISMATCH` |
+  | `HOST_REASON_CHILD_NOT_SERVING` | `EMBEDDED_REASON_CHILD_NOT_SERVING` |
+  | `HOST_REASON_CHILD_EXIT_STATUS` | `EMBEDDED_REASON_CHILD_EXIT_STATUS` |
+  | `HOST_REASON_CHILD_NOT_EXITED` | `EMBEDDED_REASON_CHILD_NOT_EXITED` |
+  | `HOST_REASON_PROBE_INPUT` | `EMBEDDED_REASON_PROBE_INPUT` |
+  | `COORDINATOR_REASON_COMPONENT_NOT_REGISTERED` | `DISTRIBUTED_REASON_COMPONENT_NOT_REGISTERED` |
+  | `COORDINATOR_REASON_COMMANDS_NOT_SERVED` | `DISTRIBUTED_REASON_COMMANDS_NOT_SERVED` |
+  | `COORDINATOR_REASON_PAYLOAD_UNAVAILABLE` | `DISTRIBUTED_REASON_PAYLOAD_UNAVAILABLE` |
+  | `ROUTER_REASON_TOO_MANY_STEPS` | retired (no step cap) |
+  | `COORDINATOR_REASON_RULES_VERSION_NOT_SEMVER` | retired (14.88's refusal reversed) |
 
 ## Corrections
 

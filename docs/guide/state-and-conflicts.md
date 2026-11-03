@@ -519,7 +519,7 @@ before dispatch. The chain runs in the component's upcaster sidecar, a
 process of its own beside your business process. Your business code, and
 the client library around it, only ever see the current type. A command
 type URL that reaches no handler after upcasting is refused `INTERNAL`
-(`ROUTER_REASON_UNKNOWN_COMMAND_TYPE`), naming the type URL as sent and the type URL the
+(`ANGZARR_REASON_UNKNOWN_COMMAND_TYPE`), naming the type URL as sent and the type URL the
 chain ended at.
 
 **Prefer not to.** In order of preference:

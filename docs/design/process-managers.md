@@ -64,7 +64,7 @@ edition is the input's cover's (a policy's command carries its trigger's
 edition; see Cover.edition), and the root is the one the input's cover
 names. A policy addressing a PM names that root, as it does for any
 target (decision 14.36, as amended): nothing fills one in, and a policy
-command with no root is a policy bug (COORDINATOR_REASON_POLICY_COMMAND_NO_ROOT;
+command with no root is a policy bug (ANGZARR_REASON_POLICY_COMMAND_NO_ROOT;
 Output.root in handler/v1/policy.proto). By convention a policy may set
 it to its trigger's correlation_id, unchanged (decision 14.30): no
 derivation (no hash, no UUIDv5) and no text fallback, since a
@@ -98,13 +98,13 @@ ends in against ProcessManagerDescriptor.starting_types, which lists type
 names (decision 14.41):
 ```text
   - a FACT is dead-lettered (owner's ruling; decision 14.69), with reason
-    COORDINATOR_REASON_PM_NO_INSTANCE, and alerted, recording nothing; a
+    ANGZARR_REASON_PM_NO_INSTANCE, and alerted, recording nothing; a
     fact is never refused, so its sender is answered INTERNAL
-    COORDINATOR_REASON_FACT_DEAD_LETTERED (cause the COORDINATOR_REASON_PM_NO_INSTANCE key), never
+    ANGZARR_REASON_FACT_DEAD_LETTERED (cause the ANGZARR_REASON_PM_NO_INSTANCE key), never
     retried (decision 14.100, DRAFT);
   - a COMMAND is refused (owner's ruling; decision 14.31):
     FAILED_PRECONDITION, with a google.rpc.ErrorInfo of reason
-    COORDINATOR_REASON_PM_NO_INSTANCE, recording nothing, as any business rejection. A
+    ANGZARR_REASON_PM_NO_INSTANCE, recording nothing, as any business rejection. A
     policy's refused command then yields its refusal fact to the policy's
     source, which decides what an unstarted process means for it. The
     alternative, a silent skip answered APPLIED with no events, would
@@ -136,7 +136,7 @@ refused and compensation cannot loop.
 A PM's handlers follow the aggregate's: a command handler may
 refuse; a fact handler is infallible, and a failing one is a bug (the
 fact is dead-lettered and alerted, its sender answered INTERNAL
-COORDINATOR_REASON_FACT_DEAD_LETTERED). A PM
+ANGZARR_REASON_FACT_DEAD_LETTERED). A PM
 command handler that fails with anything but a business rejection is a
 bug too: the command is dead-lettered and alerted. The client library
 gives every PM handler one context type, carrying the input's identity

@@ -32,7 +32,7 @@ message DeadLetterEnvelope {
   // rationale.
   repeated sererr.v1.CapturedError stack_trace = 2;
   map<string, string> metadata = 3; // Additional context
-  // Set, with reason COORDINATOR_REASON_PAYLOAD_UNAVAILABLE, when a
+  // Set, with reason DISTRIBUTED_REASON_PAYLOAD_UNAVAILABLE, when a
   // claim-checked payload could not be retrieved (bus.proto).
   PayloadRetrievalFailedDetails payload_retrieval_failed = 4;
 }

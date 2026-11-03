@@ -38,8 +38,8 @@ option ruby_package = "Angzarr::Examples";
 // for a correlation the PM has not seen. Any other of these facts for a
 // correlation with no buy-in instance is not delivered: the PM's
 // coordinator dead-letters and alerts it, for a human, before the handler
-// (COORDINATOR_REASON_PM_NO_INSTANCE), and answers its policy INTERNAL
-// COORDINATOR_REASON_FACT_DEAD_LETTERED, which completes the policy's step (decisions
+// (ANGZARR_REASON_PM_NO_INSTANCE), and answers its policy INTERNAL
+// ANGZARR_REASON_FACT_DEAD_LETTERED, which completes the policy's step (decisions
 // 14.69 and 14.100).
 //
 // Compensation (decision 14.74, the shape of the owner's ruling of

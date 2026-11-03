@@ -8,7 +8,7 @@ every child shim, and
 [`parity/host/supervision.feature`](../../parity/host/supervision.feature)
 (C-0763 to C-0768), run by every host; the handshake scenarios of
 `child.feature` are falsified by 14.80 and wait on its review. Reason keys:
-HostReason's `HOST_REASON_CHILD_*` and `HOST_REASON_PROBE_INPUT`, the
+EmbeddedReason's `EMBEDDED_REASON_CHILD_*` and `EMBEDDED_REASON_PROBE_INPUT`, the
 local-process transport's
 (`proto/io/angzarr/transport/embedded/v1/reasons.proto`, English in
 `reasons.en-US.ftl` beside it; section 7; decision 14.64). The protocol's
@@ -95,15 +95,15 @@ that, health reports the child's readiness as anywhere else:
 A host that launches a child, and a conformance probe that takes one
 child through this protocol a step at a time (angzarr-embedded's
 `angzarr_embedded_host::probe`, the cli's `angzarr probe`), refuse a child
-that breaks it under HostReason's keys (decision 14.62). `component` is
+that breaks it under EmbeddedReason's keys (decision 14.62). `component` is
 the child's name in the host's configuration.
 
 | Key | Status | Args | When |
 |---|---|---|---|
-| `HOST_REASON_CHILD_NOT_SERVING` | INTERNAL | `component`, `status`, `timeout_ms` | its overall server did not report SERVING on the host's path within the host's time limit for a start (`timeout_ms`), or it exited first (section 2); `status` the last health status it answered, by its name, or its number when it has none, or `none` when no check was answered |
-| `HOST_REASON_CHILD_EXIT_STATUS` | INTERNAL | `component`, `exit_code` | it exited on its stdin's end with a status other than 0 (section 5) |
-| `HOST_REASON_CHILD_NOT_EXITED` | INTERNAL | `component`, `ended` | it did not exit by itself on its stdin's end within its grace (section 5); `ended` how it did: `signalled`, `terminated`, `killed` or `not-running` |
-| `HOST_REASON_PROBE_INPUT` | INVALID_ARGUMENT | `component`, `kind` | a probe given an input a child of its kind (`domain`, `policy`, `projector`) does not handle; nothing is sent |
+| `EMBEDDED_REASON_CHILD_NOT_SERVING` | INTERNAL | `component`, `status`, `timeout_ms` | its overall server did not report SERVING on the host's path within the host's time limit for a start (`timeout_ms`), or it exited first (section 2); `status` the last health status it answered, by its name, or its number when it has none, or `none` when no check was answered |
+| `EMBEDDED_REASON_CHILD_EXIT_STATUS` | INTERNAL | `component`, `exit_code` | it exited on its stdin's end with a status other than 0 (section 5) |
+| `EMBEDDED_REASON_CHILD_NOT_EXITED` | INTERNAL | `component`, `ended` | it did not exit by itself on its stdin's end within its grace (section 5); `ended` how it did: `signalled`, `terminated`, `killed` or `not-running` |
+| `EMBEDDED_REASON_PROBE_INPUT` | INVALID_ARGUMENT | `component`, `kind` | a probe given an input a child of its kind (`domain`, `policy`, `projector`) does not handle; nothing is sent |
 
 The first fails a host's start of the child, which then stops it
 (section 5). The two shutdown keys are a probe's: a host stopping its
@@ -127,7 +127,7 @@ Once a child has reported SERVING (section 2), its host supervises it
   reporting otherwise or ending; and healthy again once a check or its
   watch reports SERVING. While it is unhealthy, the host sends it no new
   call: a call to it fails retryably, as a call to a child that is not
-  running does (`COORDINATOR_REASON_HANDLER_UNAVAILABLE`).
+  running does (`ANGZARR_REASON_HANDLER_UNAVAILABLE`).
 - **The grace, and a restart.** A child unhealthy for its whole grace,
   unbroken, is restarted: the host stops it (section 5), launches a new
   child, and waits for it to report SERVING and describes it as it did the

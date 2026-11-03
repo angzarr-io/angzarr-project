@@ -15,12 +15,12 @@ option ruby_package = "Angzarr::Transport::Embedded";
 // SERVING on the host's path), its exit, and a conformance probe's input. The
 // rules of core's reasons.proto hold here: a key travels as its value's full
 // name, prefix included, each carries its (io.angzarr.v1.reason) args, its
-// English is reasons.en-US.ftl beside this file. The enum keeps core's name
-// and prefix.
-//
-// Keys whatever runs a child answers.
-enum HostReason {
-  HOST_REASON_UNSPECIFIED = 0;
+// English is reasons.en-US.ftl beside this file. Keys are named by layer
+// (decision 14.104, DRAFT): this transport's are EMBEDDED_REASON_*, and
+// each key's comment says which component raises it.
+enum EmbeddedReason {
+  EMBEDDED_REASON_UNSPECIFIED = 0;
+  // Raised by whatever runs a child process (the component host).
   // A child whose overall server (service `""`) did not report SERVING on
   // grpc.health.v1, on the socket path the host chose, within the host's
   // time limit for a start (`timeout_ms`, in milliseconds), or that exited
@@ -29,34 +29,37 @@ enum HostReason {
   // `SERVICE_UNKNOWN`), or its number when it has none, or `none` when no
   // check was answered. The host fails to start the child (child-protocol.md,
   // sections 2 and 7; decisions 14.62 and 14.80).
-  HOST_REASON_CHILD_NOT_SERVING = 1 [(io.angzarr.v1.reason) = {
+  EMBEDDED_REASON_CHILD_NOT_SERVING = 1 [(io.angzarr.v1.reason) = {
     args: ["component", "status", "timeout_ms"]
-    grpc_status: REASON_STATUS_INTERNAL
+    grpc_status: INTERNAL
   }];
+  // Raised by whatever runs a child process (the component host).
   // A child that exited on its stdin's end with a status other
   // than 0 (`exit_code`), when a child shutting down exits with 0: what a
   // host's conformance probe refuses (child-protocol.md, sections 5 and 7;
   // decision 14.62).
-  HOST_REASON_CHILD_EXIT_STATUS = 2 [(io.angzarr.v1.reason) = {
+  EMBEDDED_REASON_CHILD_EXIT_STATUS = 2 [(io.angzarr.v1.reason) = {
     args: ["component", "exit_code"]
-    grpc_status: REASON_STATUS_INTERNAL
+    grpc_status: INTERNAL
   }];
+  // Raised by whatever runs a child process (the component host).
   // A child that did not exit by itself on its stdin's end
   // within its grace: `ended` is how it did end, `signalled` (a signal
   // ended it), `terminated` (by the host's SIGTERM), `killed` (by its
   // SIGKILL) or `not-running`. What a host's conformance probe refuses
   // (child-protocol.md, sections 5 and 7; decision 14.62).
-  HOST_REASON_CHILD_NOT_EXITED = 3 [(io.angzarr.v1.reason) = {
+  EMBEDDED_REASON_CHILD_NOT_EXITED = 3 [(io.angzarr.v1.reason) = {
     args: ["component", "ended"]
-    grpc_status: REASON_STATUS_INTERNAL
+    grpc_status: INTERNAL
   }];
+  // Raised by whatever runs a child process (the component host).
   // A host's conformance probe given an input a child
   // of its kind (`kind`, as its configuration names it: `domain`,
   // `policy`, `projector`) does not handle: a command for a policy, a
   // book of events for a domain. Nothing is sent to the child
   // (child-protocol.md, section 7; decision 14.62).
-  HOST_REASON_PROBE_INPUT = 4 [(io.angzarr.v1.reason) = {
+  EMBEDDED_REASON_PROBE_INPUT = 4 [(io.angzarr.v1.reason) = {
     args: ["component", "kind"]
-    grpc_status: REASON_STATUS_INVALID_ARGUMENT
+    grpc_status: INVALID_ARGUMENT
   }];
 }

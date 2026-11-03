@@ -51,20 +51,6 @@ is recorded once, below.
   `divergence_*` tag with its reason (the in-process chain, no outbox, no
   causation from outside, the waiting caller, editions). That file is the
   list; this one does not repeat it.
-- **`rules_version` means different things.** In angzarr it is the
-  business binary's full build version (e.g. `"1.4.2+build.7"`), baked in at
-  build time, reported with every response and at registration
-  (`ComponentDescriptor.rules_version`), and stamped in full. angzarr reads
-  it for one thing besides explaining a decision: its coordinator offers a
-  snapshot only when the snapshot's version passes the domain's
-  compatibility rule (major.minor by default; decision 14.1). annals takes
-  the value from the domain's declaration, the author's short label (e.g.
-  `"v3"`), and its runtime relies on it in its own way, in annals'
-  `docs/design/audit.md`. The proto comment on `EventMeta.rules_version`
-  points here. Both runtimes still take it from the business logic and
-  stamp it unaltered. Whether annals adopts the build version is annals'
-  decision; until it does, an annals label under angzarr's default rule is
-  not a semantic version, so it selects snapshots by exact equality.
 - **No root-request pointer in angzarr (D2, pass 6).** angzarr records only
   correlation and the direct cause (the producing command, or a PM process
   event's trigger) on a reaction's events. Correlation is enough to find the
@@ -75,11 +61,22 @@ is recorded once, below.
 
 ## Where annals follows angzarr
 
+- **`rules_version` is the same** (decision 14.104, DRAFT, which closes
+  its divergence). In both runtimes it is the business binary's
+  full build version (e.g. `"1.4.2+build.7"`), baked in at build time,
+  reported with every response and at registration
+  (`ComponentDescriptor.rules_version`), and stamped in full. Both accept
+  a version that is not SemVer at registration, and both offer a snapshot
+  under the same rule (types.proto, Snapshot): strip one leading `v` or
+  `V`, then equal major.minor when both parse as SemVer 2.0.0, otherwise
+  exact equality of the versions as recorded. The proto comment on
+  `EventMeta.rules_version` no longer notes a divergence.
 - **`EventMeta` is the same** (pass 13, revised by 14.31): `causation`
-  (`command_id`, its one arm; a PM is a domain with no triggers, so
-  `triggering_event` is deleted), `fact`, `correlation_id`,
+  (a oneof, decision 14.102, DRAFT: `command` with its `command_id`, or
+  `fact` with its `command_id` and origin; a PM is a domain with no
+  triggers, so `triggering_event` is deleted), `correlation_id`,
   `recorded_at` and `rules_version`. There is no actor (who-did-it goes to
-  security logs in both), no origin, no base sequence, and no copy of a
+  security logs in both), no origin beyond a fact's, no base sequence, and no copy of a
   reaction command's `causation_id`.
 - **Reactor re-runs** (pass 13): the same derivation, with no
   `rules_version` in it, so a re-run dedupes in annals too, and repairs are

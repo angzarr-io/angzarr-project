@@ -1,6 +1,6 @@
 # Policies: translation, refusals and the transient outbox
 
-**Status:** normative (decisions 14.31, 14.42, 14.69, 14.71, 14.76; as amended by the DRAFT decisions 14.78 to 14.102 pending review). Moved from `proto/docs/design/policies.md`, which defined no message (decision 14.103, DRAFT). The services are `io.angzarr.component.v1.PolicyService` and `io.angzarr.transport.distributed.v1.PolicyCoordinatorService`; the messages are `io/angzarr/handler/v1/policy.proto`'s.
+**Status:** normative (decisions 14.31, 14.42, 14.69, 14.71, 14.76; as amended by the DRAFT decisions 14.78 to 14.102 pending review). Moved from `proto/io/angzarr/v1/policy.proto`, which defined no message (decision 14.103, DRAFT). The services are `io.angzarr.component.v1.PolicyService` and `io.angzarr.transport.distributed.v1.PolicyCoordinatorService`; the messages are `io/angzarr/handler/v1/policy.proto`'s.
 
 Policies: stateless translation from source events to the commands and
 facts their destination declares. The business logic's service is the
@@ -61,24 +61,24 @@ at the head it loaded, as for any input. It is delivered through the one framewo
   - A fact is never refused. One whose handler fails at its destination,
     or whose business process answers it with an error (decision 14.72),
     is dead-lettered and alerted there and its sender answered INTERNAL
-    COORDINATOR_REASON_FACT_DEAD_LETTERED (docs/design/command-handling.md §3;
+    ANGZARR_REASON_FACT_DEAD_LETTERED (docs/design/command-handling.md §3;
     decision 14.100, DRAFT): to the policy that is its step done, never
     retried or dead-lettered again, and its position moves on.
   - The descriptor names no fact types, so the policy's coordinator
     cannot check the arm: one its destination does not declare (a fact
     of a command type, a command of a fact type: deployed versions
     skewed) is a bug, refused INTERNAL by the destination's router
-    (ROUTER_REASON_NO_FACT_HANDLER, ROUTER_REASON_UNKNOWN_COMMAND_TYPE),
+    (ANGZARR_REASON_NO_FACT_HANDLER, ANGZARR_REASON_UNKNOWN_COMMAND_TYPE),
     dead-lettered and alerted.
   - What the coordinator still checks, each a value a type cannot hold
     to: a root that is unset or not 16 bytes
-    (COORDINATOR_REASON_POLICY_COMMAND_NO_ROOT, args domain and
+    (ANGZARR_REASON_POLICY_COMMAND_NO_ROOT, args domain and
     command_type); an output to the trigger's own stream, the same
     domain and root in the trigger's edition
-    (COORDINATOR_REASON_POLICY_TARGETS_ITS_TRIGGER, args stream and
+    (ANGZARR_REASON_POLICY_TARGETS_ITS_TRIGGER, args stream and
     command_type; decision 14.71); a destination it cannot route
-    (COORDINATOR_REASON_POLICY_COMMAND_UNKNOWN_DOMAIN); a chain too deep
-    (COORDINATOR_REASON_CHAIN_TOO_DEEP). Any failed check is a policy
+    (ANGZARR_REASON_POLICY_COMMAND_UNKNOWN_DOMAIN); a chain too deep
+    (ANGZARR_REASON_CHAIN_TOO_DEEP). Any failed check is a policy
     bug: the whole answer is refused INTERNAL, nothing is delivered, and
     the trigger is dead-lettered and alerted (decisions 14.24, 14.36).
 ```
@@ -115,7 +115,7 @@ policy's OWN source: the exact stream of its triggering event.
     a command that can refuse; then a source taking no fact fails
     generation (options.proto, the refusals region). A policy written by
     hand whose router has no callback answers
-    ROUTER_REASON_NO_REFUSAL_HANDLER (metadata command_type; decision
+    ANGZARR_REASON_NO_REFUSAL_HANDLER (metadata command_type; decision
     46, Q6), and the step is dead-lettered and alerted at the policy.
   - There is no other path: no standard refusal fact built by the
     coordinator, no source-domain dispatch by the refused command's type,

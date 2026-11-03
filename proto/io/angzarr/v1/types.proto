@@ -213,7 +213,7 @@ message Cover {
   //   - A command or fact from outside (not a policy's) addressed in X to a
   //     stream with no fork in X is REFUSED until propagation forks it:
   //     FAILED_PRECONDITION, google.rpc.ErrorInfo reason
-  //     COORDINATOR_REASON_EDITION_NOT_FORKED (the owner's ruling;
+  //     ANGZARR_REASON_EDITION_NOT_FORKED (the owner's ruling;
   //     decision 14.65), checked before business code runs. Fork it with ForkStream to address it
   //     directly.
   //   - A query or subscription of a stream not forked in X reads main's
@@ -276,10 +276,10 @@ message Cover {
 //     14.84), with exponential backoff and jitter between them
 //     (docs/design/command-handling.md §3; decision 14.46). At the cap
 //     nothing is persisted; a waiting caller is answered INTERNAL
-//     COORDINATOR_REASON_RETRY_CAP_EXHAUSTED and nothing is dead-lettered,
+//     ANGZARR_REASON_RETRY_CAP_EXHAUSTED and nothing is dead-lettered,
 //     and work with no caller waiting is dead-lettered and alerted (a fact,
 //     dead-lettered and its sender answered INTERNAL
-//     COORDINATOR_REASON_FACT_DEAD_LETTERED; decisions 14.85, 14.100). Ordering is per stream: no other stream's
+//     ANGZARR_REASON_FACT_DEAD_LETTERED; decisions 14.85, 14.100). Ordering is per stream: no other stream's
 //     writes matter.
 //
 // A client's expected sequence (Handling.expected_sequence: "I decided
@@ -396,7 +396,7 @@ message EventRef {
 // correlation_id is given its cover's root; a set one is kept, whatever
 // the root. Nothing fills in a root: a policy names its command's root
 // for every target, and an unset one is a policy bug
-// (COORDINATOR_REASON_POLICY_COMMAND_NO_ROOT; io.angzarr.handler.v1.Output.root). A process
+// (ANGZARR_REASON_POLICY_COMMAND_NO_ROOT; io.angzarr.handler.v1.Output.root). A process
 // manager's events carry their command's or fact's correlation, like any
 // domain's.
 // Correlation is never unset on a persisted event, and the framework never
@@ -590,21 +590,21 @@ message FactOrigin {
 // object's fully-qualified type, and the object packed in the status
 // details. A handler's ABORTED and every handler bug carry a diagnostic
 // code and its args: an ABORTED's reason is the handler's own code; a
-// handler bug's reason is ROUTER_REASON_UNHANDLED_HANDLER_ERROR, with the
+// handler bug's reason is ANGZARR_REASON_UNHANDLED_HANDLER_ERROR, with the
 // handler's own code and args as its cause (flattened as below; a panic's
-// cause is ROUTER_REASON_HANDLER_PANICKED), and what escaped stays in the handler's log.
+// cause is ANGZARR_REASON_HANDLER_PANICKED), and what escaped stays in the handler's log.
 // A handler that fails with the language's unclassified error has no cause.
 // In a language with only exceptions (Python), the client library exports a
 // named unclassified exception for that (angzarr_client.UnclassifiedError): raising it is a bug with no
-// cause, and any other exception is a panic, cause ROUTER_REASON_HANDLER_PANICKED
+// cause, and any other exception is a panic, cause ANGZARR_REASON_HANDLER_PANICKED
 // (decision 14.42; C-0669).
 //
 // The framework's reason keys. Every framework key, the component that
-// answers it (the router, the component host or the coordinator), the gRPC
-// status it travels with and its arg names are listed once, as the enums of
-// reasons.proto (AngzarrReason, RouterReason, HostReason, CoordinatorReason; decision
-// 14.44); a key travels as its value's full name, prefix included
-// (ROUTER_REASON_DUPLICATE_COMPONENT). Which class a status is
+// answers it (the router, the component host or the coordinator, in its
+// comment), the gRPC status it travels with and its arg names are listed
+// once, as the enum of its layer (reasons.proto: core's AngzarrReason and
+// each transport's; decisions 14.44 and 14.104, DRAFT); a key travels as its value's full name, prefix included
+// (ANGZARR_REASON_DUPLICATE_COMPONENT). Which class a status is
 // (decision 14.37's four classes) is the coordinator's to decide, never
 // the router's. A Fluent catalog keys a typed refusal by
 // its fully-qualified type name with each "." replaced by "-" (a Fluent id
@@ -624,7 +624,7 @@ message FactOrigin {
 message Diagnostic {
   // The key: a stable identifier, never reused for another meaning, and a
   // valid Fluent message id. Framework codes are SCREAMING_SNAKE
-  // (ROUTER_REASON_NO_COMPONENT_OF_KIND) or the ports' kebab-case (angzarr-ports-...);
+  // (ANGZARR_REASON_NO_COMPONENT_OF_KIND) or the ports' kebab-case (angzarr-ports-...);
   // a domain's codes are its own. Required.
   string code = 1;
   // The arguments, by name: data (ids, counts, type URLs, a domain), never
@@ -693,11 +693,6 @@ message EventMeta {
   // event names the build that decided it. Business code never sets it on
   // an event. The framework reads it only to choose which snapshots to
   // offer (see Snapshot); otherwise it explains a historical decision.
-  // (angzarr-embedded diverges, pending the owner's review: it accepts a
-  // rules_version that is not SemVer at registration, and offers a
-  // snapshot by exact string equality when either version is not SemVer,
-  // where this spec refuses the version (decision 14.88) and has no
-  // equality fallback. See docs/design/audit-meta/annals-divergence.md.)
   string rules_version = 5;
 }
 
@@ -742,11 +737,11 @@ message FactCause {
 // The default rule: strip ONE leading "v" or "V" from each version, then
 // both parse as SemVer 2.0.0 and their major and minor numbers are equal
 // (patch, pre-release and build metadata are ignored), so "v1.4.2" and
-// "1.4.7" are compatible. Every registered version parses as SemVer 2.0.0
-// once so stripped: a descriptor whose rules_version does not is refused at
-// registration (COORDINATOR_REASON_RULES_VERSION_NOT_SEMVER; decision 14.88,
-// DRAFT), so there is no string-equality fallback. A stored snapshot whose
-// recorded version does not parse is simply not offered.
+// "1.4.7" are compatible. When either does not parse as SemVer 2.0.0 once
+// so stripped, the two are compatible only when they are equal as recorded
+// (exact string equality, nothing stripped): a rules_version that is not SemVer is accepted at registration
+// (decision 14.104, DRAFT, reversing 14.88's refusal), and a snapshot
+// recorded under it is offered to that version alone.
 // Nothing replaces the default rule: no configuration of a domain accepts
 // or rejects snapshot versions by pattern (decision 14.66).
 // A snapshot that fails either check is simply not offered: the delivery
@@ -874,7 +869,7 @@ message Projection {
 // Violations are refused loudly, never silently ignored. Each of these is
 // malformed, refused at step 1, before deduplication or business code:
 //   - a policy's output with no root, whatever its target (INTERNAL,
-//     google.rpc.ErrorInfo reason COORDINATOR_REASON_POLICY_COMMAND_NO_ROOT, metadata domain
+//     google.rpc.ErrorInfo reason ANGZARR_REASON_POLICY_COMMAND_NO_ROOT, metadata domain
 //     and command_type; decision 14.36, as amended), refused by the
 //     policy's coordinator;
 //   - a client's Fact without origin, or with an empty external_id, or
@@ -921,7 +916,7 @@ message Handling {
 // docs/design/upcasting.md); Command and Fact payloads alike are upcast, and the
 // client library never sees an old type. A payload whose type URL reaches
 // no handler is refused by the client library INTERNAL (a bug: decision
-// 14.37) with reason ROUTER_REASON_UNKNOWN_COMMAND_TYPE (ROUTER_REASON_NO_FACT_HANDLER for a fact),
+// 14.37) with reason ANGZARR_REASON_UNKNOWN_COMMAND_TYPE (ANGZARR_REASON_NO_FACT_HANDLER for a fact),
 // which is also the status message (decision 14.37: a key, never text),
 // naming the type it was given as ErrorInfo metadata "type_url". The
 // coordinator answers its caller with that status, its ErrorInfo metadata
@@ -987,7 +982,7 @@ message Command {
 // with events that flag it, e.g. a payment received for an unknown order)
 // and never reject it. A failing fact handler is a bug, not a business
 // rejection: the fact is dead-lettered and alerted, and the sender is
-// answered INTERNAL COORDINATOR_REASON_FACT_DEAD_LETTERED, non-retryable (decision
+// answered INTERNAL ANGZARR_REASON_FACT_DEAD_LETTERED, non-retryable (decision
 // 14.100, DRAFT; the owner: "if retrying senders repark, it's a logic
 // bug"). The framework deduplicates on the command_id derived
 // from origin.external_id, per addressed stream, before
@@ -995,8 +990,8 @@ message Command {
 // it runs its handler again. A fact that loses a race at its write to another write to
 // the same stream is re-run on the new head under the race re-run cap, and
 // one that reaches the cap is dead-lettered the same way (reason
-// COORDINATOR_REASON_RETRY_CAP_EXHAUSTED, alerted, its sender answered
-// INTERNAL COORDINATOR_REASON_FACT_DEAD_LETTERED; decisions 14.46, 14.100).
+// ANGZARR_REASON_RETRY_CAP_EXHAUSTED, alerted, its sender answered
+// INTERNAL ANGZARR_REASON_FACT_DEAD_LETTERED; decisions 14.46, 14.100).
 //
 // A Fact has no Handling to set: it is appended at the head the coordinator
 // loaded, like any input (the concurrency region).
@@ -1089,7 +1084,7 @@ message Outcome {
 //              those, re-read from the stream.
 // A fact that could not be recorded is no outcome either: it is
 // dead-lettered, and its sender answered INTERNAL
-// COORDINATOR_REASON_FACT_DEAD_LETTERED (decision 14.100, DRAFT).
+// ANGZARR_REASON_FACT_DEAD_LETTERED (decision 14.100, DRAFT).
 //
 // A rejection is never an outcome: it is a gRPC error status, and it writes
 // nothing, so the same command_id may be retried.
@@ -1162,7 +1157,7 @@ message AngzarrDeadLetter {
     // stream whose rows of the edition could not be removed, as its cover,
     // and its meta.EditionDeleted event, as recorded there, as the one
     // page. An EventBook, since meta/events.proto imports this file.
-    // Reason COORDINATOR_REASON_EDITION_REMOVAL_FAILED (decision 14.48,
+    // Reason ANGZARR_REASON_EDITION_REMOVAL_FAILED (decision 14.48,
     // amended).
     EventBook failed_edition_removal = 4;
   }
@@ -1182,34 +1177,34 @@ message AngzarrDeadLetter {
   //   - A command with no caller waiting (HandleAsync, a reaction), or a
   //     fact, the coordinator gave up on after losing write races at the
   //     race re-run cap, is
-  //     COORDINATOR_REASON_RETRY_CAP_EXHAUSTED with args attempts and cap,
+  //     ANGZARR_REASON_RETRY_CAP_EXHAUSTED with args attempts and cap,
   //     as answered to a waiting caller (decision 14.46); that key is for
   //     write races only.
   //   - A retryable bug dead-lettered at its cap records the bug's own key
   //     and args, as last answered, never
-  //     COORDINATOR_REASON_RETRY_CAP_EXHAUSTED (decision 14.48, amended).
+  //     ANGZARR_REASON_RETRY_CAP_EXHAUSTED (decision 14.48, amended).
   //   - An asynchronous command (HandleAsync) answered with its handler's
   //     own abort records that key and its args (decision 14.47); one
   //     refused is the refusal arm.
   //   - A policy step's trigger (rejected_events) records the policy bug's
-  //     key: COORDINATOR_REASON_POLICY_COMMAND_NO_ROOT,
-  //     COORDINATOR_REASON_POLICY_TARGETS_ITS_TRIGGER,
-  //     COORDINATOR_REASON_POLICY_COMMAND_UNKNOWN_DOMAIN,
-  //     COORDINATOR_REASON_CHAIN_TOO_DEEP, ROUTER_REASON_NO_REFUSAL_HANDLER
+  //     key: ANGZARR_REASON_POLICY_COMMAND_NO_ROOT,
+  //     ANGZARR_REASON_POLICY_TARGETS_ITS_TRIGGER,
+  //     ANGZARR_REASON_POLICY_COMMAND_UNKNOWN_DOMAIN,
+  //     ANGZARR_REASON_CHAIN_TOO_DEEP, ANGZARR_REASON_NO_REFUSAL_HANDLER
   //     or a handler's bug.
   // Whether the failure was transient is the key's declared status
   // (ReasonOptions' grpc_status): UNAVAILABLE and the other retryable statuses
   // are transient, every other status is not.
-  // Never a dead letter's reason: the readiness keys, the HostReason keys,
-  // ROUTER_REASON_NO_HANDLERS_REGISTERED, ROUTER_REASON_DUPLICATE_COMPONENT
-  // and ROUTER_REASON_HANDLER_PANICKED (only ever a cause); and the
+  // Never a dead letter's reason: the readiness keys, the component host's keys,
+  // ANGZARR_REASON_NO_HANDLERS_REGISTERED, ANGZARR_REASON_DUPLICATE_COMPONENT
+  // and ANGZARR_REASON_HANDLER_PANICKED (only ever a cause); and the
   // retryable keys the coordinator only answers, never dead-letters:
-  // COORDINATOR_REASON_UPCASTER_UNAVAILABLE and the distributed
-  // transport's COORDINATOR_REASON_COMPONENT_NOT_REGISTERED (queued work
-  // waits) and COORDINATOR_REASON_COMMANDS_NOT_SERVED (decision 14.51).
+  // ANGZARR_REASON_UPCASTER_UNAVAILABLE and the distributed
+  // transport's DISTRIBUTED_REASON_COMPONENT_NOT_REGISTERED (queued work
+  // waits) and DISTRIBUTED_REASON_COMMANDS_NOT_SERVED (decision 14.51).
   // The retries after the first attempt (0 when it was tried once): of a
   // retryable bug, or a policy step's ABORTED re-run, at its cap, and of an
-  // edition removal (COORDINATOR_REASON_EDITION_REMOVAL_FAILED).
+  // edition removal (ANGZARR_REASON_EDITION_REMOVAL_FAILED).
   uint32 retry_count = 7;
   google.protobuf.Timestamp occurred_at = 8;
   string source_component = 9; // Which component sent to DLQ
@@ -1253,22 +1248,21 @@ enum ComponentKind {
 // builds or checks it, nor does the component host: the coordinator owns
 // every descriptor check (decision 14.102, DRAFT). An answer whose
 // rules_version or state type is not the registered one is the
-// coordinator's to refuse (COORDINATOR_REASON_RULES_VERSION_MISMATCH,
-// COORDINATOR_REASON_STATE_TYPE_MISMATCH).
+// coordinator's to refuse (ANGZARR_REASON_RULES_VERSION_MISMATCH,
+// ANGZARR_REASON_STATE_TYPE_MISMATCH).
 //
 // The kind is a oneof (decision 14.78, from the owner's ruling #2): each arm
 // holds exactly what that kind has, so no field is set on a kind that may
 // not have it. The COORDINATOR validates what a type cannot hold to, and
 // refuses (see ComponentService, Refusal) a descriptor that has: an empty
-// rules_version (COORDINATOR_REASON_MISSING_RULES_VERSION), or one that is
-// not SemVer (COORDINATOR_REASON_RULES_VERSION_NOT_SEMVER); no kind, the
-// oneof unset (COORDINATOR_REASON_DESCRIPTOR_NO_KIND); an aggregate or a
-// process manager with no domain (COORDINATOR_REASON_DESCRIPTOR_NO_DOMAIN)
-// or no state (COORDINATOR_REASON_MISSING_STATE_TYPE); a policy or a
-// projector with no source (COORDINATOR_REASON_NO_INPUT_DOMAIN: a policy's
+// rules_version (ANGZARR_REASON_MISSING_RULES_VERSION); no kind, the
+// oneof unset (ANGZARR_REASON_DESCRIPTOR_NO_KIND); an aggregate or a
+// process manager with no domain (ANGZARR_REASON_DESCRIPTOR_NO_DOMAIN)
+// or no state (ANGZARR_REASON_MISSING_STATE_TYPE); a policy or a
+// projector with no source (ANGZARR_REASON_NO_INPUT_DOMAIN: a policy's
 // empty input_domain, a projector's empty input_domains; decision 14.101,
 // DRAFT, one rule, the coordinator's); a policy with no output_domain
-// (COORDINATOR_REASON_POLICY_NO_OUTPUT_DOMAIN). The coordinator owns every
+// (ANGZARR_REASON_POLICY_NO_OUTPUT_DOMAIN). The coordinator owns every
 // descriptor check.
 //
 // Type identity is a fully-qualified NAME everywhere in a descriptor (the
@@ -1330,7 +1324,7 @@ message ProcessManagerDescriptor {
 message PolicyDescriptor {
   // The one domain whose events it reacts to: derived by angzarr-cli from
   // the events it names (options.proto, decision 14.78). Required: empty is
-  // COORDINATOR_REASON_NO_INPUT_DOMAIN.
+  // ANGZARR_REASON_NO_INPUT_DOMAIN.
   string input_domain = 1;
   // The one domain its commands and facts go to (PolicyDecl.output_domain,
   // options.proto; decision 14.24). Every Output is addressed to it
@@ -1343,7 +1337,7 @@ message ProjectorDescriptor {
   // The domains whose events it projects: derived by angzarr-cli from the
   // events it names (options.proto, decision 14.78). There is no wildcard
   // domain (decision 14.53); an empty list is refused by the coordinator,
-  // COORDINATOR_REASON_NO_INPUT_DOMAIN (decisions 14.55 and 14.101).
+  // ANGZARR_REASON_NO_INPUT_DOMAIN (decisions 14.55 and 14.101).
   repeated string input_domains = 1;
 }
 

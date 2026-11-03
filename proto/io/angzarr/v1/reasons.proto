@@ -2,6 +2,7 @@ syntax = "proto3";
 package io.angzarr.v1;
 
 import "google/protobuf/descriptor.proto";
+import "google/rpc/code.proto";
 
 option csharp_namespace = "Angzarr";
 option go_package = "github.com/benjaminabbitt/angzarr/client/go/proto/io/angzarr/v1;angzarr";
@@ -10,63 +11,56 @@ option java_package = "io.angzarr";
 option ruby_package = "Angzarr";
 
 // The framework's reason keys (decisions 14.37, 14.42 and 14.44): every key
-// angzarr answers, once, in the enum of the component that answers it, in
-// the package whose code raises it (decision 14.64). This file holds core's:
+// angzarr answers, once. Keys are named by LAYER, never by role (decision
+// 14.104, DRAFT): one enum per layer, in the package of that layer.
 //
-//   AngzarrReason      raised by more than one component (decision 14.102)
-//   RouterReason       the client library's router, in every language
-//   HostReason         the client library's component host, in every
-//                      language (parity/client/hosting.feature): its
-//                      configuration and composition keys, which a
-//                      Rust-only application can hit too
-//   CoordinatorReason  core's coordinator and the angzarr-embedded kernel
+//   io.angzarr.v1.AngzarrReason (this file): core's keys, ANGZARR_REASON_*,
+//       whichever core component raises them: the client library's router
+//       and its component host (in every language), core's coordinator
+//       and the angzarr-embedded kernel.
+//   io.angzarr.transport.embedded.v1.EmbeddedReason
+//       (transport/embedded/v1/reasons.proto): EMBEDDED_REASON_*, the
+//       local-process transport's.
+//   io.angzarr.transport.distributed.v1.DistributedReason
+//       (transport/distributed/v1/reasons.proto): DISTRIBUTED_REASON_*, the
+//       distributed transport's.
 //
-// Two transports add keys of their own, under the same enum names and
-// prefixes, so each moved key kept its string:
-//
-//   io.angzarr.transport.embedded.v1.HostReason
-//       (transport/embedded/v1/reasons.proto) whatever runs a child
-//       process: its readiness, health and exit (parity/client/child.feature)
-//   io.angzarr.transport.distributed.v1.CoordinatorReason
-//       (transport/distributed/v1/reasons.proto) only a distributed
-//       coordinator: registration by Describe, a query server, a claim
-//       check
-//
-// A key's string is unique across every package: it is what travels.
+// Which component raises a key is documented in the key's comment ("Raised
+// by ..."); it is not encoded in the string, so a key keeps its string when
+// another component comes to raise it. A key's string is unique across
+// every package: it is what travels.
 //
 // The key on the wire is the VALUE'S FULL NAME, its enum's prefix
 // included: the gRPC status message, the google.rpc.ErrorInfo reason and
-// Diagnostic.code are "ROUTER_REASON_DUPLICATE_COMPONENT", never a number.
+// Diagnostic.code are "ANGZARR_REASON_DUPLICATE_COMPONENT", never a number.
 // The prefix is buf's standard ENUM_VALUE_PREFIX rule, kept with no
-// exception, so the key also names its owner. The numbers are bookkeeping
-// only: no message carries these enums as a field, nothing encodes a key by
-// its number, and renumbering one breaks nothing on the wire. Each
+// exception, and names the key's layer. The numbers are bookkeeping only:
+// no message carries these enums as a field, nothing encodes a key by its
+// number, and renumbering one breaks nothing on the wire. Each
 // *_UNSPECIFIED value exists because proto3 demands a zero; it is never
 // answered.
 //
 // Each value's (reason) option declares the names of its args (the
-// ErrorInfo metadata keys and Diagnostic.args names) and the gRPC status it
-// travels with (the reason region, below; decision 14.65): every live key
-// carries the option with its status, so `just check-reason-keys` tells a
-// key with no args from one whose args were never declared, and each
-// language's generated status table is read off it, never typed again by
-// hand. A key that concerns one stream declares a `stream` arg: the
-// stream's text, its domain, `/`, its root as canonical lowercase UUID text,
-// then `@` and its edition when it is in one (the main timeline is unset,
-// and adds nothing), as `order/0192f3a4-5b6c-7d8e-9f01-23456789ab07@what-if`
-// (decision 14.65). A key
-// whose answerers differ declares every name any of them gives (the
+// ErrorInfo metadata keys and Diagnostic.args names) and how it surfaces
+// (the reason region, below; decision 14.65): every live key carries the
+// option, so `just check-reason-keys` tells a key with no args from one
+// whose args were never declared, and each language's generated status
+// table is read off it, never typed again by hand. A key that concerns one
+// stream declares a `stream` arg: the stream's text, its domain, `/`, its
+// root as canonical lowercase UUID text, then `@` and its edition when it
+// is in one (the main timeline is unset, and adds nothing), as
+// `order/0192f3a4-5b6c-7d8e-9f01-23456789ab07@what-if` (decision 14.65). A
+// key whose answerers differ declares every name any of them gives (the
 // comment says which gives which), and an answer gives none it does not
-// declare. A key whose option's surface is readiness never travels as a
-// status: it is a readiness refusal, logged and alerted
-// (component/v1/component.proto; decisions 14.88 and 14.91, DRAFT). A `cause` arg flattens a
-// wrapped key and its args as `cause` and `cause.<arg>` (types.proto, the
-// diagnostic region). Which class a status is (decision 14.37's four
-// classes) is the coordinator's to decide, not listed here. English for a
-// key comes from a Fluent catalog keyed by it, never from this file: the
-// spec's en-US catalog is reasons.en-US.ftl, beside this file, one message
-// per live key using only that key's args, which every runtime embeds
-// (decision 14.60).
+// declare. A key whose surface is readiness never travels as a status: it
+// is a readiness refusal, logged and alerted (component/v1/component.proto;
+// decisions 14.88 and 14.91, DRAFT). A `cause` arg flattens a wrapped key
+// and its args as `cause` and `cause.<arg>` (types.proto, the diagnostic
+// region). Which class a status is (decision 14.37's four classes) is the
+// coordinator's to decide, not listed here. English for a key comes from a
+// Fluent catalog keyed by it, never from this file: the spec's en-US
+// catalog is reasons.en-US.ftl, beside this file, one message per live key
+// using only that key's args, which every runtime embeds (decision 14.60).
 //
 // A retryable failure carries a key too (decision 14.51): every failure a
 // coordinator retries, or hands back for its caller to retry, is answered
@@ -77,7 +71,7 @@ option ruby_package = "Angzarr";
 //
 // A key that is removed is simply gone from its enum; the decision log
 // records what was removed and why (decision 14.100, DRAFT: the rewrite
-// holds no reservations). The numbers are bookkeeping, contiguous per enum.
+// holds no reservations). The numbers are bookkeeping, contiguous.
 
 // region reason
 // What the spec says of a key beyond its name (decision 14.60), read from
@@ -89,14 +83,13 @@ message ReasonOptions {
   // each a valid Fluent variable name. `cause` stands for itself and the
   // `cause.<arg>` names it flattens to; no other dotted name is declared.
   repeated string args = 1;
-  // How the key surfaces, by kind (decision 14.91, DRAFT, replacing the
-  // `readiness` switch and, before it, the pseudo-status
-  // REASON_STATUS_READINESS). Required: every live key names one.
+  // How the key surfaces, by kind (decision 14.91, DRAFT). Required: every
+  // live key names one.
   oneof surfaces {
-    // The gRPC status the key travels with (decision 14.65). The key's
-    // comment says when an answerer may pick another (a retryable bug's
-    // status, C-0678).
-    ReasonStatus grpc_status = 2;
+    // The gRPC status the key travels with (decisions 14.65 and 14.104,
+    // DRAFT): google.rpc.Code itself, never OK. The key's comment says when
+    // an answerer may pick another (a retryable bug's status, C-0678).
+    google.rpc.Code grpc_status = 2;
     // A readiness refusal: the key never travels as a status; it is logged
     // and alerted as the coordinator's readiness
     // (component/v1/component.proto).
@@ -104,40 +97,25 @@ message ReasonOptions {
   }
 }
 
-// The status a reason key travels with (decision 14.65). Each value's
-// number is its google.rpc.Code number, so the status on the wire is the
-// value's number, read without a table. It holds only google.rpc.Codes:
-// the statuses the keys travel with, and grows when a key needs another. A
-// readiness key, which travels as no status, says so with
-// ReasonOptions.readiness.
-enum ReasonStatus {
-  // No status declared; never a live key's.
-  REASON_STATUS_UNSPECIFIED = 0;
-  REASON_STATUS_INVALID_ARGUMENT = 3;
-  REASON_STATUS_FAILED_PRECONDITION = 9;
-  REASON_STATUS_ABORTED = 10;
-  REASON_STATUS_UNIMPLEMENTED = 12;
-  REASON_STATUS_INTERNAL = 13;
-  REASON_STATUS_UNAVAILABLE = 14;
-  REASON_STATUS_DATA_LOSS = 15;
-}
-
 // A readiness key's surface: nothing to say but its kind.
 message Readiness {}
 
 extend google.protobuf.EnumValueOptions {
-  // On every value of AngzarrReason, RouterReason, HostReason and CoordinatorReason, here
-  // and in the transports' reasons.proto. In angzarr's extension range
+  // On every value of AngzarrReason, here, and of the transports'
+  // EmbeddedReason and DistributedReason. In angzarr's extension range
   // (options.proto).
   ReasonOptions reason = 50105;
 }
 // endregion
 
-// Keys the framework raises from more than one component (decision 14.102,
-// DRAFT): a key neither the router's nor the coordinator's alone. Core's,
-// so every component that raises one imports it.
+// Core's keys, whichever core component raises them (decision 14.104,
+// DRAFT): the router (the client library's, in every language), the
+// component host (the client library's, in every language;
+// parity/client/hosting.feature) and the coordinator (core's and the
+// angzarr-embedded kernel's). Each key's comment opens with who raises it.
 enum AngzarrReason {
   ANGZARR_REASON_UNSPECIFIED = 0;
+  // Raised by the router and the coordinator.
   // The key a TYPED refusal travels under, arg refusal_type its object's
   // full type name, on a gRPC status (the object in the status details,
   // under the status the refusal message declares, its refusal_status;
@@ -148,50 +126,54 @@ enum AngzarrReason {
   // this one and its type the Any's type URL (decision 14.101).
   ANGZARR_REASON_COMMAND_REFUSED = 1 [(reason) = {
     args: ["refusal_type"]
-    grpc_status: REASON_STATUS_FAILED_PRECONDITION
+    grpc_status: FAILED_PRECONDITION
   }];
-}
-
-// Keys the client library's router answers.
-enum RouterReason {
-  ROUTER_REASON_UNSPECIFIED = 0;
+  // Raised by the router.
   // Or, in its status's place, the retryable status a handler picks
   // (C-0678).
-  ROUTER_REASON_UNHANDLED_HANDLER_ERROR = 1 [(reason) = {
+  ANGZARR_REASON_UNHANDLED_HANDLER_ERROR = 2 [(reason) = {
     args: ["cause"]
-    grpc_status: REASON_STATUS_INTERNAL
+    grpc_status: INTERNAL
   }];
-  // Travels only as ROUTER_REASON_UNHANDLED_HANDLER_ERROR's cause.
-  ROUTER_REASON_HANDLER_PANICKED = 2 [(reason) = {
-    grpc_status: REASON_STATUS_INTERNAL
+  // Raised by the router.
+  // Travels only as ANGZARR_REASON_UNHANDLED_HANDLER_ERROR's cause.
+  ANGZARR_REASON_HANDLER_PANICKED = 3 [(reason) = {
+    grpc_status: INTERNAL
   }];
-  ROUTER_REASON_FOLD_FAILED = 3 [(reason) = {
+  // Raised by the router.
+  ANGZARR_REASON_FOLD_FAILED = 4 [(reason) = {
     args: ["sequence", "type_url", "first_sequence", "last_sequence", "state_type_url", "cause"]
-    grpc_status: REASON_STATUS_INTERNAL
+    grpc_status: INTERNAL
   }];
-  ROUTER_REASON_FOLD_FAILED_EMITTED = 4 [(reason) = {
+  // Raised by the router.
+  ANGZARR_REASON_FOLD_FAILED_EMITTED = 5 [(reason) = {
     args: ["sequence", "type_url", "first_sequence", "last_sequence", "state_type_url", "cause"]
-    grpc_status: REASON_STATUS_INTERNAL
+    grpc_status: INTERNAL
   }];
-  ROUTER_REASON_PERSISTED_EVENT_CORRUPT = 5 [(reason) = {
+  // Raised by the router.
+  ANGZARR_REASON_PERSISTED_EVENT_CORRUPT = 6 [(reason) = {
     args: ["type_url"]
-    grpc_status: REASON_STATUS_DATA_LOSS
+    grpc_status: DATA_LOSS
   }];
-  ROUTER_REASON_ANY_DECODE_FAILED = 6 [(reason) = {
+  // Raised by the router.
+  ANGZARR_REASON_ANY_DECODE_FAILED = 7 [(reason) = {
     args: ["message_type", "ext_err_txt"]
-    grpc_status: REASON_STATUS_INTERNAL
+    grpc_status: INTERNAL
   }];
+  // Raised by the router.
   // The router sends type_url only; the coordinator relays it with
   // upcast_type_url (14.39).
-  ROUTER_REASON_UNKNOWN_COMMAND_TYPE = 7 [(reason) = {
+  ANGZARR_REASON_UNKNOWN_COMMAND_TYPE = 8 [(reason) = {
     args: ["type_url", "upcast_type_url"]
-    grpc_status: REASON_STATUS_INTERNAL
+    grpc_status: INTERNAL
   }];
-  // Relayed as ROUTER_REASON_UNKNOWN_COMMAND_TYPE is.
-  ROUTER_REASON_NO_FACT_HANDLER = 8 [(reason) = {
+  // Raised by the router.
+  // Relayed as ANGZARR_REASON_UNKNOWN_COMMAND_TYPE is.
+  ANGZARR_REASON_NO_FACT_HANDLER = 9 [(reason) = {
     args: ["type_url", "upcast_type_url"]
-    grpc_status: REASON_STATUS_INTERNAL
+    grpc_status: INTERNAL
   }];
+  // Raised by the router.
   // A POLICY's router handed a refusal (PolicyService.Translate), of a
   // command type (`command_type`), with no refusal callback: only a policy
   // written by hand, outside Rust, can (a generated policy has its one
@@ -201,109 +183,96 @@ enum RouterReason {
   // router, which no longer dispatches refusals (the one refusal path).
   // Bug, fatal (decision 14.37): the policy step is dead-lettered and
   // alerted.
-  ROUTER_REASON_NO_REFUSAL_HANDLER = 9 [(reason) = {
+  ANGZARR_REASON_NO_REFUSAL_HANDLER = 10 [(reason) = {
     args: ["command_type"]
-    grpc_status: REASON_STATUS_INTERNAL
+    grpc_status: INTERNAL
   }];
-  ROUTER_REASON_NO_COMPONENT_OF_KIND = 10 [(reason) = {
-    grpc_status: REASON_STATUS_UNIMPLEMENTED
+  // Raised by the router.
+  ANGZARR_REASON_NO_COMPONENT_OF_KIND = 11 [(reason) = {
+    grpc_status: UNIMPLEMENTED
   }];
-  ROUTER_REASON_NO_HANDLERS_REGISTERED = 11 [(reason) = {
-    grpc_status: REASON_STATUS_INTERNAL
+  // Raised by the router.
+  ANGZARR_REASON_NO_HANDLERS_REGISTERED = 12 [(reason) = {
+    grpc_status: INTERNAL
   }];
+  // Raised by the router.
   // A second component registered where one already is: one business
   // process hosts one component. ONE owner and one arg set (decision 14.88,
   // DRAFT): the router answers it, naming the component already registered
   // (`registered`) and the one refused (`refused`), each by its component
   // name. The component host does not check it again: it registers through
   // the router (C-0579; decision 14.44, amended).
-  ROUTER_REASON_DUPLICATE_COMPONENT = 12 [(reason) = {
+  ANGZARR_REASON_DUPLICATE_COMPONENT = 13 [(reason) = {
     args: ["registered", "refused"]
-    grpc_status: REASON_STATUS_INTERNAL
+    grpc_status: INTERNAL
   }];
-  // A limit a router may enforce: where a client library lets a handler's
-  // decision continue in follow-on steps (each deciding from the state after
-  // the events before it, all of them one decision, committed together), a
-  // decision that ran more steps after its handler than the router's step
-  // limit (`limit`, a count). A step that always continues never settles, so
-  // the same input runs the same steps again: the router keeps nothing the
-  // decision emitted, and the command or fact fails as a handler's bug does.
-  // Bug, fatal (decision 14.37): dead-lettered and alerted at once, never
-  // retried (a retryable status would re-run business code to the cap for the
-  // same answer), never a policy's Translate (a business status would invite
-  // a compensating reaction to a bug). A router that offers no follow-on steps
-  // never answers it. (Decision 14.49.)
-  ROUTER_REASON_TOO_MANY_STEPS = 13 [(reason) = {
-    args: ["limit"]
-    grpc_status: REASON_STATUS_INTERNAL
-  }];
-}
-
-// Keys the client library's component host answers. Each is a refusal to
-// start, raised as the language's configuration error.
-enum HostReason {
-  HOST_REASON_UNSPECIFIED = 0;
+  // Raised by the component host, as a refusal to start.
   // An upcaster is its own sidecar (14.39), never hosted beside a component.
-  HOST_REASON_UPCASTER_WITH_COMPONENT = 1 [(reason) = {
+  ANGZARR_REASON_UPCASTER_WITH_COMPONENT = 14 [(reason) = {
     args: ["component"]
-    grpc_status: REASON_STATUS_INTERNAL
+    grpc_status: INTERNAL
   }];
+  // Raised by the component host, as a refusal to start.
   // A host with no component registered (C-0504).
-  HOST_REASON_NO_COMPONENTS_REGISTERED = 2 [(reason) = {
-    grpc_status: REASON_STATUS_INTERNAL
+  ANGZARR_REASON_NO_COMPONENTS_REGISTERED = 15 [(reason) = {
+    grpc_status: INTERNAL
   }];
+  // Raised by the component host, as a refusal to start.
   // An upcaster given for `domain`, which no component of the host
   // handles: there is nothing for it to upcast. Refused at registration,
   // and nothing is registered (decision 14.65).
-  HOST_REASON_UPCASTER_UNKNOWN_DOMAIN = 3 [(reason) = {
+  ANGZARR_REASON_UPCASTER_UNKNOWN_DOMAIN = 16 [(reason) = {
     args: ["domain"]
-    grpc_status: REASON_STATUS_INTERNAL
+    grpc_status: INTERNAL
   }];
+  // Raised by the component host, as a refusal to start.
   // The upcaster registered for `domain` upcasts another domain's
   // payloads (`upcaster`, the domain it names). Refused at registration,
   // and nothing is registered (decision 14.65).
-  HOST_REASON_UPCASTER_OTHER_DOMAIN = 4 [(reason) = {
+  ANGZARR_REASON_UPCASTER_OTHER_DOMAIN = 17 [(reason) = {
     args: ["domain", "upcaster"]
-    grpc_status: REASON_STATUS_INTERNAL
+    grpc_status: INTERNAL
   }];
+  // Raised by the component host, as a refusal to start.
   // A policy or projector here (`component`) reading the events of
   // `domain`, which a coordinator elsewhere handles: its events are never
   // written or read here, so the component would never run. Refused at
   // registration, and nothing is registered (decision 14.65).
-  HOST_REASON_REMOTE_SOURCE = 5 [(reason) = {
+  ANGZARR_REASON_REMOTE_SOURCE = 18 [(reason) = {
     args: ["component", "domain"]
-    grpc_status: REASON_STATUS_INTERNAL
+    grpc_status: INTERNAL
   }];
-}
-
-// Keys core's coordinator and the angzarr-embedded kernel answer.
-enum CoordinatorReason {
-  COORDINATOR_REASON_UNSPECIFIED = 0;
-  COORDINATOR_REASON_PM_NO_INSTANCE = 1 [(reason) = {
+  // Raised by the coordinator.
+  ANGZARR_REASON_PM_NO_INSTANCE = 19 [(reason) = {
     args: ["stream", "type_url"]
-    grpc_status: REASON_STATUS_FAILED_PRECONDITION
+    grpc_status: FAILED_PRECONDITION
   }];
+  // Raised by the coordinator.
   // A policy's output (io.angzarr.handler.v1.Output) whose root is unset or
   // not 16 bytes: nothing fills one in, for any destination (decision
   // 14.36, as amended). Refused by the policy's coordinator, the trigger
   // dead-lettered and alerted, nothing delivered. Bug, fatal (decision
   // 14.37).
-  COORDINATOR_REASON_POLICY_COMMAND_NO_ROOT = 2 [(reason) = {
+  ANGZARR_REASON_POLICY_COMMAND_NO_ROOT = 20 [(reason) = {
     args: ["domain", "command_type"]
-    grpc_status: REASON_STATUS_INTERNAL
+    grpc_status: INTERNAL
   }];
-  COORDINATOR_REASON_MISSING_RULES_VERSION = 3 [(reason) = {
+  // Raised by the coordinator.
+  ANGZARR_REASON_MISSING_RULES_VERSION = 21 [(reason) = {
     args: ["component"]
     readiness: {}
   }];
-  COORDINATOR_REASON_MISSING_STATE_TYPE = 4 [(reason) = {
+  // Raised by the coordinator.
+  ANGZARR_REASON_MISSING_STATE_TYPE = 22 [(reason) = {
     args: ["component", "component_kind"]
     readiness: {}
   }];
-  COORDINATOR_REASON_POLICY_NO_OUTPUT_DOMAIN = 5 [(reason) = {
+  // Raised by the coordinator.
+  ANGZARR_REASON_POLICY_NO_OUTPUT_DOMAIN = 23 [(reason) = {
     args: ["component"]
     readiness: {}
   }];
+  // Raised by the coordinator.
   // Commands only: the coordinator gave up on a command its caller is waiting
   // for (Handle, HandleSync): every run lost a race at the write to another
   // write to the same stream, until the race re-run cap (every input is
@@ -317,16 +286,17 @@ enum CoordinatorReason {
   // cap. A lost race carries no key, so there
   // is no cause. A fact's sender is never answered this: at the race re-run
   // cap the fact is dead-lettered and its sender answered
-  // COORDINATOR_REASON_FACT_DEAD_LETTERED. A command with no caller waiting, or a fact,
+  // ANGZARR_REASON_FACT_DEAD_LETTERED. A command with no caller waiting, or a fact,
   // dead-lettered at either cap records this key, with the same args, as
   // its AngzarrDeadLetter.reason. (Decisions 14.46, 14.85.) The key is for write races
   // only: a retryable bug dead-lettered at its cap records its own key, as
   // last answered (decision 14.48, amended). The race re-run cap is at least
   // 1 (decision 14.84).
-  COORDINATOR_REASON_RETRY_CAP_EXHAUSTED = 6 [(reason) = {
+  ANGZARR_REASON_RETRY_CAP_EXHAUSTED = 24 [(reason) = {
     args: ["stream", "attempts", "cap"]
-    grpc_status: REASON_STATUS_INTERNAL
+    grpc_status: INTERNAL
   }];
+  // Raised by the coordinator.
   // The rows of a deleted edition in one stream could not be removed
   // (transport/distributed/v1/meta.proto, DeleteEdition): the removal is
   // dead-lettered (the stream and its meta.EditionDeleted as
@@ -334,10 +304,11 @@ enum CoordinatorReason {
   // alerted. `attempts` is how many removals were tried, `cause` the store's
   // failure. Never answered to a caller: DeleteEdition has already answered.
   // (Decision 14.48, amended.)
-  COORDINATOR_REASON_EDITION_REMOVAL_FAILED = 7 [(reason) = {
+  ANGZARR_REASON_EDITION_REMOVAL_FAILED = 25 [(reason) = {
     args: ["stream", "edition", "attempts", "cause"]
-    grpc_status: REASON_STATUS_INTERNAL
+    grpc_status: INTERNAL
   }];
+  // Raised by the coordinator.
   // A reaction command (a policy's) addressed to a domain its coordinator
   // cannot route: no component of the domain is registered with it, and it
   // knows no coordinator for the domain elsewhere. Found when the policy's
@@ -347,10 +318,11 @@ enum CoordinatorReason {
   // 14.37): a deployment that wires a policy to a domain it does not host is
   // fixed by its operator, not by a retry. A client's command for an unknown
   // domain is the client's malformed input, never this. (Decision 14.49.)
-  COORDINATOR_REASON_POLICY_COMMAND_UNKNOWN_DOMAIN = 8 [(reason) = {
+  ANGZARR_REASON_POLICY_COMMAND_UNKNOWN_DOMAIN = 26 [(reason) = {
     args: ["domain", "command_type"]
-    grpc_status: REASON_STATUS_INTERNAL
+    grpc_status: INTERNAL
   }];
+  // Raised by the coordinator.
   // The coordinator could not reach the business process that handles
   // `domain`: its process is not running, the connection or the transport
   // failed, or the call timed out before an answer (`cause`, the transport's
@@ -359,15 +331,16 @@ enum CoordinatorReason {
   // means resend, under the retry cap with backoff and jitter. At the cap the
   // input is dead-lettered with this key and its args, as last answered, as
   // its AngzarrDeadLetter.reason (transient, by its status), never
-  // COORDINATOR_REASON_RETRY_CAP_EXHAUSTED, which is for write races only
+  // ANGZARR_REASON_RETRY_CAP_EXHAUSTED, which is for write races only
   // (decision 14.48, amended), and alerted. A business process that is reached
   // and answers a retryable bug of its own answers
-  // ROUTER_REASON_UNHANDLED_HANDLER_ERROR (C-0678), never this. (Decision
+  // ANGZARR_REASON_UNHANDLED_HANDLER_ERROR (C-0678), never this. (Decision
   // 14.49.)
-  COORDINATOR_REASON_HANDLER_UNAVAILABLE = 9 [(reason) = {
+  ANGZARR_REASON_HANDLER_UNAVAILABLE = 27 [(reason) = {
     args: ["stream", "domain", "cause"]
-    grpc_status: REASON_STATUS_UNAVAILABLE
+    grpc_status: UNAVAILABLE
   }];
+  // Raised by the coordinator.
   // A limit a coordinator may enforce: where it follows a chain of reactions
   // from the input a caller sent (the input at depth 0, a policy's reaction to
   // its events at depth 1, and so on), a reaction that would go deeper than
@@ -379,10 +352,11 @@ enum CoordinatorReason {
   // help, and a business status would reach Translate, whose reaction
   // deepens the chain. A coordinator that does not
   // follow chains never answers it. (Decision 14.49.)
-  COORDINATOR_REASON_CHAIN_TOO_DEEP = 10 [(reason) = {
+  ANGZARR_REASON_CHAIN_TOO_DEEP = 28 [(reason) = {
     args: ["limit"]
-    grpc_status: REASON_STATUS_INTERNAL
+    grpc_status: INTERNAL
   }];
+  // Raised by the coordinator.
   // The coordinator's event store failed to answer (I/O, a timeout, a dropped
   // connection, a busy or locked database: `cause`, the store's failure, a
   // third-party driver's text as `cause.ext_err_txt`); a write may or may not
@@ -394,10 +368,11 @@ enum CoordinatorReason {
   // waiting caller is answered this key. A write that lost a race
   // is never this: the store was sure, and the coordinator re-runs it.
   // (Decision 14.51.)
-  COORDINATOR_REASON_STORE_UNAVAILABLE = 11 [(reason) = {
+  ANGZARR_REASON_STORE_UNAVAILABLE = 29 [(reason) = {
     args: ["cause"]
-    grpc_status: REASON_STATUS_UNAVAILABLE
+    grpc_status: UNAVAILABLE
   }];
+  // Raised by the coordinator.
   // The upcaster sidecar `domain`'s coordinator upcasts through (decision
   // 14.39) is configured but could not be reached, or answered under a
   // retryable status (`cause`): the coordinator delivers nothing it would have
@@ -406,10 +381,11 @@ enum CoordinatorReason {
   // deliveries stay queued until the sidecar is back, so it is never a dead
   // letter's reason. A rule that fails (an error status from
   // Upcast) is a handler bug, never this. (Decision 14.51.)
-  COORDINATOR_REASON_UPCASTER_UNAVAILABLE = 12 [(reason) = {
+  ANGZARR_REASON_UPCASTER_UNAVAILABLE = 30 [(reason) = {
     args: ["domain", "cause"]
-    grpc_status: REASON_STATUS_UNAVAILABLE
+    grpc_status: UNAVAILABLE
   }];
+  // Raised by the coordinator.
   // A handler's answer (io.angzarr.handler.v1.HandleResponse) whose
   // rules_version (`reported`, an empty one
   // included) is not the version the component registered (`registered`: its
@@ -418,10 +394,11 @@ enum CoordinatorReason {
   // asynchronous or reaction delivery dead-lettered with it as its
   // AngzarrDeadLetter.reason and alerted (docs/design/command-handling.md;
   // C-0558, C-0559, C-0748). (Decision 14.56.)
-  COORDINATOR_REASON_RULES_VERSION_MISMATCH = 13 [(reason) = {
+  ANGZARR_REASON_RULES_VERSION_MISMATCH = 31 [(reason) = {
     args: ["stream", "component", "registered", "reported"]
-    grpc_status: REASON_STATUS_INTERNAL
+    grpc_status: INTERNAL
   }];
+  // Raised by the coordinator.
   // An outside input (a client's command or fact) to a stream in an
   // edition (`edition`) that is not forked there (`stream`, the input's
   // stream in that edition): the store's Editions capability knows no fork
@@ -431,10 +408,11 @@ enum CoordinatorReason {
   // or waits for a policy to propagate into it, and resends. A reaction
   // command into an edition is never this: its coordinator forks on arrival
   // (edition_forks.feature). (C-0633; decision 14.65.)
-  COORDINATOR_REASON_EDITION_NOT_FORKED = 14 [(reason) = {
+  ANGZARR_REASON_EDITION_NOT_FORKED = 32 [(reason) = {
     args: ["stream", "edition"]
-    grpc_status: REASON_STATUS_FAILED_PRECONDITION
+    grpc_status: FAILED_PRECONDITION
   }];
+  // Raised by the coordinator.
   // A policy's reaction, a command or a fact, addressed to its trigger's own
   // stream (`stream`: the trigger's domain and root, and its edition, which
   // every output is stamped with), of type `command_type`. A policy may
@@ -445,10 +423,11 @@ enum CoordinatorReason {
   // AngzarrDeadLetter.reason (retry_count 0), and alerted. Bug, fatal (decision
   // 14.37): the same policy answers the same way again. (C-0784; decision
   // 14.71.)
-  COORDINATOR_REASON_POLICY_TARGETS_ITS_TRIGGER = 15 [(reason) = {
+  ANGZARR_REASON_POLICY_TARGETS_ITS_TRIGGER = 33 [(reason) = {
     args: ["stream", "command_type"]
-    grpc_status: REASON_STATUS_INTERNAL
+    grpc_status: INTERNAL
   }];
+  // Raised by the coordinator.
   // A policy or a projector descriptor that names no source: a policy's
   // empty input_domain, a projector's empty input_domains (`component_kind`
   // says which). Its sources are derived from the events it names (decision
@@ -456,26 +435,19 @@ enum CoordinatorReason {
   // react to or fold nothing. One rule, the coordinator's, for both kinds
   // (decision 14.101, DRAFT): readiness, as every descriptor rule's
   // (decision 14.65).
-  COORDINATOR_REASON_NO_INPUT_DOMAIN = 16 [(reason) = {
+  ANGZARR_REASON_NO_INPUT_DOMAIN = 34 [(reason) = {
     args: ["component", "component_kind"]
     readiness: {}
   }];
+  // Raised by the coordinator.
   // A descriptor whose kind (the ComponentDescriptor.kind oneof) is unset,
   // or an arm this coordinator does not know. Readiness (decision 14.65,
   // 14.78).
-  COORDINATOR_REASON_DESCRIPTOR_NO_KIND = 17 [(reason) = {
+  ANGZARR_REASON_DESCRIPTOR_NO_KIND = 35 [(reason) = {
     args: ["component"]
     readiness: {}
   }];
-  // A descriptor whose rules_version (`rules_version`), less one leading
-  // "v" or "V", does not parse as SemVer 2.0.0: the snapshot rule compares
-  // versions by major and minor only (types.proto, Snapshot), so it has no
-  // other version to judge by. Readiness, as every descriptor rule's
-  // (decision 14.88, DRAFT, dropping the string-equality fallback).
-  COORDINATOR_REASON_RULES_VERSION_NOT_SEMVER = 18 [(reason) = {
-    args: ["component", "rules_version"]
-    readiness: {}
-  }];
+  // Raised by the coordinator.
   // A fact that could not be recorded and is dead-lettered (decision
   // 14.100, DRAFT; the owner: "non-retryable. if retrying senders repark,
   // it's a logic bug. they shouldn't be retrying"): its handler failed,
@@ -485,17 +457,19 @@ enum CoordinatorReason {
   // INTERNAL, never retried; the dead letter holds the fact for an
   // operator. A policy that delivered the fact takes this as its step done:
   // it neither retries the fact nor dead-letters it again.
-  COORDINATOR_REASON_FACT_DEAD_LETTERED = 19 [(reason) = {
+  ANGZARR_REASON_FACT_DEAD_LETTERED = 36 [(reason) = {
     args: ["stream", "cause"]
-    grpc_status: REASON_STATUS_INTERNAL
+    grpc_status: INTERNAL
   }];
+  // Raised by the coordinator.
   // An aggregate's or a process manager's descriptor with no domain: after
   // the one component name (decision 14.87) the name no longer implies it.
   // Readiness (decisions 14.65, 14.101, DRAFT).
-  COORDINATOR_REASON_DESCRIPTOR_NO_DOMAIN = 20 [(reason) = {
+  ANGZARR_REASON_DESCRIPTOR_NO_DOMAIN = 37 [(reason) = {
     args: ["component", "component_kind"]
     readiness: {}
   }];
+  // Raised by the coordinator.
   // A handler's answer whose state (`state_type`, the name its type URL
   // ends in) is not the type the component registered (`registered`, its
   // StateDescriptor.type_name): its snapshots would never be offered back
@@ -503,10 +477,10 @@ enum CoordinatorReason {
   // caller of Handle or HandleSync is answered it, any other delivery
   // dead-lettered with it and alerted. The coordinator's equivalent of the
   // retired host check (decision 14.102, DRAFT: the coordinator owns every
-  // descriptor check), beside COORDINATOR_REASON_RULES_VERSION_MISMATCH,
+  // descriptor check), beside ANGZARR_REASON_RULES_VERSION_MISMATCH,
   // which is the equivalent for the rules version.
-  COORDINATOR_REASON_STATE_TYPE_MISMATCH = 21 [(reason) = {
+  ANGZARR_REASON_STATE_TYPE_MISMATCH = 38 [(reason) = {
     args: ["stream", "component", "registered", "state_type"]
-    grpc_status: REASON_STATUS_INTERNAL
+    grpc_status: INTERNAL
   }];
 }

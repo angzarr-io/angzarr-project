@@ -37,7 +37,7 @@ option ruby_package = "Angzarr::Component";
 //
 // In the client library: the type URL picks the handler. A type URL no
 // registered handler claims is refused INTERNAL (a bug: decision 14.37)
-// with reason ROUTER_REASON_UNKNOWN_COMMAND_TYPE (ROUTER_REASON_NO_FACT_HANDLER
+// with reason ANGZARR_REASON_UNKNOWN_COMMAND_TYPE (ANGZARR_REASON_NO_FACT_HANDLER
 // for a fact), which is also the status message (a key, never text); the
 // status details carry a google.rpc.ErrorInfo whose metadata key "type_url"
 // holds the type URL the library was given. The coordinator answers its
@@ -48,7 +48,7 @@ option ruby_package = "Angzarr::Component";
 //
 // The coordinator persists nothing from an answer it refuses: a
 // rules_version other than the registered one
-// (COORDINATOR_REASON_RULES_VERSION_MISMATCH, decision 14.56). A caller of
+// (ANGZARR_REASON_RULES_VERSION_MISMATCH, decision 14.56). A caller of
 // Handle or HandleSync is answered INTERNAL; an asynchronous or reaction
 // delivery is dead-lettered and alerted. Neither is a business rejection.
 service CommandHandlerService {
