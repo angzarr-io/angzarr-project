@@ -10,28 +10,23 @@ option java_package = "io.angzarr.examples";
 option ruby_package = "Angzarr::Examples";
 
 // =============================================================================
-// projector-wallet-table-ledger — the money read model over both domains
+// The money read models: two single-domain projectors (decision 14.96, DRAFT)
 // =============================================================================
 //
-// Subscribes to "wallet" and "table" (the wallet was the "player" domain
-// until decision 14.38): one projector over both (decision 14.50), its
-// sources derived from the events it names, whose owners are the wallet
-// and table aggregates (decision 14.78). Every applied event is remembered by (domain, root,
-// sequence), so replaying or redelivering an event leaves the read model
-// unchanged.
+// The owner, 2026-11-02: "our examples should *not* use multi domain
+// projectors". What was one projector over wallet and table
+// (projector-wallet-table-ledger) is two, each sourcing only its own
+// domain's events:
+//   projector-wallet-ledger  bankrolls, holds, loyalty, recent results
+//   projector-table-ledger   stacks, wagers, house result, chips in and out
+// Every applied event is remembered by (domain, root, sequence), so
+// replaying or redelivering an event leaves a read model unchanged.
 //
-// Transfers between the two domains are seen twice, once per side, and the
-// sides can arrive in either order. A transfer is "in flight" until both
-// sides are seen:
-//   buy-in   PlayerSeated(buy_in_id)  <-> FundsCaptured(hold_id = buy_in_id)
-// The top-up and cash-out pairs of the earlier spec (ChipsAdded <->
-// TopUpSettled, PlayerCashedOut <-> CashOutCredited) wait on the top-up and
-// cash-out rulings; until then nothing on the wallet side pairs with a
-// PlayerCashedOut.
-//
-// Invariant L4 (checked only when nothing is in flight):
-//   sum(bankroll) + sum(stacks + wagers) + sum(house_result)
-//     = total deposits - total withdrawals.
+// Neither pairs transfers across domains, and neither judges money
+// conservation: L4 (sum(bankroll) + sum(stacks + wagers) +
+// sum(house_result) = deposits - withdrawals) is an end-to-end test
+// assertion over both read models once a run has settled, not a
+// projector's contract.
 
 message LedgerRoundResult {
   bytes table_root = 1;
@@ -58,36 +53,53 @@ message TableLedgerRow {
   int64 chips_out = 7;
 }
 
-message LedgerTotals {
+// The wallet ledger's totals.
+message WalletLedgerTotals {
   int64 deposits = 1;
   int64 withdrawals = 2;
   int64 bankrolls = 3;
-  int64 stacks = 4;
-  int64 wagers = 5;
-  int64 house_result = 6;
-  int64 in_flight = 7; // Sum of amounts of transfers seen on one side only
-  uint32 in_flight_transfers = 8; // Number of such transfers
 }
 
-// Anchor of the LedgerProjector.
-message LedgerProjection {
+// The table ledger's totals.
+message TableLedgerTotals {
+  int64 stacks = 1;
+  int64 wagers = 2;
+  int64 house_result = 3;
+}
+
+// Anchor of the wallet ledger: wallet events only.
+message WalletLedgerProjection {
   option (io.angzarr.v1.component) = {
-    component_name: "projector-ledger-projection"
+    component_name: "projector-wallet-ledger"
     projector: {}
   };
   map<string, WalletLedgerRow> wallets = 1; // key = hex(player_root)
-  map<string, TableLedgerRow> tables = 2; // key = hex(table_root)
-  LedgerTotals totals = 3;
+  WalletLedgerTotals totals = 2;
 }
 
-// Example read API over the ledger read model, served by the projector
-// process next to the framework ProjectorService.
-service LedgerQueryService {
-  // The wallet as the ledger sees it; found = false until the ledger has
-  // applied an event for that wallet.
+// Anchor of the table ledger: table events only.
+message TableLedgerProjection {
+  option (io.angzarr.v1.component) = {
+    component_name: "projector-table-ledger"
+    projector: {}
+  };
+  map<string, TableLedgerRow> tables = 1; // key = hex(table_root)
+  TableLedgerTotals totals = 2;
+}
+
+// Example read API over the wallet ledger, served by its projector process
+// next to the framework ProjectorService.
+service WalletLedgerQueryService {
+  // The wallet as the ledger sees it, or that it has never seen it.
   rpc GetWalletBalance(GetWalletBalanceRequest) returns (WalletBalanceView);
-  // Global totals, every table row and whether money balances.
-  rpc GetLedger(GetLedgerRequest) returns (LedgerView);
+  // The wallet ledger's totals.
+  rpc GetWalletLedger(GetWalletLedgerRequest) returns (WalletLedgerView);
+}
+
+// Example read API over the table ledger, served by its projector process.
+service TableLedgerQueryService {
+  // The table ledger's totals and every table row.
+  rpc GetTableLedger(GetTableLedgerRequest) returns (TableLedgerView);
 }
 
 message GetWalletBalanceRequest {
@@ -117,23 +129,15 @@ message WalletBalance {
 // A wallet the ledger has never seen.
 message WalletNotSeen {}
 
-message GetLedgerRequest {}
+message GetWalletLedgerRequest {}
 
-message LedgerView {
-  LedgerTotals totals = 1;
-  repeated TableLedgerRow tables = 2;
-  // Where the money stands (decision 14.91, DRAFT): the `balanced` flag's
-  // false said two things, money in flight or invariant L4 broken.
-  LedgerState state = 4;
-  // Field 3 was balanced; retired by decision 14.91.
-  reserved 3;
-  reserved "balanced";
+message WalletLedgerView {
+  WalletLedgerTotals totals = 1;
 }
 
-// Where the ledger's money stands.
-enum LedgerState {
-  LEDGER_STATE_UNSPECIFIED = 0; // Never answered
-  LEDGER_STATE_BALANCED = 1; // Nothing in flight, and invariant L4 holds
-  LEDGER_STATE_IN_FLIGHT = 2; // A transfer is seen on one side only; L4 is not judged
-  LEDGER_STATE_UNBALANCED = 3; // Nothing in flight, and invariant L4 does not hold: a bug
+message GetTableLedgerRequest {}
+
+message TableLedgerView {
+  TableLedgerTotals totals = 1;
+  repeated TableLedgerRow tables = 2;
 }

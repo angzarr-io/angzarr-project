@@ -47,9 +47,10 @@ option ruby_package = "Angzarr";
 // Commands and facts. The same coordinator upcasts an incoming Command's or
 // Fact's payload through the SAME chain, by type URL, before it judges the
 // input by its type (a process manager's start rule) and before dispatch. It sends the payload as a one-page
-// UpcastRequest whose page carries only `payload`, and takes the returned
-// payload. An upcaster answers payloads only (UpcastResponse): a page's
-// sequence and EventMeta stay as stored. The business process (the client library's router) never
+// UpcastRequest whose page carries only `payload` and sequence 0, and takes
+// the answer entry keyed 0. An upcaster answers payloads keyed by sequence
+// (UpcastResponse, decision 14.96): a page's sequence and EventMeta stay as
+// stored. The business process (the client library's router) never
 // upcasts and never sees an old shape. A payload whose type URL, after
 // upcasting, reaches no handler is refused by the router INTERNAL (a bug:
 // decision 14.37) with reason ROUTER_REASON_UNKNOWN_COMMAND_TYPE (ROUTER_REASON_NO_FACT_HANDLER for a
@@ -80,5 +81,5 @@ option ruby_package = "Angzarr";
 // UNAVAILABLE COORDINATOR_REASON_UPCASTER_UNAVAILABLE (retryable; args
 // domain, cause; decision 14.51); queued and reaction deliveries stay
 // queued. A
-// rule that fails (an error status from UpcastPayloads, or an answer with
-// another count of payloads than pages) is a handler bug.
+// rule that fails (an error status from UpcastPayloads, or an answer whose
+// sequences are not exactly the requested pages') is a handler bug.

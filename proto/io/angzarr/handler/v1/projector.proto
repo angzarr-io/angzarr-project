@@ -16,6 +16,19 @@ option ruby_package = "Angzarr::Handler";
 // What Project is handed: a run of one stream's events, in order, upcast.
 // A projector folds the run into one write, reading each page's context
 // from its EventMeta.
+//
+// A projector over several domains receives each stream's run
+// independently, in any order across streams: there is NO cross-stream
+// order (decision 14.96, DRAFT). Within one stream the pages are in
+// sequence order.
+//
+// Multi-domain projectors should be rare. They are not substitutes for
+// process managers or business logic: the capability exists for system
+// capabilities such as the timekeeping module, global logging and the like
+// (the owner, 2026-11-02; decision 14.96, DRAFT).
+//
+// A projector keys its read model by edition (Cover.edition, as
+// types.proto says), as by stream.
 message ProjectRequest {
   // The stream's cover and the run of pages, each with its sequence and
   // EventMeta.

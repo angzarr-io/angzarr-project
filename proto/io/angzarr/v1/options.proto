@@ -91,7 +91,7 @@ option ruby_package = "Angzarr";
 //   option (io.angzarr.v1.component) = {
 //     component_name: "policy-table-wallet" policy: { output_domain: "wallet" } };
 //   option (io.angzarr.v1.component) = {
-//     component_name: "projector-ledger-projection" projector: {} };
+//     component_name: "projector-table-ledger" projector: {} };
 message ComponentOptions {
   // The component's ONE name (decision 14.87, DRAFT; the owner's ruling F8
   // of 2026-11-02, amending 14.50): what the host config's [[component]]
@@ -159,7 +159,14 @@ message PolicyDecl {
 
 // A projector's declaration. Its sources are derived from the events it
 // names (above); one handler serves them all, dispatching each event by
-// its type and receiving its source domain with it (decision 14.50).
+// its type and receiving its source domain with it (decision 14.50). Each
+// stream's run arrives independently, in any order across streams: there
+// is no cross-stream order (decision 14.96, DRAFT).
+//
+// Multi-domain projectors should be rare. They are not substitutes for
+// process managers or business logic: the capability exists for system
+// capabilities such as the timekeeping module, global logging and the like
+// (the owner, 2026-11-02; decision 14.96, DRAFT).
 message ProjectorDecl {}
 
 // Marks a message as a COMMAND: a request its component decides and may

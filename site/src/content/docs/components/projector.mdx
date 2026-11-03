@@ -47,6 +47,12 @@ One class per projector: state lives on the instance, handlers call into instanc
 
 ## Multi-Domain Projectors
 
+:::caution
+**Multi-domain projectors should be rare.** They are not substitutes for process managers or business logic: the capability exists for system capabilities such as the timekeeping module, global logging and the like (decision 14.96, DRAFT).
+:::
+
+A multi-domain projector receives each stream's run of events independently, in any order across streams: there is no cross-stream order (decision 14.96).
+
 Projectors **can** subscribe to events from multiple domains, but **should not** unless absolutely required:
 
 ```python title="illustrative"
@@ -63,7 +69,7 @@ class OutputProjector(Projector):
 
 **If you need multi-domain subscription, check your domain boundaries first.** Needing to join events across domains often indicates the domains are incorrectly partitioned. Consider whether those events belong in the same domain.
 
-When multi-domain is truly necessary (e.g., a cross-cutting analytics view), it's technically safe because projectors only observe—but prefer single-domain projectors where possible for simpler reasoning and deployment.
+When multi-domain is truly necessary (a system capability, such as the timekeeping module or global logging), it's technically safe because projectors only observe—but prefer single-domain projectors where possible for simpler reasoning and deployment.
 
 ---
 

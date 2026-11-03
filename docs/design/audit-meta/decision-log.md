@@ -5251,7 +5251,8 @@ bools are fine, as they implement fixed rules".
 - **Shapes, not flags.** `DeleteDeadLetterOk.deleted` (1) becomes `oneof
   outcome { removed | no_entry }`; the ledger's `WalletBalanceView.found`
   becomes `oneof result { balance | not_seen }` and `LedgerView.balanced` the
-  enum `LedgerState` (BALANCED, IN_FLIGHT, UNBALANCED).
+  enum `LedgerState` (BALANCED, IN_FLIGHT, UNBALANCED); both superseded by
+  14.96, which splits the ledger and drops `LedgerState`.
 - **Kept bools**, each data with two states only: blackjack's (the owner),
   the wallet's `registered` and `loyalty_enrolled`, the compensation
   fixture's `failed`, and the vendored `sererr` and `google.api` messages.
@@ -5355,6 +5356,32 @@ untyped rejection, 14.52's default status and 14.89's Ingest oneof.
   status; Any typed }`, read off the target's status by the policy's
   coordinator.
 - **Facts keep arriving in a CommandBook** (the owner's call; no change).
+
+**14.96 (DRAFT) Upcasts keyed by sequence; projectors per stream; the
+examples' ledger split.** The owner's review round 2, 2026-11-02.
+- **Upcaster.** `UpcastResponse { repeated Upcasted pages }`, `Upcasted {
+  uint64 sequence; Any payload }`, matched to the request's pages by
+  sequence, never by position. A command's or a fact's one page is sent and
+  answered keyed 0 (it has no stream sequence).
+- **Projector contract.** A multi-source projector receives each stream's
+  run independently, in any order across streams; there is no cross-stream
+  order. The one `Any` projection, edition-keyed read models and
+  `ProjectRequest`'s `EventBook` are unchanged.
+- **The owner's wording**, in the projector protos, options.proto and the
+  site's projector page: multi-domain projectors should be rare and are
+  not substitutes for process managers or business logic; the capability
+  exists for system capabilities such as the timekeeping module, global
+  logging and the like.
+- **Examples use no multi-domain projector** (the owner: "our examples
+  should *not* use multi domain projectors"). The ledger
+  (projector-wallet-table-ledger) is split into projector-wallet-ledger
+  (WalletLedgerProjection: bankrolls, holds, loyalty, recent results) and
+  projector-table-ledger (TableLedgerProjection: stacks, wagers, house
+  result, chips in and out), each sourcing its own domain only, with
+  `WalletLedgerQueryService` and `TableLedgerQueryService`. `LedgerState`
+  (14.91), the in-flight transfer pairing and invariant L4 leave the
+  projector's contract; L4 money conservation becomes an end-to-end test
+  assertion over both read models once a run settles.
 
 ## Corrections
 

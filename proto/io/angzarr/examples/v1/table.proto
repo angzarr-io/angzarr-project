@@ -411,7 +411,7 @@ message WagerInPlay {
 message TableCreated {
   option (io.angzarr.v1.event) = {component: "io.angzarr.examples.v1.TableState"};
   option (io.angzarr.v1.event) = {
-    component: "io.angzarr.examples.v1.LedgerProjection"
+    component: "io.angzarr.examples.v1.TableLedgerProjection"
   };
   string name = 1;
   int64 min_bet = 2;
@@ -462,7 +462,7 @@ message PlayerSeated {
     component: "io.angzarr.examples.v1.TableBuyInPolicy"
   };
   option (io.angzarr.v1.event) = {
-    component: "io.angzarr.examples.v1.LedgerProjection"
+    component: "io.angzarr.examples.v1.TableLedgerProjection"
   };
   bytes buy_in_id = 1;
   bytes player_root = 2;
@@ -478,7 +478,7 @@ message PlayerSeated {
 message PlayerCashedOut {
   option (io.angzarr.v1.event) = {component: "io.angzarr.examples.v1.TableState"};
   option (io.angzarr.v1.event) = {
-    component: "io.angzarr.examples.v1.LedgerProjection"
+    component: "io.angzarr.examples.v1.TableLedgerProjection"
   };
   bytes cashout_id = 1;
   bytes player_root = 2;
@@ -489,7 +489,7 @@ message PlayerCashedOut {
 message BetPlaced {
   option (io.angzarr.v1.event) = {component: "io.angzarr.examples.v1.TableState"};
   option (io.angzarr.v1.event) = {
-    component: "io.angzarr.examples.v1.LedgerProjection"
+    component: "io.angzarr.examples.v1.TableLedgerProjection"
   };
   uint32 round = 1;
   int32 seat = 2;
@@ -574,7 +574,7 @@ message HandStood {
 message HandDoubled {
   option (io.angzarr.v1.event) = {component: "io.angzarr.examples.v1.TableState"};
   option (io.angzarr.v1.event) = {
-    component: "io.angzarr.examples.v1.LedgerProjection"
+    component: "io.angzarr.examples.v1.TableLedgerProjection"
   };
   int32 seat = 1;
   int64 added = 2;
@@ -617,14 +617,14 @@ message SeatOutcome {
 
 // The round is over. house_delta = sum(wagers) - sum(returned). One event,
 // several consumers: the table folds it, policy-table-wallet reacts to it,
-// and the ledger projects it.
+// and the table ledger projects it.
 message RoundSettled {
   option (io.angzarr.v1.event) = {component: "io.angzarr.examples.v1.TableState"};
   option (io.angzarr.v1.event) = {
     component: "io.angzarr.examples.v1.TableWalletPolicy"
   };
   option (io.angzarr.v1.event) = {
-    component: "io.angzarr.examples.v1.LedgerProjection"
+    component: "io.angzarr.examples.v1.TableLedgerProjection"
   };
   uint32 round = 1;
   repeated SeatOutcome outcomes = 2; // Ascending by seat

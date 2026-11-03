@@ -16,17 +16,30 @@ option ruby_package = "Angzarr::Handler";
 
 // What an upcaster is handed: the pages to bring to their current shape,
 // with their sequences and EventMeta, read-only. For a command or a fact
-// the coordinator sends one page carrying only its payload.
+// the coordinator sends one page carrying only its payload and sequence 0
+// (it has no stream sequence; decision 14.96, DRAFT), and takes the one
+// answer entry keyed 0.
 message UpcastRequest {
   // The domain whose streams these pages belong to.
   string domain = 1;
   repeated io.angzarr.v1.EventPage events = 2;
 }
 
-// What an upcaster answers: the payloads, in current shape, one per page,
-// in the same order. A page's sequence and EventMeta are the coordinator's
-// and stay as stored, so an upcaster cannot rewrite them. An answer with
-// another count is a rule bug (an error from the upcaster).
+// What an upcaster answers: each page's payload in its current shape,
+// keyed by the page's sequence (decision 14.96, DRAFT): matched to the
+// request's pages by sequence, never by position. A page's sequence and
+// EventMeta are the coordinator's and stay as stored, so an upcaster cannot
+// rewrite them. An answer missing a requested sequence, naming one not
+// requested, or naming one twice is a rule bug (an error from the
+// upcaster).
 message UpcastResponse {
-  repeated google.protobuf.Any payloads = 1;
+  repeated Upcasted pages = 1;
+}
+
+// One page's upcast payload.
+message Upcasted {
+  // The requested page's sequence (0 for a command's or a fact's one page).
+  uint64 sequence = 1;
+  // Its payload, in current shape.
+  google.protobuf.Any payload = 2;
 }
