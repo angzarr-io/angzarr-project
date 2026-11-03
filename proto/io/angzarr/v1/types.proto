@@ -71,7 +71,7 @@ message UUID {
 // region derived_ids
 // Framework-derived identifiers: UUIDv5 (RFC 9562 section 5.5, SHA-1
 // name-based) under fixed angzarr namespace UUIDs. Every runtime (core, each
-// client library, annals) derives the same 16 bytes from the same name. The
+// client library, angzarr-embedded) derives the same 16 bytes from the same name. The
 // name is always the UTF-8 encoding of the text shown, with no
 // normalisation.
 //
@@ -142,7 +142,7 @@ message UUID {
 // Minted identifiers. Every identifier the framework mints is a UUIDv7
 // (RFC 9562): time-ordered, so minted ids sort by creation time and index
 // well, with 74 random bits. This holds in angzarr (coordinator and client
-// libraries) and in annals alike. On the wire a minted id is a UUID message
+// libraries) and in angzarr-embedded alike. On the wire a minted id is a UUID message
 // (16 bytes). Today the framework mints:
 //   - CommandPage.command_id of a client Command that arrives without one;
 //   - correlation, only indirectly: an absent correlation on a client
@@ -192,7 +192,7 @@ message Cover {
   // An edition is a set of per-stream FORKS, and nothing else: there is no
   // edition registry and no separate metadata store. Stream (D, X, R)
   // exists in edition X from its creation: an EditionCreated meta-event
-  // (meta/events.proto) whose own sequence is its fork point (decision
+  // (the meta_events region) whose own sequence is its fork point (decision
   // 14.86), at or below main's head for (D, main, R), the sequence main would use
   // next; above it is a conflict (decision 14.36). That event is the first
   // of X's version of the stream, and its sequence marks main's end and
@@ -208,7 +208,7 @@ message Cover {
   //     14.69), that arrival is the propagation; the angzarr system layer
   //     forks the stream then, at the main head it reads, and the input is
   //     handled
-  //     (meta.EditionCreated, Propagation). Streams X's activity
+  //     (docs/design/edition-meta-events.md §2). Streams X's activity
   //     never touches are never forked.
   //   - A command or fact from outside (not a policy's) addressed in X to a
   //     stream with no fork in X is REFUSED until propagation forks it:
@@ -224,7 +224,7 @@ message Cover {
   //     that was never created, or was deleted, is refused loudly
   //     (NOT_FOUND), never silently given storage: a misspelt edition
   //     cannot write anywhere.
-  //   - Deleting X is an event too (meta.EditionDeleted): recorded in each
+  //   - Deleting X is an event too (EditionDeleted; docs/design/edition-meta-events.md §3): recorded in each
   //     stream it reaches, propagated onward through the policy flows, and
   //     only then are that stream's rows of X removed, the event included.
   //   - Main knows nothing of an edition: its lifecycle lives only in the
@@ -320,9 +320,16 @@ message ExpectedSequenceMismatch {
 // EventMeta.recorded_at, and any business time (e.g. when an external fact
 // originally occurred) belongs in the event payload.
 message EventPage {
-  // The domain event. Its type URL names the event type and version
-  // (versioned packages: pkg.v1.Foo -> pkg.v2.Foo).
-  google.protobuf.Any payload = 1;
+  // What the event is (decision 14.106, DRAFT): a domain's event, or the
+  // framework's meta-event. The client library hands business code only
+  // the event arm.
+  oneof body {
+    // A domain's event. Its type URL names the event type and version
+    // (versioned packages: pkg.v1.Foo -> pkg.v2.Foo).
+    google.protobuf.Any event = 1;
+    // A framework meta-event (docs/design/edition-meta-events.md).
+    MetaEvent meta_event = 4;
+  }
   EventMeta meta = 2; // Provenance: which command, why, when recorded, under which rules (see EventMeta)
   // The event's position in its stream (domain, edition, root). Always
   // definite: assigned by the framework when the event is persisted, never
@@ -548,10 +555,9 @@ message FactOrigin {
 
 // region editions
 // An edition's lifecycle is FRAMEWORK META-EVENTS in the edition's own
-// streams (decision 14.32): io.angzarr.v1.meta.EditionCreated and
-// io.angzarr.v1.meta.EditionDeleted, in meta/events.proto, the reserved
-// namespace for meta-events (stores and coordinators may recognise them by
-// type; business handlers never see them).
+// streams (decision 14.32): EditionCreated and EditionDeleted, an
+// EventPage's meta_event arm (the meta_events region;
+// docs/design/edition-meta-events.md). Business handlers never see them.
 //
 // Main knows nothing (the owner's invariant). Every datum and message of
 // an edition's lifecycle lives in the edition's own streams (D, X, R), in
@@ -564,6 +570,55 @@ message FactOrigin {
 // from main's. Main's coordinators, projectors and readers behave exactly
 // as if no edition existed: creating and deleting an edition leaves main's
 // streams, outbox and positions byte-for-byte unchanged.
+// endregion
+
+// region meta_events
+// The framework's meta-events (decision 14.106, DRAFT: a type, an
+// EventPage's meta_event arm, never a type-URL convention). What they do
+// is docs/design/edition-meta-events.md.
+message MetaEvent {
+  oneof kind {
+    EditionCreated created = 1;
+    EditionDeleted deleted = 2;
+  }
+}
+
+// The first event of an edition's version of a stream, at the stream's
+// fork sequence (its own EventPage.sequence). The edition is the page's
+// cover's (docs/design/edition-meta-events.md §2).
+message EditionCreated {
+  // How the stream came to be forked.
+  oneof source {
+    // Forked from outside, by EditionAdminService.ForkStream.
+    OriginFork origin = 1;
+    // Forked by a policy's input arriving in the edition.
+    PropagatedFork propagated = 2;
+  }
+}
+
+// An origin fork: nothing to say but its kind.
+message OriginFork {}
+
+// A fork made by a policy's input arriving in the edition.
+message PropagatedFork {
+  // The EditionCreated of the stream the policy reacted to.
+  EventRef from = 1;
+  // The arriving input's command_id.
+  UUID forked_by = 2;
+}
+
+// An edition's deletion, recorded in one stream of it
+// (docs/design/edition-meta-events.md §3).
+message EditionDeleted {
+  // The edition. Required, non-empty.
+  string edition = 1;
+  // For a deletion carried by a policy command's arrival: the EditionDeleted
+  // of the stream the policy reacted to. Unset at an origin.
+  EventRef propagated_from = 2;
+  // For a deletion carried by a policy command's arrival: that command's
+  // command_id. Unset at an origin.
+  UUID deleted_by = 3;
+}
 // endregion
 
 // region diagnostic
@@ -612,7 +667,7 @@ message FactOrigin {
 //
 // A cause wrapped inside a diagnostic is flattened into the args: the
 // cause's code under the arg's name, and each of its args under
-// "<name>.<arg>" (so "cause" = "annals-store-sql-io", "cause.errno" =
+// "<name>.<arg>" (so "cause" = "angzarr-embedded-store-sql-io", "cause.errno" =
 // "10"). The same flattening serves ErrorInfo metadata.
 //
 // The one text an arg may hold: where angzarr converts a third-party
@@ -1151,8 +1206,8 @@ message AngzarrDeadLetter {
     EventBook rejected_events = 3; // Events that failed (policy/projector failures)
     // An edition removal that failed (DeleteEdition): the
     // stream whose rows of the edition could not be removed, as its cover,
-    // and its meta.EditionDeleted event, as recorded there, as the one
-    // page. An EventBook, since meta/events.proto imports this file.
+    // and its EditionDeleted event, as recorded there, as the one
+    // page.
     // Reason ANGZARR_REASON_EDITION_REMOVAL_FAILED (decision 14.48,
     // amended).
     EventBook failed_edition_removal = 4;

@@ -16,12 +16,13 @@ option ruby_package = "Angzarr";
 //
 // Editions are PER-STREAM FORKS (decision 14.32, the owner's ruling of
 // 2026-10-28; Cover.edition in types.proto, and the meta-events
-// EditionCreated and EditionDeleted in meta/events.proto). There is no
+// EditionCreated and EditionDeleted, types.proto's meta_events region;
+// docs/design/edition-meta-events.md). There is no
 // edition registry and no separate metadata store: an edition exists
 // exactly as far as its fork events do. Creating edition X forks an origin
 // stream: it appends an EditionCreated meta-event to (D, X, R). It then
 // travels with the data: each policy command in X that reaches a stream with
-// no fork in X forks it on arrival (meta.EditionCreated). Listing
+// no fork in X forks it on arrival (EditionCreated, propagated). Listing
 // editions is a query over X's own creation events. Deleting one is an
 // event too: EditionDeleted is recorded in X's origin streams, and the
 // angzarr system layer (shared system code in angzarr-core, called by
@@ -49,7 +50,7 @@ option ruby_package = "Angzarr";
 // stored.
 message EditionSummary {
   string name = 1; // Always non-empty (main is not an edition)
-  // The origin forks: the EditionCreated events with no propagated_from.
+  // The origin forks: the EditionCreated events whose source is origin.
   repeated EventRef origins = 2;
   uint64 forked_streams = 3; // How many streams hold a fork event of it
 }

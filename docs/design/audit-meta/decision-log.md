@@ -5761,6 +5761,29 @@ an inclusive sequence.** The owner's review round 9, 2026-11-02.
 - **A correlation subscription over HTTP is POST/SSE** (accepted); a
   browser's `EventSource` is GET-only, so a browser uses a fetch-based SSE
   reader.
+- **Meta-events are a type.** `EventPage`'s payload is `oneof body {
+  google.protobuf.Any event = 1; MetaEvent meta_event = 4 }` (the arm is
+  `meta_event`, since `EventPage.meta` is already the page's EventMeta).
+  `MetaEvent { oneof kind { EditionCreated created; EditionDeleted deleted
+  } }`, with both meta-events, moves into core's types.proto (the
+  `meta_events` region): EventPage is core's, and meta/events.proto
+  imported types.proto, so the only acyclic place is beside it.
+  meta/events.proto and the `io.angzarr.v1.meta` package are deleted; the
+  `/io.angzarr.v1.meta.*` type-URL convention and every "recognise by type
+  URL" text go. The client library hands business code only the event
+  arm. No input carries a meta-event (CommandPage has no meta arm), so
+  "a meta-event from outside" is unrepresentable and its refusal text
+  goes. The propagation and deletion text moves to
+  `docs/design/edition-meta-events.md` (14.103's comment rule).
+- **EditionCreated** is `oneof source { OriginFork origin; PropagatedFork
+  propagated }`, `OriginFork {}`, `PropagatedFork { EventRef from; UUID
+  forked_by }`, replacing the presence-coded `propagated_from` and
+  `forked_by`; its `edition` field is dropped (the page's cover names it).
+- **`ForkStreamRequest.parent_sequence` is `fork_sequence`.**
+- **"annals" is angzarr-embedded** in the protos and the living docs
+  (types.proto, annals-divergence.md's text, idempotency.md,
+  audit-meta-followups.md's index, the state-and-conflicts guide); the
+  historical log entries keep it.
 
 ## Corrections
 

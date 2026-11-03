@@ -299,7 +299,7 @@ enum AngzarrReason {
   // Raised by the coordinator.
   // The rows of a deleted edition in one stream could not be removed
   // (transport/distributed/v1/meta.proto, DeleteEdition): the removal is
-  // dead-lettered (the stream and its meta.EditionDeleted as
+  // dead-lettered (the stream and its EditionDeleted as
   // AngzarrDeadLetter.failed_edition_removal) with this key as its reason, and
   // alerted. `attempts` is how many removals were tried, `cause` the store's
   // failure. Never answered to a caller: DeleteEdition has already answered.

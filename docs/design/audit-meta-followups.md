@@ -21,10 +21,10 @@ deleted outright, with no `reserved` statements.
 |---|---|
 | [audit-meta/decision-log.md](audit-meta/decision-log.md) | Every decision of passes 1–14: why, the accepted cost, and the standard it aligns with, with superseded entries marked. Also the corrections (Event Modeling, KurrentDB, Axon). |
 | [audit-meta/critical-review-source.md](audit-meta/critical-review-source.md) | The post-pass-4 critical review's own record (authoritative for the findings' content). |
-| [audit-meta/critical-review.md](audit-meta/critical-review.md) | The status of each review finding: W1–W14, D1–D11, FINE and annals fitness, with where each was resolved; and the illuminated review's findings decided in passes 12 and 13 (T3–T8, T13, CH1, SG3, PM2). |
+| [audit-meta/critical-review.md](audit-meta/critical-review.md) | The status of each review finding: W1–W14, D1–D11, FINE and angzarr-embedded fitness, with where each was resolved; and the illuminated review's findings decided in passes 12 and 13 (T3–T8, T13, CH1, SG3, PM2). |
 | [audit-meta/idempotency.md](audit-meta/idempotency.md) | The idempotency research (a comparison table) and the chosen design since pass 12: one `command_id` per command, deduplicated on the events, with its accepted costs; PM process events deduplicated as facts' events (pass 14; on their trigger in pass 13), and reactor re-runs (pass 13); the superseded key-store design in brief. |
 | [audit-meta/backlog.md](audit-meta/backlog.md) | **The code follow-up backlog**, by workstream with a by-repo index. 114 open items, each with what, why, and what settles it; items closed by passes 12 and 13 are kept in place with their disposition. |
-| [audit-meta/annals-divergence.md](audit-meta/annals-divergence.md) | Why annals (now angzarr-embedded) keeps an in-process chain, and what it does and does not need as a result (no claims); its runtime divergences themselves are angzarr-embedded's runner tags, pointed to from here. Also where annals matches angzarr: the proto types themselves, `EventMeta`, command ids and dedup on events, the pipeline order, conflict units with COMMUTATIVE the default in both. |
+| [audit-meta/annals-divergence.md](audit-meta/annals-divergence.md) | Why angzarr-embedded keeps an in-process chain, and what it does and does not need as a result (no claims); its runtime divergences themselves are angzarr-embedded's runner tags, pointed to from here. Also where angzarr-embedded matches angzarr: the proto types themselves, `EventMeta`, command ids and dedup on events, the pipeline order, conflict units with COMMUTATIVE the default in both. |
 | [../guide/state-and-conflicts.md](../guide/state-and-conflicts.md) | **Developer guide** (pass 12): custom options, the `(state)` option, marking conflict units, how COMMUTATIVE resolves and its risks, the generator's warnings and errors, the build setup, registration, versioning commands, and (pass 13) re-running reactors. |
 
 ## Passes
@@ -100,7 +100,7 @@ deleted outright, with no `reserved` statements.
     deduplicating; only client-supplied ids are keys. An absent correlation
     is the request id verbatim (a fact's: its `external_id`, superseded by
     pass 9); nothing mints a correlation.
-  - **annals** generates `changed()` from the same markers (same golden
+  - **angzarr-embedded** generates `changed()` from the same markers (same golden
     suite), and now fingerprints request keys like angzarr: neither is a
     divergence.
 - **Pass 9** (e733dd2): decisions 9.1–9.3, by the user.

@@ -182,9 +182,9 @@ retention unless overridden, and backends without atomic claims offered no
 `HandleAsync` or replay. Decisions 5.1–5.5, 5.19 and 10.1–10.4 record it.
 Decision 12.2 records why it went.
 
-## annals
+## angzarr-embedded
 
-annals deduplicates the same way: by `command_id` on its events, with the
+angzarr-embedded deduplicates the same way: by `command_id` on its events, with the
 same derivations (through `angzarr_proto::ids`). Its `record_command` port,
 its claims and its fingerprints are gone, and so is the fact-mismatch
 setting. It is in-process and atomic, so redelivery inside it cannot

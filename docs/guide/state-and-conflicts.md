@@ -1,7 +1,7 @@
 # State options and conflict units: a developer guide
 
 This guide is for anyone writing an aggregate or process manager on
-angzarr (or annals). It explains how you declare your **state message**
+angzarr (or angzarr-embedded). It explains how you declare your **state message**
 in proto so that stale commands are resolved for you, and how to do that
 without merging something you should not. Its last section covers
 re-running sagas and process managers after a bug fix.
@@ -484,7 +484,7 @@ protoc -I proto -I "$ANGZARR_PROTO" \
 plugin. Warnings go to stderr, and an error fails the generation.
 
 One golden fixture suite (`parity/`) holds every language's output to the
-same unit sets, and annals generates from the same markers.
+same unit sets, and angzarr-embedded generates from the same markers.
 
 ## 9. Registration fills `StateDescriptor`
 

@@ -21,10 +21,10 @@ option ruby_package = "Angzarr::Transport::Distributed";
 // and deletes them (see Cover.edition in io/angzarr/v1/types.proto).
 service EditionAdminService {
   // Fork one origin stream into an edition at the sequence the request
-  // states (parent_sequence): append EditionCreated at that sequence to (the
-  // stream's domain, edition, root), creating the edition if no fork event
+  // states (fork_sequence): append EditionCreated at that sequence to (the
+  // stream's domain, edition, root), its source origin, creating the edition if no fork event
   // of it exists yet. From there the fork travels with the data
-  // (meta.EditionCreated). Forking more origin streams into an
+  // (docs/design/edition-meta-events.md §2). Forking more origin streams into an
   // existing edition is allowed, and is how a stream that policy commands
   // have not reached is addressed from outside. Answers the fork event's
   // EventRef.
@@ -32,7 +32,7 @@ service EditionAdminService {
   //                        cannot be forked into), or the cover names no
   //                        domain or root;
   //   ALREADY_EXISTS       the stream is already forked in this edition;
-  //   ABORTED              parent_sequence is above main's head for the
+  //   ABORTED              fork_sequence is above main's head for the
   //                        stream.
   rpc ForkStream(ForkStreamRequest) returns (io.angzarr.v1.EventRef) {
     option (google.api.http) = {
@@ -45,7 +45,7 @@ service EditionAdminService {
   rpc ListEditions(ListEditionsRequest) returns (ListEditionsResponse) {
     option (google.api.http) = {get: "/v1/admin/editions"};
   }
-  // Delete an edition (meta.EditionDeleted, the owner's rulings of
+  // Delete an edition (EditionDeleted, the owner's rulings of
   // 2026-10-28): append EditionDeleted to each of X's origin streams, in
   // sequence after their earlier work. From there, per stream: the event
   // is RECORDED in the stream's own domain; the angzarr system layer
@@ -90,7 +90,7 @@ message ForkStreamRequest {
   // at or below main's head (main's next sequence for the stream) is
   // taken; one above it is refused ABORTED (the store's conflict, the
   // status for a failed test-and-set), writing nothing.
-  uint64 parent_sequence = 2;
+  uint64 fork_sequence = 2;
 }
 
 message ListEditionsRequest {}
