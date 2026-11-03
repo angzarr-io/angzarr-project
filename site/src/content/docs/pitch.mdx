@@ -293,21 +293,26 @@ Angzarr uses coordinators to route messages between external clients and your bu
 - Synchronous vs. asynchronous processing paths
 
 ```protobuf
-service BusinessCoordinator {
-  // Route commands to appropriate BusinessLogic, persist resulting events
-  rpc Handle(CommandBook) returns (CommandResponse);
-
-  // Record events directly (for integration/migration scenarios)
-  rpc Record(EventBook) returns (CommandResponse);
+service CommandHandlerCoordinatorService {
+  // Route commands (and facts) to the domain's business logic, persist its events
+  rpc Handle(CommandBook) returns (HandleResponse);
+  // As Handle, and wait for the domain's synchronous projectors
+  rpc HandleSync(CommandBook) returns (HandleSyncResponse);
 }
 
-message CommandResponse {
+message HandleResponse {
   EventBook events = 1;              // Events from the command
-  repeated Projection projections = 2; // Sync projector results (HandleSync)
+  DeliveryOutcome delivery = 2;      // APPLIED or DUPLICATE
+}
+
+message HandleSyncResponse {
+  EventBook events = 1;
+  DeliveryOutcome delivery = 2;
+  repeated Projection projections = 3; // Sync projector results
 }
 ```
 
-The `CommandResponse` enables request-response patterns where callers need immediate confirmation of state changes and resulting projections—useful for APIs that must return updated read models.
+`HandleSyncResponse` enables request-response patterns where callers need immediate confirmation of state changes and resulting projections—useful for APIs that must return updated read models.
 
 ---
 

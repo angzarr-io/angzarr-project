@@ -21,20 +21,18 @@ service CommandHandlerCoordinatorService {
   // expected sequence, as data for its handler (see Handling). Facts (external realities) are injected
   // here too, in the Fact arm of CommandPage.body.
   //
-  // Accepted: the response carries the persisted events, with
-  // outcome.delivery APPLIED. A command whose command_id the addressed
-  // stream already holds is not handed to business code again; the response
-  // carries those events, re-read from the stream, with outcome.delivery
-  // DUPLICATE. A fact whose handler fails, or that lost a race at every
+  // Accepted: the response carries the persisted events, with delivery
+  // APPLIED. A command whose command_id the addressed stream already holds
+  // is not handed to business code again; the response carries those
+  // events, re-read from the stream, with delivery DUPLICATE. A fact whose handler fails, or that lost a race at every
   // write until the race re-run cap, is dead-lettered and its sender
   // answered INTERNAL ANGZARR_REASON_FACT_DEAD_LETTERED (non-retryable; decision
-  // 14.100, DRAFT). outcome.projections and outcome.projector_failures are
-  // always empty. Rejected: a gRPC error status, and nothing is written (a
+  // 14.100, DRAFT). Rejected: a gRPC error status, and nothing is written (a
   // handler's refusal, under its own key; a command that lost a race at
   // every write until the race re-run cap is INTERNAL,
   // ANGZARR_REASON_RETRY_CAP_EXHAUSTED, and not dead-lettered: the
   // caller holds it; see the status codes above).
-  rpc Handle(io.angzarr.v1.CommandBook) returns (CommandResponse) {
+  rpc Handle(io.angzarr.v1.CommandBook) returns (HandleResponse) {
     option (google.api.http) = {
       post: "/v1/ch/{cover.domain}/commands"
       body: "*"
@@ -66,14 +64,19 @@ service CommandHandlerCoordinatorService {
     };
   }
   // SIMPLE. As Handle (DECISION), and also waits for the domain's
-  // synchronous projectors to project the persisted events; their results
-  // come back in outcome.projections. The projectors run on the committed
-  // events, so a projector failure never undoes the decision and never
-  // turns the answer into an error: once the decision commits, HandleSync
-  // answers OK with the events, the projections that succeeded, and one
-  // outcome.projector_failures entry per projector that failed (whose
-  // events then follow the asynchronous projection path's retries).
-  rpc HandleSync(io.angzarr.v1.CommandBook) returns (CommandResponse) {
+  // synchronous projectors (each through its ProjectorCoordinatorService
+  // HandleSync) to project the persisted events; their results come back
+  // in projections, one per synchronous projector.
+  //
+  // A synchronous projector that fails after the decision committed fails
+  // the call with a RETRYABLE status: UNAVAILABLE
+  // ANGZARR_REASON_SYNC_PROJECTION_FAILED, naming the projector, its
+  // failure the cause (decision 14.105, DRAFT). The decision stays
+  // committed; nothing is undone. There is no partial answer: the call
+  // either answers every projection or fails. The caller retries with the
+  // same command_id: the retry deduplicates (delivery DUPLICATE), answers
+  // the same events, and waits on the synchronous projectors again.
+  rpc HandleSync(io.angzarr.v1.CommandBook) returns (HandleSyncResponse) {
     option (google.api.http) = {
       post: "/v1/ch/{cover.domain}/commands:sync"
       body: "*"
@@ -82,10 +85,10 @@ service CommandHandlerCoordinatorService {
   // A policy's output or refusal fact (decision 14.79, DRAFT; owner ruling
   // Q4 on decision 46). Framework components only (the entry_points region
   // below): a client is refused PERMISSION_DENIED. Answers as Handle
-  // (DECISION): the persisted events and the outcome, or the rejection's
-  // status, which the policy's coordinator hands to Translate. No HTTP
-  // route: it is not a client entry point.
-  rpc Deliver(io.angzarr.v1.ReactionDelivery) returns (CommandResponse);
+  // (DECISION), with a HandleResponse: the persisted events and the
+  // delivery, or the rejection's status, which the policy's coordinator
+  // hands to Translate. No HTTP route: it is not a client entry point.
+  rpc Deliver(io.angzarr.v1.ReactionDelivery) returns (HandleResponse);
 }
 
 // region entry_points
@@ -115,42 +118,26 @@ service CommandHandlerCoordinatorService {
 // the data (io/angzarr/v1/types.proto, security_logs region).
 // endregion
 
-// Response to one command: its business result (the events) and what the
-// system did with it (the outcome).
-message CommandResponse {
-  io.angzarr.v1.EventBook events = 1; // Events from the target aggregate
-  // Results of handling: the core delivery outcome and, from HandleSync
-  // (SIMPLE), synchronous projector results. Response-only, never persisted
-  // (see io.angzarr.v1.Outcome).
-  SyncOutcome outcome = 2;
+// What Handle and Deliver answer (decision 14.105, DRAFT): one command's
+// events and what the coordinator did with this delivery of it. Never
+// persisted.
+message HandleResponse {
+  // The command's events: new (APPLIED) or re-read from the stream
+  // (DUPLICATE).
+  io.angzarr.v1.EventBook events = 1;
+  // APPLIED or DUPLICATE (io.angzarr.v1.DeliveryOutcome).
+  io.angzarr.v1.DeliveryOutcome delivery = 2;
 }
 
-// The core outcome of one command, wrapped with what only the distributed
-// coordinator's HandleSync (SIMPLE) adds: its synchronous projectors'
-// results (decision 14.64). Never persisted.
-message SyncOutcome {
-  io.angzarr.v1.Outcome outcome = 1; // The delivery outcome
-  // Synchronous projector results. Produced only by HandleSync (SIMPLE);
-  // empty for Handle (DECISION). (Projectors persist their own read models;
-  // these are copies returned to the caller.)
-  repeated io.angzarr.v1.Projection projections = 2;
-  // Synchronous projectors that failed on this command's events. HandleSync
-  // answers OK whenever the decision committed: a projector failure never
-  // undoes it and never turns the response into an error status. Each
-  // failing projector appears here instead of in projections, and its
-  // events are retried or dead-lettered on the asynchronous projection
-  // path. Empty for Handle (DECISION).
-  repeated ProjectorFailure projector_failures = 3;
-}
-
-// One synchronous projector that failed during HandleSync.
-message ProjectorFailure {
-  string projector = 1; // Registered name of the projector
-  // The failure as a gRPC status code (google.rpc.Code numbering). Whether
-  // the projection will be retried follows the retryable set in
-  // docs/design/command-handling.md.
-  int32 code = 2;
-  // The failure's key and args (decision 14.37): its status's ErrorInfo
-  // reason and metadata. Never the status's text.
-  io.angzarr.v1.Diagnostic diagnostic = 3;
+// What HandleSync answers (decision 14.105, DRAFT): a HandleResponse's
+// fields and the synchronous projectors' results. Never persisted.
+message HandleSyncResponse {
+  // As HandleResponse.events.
+  io.angzarr.v1.EventBook events = 1;
+  // As HandleResponse.delivery.
+  io.angzarr.v1.DeliveryOutcome delivery = 2;
+  // One per synchronous projector of the domain, each covering these
+  // events. (Projectors persist their own read models; these are copies
+  // returned to the caller.)
+  repeated io.angzarr.v1.Projection projections = 3;
 }

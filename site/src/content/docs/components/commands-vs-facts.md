@@ -107,7 +107,7 @@ When the coordinator receives a fact:
 3. **Ingest** — the fact's handler records it (possibly with events that flag it, e.g. a payment for an unknown order) and never refuses it
 4. **Append** — at the stream's head: no sequence check, no conflict resolution
 
-A failing fact handler is a bug, not a refusal: the fact is dead-lettered and alerted, and the sender is answered "accepted, parked" (`OK`, `Outcome.delivery` `PARKED`), never a rejection.
+A failing fact handler is a bug, not a refusal: the fact is dead-lettered and alerted, and the sender is answered `INTERNAL` `ANGZARR_REASON_FACT_DEAD_LETTERED`, which it does not retry (decision 14.100).
 
 ### Protocol Structure
 

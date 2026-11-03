@@ -483,4 +483,18 @@ enum AngzarrReason {
     args: ["stream", "component", "registered", "state_type"]
     grpc_status: INTERNAL
   }];
+  // Raised by the coordinator.
+  // HandleSync only (transport/distributed/v1/command_handler.proto): the
+  // decision committed, and a synchronous projector (`projector`, its
+  // registered name) then failed to project its events (`cause`, the
+  // projector's failure, its key and args). The decision stays committed.
+  // Bug, retryable (decision 14.37): the caller resends with the same
+  // command_id, which deduplicates (DUPLICATE), answers the same events and
+  // waits on the synchronous projectors again. Never a dead letter's
+  // reason: a caller waits, and nothing is undone. There is no partial
+  // answer (decision 14.105, DRAFT, deleting ProjectorFailure).
+  ANGZARR_REASON_SYNC_PROJECTION_FAILED = 39 [(reason) = {
+    args: ["stream", "projector", "cause"]
+    grpc_status: UNAVAILABLE
+  }];
 }

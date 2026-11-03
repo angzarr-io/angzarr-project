@@ -330,6 +330,7 @@ class CheckReasonKeysTest(unittest.TestCase):
                 "ANGZARR_REASON_RETRY_CAP_EXHAUSTED",
                 "ANGZARR_REASON_RULES_VERSION_MISMATCH",
                 "ANGZARR_REASON_STATE_TYPE_MISMATCH",
+                "ANGZARR_REASON_SYNC_PROJECTION_FAILED",
             ],
         )
 

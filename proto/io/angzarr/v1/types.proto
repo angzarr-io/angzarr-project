@@ -463,7 +463,7 @@ message EventRef {
 // command's. Every backend keeps an index on (stream, command_id) for that
 // lookup; it is not unique, since one command may produce several events.
 // On a hit the coordinator does not run business code: it answers with
-// those events, in sequence order, and Outcome.delivery DUPLICATE.
+// those events, in sequence order, and delivery DUPLICATE (DeliveryOutcome).
 // Deduplication is per addressed stream, the same command_id sent to two
 // streams is two commands, and because the id is written with the events it
 // is atomic with the append on every backend. (KurrentDB deduplicates
@@ -1064,15 +1064,11 @@ message ReactionDelivery {
 // What the runtime did with one delivery of a command: the result of its
 // handling, NEVER persisted. Nothing here is written to any stream, and
 // replaying a stream cannot reproduce it. The command's business result is
-// its events. Answered by the angzarr-embedded kernel with the events, and
-// by a distributed coordinator inside its own response
-// (io.angzarr.transport.distributed.v1.CommandResponse), whose SyncOutcome
-// wraps this message with the synchronous projectors' results (decision
-// 14.64).
-message Outcome {
-  DeliveryOutcome delivery = 1;
-}
-
+// its events. A distributed coordinator answers it beside the events
+// (io.angzarr.transport.distributed.v1.HandleResponse.delivery and
+// HandleSyncResponse.delivery; decision 14.105, DRAFT), and the
+// angzarr-embedded kernel answers the same pair, events and delivery.
+//
 // What the coordinator did with this delivery of a command. Deduplication
 // is in the command_identity region.
 //
@@ -1201,7 +1197,9 @@ message AngzarrDeadLetter {
   // retryable keys the coordinator only answers, never dead-letters:
   // ANGZARR_REASON_UPCASTER_UNAVAILABLE and the distributed
   // transport's DISTRIBUTED_REASON_COMPONENT_NOT_REGISTERED (queued work
-  // waits) and DISTRIBUTED_REASON_COMMANDS_NOT_SERVED (decision 14.51).
+  // waits) and DISTRIBUTED_REASON_COMMANDS_NOT_SERVED (decision 14.51);
+  // and ANGZARR_REASON_SYNC_PROJECTION_FAILED, whose decision committed and
+  // whose caller retries (decision 14.105, DRAFT).
   // The retries after the first attempt (0 when it was tried once): of a
   // retryable bug, or a policy step's ABORTED re-run, at its cap, and of an
   // edition removal (ANGZARR_REASON_EDITION_REMOVAL_FAILED).

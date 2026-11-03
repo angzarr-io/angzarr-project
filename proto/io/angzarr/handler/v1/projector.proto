@@ -48,7 +48,7 @@ message ProjectRequest {
 // knows. The coordinator builds core's Projection from it: cover the run's,
 // projector the component's registered name, next_sequence the last page's
 // sequence + 1. That is what HandleSync answers its caller
-// (io.angzarr.transport.distributed.v1.SyncOutcome.projections) and what
+// (io.angzarr.transport.distributed.v1.HandleSyncResponse.projections) and what
 // the projector's position records.
 message ProjectResponse {
   google.protobuf.Any projection = 1;

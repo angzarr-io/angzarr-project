@@ -366,6 +366,8 @@ the default CloudEvent id and source (W10).**
 (W11).** It adds `Outcome.projector_failures` and `ProjectorFailure
 { projector, code, message }`.
 
+> **Reversed by 14.105 (DRAFT, pending review):** HandleSync has no partial answer. A synchronous projector that fails after the decision commits fails the call UNAVAILABLE `ANGZARR_REASON_SYNC_PROJECTION_FAILED`; `ProjectorFailure` is deleted.
+
 **5.12 A failed fact ingest is answered "accepted, parked" (W11).**
 - Pass-5 choice: a new value, `DeliveryOutcome.DELIVERY_OUTCOME_PARKED` (3),
   rather than an `Outcome` field. The delivery outcome already answers "what
@@ -4076,6 +4078,8 @@ the event that the retry fails."
 
 > **Amended by 14.82 (DRAFT, pending review):** the status is marked on the refusal MESSAGE (`refusal_status`, now a MessageOptions extension, 50111).
 
+> **Amended by 14.105 (DRAFT, pending review):** a synchronous projector's failure (C-0677) is answered as `ANGZARR_REASON_SYNC_PROJECTION_FAILED` (UNAVAILABLE), its own key the cause, never a `ProjectorFailure` entry.
+
 **14.52 A refusal code's status is marked on its Reason value.** Owner
 ruling, 2026-10-31 (morning). Settles 14.50's Open point; follows 14.37.
 - **The option.** `options.proto` adds
@@ -4584,6 +4588,8 @@ protos into four packages". Restores 1.12, and amends 14.60's one catalog.
   field.
 
 > **Amended by 14.104 (DRAFT, pending review):** each package's keys are one enum, prefixed by its layer: core's `AngzarrReason`, the embedded transport's `EmbeddedReason`, the distributed transport's `DistributedReason`. A moved key's string is now its layer's.
+
+> **Amended by 14.105 (DRAFT, pending review):** `CommandResponse`, `SyncOutcome` and core's `Outcome` are deleted: Handle and Deliver answer `HandleResponse { events; delivery }`, HandleSync `HandleSyncResponse { events; delivery; projections }`, in the distributed transport; `DeliveryOutcome` stays in core.
 
 **14.65 A key declares its status, a key of one stream names it, and the
 keys a runtime lacked are added.** Ruled by the owner, 2026-11-01, on the 2026-10-31 run's
@@ -5671,6 +5677,31 @@ the reasons review, 2026-11-02.
   | `COORDINATOR_REASON_PAYLOAD_UNAVAILABLE` | `DISTRIBUTED_REASON_PAYLOAD_UNAVAILABLE` |
   | `ROUTER_REASON_TOO_MANY_STEPS` | retired (no step cap) |
   | `COORDINATOR_REASON_RULES_VERSION_NOT_SEMVER` | retired (14.88's refusal reversed) |
+
+**14.105 (DRAFT) One response per command RPC; a failed synchronous
+projector is a retryable error.** The owner's review round 8, from the
+distributed command_handler review, 2026-11-02 (distributed returns within
+the month, so these protos are live).
+- **HandleSync stays, with no partial answer.** A synchronous projector
+  that fails after the decision commits fails the call with UNAVAILABLE
+  `ANGZARR_REASON_SYNC_PROJECTION_FAILED` (raised by the coordinator; args
+  `stream`, `projector`, `cause`; `stream` because the key concerns one
+  stream, 14.65). The decision stays committed. The caller's retry with the
+  same command_id deduplicates (DUPLICATE), answers the same events and
+  waits on the synchronous projectors again. Never a dead letter's reason.
+  `ProjectorFailure` is deleted, and HandleSync's text no longer says a
+  projector failure never turns the answer into an error (reverses 5.11).
+- **One response per RPC.** `Handle` and `Deliver` answer `HandleResponse
+  { EventBook events; DeliveryOutcome delivery }`; `HandleSync` answers
+  `HandleSyncResponse { EventBook events; DeliveryOutcome delivery;
+  repeated Projection projections }`, both in the distributed transport.
+  `CommandResponse`, `SyncOutcome` and core's `Outcome` wrapper are
+  deleted; `DeliveryOutcome` (APPLIED, DUPLICATE) stays in core, and the
+  embedded kernel answers the same pair, events and delivery. The
+  projector coordinator's HandleSync names the key its failure becomes.
+- **14.104's Emit covers command and fact handlers** (an aggregate's or a
+  process manager's), confirmed by the owner; policies and projectors
+  return no events and are outside it.
 
 ## Corrections
 

@@ -67,3 +67,4 @@ ANGZARR_REASON_DESCRIPTOR_NO_KIND = component "{ $component }": its descriptor n
 ANGZARR_REASON_FACT_DEAD_LETTERED = the fact for { $stream } was dead-lettered and not recorded: do not resend it
 ANGZARR_REASON_DESCRIPTOR_NO_DOMAIN = component "{ $component }": a { $component_kind } names no domain
 ANGZARR_REASON_STATE_TYPE_MISMATCH = component "{ $component }" answered a state of type { $state_type }, not { $registered }, for { $stream }: a bug in the component; nothing was kept
+ANGZARR_REASON_SYNC_PROJECTION_FAILED = the decision at { $stream } is committed, and synchronous projector { $projector } failed to project it: resend with the same command id
