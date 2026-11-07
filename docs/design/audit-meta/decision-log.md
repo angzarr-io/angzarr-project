@@ -4862,6 +4862,8 @@ a policy never addresses its trigger's exact stream").
 
 > **Amended by 14.100 (ruled 2026-11-02):** a fact that cannot be recorded is dead-lettered and its sender answered INTERNAL `COORDINATOR_REASON_FACT_DEAD_LETTERED` (non-retryable), never OK PARKED; `DELIVERY_OUTCOME_PARKED` is removed.
 
+> **Extended by 14.110 (ruled 2026-11-07):** a fact handler's whole failure surface is a `Bug`: a classified bug keeps its code, args and retryable status on the wire, an unclassified one is the unhandled-handler-error reason with no cause, and the type holds no refusal.
+
 **14.72 A fact its business process answers with a rejection is
 dead-lettered.** Ruled by the owner, 2026-11-02, on the escalation of
 14.69's implementation ("2 should dead-letter"), overturning that
@@ -5432,6 +5434,8 @@ run is marked only after its affirmative answer.** The owner's review round
 - **The ledgers.** "The table ledger balances" (round.feature, table.feature)
   is rule L2, the table's own chips: a table-ledger assertion, not e2e.
 
+> **Amended by 14.110 (ruled 2026-11-07), handler side only:** the handler attribute is two, `#[handles_cmd]` and `#[handles_fact]`, and a fact handler has its own return type. The wire half (one `HandleInput` RPC, one request and response, one coordinator for both) is unaffected.
+
 **14.98 One verb for commands and facts: HandleInput.** The
 owner's review round 4, 2026-11-02: "I want fact and command to use the
 same verb for Handle or similar. moving from a fact to a command should be
@@ -5578,6 +5582,8 @@ narrative/normative text, why is it proto?"
   message IS; behaviour, pipelines and rules go in the design docs. Applied
   to the moved text; the other protos are flagged for review, not churned.
 
+> **Amended by 14.110 (ruled 2026-11-07):** `Emit` is the return type of a command handler; a fact handler returns `FactEmit` with `Bug` as its only failure. The one decision and the absence of a step cap hold for both.
+
 **14.104 Keys by layer; statuses are google.rpc.Code; Emit with no
 step cap; the SemVer refusal reversed.** The owner's review round 7, from
 the reasons review, 2026-11-02.
@@ -5712,7 +5718,8 @@ the month, so these protos are live).
   embedded kernel answers the same pair, events and delivery. The
   projector coordinator's HandleSync names the key its failure becomes.
 - **14.104's Emit covers command and fact handlers** (an aggregate's or a
-  process manager's), confirmed by the owner; policies and projectors
+  process manager's), confirmed by the owner (a fact handler's is
+  `FactEmit`, 14.110); policies and projectors
   return no events and are outside it.
 - **`EventStreamService.Subscribe` takes a target and catches up.**
   `SubscribeRequest { oneof target { StreamFrom stream; CorrelationFrom
@@ -5900,6 +5907,47 @@ the branch, 2026-11-02.
   policies.md, upcasting.md and child-protocol.md. Only comments change:
   every declaration, option literal and region marker is unchanged.
   References are re-pointed to the docs by section.
+
+**14.110 Facts are a separate handler kind: FactEmit, Bug, two
+attributes.** The owner's ruling, 2026-11-07. Amends 14.98 (handler side
+only) and 14.104, extends 14.72.
+- **Two return types.** A command handler returns
+  `Result<Emit<S>, Refuses<..>>`; a fact handler returns
+  `Result<FactEmit<S>, Bug>`. `Emit` keeps its name. `FactEmit` carries a
+  fact's events and continuation steps exactly as `Emit` does: one
+  decision, every step's events in order, no step cap, each step idempotent
+  on its own result.
+- **A fact never refuses.** `Bug` is a classified bug: a bug code, args and
+  a retryable status, with no refusal, no typed refusal and no re-run. A
+  refusal cannot be expressed in a fact's steps because the type cannot
+  hold one. An unclassified bug still maps to
+  `ANGZARR_REASON_UNHANDLED_HANDLER_ERROR` with no cause (14.72); a
+  classified one keeps its code, args and status on the wire.
+- **Two attributes.** `#[handles_cmd]` (commands) and `#[handles_fact]`
+  (facts). The kind is the attribute, not read from the return type.
+  Generation emits the matching attribute and signature from the
+  message's `(command)` or `(fact)` option; a `(fact)` message handled by
+  `handles_cmd`, or a `(command)` message handled by `handles_fact`, is a
+  generation failure.
+- **Explicit conversion only.** `Bug::from_error(e)` and the `.bug()`
+  result extension convert an ordinary error; there is no blanket `From`.
+  A refusal passed through them is demoted to a bug whose cause is the
+  refusal's key.
+- **14.98 and 14.104, restated.** The wire stays one verb for both kinds
+  (14.98's `HandleInput`, request and response, unchanged). Only the
+  handler attribute and return types split. 14.104's one-decision,
+  no-step-cap semantics apply to `Emit` and `FactEmit` alike.
+- **Scenarios.** C-0648, C-0864 (the two attributes), C-0851 (a fact
+  returns `FactEmit`), C-0878 (a fact step is idempotent on its own
+  result), C-0875 (`Bug::from_error` demotes a refusal), C-0876 (a fact
+  step cannot return a refusal), C-0877 (a kind and attribute that
+  disagree fail generation; replaces the retired C-0650). C-0845 and the
+  fact-decode row of C-0670 are unchanged.
+- Why: a fact is recorded, never refused; a type that cannot hold a
+  refusal makes that a property of the signature, not of a runtime check.
+- Cost: two attributes where there was one; converting a message between
+  `(command)` and `(fact)` changes its option, its attribute and its
+  handler's signature.
 
 ## Corrections
 
