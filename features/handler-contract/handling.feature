@@ -179,6 +179,17 @@ Feature: Handling a delivered command - versions, unknown types, outcomes and Em
       | fails with code LEDGER_OFFLINE and arg ledger "main"                                    | INTERNAL    | cause "LEDGER_OFFLINE" and cause.ledger "main" |
       | fails with a retryable bug under UNAVAILABLE, code LEDGER_OFFLINE and arg ledger "main" | UNAVAILABLE | cause "LEDGER_OFFLINE" and cause.ledger "main" |
 
+  @outcomes
+  @C-0875
+  Scenario: A refusal converted with Bug::from_error is demoted to a bug whose cause is the refusal's key
+    # The conversion is explicit, with no blanket From (decision 14.110): a
+    # refusal passed through it is no longer a refusal.
+    Given business code for the fact ItemDelivered fails by passing the refusal object ItemOutOfStock with item "apple" and on_hand 0 through Bug::from_error
+    When a fact ItemDelivered "apple" is handled over no prior events
+    Then the call fails with status INTERNAL and reason ANGZARR_REASON_UNHANDLED_HANDLER_ERROR
+    And the refusal's error info carries cause "orders.v1.ItemOutOfStock", the refusal's key
+    And the answer carries no refusal_type and no status details
+
   # ===========================================================================
   # Refusals are typed only (decision 14.95)
   # ===========================================================================
@@ -340,10 +351,11 @@ Feature: Handling a delivered command - versions, unknown types, outcomes and Em
 
   @emit
   @C-0851
-  Scenario: A fact's handler returns an Emit too
-    # Emit is every command handler's one return type, for a command and a
-    # fact alike (decisions 14.104 and 14.105).
-    Given business code for the fact ItemDelivered returns Emit of the fact's own event, then a step that records OrderNoteAdded "delivered apple"
+  Scenario: A fact's handler returns a FactEmit
+    # A command handler returns an Emit, a fact handler a FactEmit, which
+    # carries events and steps the same way and fails only with a Bug
+    # (decisions 14.104 and 14.110).
+    Given business code for the fact ItemDelivered returns FactEmit of the fact's own event, then a step that records OrderNoteAdded "delivered apple"
     When a fact ItemDelivered "apple" is handled over no prior events
     Then the answer's events are the fact's own event and OrderNoteAdded "delivered apple", in that order
 
@@ -371,6 +383,19 @@ Feature: Handling a delivered command - versions, unknown types, outcomes and Em
       | behaves                                                                        | verdict                                         |
       | records OrderNoteAdded "restock apple" only while no such note is in the state | passes                                          |
       | records OrderNoteAdded "restock apple" whenever it runs                        | fails, naming the events the second run emitted |
+
+  @emit
+  @C-0878
+  Scenario Outline: The library's test helper checks that a fact's step is idempotent on its own result
+    # The same rule for a FactEmit's steps (decisions 14.104 and 14.110).
+    Given a fact step that <behaves>
+    When the client library's fact step-idempotence test helper runs it
+    Then the helper <verdict>
+
+    Examples:
+      | behaves                                                                          | verdict                                         |
+      | records OrderNoteAdded "delivered apple" only while no such note is in the state | passes                                          |
+      | records OrderNoteAdded "delivered apple" whenever it runs                        | fails, naming the events the second run emitted |
 
   # ===========================================================================
   # Folding what it is given (decision 14.40)

@@ -47,17 +47,19 @@ Feature: The generated component descriptor
   @C-0716
   Scenario Outline: Each kind's descriptor carries only what its arm has
     # The kind is a oneof (decision 14.78): nothing can be set on a kind
-    # that may not have it.
-    Given <kind> component "<name>"
+    # that may not have it. A projector names at least one event (C-0855),
+    # here "order.OrderPlaced", which the order aggregate folds, so its
+    # input_domains is "order".
+    Given <kind> component "<name>" <names>
     When the component's descriptor is generated
     Then the descriptor's <arm> arm is set, carrying <carries>
     And no other kind arm is set
 
     Examples:
-      | kind              | name                 | arm             | carries                                   |
-      | an aggregate      | order                | aggregate       | domain and state                          |
-      | a process manager | fulfillment          | process_manager | domain, state and starting_types          |
-      | a projector       | projector-order-view | projector       | input_domains only                        |
+      | kind              | name                 | names                                          | arm             | carries                          |
+      | an aggregate      | order                |                                                | aggregate       | domain and state                 |
+      | a process manager | fulfillment          |                                                | process_manager | domain, state and starting_types |
+      | a projector       | projector-order-view | whose (event) entries name "order.OrderPlaced" | projector       | input_domains only               |
 
   @descriptor
   @C-0866
@@ -76,7 +78,8 @@ Feature: The generated component descriptor
   Scenario: A projector's descriptor lists each domain whose events it names
     # Derived from the events it names (decision 14.78); no wildcard domain
     # (decision 14.53).
-    Given aggregates "OrderState" owning domain "order" and "PaymentState" owning domain "payment"
+    Given an aggregate "OrderState" owning domain "order" that folds "order.OrderPlaced"
+    And an aggregate "PaymentState" owning domain "payment" that folds "payment.PaymentCaptured"
     And a projector "projector-billing" whose (event) entries name "order.OrderPlaced" and "payment.PaymentCaptured"
     When the component's descriptor is generated
     Then its projector arm lists input_domains "order" and "payment"

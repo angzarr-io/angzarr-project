@@ -90,7 +90,8 @@ Feature: Component declarations - lint warnings and errors
   @C-0856
   Scenario: A policy whose events come from more than one domain fails generation
     # One source and one destination per policy (component-options.md §5).
-    Given aggregates "OrderState" owning domain "order" and "PaymentState" owning domain "payment"
+    Given an aggregate "OrderState" owning domain "order" that folds "order.OrderPlaced"
+    And an aggregate "PaymentState" owning domain "payment" that folds "payment.PaymentCaptured"
     And a policy "Fulfillment" with output_domain "inventory"
     And (event) entries naming "Fulfillment" for "order.OrderPlaced" and "payment.PaymentCaptured"
     When the protos are linted
@@ -307,30 +308,31 @@ Feature: Component declarations - lint warnings and errors
     And lint exits with a non-zero status
 
   @C-0648
-  Scenario Outline: The message's option, command or fact, shapes the one handler attribute's signature
-    # One attribute, #[handles], for commands and facts (decision 14.98):
-    # the message's option is the declaration. A command's handler may
-    # refuse; a fact's has no refusal return (decisions 14.91, 14.95).
+  Scenario Outline: The message's option, command or fact, shapes the handler's attribute and signature
+    # Two attributes, #[handles_cmd] and #[handles_fact] (decision 14.110):
+    # the generator writes the one the message's option calls for. A
+    # command's handler returns Emit and may refuse; a fact's returns
+    # FactEmit and fails only with a Bug (decisions 14.91, 14.95).
     Given a process manager "BuyInState" owning domain "buy-in" with input "buy-in.<input>"
     And the message "buy-in.<input>" carries <option> naming "BuyInState"
     When angzarr-cli scaffolds the component
-    Then its handler for "buy-in.<input>" is marked #[handles]
-    And that handler <may> refuse
+    Then its handler for "buy-in.<input>" is marked <attribute>
+    And its generated signature returns <returns>
 
     Examples:
-      | input                   | option    | may     |
-      | RecordFundsHeld         | (command) | may     |
-      | SeatConfirmationRefused | (fact)    | may not |
+      | input                   | option    | attribute       | returns                         |
+      | RecordFundsHeld         | (command) | #[handles_cmd]  | Result<Emit<Self>, Refuses<..>> |
+      | SeatConfirmationRefused | (fact)    | #[handles_fact] | Result<FactEmit<Self>, Bug>     |
 
   @C-0864
-  Scenario: Converting a message from a command to a fact changes only its option
-    # Decision 14.98: the generated signature then loses the refusal return
-    # at compile time; nothing else in the declaration changes.
+  Scenario: Converting a message from a command to a fact changes its option, its attribute and its signature
+    # Decision 14.110: the generated attribute and return type follow the
+    # option; nothing else in the declaration changes.
     Given a process manager "BuyInState" owning domain "buy-in" with input "buy-in.RecordFundsHeld" carrying (command)
     When "buy-in.RecordFundsHeld"'s option is changed to (fact) with the same component and emits
     And the handler interfaces are generated again
-    Then its handler is still marked #[handles]
-    And its generated signature has no refusal return
+    Then its handler is marked #[handles_fact]
+    And its generated signature returns Result<FactEmit<Self>, Bug>
 
   @C-0865
   Scenario: A message carrying both (command) and (fact) fails generation
@@ -346,8 +348,34 @@ Feature: Component declarations - lint warnings and errors
   # (decision 14.91).
 
   # C-0650 (#[handles_cmd] or #[handles_fact] markup contradicting the
-  # proto) is retired: there is one attribute, #[handles], and the option
-  # alone is the declaration (decision 14.98).
+  # proto) is retired: the generator writes the attribute from the option,
+  # and a hand-written attribute that disagrees with it is C-0877
+  # (decision 14.110).
+
+  @C-0876
+  Scenario: A fact handler's step cannot return a refusal
+    # FactEmit's failure type is Bug, which holds no refusal, no typed
+    # refusal and no re-run (decision 14.110): the mistake is a failure to
+    # generate or compile, never a runtime answer.
+    Given an aggregate "OrderState" owning domain "order" with the fact "order.ItemDelivered"
+    And its #[handles_fact] handler has a step returning the refusal object "order.ItemOutOfStock"
+    When the handler is generated and compiled
+    Then it fails: a fact handler's failure type is Bug, which cannot hold the refusal "order.ItemOutOfStock"
+
+  @C-0877
+  Scenario Outline: A message handled under the attribute of the other kind fails generation
+    # The kind is the attribute (decision 14.110); the message's option must
+    # agree with it.
+    Given an aggregate "OrderState" owning domain "order" with the message "order.<message>" carrying <option> naming "OrderState"
+    And its handler is marked <attribute>
+    When the handler interfaces are generated
+    Then generation fails naming "order.<message>", its option <option> and the attribute <attribute>
+    And generation exits with a non-zero status
+
+    Examples:
+      | message       | option    | attribute       |
+      | ItemDelivered | (fact)    | #[handles_cmd]  |
+      | AddItem       | (command) | #[handles_fact] |
 
   @C-0651
   Scenario Outline: A process manager may start from a command or from a fact
@@ -415,7 +443,7 @@ Feature: Component declarations - lint warnings and errors
     # (decisions 14.89, 14.99); with none, it needs none (C-0861).
     Given an aggregate "InventoryState" owning domain "inventory" with command "inventory.ReserveStock"
     And "inventory.ReserveStock" refuses with "inventory.OutOfStock"
-    And an aggregate "OrderState" owning domain "order" that takes no fact
+    And an aggregate "OrderState" owning domain "order" that folds "order.OrderPlaced" and takes no fact
     And a policy "OrderToInventory" with output_domain "inventory" whose (event) entries name "order.OrderPlaced"
     When the protos are linted
     Then lint reports an error naming "OrderToInventory" and its source domain "order": no fact to translate a refusal into
