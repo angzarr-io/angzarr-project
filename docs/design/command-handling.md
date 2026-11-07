@@ -197,9 +197,13 @@ is no speculative RPC.
 
 ## 9. What a handler returns: Emit
 
-Every command handler (an aggregate's or a process manager's, for a
-command and for a fact alike) returns an `Emit`, in every client library:
-the one return type (decision 14.104). `Emit::of(events)` is a
+Every command handler (an aggregate's or a process manager's) returns an
+`Emit`, in every client library (decision 14.104); a fact handler returns
+a `FactEmit`, which carries events and steps the same way and fails only
+with a `Bug`: a classified bug (code, args, retryable status) with no
+refusal and no re-run, `Bug::from_error` or `.bug()` being the explicit
+conversion from an ordinary error, a refusal passed through it demoted to
+a bug whose cause is the refusal's key (decision 14.110). `Emit::of(events)` is a
 list of events, applied in order; `.then(step)` optionally adds a
 continuation, run on the state with those events folded in, which returns
 an `Emit` of its own, and so on. A handler that needs no continuation
@@ -212,7 +216,7 @@ in order, as one list. The wire stays that one list
 client library's, never the coordinator's, and the coordinator cannot tell
 an answer built with steps from one built without.
 
-A step must be idempotent on its own result: run again on the state its
+A step, of an `Emit` or a `FactEmit`, must be idempotent on its own result: run again on the state its
 own events produce, it emits nothing and continues nowhere. Each client
 library gives a test helper that checks it.
 

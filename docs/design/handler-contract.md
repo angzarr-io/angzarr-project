@@ -54,9 +54,14 @@ too, decision 14.31), is ONE call for both input kinds (decision 14.98,
 ruled 2026-11-02, amending decision 46's Q3; the owner: "I want fact and command to
 use the same verb ... moving from a fact to a command should be
 relatively simple to do"): Handle, whose input book holds the command or
-the fact arm. The input book's body arm says which. Converting a message
-between (command) and (fact) changes only its option; only a command's
-handling may answer a refusal.
+the fact arm. The input book's body arm says which. In code the two kinds
+are two handler kinds (decision 14.110, amending 14.98's handler side; the
+one call on the wire is unchanged): `#[handles_cmd]` on a handler
+returning `Result<Emit<S>, Refuses<..>>`, `#[handles_fact]` on one
+returning `Result<FactEmit<S>, Bug>`. Converting a message between
+(command) and (fact) changes its option, its attribute and its signature;
+only a command's handling may answer a refusal, and a fact's failure type,
+`Bug`, holds none.
 
 ## 4. Before Handle
 

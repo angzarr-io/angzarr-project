@@ -173,10 +173,11 @@ that status, its ErrorInfo metadata "type_url" holding the type URL as
 sent and "upcast_type_url" the type URL the sidecar returned (the sent
 one when no rule applies).
 
-On the wire the arm is the fact marker; in code, one handler attribute
-(#[handles]) serves both kinds, and the message's option, (command) or
-(fact), is the declaration (decision 14.98): the router refuses an
-arm that does not match it. There is no proto flag for facts. A process
+On the wire the arm is the fact marker; in code, two handler attributes
+(#[handles_cmd], #[handles_fact]; decision 14.110) follow the message's
+option, (command) or (fact), which is the declaration: the router refuses
+an arm that does not match it. The wire is one verb for both
+(decision 14.98). There is no proto flag for facts. A process
 manager's stream takes both arms, like any domain's (decision 14.31).
 
 A client's command or fact rides a CommandPage; a policy's output and a

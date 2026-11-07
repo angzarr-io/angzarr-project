@@ -93,7 +93,7 @@ Angzarr delivers a fact through the same command coordinator as a command (`Hand
 | Command (policy) | `ReactionDelivery.body` `command` | `(command)` | Yes, back through the policy's `Translate` | None: appended at the head the destination loaded |
 | Fact (external) | `CommandPage.body` `Fact`, with its `origin` | `(fact)` | No | None: appended at the head the coordinator loaded |
 
-Both kinds reach the same handler call, `CommandHandlerService.Handle` (decision 14.98), and the generated code uses one attribute, `#[handles]`, for both: the message's option is the declaration. Converting a message between `(command)` and `(fact)` changes only its option; the generated handler then gains or loses its refusal return.
+Both kinds reach the same handler call, `CommandHandlerService.Handle` (decision 14.98), and the generated code uses `#[handles_cmd]` for a command, returning `Result<Emit<S>, Refuses<..>>`, and `#[handles_fact]` for a fact, returning `Result<FactEmit<S>, Bug>`: the message's option decides which. A fact's failure is a `Bug` only, so it holds no refusal. Converting a message between `(command)` and `(fact)` changes its option, its attribute and its signature.
 
 When the coordinator receives a fact:
 1. **Validation** — a `Fact` requires an `origin` with a non-empty `external_id` (it has no `Handling` to set)

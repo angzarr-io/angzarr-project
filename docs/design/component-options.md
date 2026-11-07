@@ -94,12 +94,15 @@ owner's domain. A policy's source is the one domain of the events its
 (event) entries name; a projector's sources are the domains of the
 events its entries name. An event whose owner is outside the descriptor
 set names its domain on the consumer's entry (EventConsumer.domain, an
-override for that case alone; §8).
+override for that case alone; §8). The aggregate (or process manager) that
+owns an event's domain folds the events it receives; that is what makes it
+the event's owner for source derivation.
 
 Generation fails for:
 
 ```text
-  - a policy or projector naming no event;
+  - a policy or projector naming no event (one strict check, whether
+    reached from the lint, the descriptor path or the build entry point);
   - a policy whose events come from more than one domain;
   - a consumed event with no owner in the set and no override;
   - an override on an event that has an owner in the set (a folding
@@ -160,8 +163,8 @@ message; its declaration lists which may start an instance
 (io.angzarr.v1.command) marks a message as a COMMAND: a request its
 component decides and may refuse (decision 14.91, amending 14.34).
 It generates one strict handler method on the component that owns it,
-taking the typed message as input (the scaffold writes #[handles], the one
-attribute for commands and facts; decision 14.98). It is owned by exactly
+taking the typed message as input (the scaffold writes #[handles_cmd];
+decision 14.110) and returning `Result<Emit<S>, Refuses<..>>`. It is owned by exactly
 one component, an aggregate or a process manager (a domain too; decision
 14.31). A FACT is declared by its own option, (io.angzarr.v1.fact) (§7): a
 message carries one of the two, never both (generation fails on both), and
@@ -207,11 +210,14 @@ construction: its refusals, or none (decision 14.99, dropping
 (io.angzarr.v1.fact) marks a message as a FACT: something that already
 happened, which its component records and cannot refuse (decision 14.91,
 ruled 2026-11-02, replacing CommandOptions.fact; decision 14.34). It generates one
-handler on the component that owns it, under the same attribute as a
-command's (#[handles]; decision 14.98), whose signature has no
-refusal return: a fact's handling cannot refuse. Converting a message
-between (command) and (fact) changes only its option; the generated
-signature then gains or loses the refusal return at compile time. A fact
+handler on the component that owns it, under its own attribute,
+#[handles_fact] (decision 14.110), returning `Result<FactEmit<S>, Bug>`:
+a fact's handling cannot refuse, because `Bug` holds no refusal, no typed
+refusal and no re-run. Converting a message between (command) and (fact)
+changes its option, its attribute and its signature, and the generator
+writes the attribute and signature that the option calls for; a (fact)
+message handled by #[handles_cmd], or a (command) message handled by
+#[handles_fact], fails generation. A fact
 is delivered in the Fact arm of a CommandPage, or the fact arm of a
 ReactionDelivery (types.proto). A policy sends what its destination
 declares (decision 14.69): a fact for a type carrying (fact), a command
