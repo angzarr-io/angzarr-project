@@ -186,6 +186,19 @@ Feature: Component declarations - lint warnings and errors
     Then lint reports an error naming "Fulfillment" and its starting type "order.PlaceOrder"
     And lint exits with a non-zero status
 
+  @C-0879
+  Scenario: A policy naming an event that no component folds and no override covers fails generation
+    # Section 4 of component-options.md: an event's owner is the aggregate
+    # or process manager that folds it; with none in the set and no
+    # EventConsumer.domain override, the policy's source is unknown.
+    Given a policy "Fulfillment" with output_domain "inventory"
+    And an (event) entry for "order.OrderPlaced" naming "Fulfillment"
+    And no aggregate or process manager folds "order.OrderPlaced"
+    And the entry for "Fulfillment" has no domain override
+    When the protos are linted
+    Then lint reports an error naming "Fulfillment" and the event "order.OrderPlaced": it has no owner
+    And lint exits with a non-zero status
+
   @C-0612
   Scenario: A generated policy has one required refusal callback over its target's refusals
     # One refusal callback per policy (decision 14.89), required when its

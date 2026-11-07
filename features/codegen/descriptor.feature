@@ -66,7 +66,9 @@ Feature: The generated component descriptor
   Scenario: A process manager's descriptor names its own domain and its state type's name
     # A required domain, copied from the declaration: after the one
     # component name the name no longer implies it (decisions 14.87, 14.101).
-    Given a process manager "fulfillment" owning domain "fulfillment" whose state message is "fulfillment.v1.FulfillmentState"
+    # A starting type is one of the process manager's own inputs (C-0860).
+    Given a process manager "fulfillment" owning domain "fulfillment" whose state message is "fulfillment.v1.FulfillmentState" with input "fulfillment.v1.StartFulfillment"
+    And the message "fulfillment.v1.StartFulfillment" carries (command) naming "fulfillment"
     And "fulfillment" declares starting_types "fulfillment.v1.StartFulfillment"
     When the component's descriptor is generated
     Then its process_manager arm carries domain "fulfillment"

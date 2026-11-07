@@ -439,6 +439,9 @@ gathered; each is stated in its section.
       ExpectedSequenceMismatch excepted (§10);
     - a policy that may send a command that can refuse whose source takes
       no fact to translate the refusal into (§12; lint too).
+  The order in which several applicable errors are reported is
+  unspecified: a test must not depend on which of them is reported first
+  when more than one applies.
   The generator warns:
     - for each (event) entry skipped as out of this generation (§8);
     - for a PM listing no starting_types (§9).
