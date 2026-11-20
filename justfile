@@ -31,7 +31,7 @@ install:
 # whose files carry `docs:start:`/`docs:end:` markers are read (the python and
 # rust repositories carry none).
 EXAMPLES_REPO := "https://github.com/angzarr-io/angzarr-examples"
-EXAMPLES_PINS := "go=347ea9c6fcd7c84726b9c6f7224f30d59141da60 java=37a00953d4744575f5da77fa687e51ab0fc4ee6a csharp=c882a559e51a6f28efe842074ceef4886da659a2 cpp=ecbbf9cb34dd8e964a0eafb697d2806241edf672"
+EXAMPLES_PINS := "go=261d78d8c6058bc31fa343035b44a243515d4d09 java=a5900bbb8103a7442b5f30dfa16eb5511b7ab382 csharp=f687f8f32689b48792620ba7df4ad7d2922f886b cpp=c4b5f4c1fb5c329ed4bc2a8fb214705cea1e4eca"
 
 # Fetch the pinned example repositories into vendor/examples/<lang>
 vendor:
