@@ -1,0 +1,160 @@
+syntax = "proto3";
+package io.angzarr.v1;
+
+import "google/protobuf/descriptor.proto";
+
+option csharp_namespace = "Angzarr";
+option go_package = "github.com/benjaminabbitt/angzarr/client/go/proto/io/angzarr/v1;angzarr";
+option java_multiple_files = true;
+option java_package = "io.angzarr";
+option ruby_package = "Angzarr";
+
+// Custom options declaring dispatch components (aggregate, policy, process
+// manager, projector) on messages: the annotations are the declaration, and
+// there are no services or rpcs. Type references are fully-qualified message
+// names, as strings (decision 14.99). What the options declare and
+// the generator's rules: docs/design/component-options.md.
+
+// Component declaration carried on a message, its anchor: the state message
+// of an aggregate or process manager, a projector's projection message, a
+// policy's empty marker message (docs/design/component-options.md §1). The
+// kind is a oneof, one arm per kind (decision 14.78; §3). Sources are never
+// declared: they are derived from the events named (§4). Streams and the
+// one-policy-per-pair rule: §5.
+message ComponentOptions {
+  // The component's ONE name (decision 14.87). Required: lower-case
+  // ASCII letters, digits and "-", starting with a letter. Rules:
+  // docs/design/component-options.md §3.
+  string component_name = 1;
+  oneof kind {
+    AggregateDecl aggregate = 2;
+    ProcessManagerDecl process_manager = 3;
+    PolicyDecl policy = 4;
+    ProjectorDecl projector = 5;
+  }
+}
+
+// An aggregate's declaration.
+message AggregateDecl {
+  // The domain of the event stream it owns. Required; carried by the
+  // aggregate's angzarr.io/domain label.
+  string domain = 1;
+}
+
+// A process manager's declaration (a PM is a domain, decision 14.31).
+message ProcessManagerDecl {
+  // The domain of its own workflow stream. Required; carried by its
+  // angzarr.io/pm label.
+  string domain = 1;
+  // The fully-qualified names of the commands and facts that may START an
+  // instance (decision 14.91); copied into
+  // ProcessManagerDescriptor.starting_types. Rules:
+  // docs/design/component-options.md §9 and docs/design/process-managers.md §4.
+  repeated string starting_types = 2;
+}
+
+// A policy's declaration. Its source is derived from the events it names
+// (docs/design/component-options.md §4).
+message PolicyDecl {
+  // The one domain it sends commands and facts to (decision 14.24).
+  // Required.
+  string output_domain = 1;
+}
+
+// A projector's declaration: nothing. Its sources are derived from the
+// events it names; one handler serves them all, with no cross-stream order
+// (docs/design/component-options.md §4 and §5).
+message ProjectorDecl {}
+
+// Marks a message as a COMMAND: a request its component decides and may
+// refuse (decision 14.91). Owned by exactly one aggregate or process
+// manager. A message carries (command) or (fact), never both.
+// docs/design/component-options.md §6.
+message CommandOptions {
+  // The anchor message of the component that handles this command.
+  string component = 1;
+  // Fully-qualified event type(s) this command emits; empty means any of
+  // the component's events (docs/design/component-options.md §6).
+  repeated string emits = 2;
+  // Fully-qualified type(s) of the typed REFUSAL messages, of the
+  // command's own domain, its handler may refuse with; empty means it
+  // cannot refuse (decision 14.95). docs/design/component-options.md
+  // §6 and §11.
+  repeated string refuses = 3;
+}
+
+// Marks a message as a FACT: something that already happened, which its
+// component records and cannot refuse (decision 14.91). Why its own
+// option: docs/design/component-options.md §7.
+message FactOptions {
+  // The anchor message of the component that records this fact, as
+  // CommandOptions.component.
+  string component = 1;
+  // Fully-qualified event type(s) this fact records, as
+  // CommandOptions.emits.
+  repeated string emits = 2;
+}
+
+// Marks a message as an EVENT consumed by ONE component: a state applier
+// for an aggregate or process manager, a reaction handler for a policy or
+// projector. Repeated, one entry per consumer.
+// docs/design/component-options.md §8.
+message EventConsumer {
+  // The anchor message of the component that consumes this event. One
+  // outside the descriptor set is a reference, skipped and warned
+  // (docs/design/component-options.md §8).
+  string component = 1;
+  // OVERRIDE ONLY (decision 14.78): the event's source domain, for an
+  // event whose owner is outside the descriptor set
+  // (docs/design/component-options.md §8).
+  string domain = 2;
+}
+
+extend google.protobuf.MessageOptions {
+  // angzarr's extension range is 50100-50199, its numbers contiguous from
+  // 50100 across every extended options message (MessageOptions here and
+  // below, EnumValueOptions in reasons.proto, FileOptions in the child
+  // protocol): component 50100, command 50101, fact 50102, event 50103,
+  // refusal_status 50104, reason 50105, child_protocol 50106.
+  ComponentOptions component = 50100;
+  CommandOptions command = 50101;
+  // A fact's declaration (decision 14.91).
+  FactOptions fact = 50102;
+  // Repeated: one entry per consuming component.
+  repeated EventConsumer event = 50103;
+}
+
+// region refusal_status
+// The status a typed refusal is refused with (decision 14.52, as amended by
+// 14.82): one of the six business statuses, declared on each refusal
+// message, never defaulted. Each value's number is its google.rpc.Code
+// number. Also the type of io.angzarr.handler.v1.Refusal.status. Rules:
+// docs/design/component-options.md §10.
+enum RefusalStatus {
+  // proto3's zero: no status. Never a refusal's declaration (generation
+  // fails on it).
+  REFUSAL_STATUS_UNSPECIFIED = 0;
+  REFUSAL_STATUS_INVALID_ARGUMENT = 3;
+  REFUSAL_STATUS_NOT_FOUND = 5;
+  REFUSAL_STATUS_ALREADY_EXISTS = 6;
+  REFUSAL_STATUS_PERMISSION_DENIED = 7;
+  REFUSAL_STATUS_FAILED_PRECONDITION = 9;
+  REFUSAL_STATUS_OUT_OF_RANGE = 11;
+}
+
+extend google.protobuf.MessageOptions {
+  // On a typed refusal message: the status it is refused with (decision
+  // 14.82).
+  RefusalStatus refusal_status = 50104;
+}
+// endregion
+
+// region refusals
+// Refusals (decision 14.31, amending 2.2): a command names its typed
+// refusal messages in CommandOptions.refuses, one message per refusal
+// (decision 14.82), each travelling under
+// ANGZARR_REASON_COMMAND_REFUSED; a refused policy command takes the one
+// path through PolicyService.Translate. The refusing side:
+// docs/design/component-options.md §11; the policy's side and the
+// generator's checks: §12 and docs/design/policies.md §3.
+// endregion

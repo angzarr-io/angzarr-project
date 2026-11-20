@@ -1,0 +1,152 @@
+# Step phrasing conventions
+
+Rules for authoring Gherkin scenarios across all tiers. Rule 16 (scenario
+IDs) is CI-enforced by `just check-feature-ids`; the rest are advisory and
+code review is the feedback loop.
+
+Each rule below gives the **rule**, the **rationale**, a **good** example,
+and a **bad** example. When a reviewer cites a rule, they cite the number.
+
+---
+
+## 1. Entities are quoted proper nouns
+
+Name aggregates, policies, domains, tables, players as quoted strings.
+
+**Rationale:** easy to grep; consistent parameterization; avoids collisions
+between step words and identifiers.
+
+- Good: `player "Alice"`, `table "Main"`, `policy "OrderFulfillment"`
+- Bad: `player Alice`, `the Main table`, `policy OrderFulfillment`
+
+## 2. Types are unquoted, in the code's native casing
+
+Commands/events use PascalCase; domains use lowercase quoted strings.
+
+- Good: `domain "order"`, command `CreateOrder`, event `OrderCreated`
+- Bad: `domain Order`, command `"CreateOrder"`, event `order_created`
+
+## 3. Given/When/Then semantics
+
+- **Given** — prior state, past tense facts
+- **When** — the action under test, active voice
+- **Then** — assertion of outcome, declarative
+
+- Good: `Given a registered player "Alice"` / `When "Alice" stands at seat 0` / `Then the response contains one HoldReleased event`
+- Bad: `Given I stand` / `When the response contains…` / `Then Alice is standing`
+
+## 4. Temporal markers are acceptance-only
+
+`within N seconds` belongs in `example/blackjack-acceptance/` only. Unit tiers are
+synchronous by contract — a temporal assertion there is a category error.
+
+- Good (acceptance): `Then within 3 seconds the ledger shows "Alice" with a bankroll of 500`
+- Bad (unit): `Then within 100ms the handler emits OrderCreated`
+
+## 5. Command invocation phrasing differs by tier
+
+- Acceptance: `When I send a CreateOrder command` (user-perspective; the
+  CommandClient is the subject)
+- Unit: `When CreateOrder(order_id="o-1") is dispatched` (router-perspective;
+  passive voice emphasizes the framework)
+
+Keep the style consistent within one feature file.
+
+## 6. Assertion verbs carry meaning
+
+- `emits` — handler returned this output
+- `has` — observable state reflects this
+- `triggers` — cross-domain chain occurred (acceptance)
+
+- Good: `Then the policy emits a RecordRoundResult fact`, `Then Alice has stack 495`
+- Bad: `Then Alice emits stack 495`, `Then the policy has a RecordRoundResult`
+
+## 7. Tables use `|` with a key column first
+
+- Good:
+  ```
+  | name  | seat | stack |
+  | Alice | 0    | 500   |
+  ```
+- Bad: key-less rows, unquoted strings, inconsistent column order across
+  scenarios.
+
+## 8. Step regex uses named groups
+
+Positional groups break when patterns grow.
+
+- Good: `r'player "(?P<name>[^"]+)" has stack (?P<stack>\d+)'`
+- Bad: `r'player "([^"]+)" has stack (\d+)'`
+
+## 9. Step file mirrors feature file name
+
+`player.feature` ↔ `player_steps.py` (or `player_steps.go`, etc.). Shared
+steps go in `common_steps.*`.
+
+## 10. `@wip` tag opts a scenario out of CI
+
+Used during authoring. CI always runs with `--tags="~@wip"`. Don't land @wip
+scenarios in main without a tracking issue.
+
+## 11. Scenario titles are present-tense behavior claims
+
+- Good: `Policy produces a command for the target domain`
+- Bad: `Producing a command for the target domain` / `Test policy output`
+
+## 12. Domain vocabulary is tier-bound
+
+- `features/client/` — only `Order`, `Payment`, `Inventory`, `Shipping`. No blackjack.
+- `features/example/` — only blackjack types.
+
+Mixing poisons the shared vocabulary for consumer repos.
+
+## 13. Background is for truly shared setup
+
+Prefer per-scenario `Given` when the setup is not universal across every
+scenario in the file. Overloaded `Background` blocks become invisible state
+that makes scenarios harder to read in isolation.
+
+## 14. No doc strings; use tables
+
+Multi-line `"""..."""` payloads obscure structure. Tables make assertions
+inspectable at a glance.
+
+## 15. Assertions are structural, not positional
+
+Don't assert `the first element has...` when the collection is unordered.
+Name the element by key.
+
+## 16. Scenario ID tag is mandatory
+
+Every `Scenario:` / `Scenario Outline:` has exactly one `@<tier>-NNNN` tag
+on the tag lines immediately above it, and no ID appears twice. Format is
+fixed: uppercase tier code (`C`, `EU`, `EA`), dash, four digits with leading
+zeros. Enforced by `just check-feature-ids` (`scripts/check_feature_ids.py`)
+in the Contracts workflow for `features/client`,
+`features/coordinator-contract` and `parity`.
+
+- Good: `@C-0042`
+- Bad: `@C-42`, `@c-0042`, `@C_0042`
+
+## 17. Tier domain purity
+
+Client tier feature files import zero blackjack concepts. Example tier feature
+files import zero generic `Order`/`Payment` concepts. A scenario that
+genuinely spans both belongs in a different test — probably pytest/unit
+integration — not cucumber.
+
+## 18. Failures are asserted by key and args, never by text
+
+An error is a key and an argument map, never rendered English (decision
+14.37). Assert a refusal or failure by its status code, its reason key (an
+unquoted SCREAMING_SNAKE code, or a typed refusal object's type) and its
+args by name; never by a message's wording or a substring of it. Where a
+scenario shows text that business code logs for itself, it asserts that the
+text does NOT cross.
+
+**Rationale:** text is rendered only where it is displayed, from a catalog
+keyed by the code; the wire carries the key, so a scenario that matches
+wording tests something nothing sends.
+
+- Good: `Then the command is refused FAILED_PRECONDITION with reason ORDER_CLOSED`, `And the refusal's error info carries order "o-9"`
+- Bad: `Then the command fails with the business rejection reason "order is closed"`, `And the refusal message names the type URL "/orders.v1.AddLine"`

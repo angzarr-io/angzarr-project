@@ -1,0 +1,53 @@
+syntax = "proto3";
+package io.angzarr.transport.distributed.v1;
+
+import "google/protobuf/timestamp.proto";
+import "io/angzarr/v1/types.proto";
+
+option csharp_namespace = "Angzarr.Transport.Distributed";
+option go_package = "github.com/benjaminabbitt/angzarr/client/go/proto/io/angzarr/transport/distributed/v1;angzarrdistributed";
+option java_multiple_files = true;
+option java_package = "io.angzarr.transport.distributed";
+option ruby_package = "Angzarr::Transport::Distributed";
+
+// region bus_envelope
+// The message bus's envelope (decision 14.64): a core book, unchanged,
+// and the claim checks of any pages whose payloads travel out of band.
+// Never part of a persisted page. The envelope and the claim check:
+// docs/design/distributed-transport.md §4.
+message BusEnvelope {
+  oneof body {
+    io.angzarr.v1.EventBook events = 1; // A book of events, its claim-checked pages' payloads unset
+    io.angzarr.v1.CommandBook command = 2; // A command or fact, its payload unset when claim-checked
+  }
+  // One per page whose payload was claim-checked: none when every payload
+  // travels inline.
+  repeated ClaimCheck claim_checks = 3;
+}
+
+// One claim-checked payload: which page of the envelope's book it belongs to
+// and where it is stored.
+message ClaimCheck {
+  // The page's index in the book's pages, from 0 (always 0 for a
+  // CommandBook, which carries one page).
+  uint32 page = 1;
+  PayloadReference reference = 2;
+}
+// endregion
+
+// region payload_reference
+// Reference to an externally stored payload (claim check pattern), carried
+// only by a bus envelope, never by a persisted page
+// (docs/design/distributed-transport.md §4).
+message PayloadReference {
+  // Location URI; its scheme names the storage backend (decision 14.107,
+  // ruled 2026-11-02), e.g. s3://bucket/prefix/{hash}.bin.
+  string uri = 1;
+  // Content hash for integrity verification and deduplication (SHA-256)
+  bytes content_hash = 2;
+  // Original serialized payload size in bytes
+  uint64 original_size = 3;
+  // Timestamp when payload was stored (for TTL cleanup)
+  google.protobuf.Timestamp stored_at = 4;
+}
+// endregion

@@ -1,0 +1,48 @@
+syntax = "proto3";
+package io.angzarr.transport.embedded.v1;
+
+import "io/angzarr/v1/reasons.proto";
+
+option csharp_namespace = "Angzarr.Transport.Embedded";
+option go_package = "github.com/benjaminabbitt/angzarr/client/go/proto/io/angzarr/transport/embedded/v1;angzarrembedded";
+option java_multiple_files = true;
+option java_package = "io.angzarr.transport.embedded";
+option ruby_package = "Angzarr::Transport::Embedded";
+
+// The local-process transport's reason keys, EMBEDDED_REASON_* (decisions
+// 14.64 and 14.104): what whatever runs a child process answers when
+// the child breaks the launch protocol (docs/design/child-protocol.md §7).
+// The key rules (docs/design/reason-keys.md §1 to §7) hold here; its
+// English is reasons.en-US.ftl beside this file. Per-key behaviour:
+// docs/design/reason-keys.md §11.
+enum EmbeddedReason {
+  EMBEDDED_REASON_UNSPECIFIED = 0;
+  // Raised by whatever runs a child process (the component host).
+  // A child that did not report health SERVING on the host's path within
+  // `timeout_ms`, or exited first. docs/design/reason-keys.md §11.1.
+  EMBEDDED_REASON_CHILD_NOT_SERVING = 1 [(io.angzarr.v1.reason) = {
+    args: ["component", "status", "timeout_ms"]
+    grpc_status: INTERNAL
+  }];
+  // Raised by whatever runs a child process (the component host).
+  // A child that exited on its stdin's end with a status other than 0
+  // (`exit_code`). docs/design/reason-keys.md §11.2.
+  EMBEDDED_REASON_CHILD_EXIT_STATUS = 2 [(io.angzarr.v1.reason) = {
+    args: ["component", "exit_code"]
+    grpc_status: INTERNAL
+  }];
+  // Raised by whatever runs a child process (the component host).
+  // A child that did not exit by itself on its stdin's end within its
+  // grace; `ended` how it did end. docs/design/reason-keys.md §11.3.
+  EMBEDDED_REASON_CHILD_NOT_EXITED = 3 [(io.angzarr.v1.reason) = {
+    args: ["component", "ended"]
+    grpc_status: INTERNAL
+  }];
+  // Raised by whatever runs a child process (the component host).
+  // A conformance probe given an input a child of its kind (`kind`) does
+  // not handle. docs/design/reason-keys.md §11.4.
+  EMBEDDED_REASON_PROBE_INPUT = 4 [(io.angzarr.v1.reason) = {
+    args: ["component", "kind"]
+    grpc_status: INVALID_ARGUMENT
+  }];
+}

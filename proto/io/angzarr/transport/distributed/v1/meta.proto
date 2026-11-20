@@ -1,0 +1,66 @@
+syntax = "proto3";
+package io.angzarr.transport.distributed.v1;
+
+import "google/api/annotations.proto";
+import "google/protobuf/empty.proto";
+import "io/angzarr/v1/meta.proto";
+import "io/angzarr/v1/types.proto";
+
+option csharp_namespace = "Angzarr.Transport.Distributed";
+option go_package = "github.com/benjaminabbitt/angzarr/client/go/proto/io/angzarr/transport/distributed/v1;angzarrdistributed";
+option java_multiple_files = true;
+option java_package = "io.angzarr.transport.distributed";
+option ruby_package = "Angzarr::Transport::Distributed";
+
+// Edition administration over the distributed transport: the RPCs and
+// their requests. What an edition is, and its summary, are core's
+// (io/angzarr/v1/meta.proto; decision 14.64).
+
+// region edition_admin
+// EditionAdminService: forks streams into editions, lists editions, and
+// deletes them (docs/design/edition-meta-events.md).
+service EditionAdminService {
+  // Fork one stream into an edition at the stated fork_sequence, creating
+  // the edition if needed; answers the fork event's EventRef. Behaviour and
+  // status codes: docs/design/edition-meta-events.md §5.
+  rpc ForkStream(ForkStreamRequest) returns (io.angzarr.v1.EventRef) {
+    option (google.api.http) = {
+      post: "/v1/admin/editions/{stream.edition}/forks"
+      body: "*"
+    };
+  }
+  // List the editions, from their fork events
+  // (docs/design/edition-meta-events.md §5).
+  rpc ListEditions(ListEditionsRequest) returns (ListEditionsResponse) {
+    option (google.api.http) = {get: "/v1/admin/editions"};
+  }
+  // Delete an edition by enumeration of its forked streams. Behaviour and
+  // status codes: docs/design/edition-meta-events.md §4 and §5.
+  rpc DeleteEdition(DeleteEditionRequest) returns (google.protobuf.Empty) {
+    option (google.api.http) = {delete: "/v1/admin/editions/{name}"};
+  }
+}
+
+// What ForkStream takes: the stream and its fork point.
+message ForkStreamRequest {
+  // The stream, named in the edition to create or extend: domain, root,
+  // and edition (required, non-empty). Its main version is forked.
+  io.angzarr.v1.Cover stream = 1;
+  // The fork point, always stated by the caller (decision 14.36): the
+  // sequence the EditionCreated is appended at; 0 is the stream's start,
+  // and one above main's head is refused ABORTED
+  // (docs/design/edition-meta-events.md §5).
+  uint64 fork_sequence = 2;
+}
+
+message ListEditionsRequest {}
+
+message ListEditionsResponse {
+  repeated io.angzarr.v1.EditionSummary editions = 1;
+}
+
+
+message DeleteEditionRequest {
+  string name = 1; // The edition name: required, non-empty
+}
+// endregion

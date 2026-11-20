@@ -1,0 +1,233 @@
+---
+title: Process Managers
+---
+import { Tabs, TabItem } from '@astrojs/starlight/components';
+
+
+A **process manager** coordinates multi-domain workflows with state tracking. Unlike stateless policies, process managers maintain their own event stream keyed by correlation ID, enabling complex orchestration patterns.
+
+A process manager **is a domain**. Like any domain it takes **commands**, which it may refuse, and **facts** (timeouts, webhooks, refusal facts), which it never refuses. It subscribes to no domain: when it must hear what happened in another domain, a policy from that domain turns the event into a command to it. Everything it emits is its own events: to act on another domain it records an event carrying the data that domain's command needs, and a policy from the PM's domain builds the command. It is served exactly as an aggregate is, by the same command-handler services.
+
+---
+
+## When to Use Process Managers
+
+| Use Case | Policy | Process Manager |
+|----------|------|-----------------|
+| Single event → single command | ✓ | |
+| Fan-out to multiple domains | ✓ (one policy per destination) | |
+| Multi-step workflow with state | | ✓ |
+| Gathers what happened in several domains (as facts, through policies) | | ✓ |
+| State machine transitions | | ✓ |
+| Timeouts and retries | | ✓ |
+
+### Warning: Process Manager Anti-Patterns
+
+**Over-reliance on process managers is a foot-gun.** If you find yourself:
+
+- Putting significant business logic in a PM
+- Building PMs with large, complex state
+- Creating PMs for workflows within a single domain
+- Reaching for PMs as a first solution
+
+**Your domain factoring is probably wrong.**
+
+Process managers should be **lightweight state machines** coordinating across domains—not business logic containers. They answer "what phase are we in?" and "what happens next?", not "how do we calculate X?"
+
+| Symptom | Likely Problem |
+|---------|----------------|
+| PM has complex validation logic | Logic belongs in domain aggregate |
+| PM state mirrors aggregate state | Redundant—query the aggregate |
+| PM handles single-domain workflow | Use policy or aggregate instead |
+| PM event stream grows large | Too much responsibility—split domains |
+
+**Rule of thumb:** If a PM does more than track phases and record what should happen next, reconsider your architecture. The PM's job is orchestration, not computation.
+
+---
+
+## Example: Hand Flow PM
+
+The HandFlowPM orchestrates poker hand phases across table and hand domains. Policies into its domain tell it what happened, as commands; it records each next step as its own event; policies from its domain turn those events into commands:
+
+```mermaid
+sequenceDiagram
+    participant T as Table
+    participant SI as Policies into hand-flow
+    participant PM as HandFlowPM
+    participant SO as Policies from hand-flow
+    participant H as Hand
+
+    T-->>SI: HandStarted
+    SI->>PM: StartHandFlow (a starting command)
+    PM->>PM: records DealRequested
+    PM-->>SO: DealRequested
+    SO->>H: DealCards
+    H-->>SI: CardsDealt
+    SI->>PM: RecordCardsDealt
+    PM->>PM: records the phase change
+    H-->>SI: HandComplete
+    SI->>PM: RecordHandComplete
+    PM->>PM: records HandFinished
+    PM-->>SO: HandFinished
+    SO->>T: EndHand
+```
+
+:::caution[Example code predates the contract]
+The Python snippets below come from the examples repository, which still shows a PM reacting to other domains' events and returning commands. Under the current contract (decision 14.31) a PM is a domain: policies send it commands, and it returns only its own events, from which policies build each command.
+:::
+
+PMs extend the client library's `ProcessManager` base class; handler methods are registered by decorator / attribute / macro. State lives on the instance.
+
+### State Definition
+
+<Tabs>
+<TabItem label="Python">
+
+```python file=vendor/examples/python/pmg-hand-flow/hand_flow_pm.py region=pm_state
+```
+
+</TabItem>
+</Tabs>
+
+### Handler Implementation
+
+<Tabs>
+<TabItem label="Python">
+
+```python file=vendor/examples/python/pmg-hand-flow/hand_flow_pm.py region=pm_handler
+```
+
+</TabItem>
+</Tabs>
+
+---
+
+## Correlation ID
+
+Process managers use the **correlation ID** as their aggregate root:
+
+```protobuf file=proto/io/angzarr/v1/types.proto region=cover
+```
+
+A PM's stream, its root and its start rule: `docs/design/process-managers.md` §3 and §4.
+
+A command or fact addressed to a PM names its instance: its cover is the PM's domain with the instance's root. A policy always names its command's root, for a PM as for an aggregate: by convention the event's correlation ID, unchanged, or another root (a uniqueness PM keyed by username, say). Either way the command carries the event's correlation ID unchanged (decision 14.36). All events in a workflow share the same correlation ID, allowing the PM to:
+- Hear, through policies, what happened in several domains
+- Maintain workflow state across its inputs
+- Track progress through the state machine
+- Record the data each next step needs, for a policy to send on
+
+### Which inputs start an instance
+
+A PM declares which of its command and fact types are **starting** inputs, by name, in its declaration (`ProcessManagerDecl.starting_types`; decision 14.91). An input for a root the PM has no instance for starts one only if its type is a starting input. Any other such fact is dead-lettered (`ANGZARR_REASON_PM_NO_INSTANCE`) and alerted, recording nothing; a fact is never refused, so its sender is answered `INTERNAL` `ANGZARR_REASON_FACT_DEAD_LETTERED`. Any other such command is refused (`FAILED_PRECONDITION`, `ANGZARR_REASON_PM_NO_INSTANCE`), recording nothing. Declare as starting every input that can arrive first: inputs from different domains arrive in no guaranteed order.
+
+---
+
+## Commands In, Its Own Events Out
+
+| | What it is | Who sends it |
+|-|-----------|--------------|
+| **Input: a command** | A request the PM may refuse | A policy from another domain (turning that domain's event into a command), or a client |
+| **Input: a fact** | Something that already happened, never refused | A timer or webhook, or a refusal fact from a policy from the PM's domain |
+| **Output: its own events** | What the PM decided, with the data the next step needs | Policies from the PM's domain turn them into commands |
+
+```python title="illustrative"
+# The policy from "hand" to the PM's domain tells the PM, as a command.
+# Its output names only the root and the payload; the coordinator
+# addresses it to the policy's one destination, "hand-flow".
+def on_hand_complete(event: HandComplete, ctx: PolicyContext):
+    return [Output(root=ctx.correlation_id,
+                   command=RecordHandComplete(winner_root=event.winner_root,
+                                              pot=event.pot))]
+```
+
+Its only output is its own events. To act on another domain, it records an event that carries the command's data, and the policy for (the PM's domain, that domain) builds the command:
+
+```python title="illustrative"
+# The PM records what should happen next, with the data the command needs.
+def handle_hand_complete(cmd: RecordHandComplete, state: WorkflowState):
+    return PotAwarded(player_root=cmd.winner_root, amount=cmd.pot)
+
+# The policy from the PM's domain to "player" builds the command.
+def on_pot_awarded(event: PotAwarded):
+    return [Output(root=event.player_root,
+                   command=TransferChips(amount=event.amount))]
+```
+
+The coordinator, not the handler, deduplicates, as for any domain: a redelivered command or fact is found on the PM's stream by its id before the handler runs, and the handler is not called again. A policy's command gets its id from the event it reacts to, so a policy re-run sends the same id.
+
+---
+
+## State Persistence
+
+PM state is stored as events in the PM's own event stream:
+
+```text title="illustrative - PM event stream"
+PM Event Stream (root = the workflow's correlation_id, by convention):
+  [0] WorkflowStarted { hand_id: "...", phase: "awaiting_deal" }
+  [1] PhaseTransitioned { from: "awaiting_deal", to: "dealing" }
+  [2] PhaseTransitioned { from: "dealing", to: "blinds" }
+  [3] WorkflowCompleted { winner_id: "..." }
+```
+
+On restart, the PM rebuilds state by replaying its own events.
+
+---
+
+## Replies and Refusals
+
+A PM tracks the replies to the steps it starts. Its event carries the instance's correlation ID, so the policy's command built from it carries that correlation, and so do the target's events. The policy from the target's domain to the PM's domain turns the replies the PM needs into commands to the instance under that correlation.
+
+A target that **refuses** a policy's command records nothing, and answers a business status carrying a **typed refusal object** of its own domain (e.g. the wallet's `InsufficientFunds { available, requested }`; every refusal is typed, decision 14.95). The command names it in its annotation, as it names its events with `emits`: `refuses: "examples.v1.InsufficientFunds"` on `HoldFunds`, so the generated handler returns its events or an `InsufficientFunds` refusal; a command that names none cannot refuse. The refusal goes back to the policy's `Translate`, and its **one refusal callback** (decision 14.89) returns a domestic fact of the policy's source, which the coordinator delivers to the exact stream of the triggering event (domain, root and edition), with the refused command's id; when that source is the PM, the PM decides the next step from its own state, and never refers to the foreign protos. The callback's author handles the refusals of the commands the policy sends and answers every other arm with a bug; it cannot decline:
+
+```python title="illustrative"
+def refused(self, command: TableCommand, refusal: TableRefusal,
+            ctx: RefusalContext) -> BuyInFact:
+    match (command, refusal):
+        case (ConfirmSeat(), SeatNotConfirmable() as r):
+            return SeatConfirmationRefused(buy_in_id=command.buy_in_id, reason=r.reason)
+        case _:
+            raise Bug.unhandled()
+```
+
+There is one refusal path (decision 46 #5): no pass-through and no standard refusal fact. A generated policy whose target has a command that can refuse has its callback, required, and generation fails if its source takes no fact; a hand-written policy whose router has no callback answers `ANGZARR_REASON_NO_REFUSAL_HANDLER`, dead-lettered and alerted.
+
+The refusal fact is unrefusable, so a refusal cannot loop. There is no separate notification channel: the refusal is an ordinary fact in the PM's own stream. A hard failure of the policy's command (anything but a business rejection) is retried when retryable and otherwise dead-lettered, as for any policy command.
+
+---
+
+## Timeouts
+
+:::note[Future Feature]
+PM-scheduled timeouts (e.g., player action timers, turn clocks) are planned but not yet implemented.
+
+See [Roadmap](../roadmap#process-manager-timeouts) for details.
+:::
+
+---
+
+## PM vs Policy
+
+| Aspect | Policy | Process Manager |
+|--------|------|-----------------|
+| **State** | Stateless | Stateful (own event stream) |
+| **Identity** | None | correlation_id |
+| **Input** | Events of its one source domain | Commands and facts addressed to it (subscribes to no domain) |
+| **Output** | Commands for its one destination (an aggregate's or a PM's domain); a refusal fact for its own source when one is refused | Its own events only |
+| **Owned stream** | None (`domain` must be empty) | Its own workflow domain (`domain` required) |
+| **Persistence** | No | Yes (workflow events) |
+| **Timeouts** | No | Planned |
+| **Complexity** | Low | Higher |
+
+A component declares three separate domain roles in `ComponentOptions`: `domain` is the stream it owns, `input_domain` / `(event).domain` are the domains it subscribes to, and `output_domain` is the one domain a policy sends to. A process manager declares only `domain`: it subscribes to nothing and sends nothing but its own events.
+
+**Rule of thumb**: Start with policies. Upgrade to PM when you need state tracking across steps or what happened in several domains.
+
+---
+
+## Next Steps
+
+- **[Policies](/components/policy)** — Simpler stateless coordination
+- **[Commands vs Facts](/features/facts)** — Commands, facts, and why a PM records both as facts
+- **[Why Poker](/examples/why-poker#5-process-manager-orchestration)** — PM patterns in poker
+- **[Testing](/operations/testing)** — Testing PMs with Gherkin

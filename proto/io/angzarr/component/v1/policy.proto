@@ -1,0 +1,26 @@
+syntax = "proto3";
+package io.angzarr.component.v1;
+
+import "io/angzarr/handler/v1/policy.proto";
+
+option csharp_namespace = "Angzarr.Component";
+option go_package = "github.com/benjaminabbitt/angzarr/client/go/proto/io/angzarr/component/v1;angzarrcomponent";
+option java_multiple_files = true;
+option java_package = "io.angzarr.component";
+option ruby_package = "Angzarr::Component";
+
+// PolicyService: a policy's business logic, the one service its business
+// process serves for it. Its messages are the handler layer's
+// (io/angzarr/handler/v1/policy.proto; decision 14.78). What a policy
+// is, its translation, its refusals and its outbox: docs/design/policies.md.
+service PolicyService {
+  // React to one source event (decision 46, Q3): the commands and facts
+  // the destination domain declares (decision 14.69). Called once per
+  // trigger event (docs/design/policies.md §1 and §6).
+  rpc React(io.angzarr.handler.v1.ReactRequest) returns (io.angzarr.handler.v1.ReactResponse);
+
+  // Translate one refusal of the policy's command into one fact of its own
+  // source (the one refusal path, decision 46 #5). When it is called and
+  // what an error status means: docs/design/policies.md §3 and §6.
+  rpc Translate(io.angzarr.handler.v1.TranslateRequest) returns (io.angzarr.handler.v1.TranslateResponse);
+}

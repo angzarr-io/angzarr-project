@@ -1,0 +1,444 @@
+syntax = "proto3";
+package io.angzarr.examples.v1;
+
+import "io/angzarr/examples/v1/wallet.proto";
+import "io/angzarr/v1/options.proto";
+
+option csharp_namespace = "Angzarr.Examples";
+option go_package = "github.com/benjaminabbitt/angzarr/examples/go/proto/io/angzarr/examples/v1;examples";
+option java_multiple_files = true;
+option java_package = "io.angzarr.examples";
+option ruby_package = "Angzarr::Examples";
+
+// =============================================================================
+// pmg-buy-in — the buy-in process manager (domain "buy-in")
+// =============================================================================
+//
+// A buy-in must secure two resources in two domains — a held seat at the
+// table and held funds in the wallet — and confirm each in turn. It is the
+// example's only process manager.
+//
+// State is keyed by the correlation id: the PM's root is the correlation id
+// itself, unchanged (docs/design/process-managers.md §3). A process manager is
+// a domain (decision 14.31): its inputs are facts, which policies from the
+// table and the wallet send it (each declares fact, so each policy emits it
+// as a Fact; decision 14.69), and the refusal facts its own policies
+// translate; it sends nothing itself. Each step it decides is a PM event
+// carrying the data the next output needs, and a policy from "buy-in"
+// builds that command or fact. Flow:
+//
+//   source event          policy -> fact to the PM                     phase change                      PM event        policy -> output
+//   table  SeatHeld       policy-table-buy-in  -> StartBuyIn           (new) -> AWAITING_HOLD            BuyInStarted    policy-buy-in-wallet -> wallet HoldFunds
+//   wallet FundsHeld      policy-wallet-buy-in -> RecordFundsHeld      AWAITING_HOLD -> AWAITING_SEAT    BuyInFundsHeld  policy-buy-in-table  -> table  ConfirmSeat
+//   table  PlayerSeated   policy-table-buy-in  -> RecordPlayerSeated   AWAITING_SEAT -> AWAITING_CAPTURE BuyInSeated     policy-buy-in-wallet -> wallet CaptureFunds (a fact)
+//   wallet FundsCaptured  policy-wallet-buy-in -> RecordFundsCaptured  AWAITING_CAPTURE -> COMPLETED     BuyInCompleted  —
+//
+// StartBuyIn is the PM's one starting input (its (command) entry sets
+// starts; ruling B1, adapted, decision 14.31): it alone starts an instance
+// for a correlation the PM has not seen. Any other of these facts for a
+// correlation with no buy-in instance is not delivered: the PM's
+// coordinator dead-letters and alerts it, for a human, before the handler
+// (ANGZARR_REASON_PM_NO_INSTANCE), and answers its policy INTERNAL
+// ANGZARR_REASON_FACT_DEAD_LETTERED, which completes the policy's step (decisions
+// 14.69 and 14.100).
+//
+// Compensation (decision 14.74, the shape of the owner's ruling of
+// 2026-11-02, decision 44 (a)). The buy-in's two steps, each paired in
+// code with its undo, an event of the PM's own that its outbound policy
+// turns into a fact of the step's destination (so an undo is never
+// refused, and compensation never loops):
+//   step        recorded by      undo event       policy -> undo
+//   hold seat   BuyInStarted     SeatReleaseDue   policy-buy-in-table  -> table  ReleaseSeat (a fact)
+//   hold funds  BuyInFundsHeld   HoldReleaseDue   policy-buy-in-wallet -> wallet ReleaseHold (a fact)
+// A refusal rolls the buy-in back in one handling: its failed event, then
+// the undo of each completed step, newest first. The failed events trigger
+// nothing further; only the undo events do.
+//
+// Both refusals are translated (decision 14.76: every command a policy
+// sends has a refusal path, and a generated policy's callback answers a
+// fact of its source):
+//
+// THE WALLET CANNOT FUND THE BUY-IN.
+//   1. BuyInStarted -> policy-buy-in-wallet sends HoldFunds to the wallet;
+//   2. the wallet refuses it (FAILED_PRECONDITION,
+//      INSUFFICIENT_AVAILABLE_FUNDS) with its typed refusal object
+//      InsufficientFunds{available, requested} (HoldFunds' refuses,
+//      wallet.proto), and records NOTHING;
+//   3. policy-buy-in-wallet's refusal callback reads InsufficientFunds and
+//      returns FundsHoldRefused{buy_in_id, reason, available, requested},
+//      a buy-in fact, so the buy-in never reads the wallet's types. The
+//      coordinator addresses it to the exact stream of BuyInStarted (this
+//      PM instance) and stamps it (its command_id = HoldFunds'
+//      command_id, causation_id = BuyInStarted, the correlation);
+//   4. the PM rolls back: BuyInFailed{reason, available, requested}
+//      (phase AWAITING_HOLD -> FAILED), then SeatReleaseDue (the held
+//      seat's undo; the funds were never held);
+//   5. SeatReleaseDue -> policy-buy-in-table sends ReleaseSeat to the
+//      table, which records SeatReleased.
+//
+// THE TABLE CANNOT CONFIRM THE SEAT (the hold is gone, or the player took
+// another seat meanwhile).
+//   1. BuyInFundsHeld -> policy-buy-in-table sends ConfirmSeat to the table;
+//   2. the table refuses it (FAILED_PRECONDITION) with its typed refusal
+//      object SeatNotConfirmable{reason} (ConfirmSeat's refuses,
+//      table.proto), and records NOTHING;
+//   3. policy-buy-in-table's refusal callback reads SeatNotConfirmable and
+//      returns SeatConfirmationRefused{buy_in_id, reason}, a buy-in fact,
+//      stamped and written as above (its command_id = ConfirmSeat's);
+//   4. the PM rolls back: BuyInSeatLost{reason} (phase AWAITING_SEAT ->
+//      FAILED), then HoldReleaseDue (the held funds' undo), then
+//      SeatReleaseDue (the held seat's), newest first;
+//   5. policy-buy-in-wallet sends ReleaseHold to the wallet, which records
+//      HoldReleased, and policy-buy-in-table sends ReleaseSeat to the
+//      table, which records SeatReleased.
+//
+// A LATE REPLY. Funds held for a buy-in that has already failed are
+// recorded as BuyInLateFundsHeld, not BuyInFundsHeld (which would ask the
+// table to confirm the seat), and undone at once: BuyInLateFundsHeld, then
+// HoldReleaseDue, so the wallet releases the hold and the table is never
+// asked.
+//
+// NO REFUSED UNDO. An undo's target must be a fact (decision 14.83;
+// the owner's ruling F4): both of the buy-in's are (ReleaseHold,
+// ReleaseSeat), so no undo can be refused, and a compensation whose undo
+// targeted a command would be refused at registration.
+//
+// In each refusal the refused command's id is the refusal fact's id: never
+// applied in the target's stream, recorded once in the buy-in stream, so a
+// redelivered or re-run step is deduplicated at both ends. Which refusals
+// the table and the wallet answer this way, and which are bugs, is still
+// the buy-in refusal ruling (R2) in
+// docs/design/blackjack-latest-proto-rulings.md. CaptureFunds, ReleaseHold
+// and ReleaseSeat are facts (decision 14.69), so nothing can refuse them.
+//
+// The fact handlers never refuse a step of their own buy-in: a fact whose
+// id field (buy_in_id, or hold_id from the wallet, which equals the
+// buy_in_id) does not match state.buy_in_id, or that arrives in the wrong
+// phase, is stale, so the PM records nothing for it (decision 14.75: a
+// handling returns a list of events, which may be empty). The PM makes no
+// business decisions: validation lives in the two aggregates. Its events
+// carry their command's or fact's id as their cause, and the PM's
+// coordinator deduplicates a redelivered input on that id before the PM
+// runs.
+//
+// Invariant L3 (buy-in half): each PlayerSeated(B, X) pairs with exactly one
+// FundsCaptured(B, X).
+
+// -----------------------------------------------------------------------------
+// The PM's facts: what the table and the wallet report, as the policies
+// into "buy-in" build them, and the refusals its own policies translate
+// (each a fact: the PM records it and never refuses it, decision 14.69).
+// Each is addressed to the buy-in instance its source event's correlation
+// names (cover root = that correlation).
+// -----------------------------------------------------------------------------
+
+// Start a buy-in (from SeatHeld). The starting input.
+message StartBuyIn {
+  option (io.angzarr.v1.fact) = {
+    component: "io.angzarr.examples.v1.BuyInState"
+    emits: "io.angzarr.examples.v1.BuyInStarted"
+  };
+  bytes buy_in_id = 1;
+  bytes player_root = 2;
+  bytes table_root = 3; // The source event's own stream root
+  int32 seat = 4;
+  int64 amount = 5;
+}
+
+// The wallet held the funds (from FundsHeld; hold_id = the buy_in_id).
+// After the buy-in failed, a late reply: recorded as BuyInLateFundsHeld
+// and undone at once (HoldReleaseDue).
+message RecordFundsHeld {
+  option (io.angzarr.v1.fact) = {
+    component: "io.angzarr.examples.v1.BuyInState"
+    emits: "io.angzarr.examples.v1.BuyInFundsHeld"
+    emits: "io.angzarr.examples.v1.BuyInLateFundsHeld"
+    emits: "io.angzarr.examples.v1.HoldReleaseDue"
+  };
+  bytes hold_id = 1;
+  bytes table_root = 2;
+  int64 amount = 3;
+}
+
+// The table seated the player (from PlayerSeated).
+message RecordPlayerSeated {
+  option (io.angzarr.v1.fact) = {
+    component: "io.angzarr.examples.v1.BuyInState"
+    emits: "io.angzarr.examples.v1.BuyInSeated"
+  };
+  bytes buy_in_id = 1;
+  bytes player_root = 2;
+  int32 seat = 3;
+  int64 stack = 4;
+}
+
+// The wallet spent the hold (from FundsCaptured; hold_id = the buy_in_id).
+message RecordFundsCaptured {
+  option (io.angzarr.v1.fact) = {
+    component: "io.angzarr.examples.v1.BuyInState"
+    emits: "io.angzarr.examples.v1.BuyInCompleted"
+  };
+  bytes hold_id = 1;
+  bytes table_root = 2;
+  int64 amount = 3;
+}
+
+// The wallet refused HoldFunds: the DOMESTIC fact that
+// policy-buy-in-wallet's refusal callback returns from the wallet's
+// InsufficientFunds (decision 14.76), so the buy-in needs no wallet proto
+// for it. The PM rolls back.
+message FundsHoldRefused {
+  option (io.angzarr.v1.fact) = {
+    component: "io.angzarr.examples.v1.BuyInState"
+    emits: "io.angzarr.examples.v1.BuyInFailed"
+    emits: "io.angzarr.examples.v1.SeatReleaseDue"
+  };
+  bytes buy_in_id = 1; // The refused HoldFunds' hold_id
+  string reason = 2; // The refusal's reason, e.g. INSUFFICIENT_AVAILABLE_FUNDS
+  int64 available = 3; // From the wallet's InsufficientFunds
+  int64 requested = 4; // From the wallet's InsufficientFunds
+}
+
+// The table refused ConfirmSeat: the DOMESTIC fact that
+// policy-buy-in-table's refusal callback returns from the table's
+// SeatNotConfirmable (decision 14.76). A fact of the PM's own domain, so
+// its handler is infallible, and the buy-in domain needs no table proto
+// for it. The PM rolls back.
+message SeatConfirmationRefused {
+  option (io.angzarr.v1.fact) = {
+    component: "io.angzarr.examples.v1.BuyInState"
+    emits: "io.angzarr.examples.v1.BuyInSeatLost"
+    emits: "io.angzarr.examples.v1.HoldReleaseDue"
+    emits: "io.angzarr.examples.v1.SeatReleaseDue"
+  };
+  bytes buy_in_id = 1; // The refused ConfirmSeat's buy_in_id
+  string reason = 2; // The refusal's reason, e.g. SEAT_HOLD_NOT_FOUND
+}
+
+// -----------------------------------------------------------------------------
+// The PM's events
+// -----------------------------------------------------------------------------
+
+// Starts a buy-in, and records its first step done: the seat is held.
+// policy-buy-in-wallet sends HoldFunds{hold_id = buy_in_id, table_root,
+// amount} to player_root.
+message BuyInStarted {
+  option (io.angzarr.v1.event) = {
+    component: "io.angzarr.examples.v1.BuyInState"
+  };
+  option (io.angzarr.v1.event) = {
+    component: "io.angzarr.examples.v1.BuyInWalletPolicy"
+  };
+  bytes buy_in_id = 1;
+  bytes player_root = 2;
+  bytes table_root = 3;
+  int32 seat = 4;
+  int64 amount = 5;
+}
+
+// The wallet holds the funds: the second step done. policy-buy-in-table
+// sends ConfirmSeat{buy_in_id} to table_root. The step's undo,
+// HoldReleaseDue, is built from it, so it names whose funds are held.
+message BuyInFundsHeld {
+  option (io.angzarr.v1.event) = {
+    component: "io.angzarr.examples.v1.BuyInState"
+  };
+  option (io.angzarr.v1.event) = {
+    component: "io.angzarr.examples.v1.BuyInTablePolicy"
+  };
+  bytes buy_in_id = 1;
+  bytes table_root = 2; // The policy's target root (a policy never looks one up)
+  bytes player_root = 3; // Whose funds are held: the undo's target root
+}
+
+// The wallet held the funds after the buy-in failed: a late reply,
+// recorded apart from BuyInFundsHeld so the table is never asked to
+// confirm the seat, and undone at once by the HoldReleaseDue recorded with
+// it. Triggers nothing.
+message BuyInLateFundsHeld {
+  option (io.angzarr.v1.event) = {
+    component: "io.angzarr.examples.v1.BuyInState"
+  };
+  bytes buy_in_id = 1;
+  bytes player_root = 2; // Whose hold the undo releases
+}
+
+// The player is seated. policy-buy-in-wallet sends
+// CaptureFunds{hold_id = buy_in_id} to player_root.
+message BuyInSeated {
+  option (io.angzarr.v1.event) = {
+    component: "io.angzarr.examples.v1.BuyInState"
+  };
+  option (io.angzarr.v1.event) = {
+    component: "io.angzarr.examples.v1.BuyInWalletPolicy"
+  };
+  bytes buy_in_id = 1;
+  int64 stack = 2;
+  bytes player_root = 3; // The policy's target root (a policy never looks one up)
+}
+
+message BuyInCompleted {
+  option (io.angzarr.v1.event) = {
+    component: "io.angzarr.examples.v1.BuyInState"
+  };
+  bytes buy_in_id = 1;
+}
+
+// The buy-in failed: the wallet refused HoldFunds (FundsHoldRefused). The
+// rollback's failed event: it triggers nothing; the undo events recorded
+// with it do.
+message BuyInFailed {
+  option (io.angzarr.v1.event) = {
+    component: "io.angzarr.examples.v1.BuyInState"
+  };
+  bytes buy_in_id = 1;
+  bytes table_root = 2; // The table of the held seat
+  string reason = 3; // The refusal's reason, e.g. INSUFFICIENT_AVAILABLE_FUNDS
+  int64 available = 4; // From the wallet's InsufficientFunds
+  int64 requested = 5; // From the wallet's InsufficientFunds
+}
+
+// The buy-in failed: the table refused ConfirmSeat (SeatConfirmationRefused).
+// The rollback's failed event: it triggers nothing; the undo events
+// recorded with it do.
+message BuyInSeatLost {
+  option (io.angzarr.v1.event) = {
+    component: "io.angzarr.examples.v1.BuyInState"
+  };
+  bytes buy_in_id = 1;
+  bytes player_root = 2; // The player whose funds were held
+  string reason = 3; // The refusal's reason, e.g. SEAT_HOLD_NOT_FOUND
+}
+
+// The undo of the held seat, due: policy-buy-in-table sends
+// ReleaseSeat{buy_in_id} to table_root, a fact the table cannot refuse.
+message SeatReleaseDue {
+  option (io.angzarr.v1.event) = {
+    component: "io.angzarr.examples.v1.BuyInState"
+  };
+  option (io.angzarr.v1.event) = {
+    component: "io.angzarr.examples.v1.BuyInTablePolicy"
+  };
+  bytes buy_in_id = 1;
+  bytes table_root = 2; // The policy's target root (a policy never looks one up)
+}
+
+// The undo of the held funds, due: policy-buy-in-wallet sends
+// ReleaseHold{hold_id = buy_in_id} to player_root, a fact the wallet
+// cannot refuse.
+message HoldReleaseDue {
+  option (io.angzarr.v1.event) = {
+    component: "io.angzarr.examples.v1.BuyInState"
+  };
+  option (io.angzarr.v1.event) = {
+    component: "io.angzarr.examples.v1.BuyInWalletPolicy"
+  };
+  bytes buy_in_id = 1;
+  bytes player_root = 2; // The policy's target root (a policy never looks one up)
+}
+
+// The BuyInProcessManager. Owns the "buy-in" stream and subscribes to
+// nothing: its inputs are the facts above, from policy-table-buy-in and
+// policy-wallet-buy-in, and the refusals its own policies translate
+// (FundsHoldRefused from policy-buy-in-wallet, SeatConfirmationRefused from
+// policy-buy-in-table). It sends nothing itself; its events feed
+// policy-buy-in-wallet and policy-buy-in-table.
+message BuyInState {
+  option (io.angzarr.v1.component) = {
+    component_name: "pmg-buy-in"
+    process_manager: {
+      domain: "buy-in"
+      starting_types: "io.angzarr.examples.v1.StartBuyIn"
+    }
+  };
+  enum Phase {
+    PHASE_UNSPECIFIED = 0; // No buy-in started under this correlation
+    PHASE_AWAITING_HOLD = 1;
+    PHASE_AWAITING_SEAT = 2;
+    PHASE_AWAITING_CAPTURE = 3;
+    PHASE_COMPLETED = 4;
+    PHASE_FAILED = 5; // Rolled back (BuyInFailed or BuyInSeatLost)
+  }
+  bytes buy_in_id = 1;
+  bytes player_root = 2;
+  bytes table_root = 3;
+  int32 seat = 4;
+  int64 amount = 5;
+  Phase phase = 6;
+  string failure_reason = 7; // Set with PHASE_FAILED
+}
+
+// =============================================================================
+// policy-buy-in-wallet, policy-buy-in-table — the buy-in's commands
+// =============================================================================
+//
+// The two policies from "buy-in", one per destination domain (one policy per
+// (source domain, destination domain) pair). Each takes its target root from
+// a field of the PM event (never from a lookup) and emits what each
+// destination declares (decision 14.69): HoldFunds and ConfirmSeat as
+// commands, CaptureFunds, ReleaseHold and ReleaseSeat as facts:
+//   - no Handling; the destination stamps its own head and deduplicates on
+//     the command id derived from the PM event, the policy's registered name
+//     and the command's index;
+//   - delivered in DECISION mode (the coordinator's Handle), chosen by the
+//     policy's configuration;
+//   - correlation_id left empty; the policy's coordinator stamps the PM
+//     event's correlation (the buy-in's), so the targets' replies reach the
+//     PM under it;
+//   - a refusal of one of the commands comes back to the buy-in as one fact
+//     its refusal callback translates (decision 14.76): HoldFunds'
+//     InsufficientFunds as FundsHoldRefused, ConfirmSeat's
+//     SeatNotConfirmable as SeatConfirmationRefused; the refusal flows
+//     above. Each policy's generated interface requires its one refusal
+//     callback (decision 14.89), which handles the refusals of the commands
+//     it sends; every other arm answers a Bug;
+//   - type URLs come from generated code only.
+
+// policy-buy-in-wallet: BuyInStarted -> HoldFunds; BuyInSeated ->
+// CaptureFunds; HoldReleaseDue -> ReleaseHold.
+message BuyInWalletPolicy {
+  option (io.angzarr.v1.component) = {
+    component_name: "policy-buy-in-wallet"
+    policy: { output_domain: "wallet" }
+  };
+}
+
+// policy-buy-in-table: BuyInFundsHeld -> ConfirmSeat; SeatReleaseDue ->
+// ReleaseSeat.
+message BuyInTablePolicy {
+  option (io.angzarr.v1.component) = {
+    component_name: "policy-buy-in-table"
+    policy: { output_domain: "table" }
+  };
+}
+
+// =============================================================================
+// policy-table-buy-in, policy-wallet-buy-in — the buy-in is told, by fact
+// =============================================================================
+//
+// One policy per (source domain, destination domain) pair, so one from each
+// of "table" and "wallet" into "buy-in". The PM is a domain, so these are
+// ordinary policies (decision 14.31), and the PM declares each of their
+// outputs a fact, so each is emitted as one (decision 14.69): addressed to
+// the buy-in instance its source event's correlation names (cover domain
+// "buy-in", root = that correlation), with no Handling, and deduplicated by
+// its derived id. Nothing refuses them; a non-starting fact for an unknown
+// buy-in is dead-lettered at the PM for a human.
+
+// policy-table-buy-in: SeatHeld -> StartBuyIn; PlayerSeated ->
+// RecordPlayerSeated.
+message TableBuyInPolicy {
+  option (io.angzarr.v1.component) = {
+    component_name: "policy-table-buy-in"
+    policy: { output_domain: "buy-in" }
+  };
+}
+
+// policy-wallet-buy-in: FundsHeld -> RecordFundsHeld; FundsCaptured ->
+// RecordFundsCaptured.
+message WalletBuyInPolicy {
+  option (io.angzarr.v1.component) = {
+    component_name: "policy-wallet-buy-in"
+    policy: { output_domain: "buy-in" }
+  };
+}

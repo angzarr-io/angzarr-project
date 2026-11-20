@@ -1,0 +1,53 @@
+# syntax=docker/dockerfile:1.4
+# TypeScript / Node build image for angzarr.
+#
+# Provides: Node 22 (LTS), pnpm, prettier, lizard. angzarr (codegen/scaffold
+# protoc plugins) + buf are inherited from base. The binding loads the
+# router-ffi cdylib in-process via koffi (pure-JS FFI, no native addon build);
+# protobuf-es + the TS toolchain are project-local (pnpm), not baked here.
+# Based on: ghcr.io/angzarr-io/angzarr-base (inherits fixuid + angzarr user)
+
+ARG BASE_IMAGE
+FROM ${BASE_IMAGE}
+
+ARG NODE_VERSION=22.11.0
+ARG PNPM_VERSION=9.12.3
+
+# Node toolchain (system-wide; world-readable for any uid). Tarball install
+# mirrors the curl pattern the other images use.
+RUN ARCH="$(dpkg --print-architecture)" && \
+    case "$ARCH" in \
+        amd64) NARCH=x64 ;; \
+        arm64) NARCH=arm64 ;; \
+        *) echo "unsupported arch $ARCH" >&2; exit 1 ;; \
+    esac && \
+    curl -fSL -o /tmp/node.tar.xz \
+        "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-${NARCH}.tar.xz" && \
+    mkdir -p /opt/node && \
+    tar -C /opt/node --strip-components=1 -xJf /tmp/node.tar.xz && \
+    rm /tmp/node.tar.xz && \
+    chmod -R a+rX /opt/node
+
+ENV PATH=/opt/node/bin:$PATH
+
+# pnpm + prettier, system-wide. pnpm's global store lives under /opt so any
+# fixuid-remapped uid can read it.
+ENV PNPM_HOME=/opt/pnpm
+ENV PATH=/opt/pnpm:$PATH
+RUN corepack enable && corepack prepare pnpm@${PNPM_VERSION} --activate && \
+    npm install -g prettier && \
+    mkdir -p /opt/pnpm && chmod -R a+rwX /opt/pnpm /opt/node/lib/node_modules
+
+# lizard (per-function cyclomatic complexity; `just complexity`). --break-system-
+# packages is needed under PEP 668 (Debian externally-managed environment).
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3 python3-pip \
+    && rm -rf /var/lib/apt/lists/* \
+    && pip install --no-cache-dir --break-system-packages lizard
+
+# Verify
+RUN node --version && pnpm --version && prettier --version && \
+    lizard --version && angzarr codegen languages
+
+WORKDIR /workspace
+USER angzarr

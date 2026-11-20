@@ -1,0 +1,44 @@
+syntax = "proto3";
+package io.angzarr.scheduler.v1;
+
+import "google/protobuf/timestamp.proto";
+import "io/angzarr/v1/types.proto";
+
+option csharp_namespace = "Angzarr.Scheduler";
+option go_package = "github.com/benjaminabbitt/angzarr/client/go/proto/io/angzarr/scheduler/v1;angzarrscheduler";
+option java_multiple_files = true;
+option java_package = "io.angzarr.scheduler";
+option ruby_package = "Angzarr::Scheduler";
+
+// Decision 14.90: the time facts of the
+// scheduler, and nothing else. The scheduler is a domain, one stream per
+// target stream; a domain's payloads, so its own package, importing only
+// core: docs/design/scheduler.md.
+
+// A domain asks for an alarm on its own stream: tell `target` AlarmReached
+// once `at` is reached. Addressed to the scheduler's stream for `target`.
+// Re-arming: docs/design/scheduler.md §4.
+message ArmAlarm {
+  // The stream to tell: the asking domain's own (domain, root, edition).
+  io.angzarr.v1.Cover target = 1;
+  // The asking domain's name for the alarm, unique within its stream:
+  // what it re-checks AlarmReached against. Required, non-empty.
+  string alarm_id = 2;
+  // The instant asked for, UTC.
+  google.protobuf.Timestamp at = 3;
+}
+
+// A domain withdraws an alarm it armed: it is never reached
+// (docs/design/scheduler.md §4).
+message CancelAlarm {
+  string alarm_id = 1;
+}
+
+// The time fact: `at` is reached for the alarm the target armed as
+// `alarm_id`. Delivered to the target stream as a FACT; its deterministic
+// id (fact_origin.external_id) and the target's re-check:
+// docs/design/scheduler.md §5 and §6.
+message AlarmReached {
+  string alarm_id = 1; // As armed
+  google.protobuf.Timestamp at = 2; // The instant armed, not the clock's reading when it fired
+}

@@ -1,0 +1,29 @@
+syntax = "proto3";
+package io.angzarr.handler.v1;
+
+import "google/protobuf/any.proto";
+import "io/angzarr/v1/types.proto";
+
+option csharp_namespace = "Angzarr.Handler";
+option go_package = "github.com/benjaminabbitt/angzarr/client/go/proto/io/angzarr/handler/v1;angzarrhandler";
+option java_multiple_files = true;
+option java_package = "io.angzarr.handler";
+option ruby_package = "Angzarr::Handler";
+
+// A projector's business logic (decision 14.78), under the handler
+// layer's rule (docs/design/handler-contract.md §2).
+
+// What Project is handed: a run of one stream's events, in order, upcast;
+// no cross-stream order (decision 14.96). Delivery and positions:
+// docs/design/projectors.md.
+message ProjectRequest {
+  // The stream's cover and the run of pages, each with its sequence and
+  // EventMeta.
+  io.angzarr.v1.EventBook events = 1;
+}
+
+// What Project answers: the projection, and nothing the coordinator
+// knows. What the coordinator builds from it: docs/design/projectors.md §5.
+message ProjectResponse {
+  google.protobuf.Any projection = 1;
+}

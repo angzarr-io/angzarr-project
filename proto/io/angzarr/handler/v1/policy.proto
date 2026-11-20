@@ -1,0 +1,79 @@
+syntax = "proto3";
+package io.angzarr.handler.v1;
+
+import "google/protobuf/any.proto";
+import "io/angzarr/handler/v1/command_handler.proto";
+import "io/angzarr/v1/types.proto";
+
+option csharp_namespace = "Angzarr.Handler";
+option go_package = "github.com/benjaminabbitt/angzarr/client/go/proto/io/angzarr/handler/v1;angzarrhandler";
+option java_multiple_files = true;
+option java_package = "io.angzarr.handler";
+option ruby_package = "Angzarr::Handler";
+
+// A policy's business logic: React to one event of its source, and
+// Translate one refusal of a command it sent (decision 14.78), under
+// the handler layer's rule (docs/design/handler-contract.md §2). The calls:
+// docs/design/policies.md §6.
+
+// What React is handed: ONE trigger event (decision 46, Q3: a policy is a
+// function of one event, and is called once per trigger).
+message ReactRequest {
+  // A book of the source stream holding exactly the one trigger page: its
+  // cover (domain, root, edition) and the page with its payload (upcast),
+  // sequence and EventMeta (command_id, correlation_id, fact, recorded_at,
+  // rules_version).
+  io.angzarr.v1.EventBook trigger = 1;
+}
+
+// What React answers: the commands and facts for the policy's one
+// destination, in the order business code returned them.
+message ReactResponse {
+  // The outputs, commands and facts in one index space (decision 14.69;
+  // docs/design/policies.md §6). Empty: the policy does nothing for this
+  // event.
+  repeated Output outputs = 1;
+}
+
+// One command or fact for the policy's destination: only the destination
+// stream's root and the payload, in the arm of its kind. Everything else is
+// the coordinator's, and the checks it still makes
+// (ANGZARR_REASON_POLICY_COMMAND_NO_ROOT and the rest):
+// docs/design/policies.md §6.
+message Output {
+  // The destination stream's root, for every destination: nothing fills one
+  // in. Required, 16 bytes.
+  io.angzarr.v1.UUID root = 1;
+  // The destination's command or fact: the arm is the kind (decision 14.91,
+  // ruled 2026-11-02: no flag), picked by generated code from the destination's
+  // declaration (docs/design/policies.md §6).
+  oneof body {
+    google.protobuf.Any command = 2;
+    google.protobuf.Any fact = 3;
+  }
+}
+
+// What Translate is handed: one business rejection of a command the policy
+// sent, and what it reacted to (the one refusal path, decision 46 #5). When
+// it is called: docs/design/policies.md §6.
+message TranslateRequest {
+  // The triggering event: a book of the source stream holding the one
+  // event the policy reacted to (the refused command's causation). Its
+  // cover is also where the translated fact goes.
+  io.angzarr.v1.EventBook trigger = 1;
+  // The refused command, exactly as it was delivered (decision 14.79): its
+  // cover (the destination and root), the identity the coordinator
+  // stamped, and its payload (the refusal callback's target command
+  // choice; decision 14.89).
+  io.angzarr.v1.ReactionDelivery command = 2;
+  // The target's refusal: its typed object and the status it travelled as,
+  // read off the target's gRPC status.
+  Refusal refusal = 3;
+}
+
+// What Translate answers: one fact of the policy's own source domain,
+// payload only. What the coordinator builds from it, and an empty payload
+// (ANGZARR_REASON_NO_FACT_HANDLER): docs/design/policies.md §6.
+message TranslateResponse {
+  google.protobuf.Any fact = 1;
+}

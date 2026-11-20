@@ -1,0 +1,37 @@
+syntax = "proto3";
+package io.angzarr.v1;
+
+import "io/angzarr/v1/types.proto";
+
+option csharp_namespace = "Angzarr";
+option go_package = "github.com/benjaminabbitt/angzarr/client/go/proto/io/angzarr/v1;angzarr";
+option java_multiple_files = true;
+option java_package = "io.angzarr";
+option ruby_package = "Angzarr";
+
+
+// ============================================================================
+// Edition administration
+// ============================================================================
+//
+// Editions are PER-STREAM FORKS (decision 14.32; Cover.edition in
+// types.proto, the meta-event EditionCreated in its meta_events region).
+// Forks, the not-forked rule (ANGZARR_REASON_EDITION_NOT_FORKED), listing
+// and deletion: docs/design/edition-meta-events.md §1 to §4.
+//
+// Who may perform these operations, and main's protection:
+// docs/design/edition-meta-events.md §5.
+
+// The administration RPCs (EditionAdminService) and their requests are the
+// distributed transport's (io/angzarr/transport/distributed/v1/meta.proto);
+// an edition's summary is core's, since every store lists editions
+// (decision 14.64).
+
+// One edition, as the fork events show it. Derived on each call; never
+// stored.
+message EditionSummary {
+  string name = 1; // Always non-empty (main is not an edition)
+  // Every stream forked in it: each stream's EditionCreated (decision
+  // 14.107). The edition's stream count is this list's length.
+  repeated EventRef forks = 2;
+}

@@ -1,0 +1,22 @@
+syntax = "proto3";
+package io.angzarr.component.v1;
+
+import "io/angzarr/handler/v1/projector.proto";
+
+option csharp_namespace = "Angzarr.Component";
+option go_package = "github.com/benjaminabbitt/angzarr/client/go/proto/io/angzarr/component/v1;angzarrcomponent";
+option java_multiple_files = true;
+option java_package = "io.angzarr.component";
+option ruby_package = "Angzarr::Component";
+
+// ProjectorService: a projector's business logic, projecting events to read
+// models. Its messages are the handler layer's
+// (io/angzarr/handler/v1/projector.proto; decision 14.78).
+// Per-stream delivery, editions, and positions marked only after an
+// affirmative answer (decision 14.97): docs/design/projectors.md.
+service ProjectorService {
+  // Project a run of one stream's events (decision 14.78): the
+  // projector persists its read model and answers the projection
+  // (docs/design/projectors.md §1 and §5).
+  rpc Project(io.angzarr.handler.v1.ProjectRequest) returns (io.angzarr.handler.v1.ProjectResponse);
+}

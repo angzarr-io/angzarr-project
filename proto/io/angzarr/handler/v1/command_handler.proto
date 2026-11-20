@@ -1,0 +1,76 @@
+syntax = "proto3";
+package io.angzarr.handler.v1;
+
+import "google/protobuf/any.proto";
+import "google/protobuf/timestamp.proto";
+import "io/angzarr/v1/options.proto";
+import "io/angzarr/v1/types.proto";
+
+option csharp_namespace = "Angzarr.Handler";
+option go_package = "github.com/benjaminabbitt/angzarr/client/go/proto/io/angzarr/handler/v1;angzarrhandler";
+option java_multiple_files = true;
+option java_package = "io.angzarr.handler";
+option ruby_package = "Angzarr::Handler";
+
+// The handler layer (decision 14.78): what each kind of business
+// logic takes and returns, and nothing else. Depends on core only.
+// The layer and its rule (requests carry the books, read-only; responses
+// carry only decisions): docs/design/handler-contract.md §1 and §2. The
+// command handler's one call, Handle, for commands and facts alike
+// (decision 14.98): §3.
+
+// What Handle is handed: one command or fact and the stream it addresses,
+// after the coordinator's pipeline steps 1-4
+// (docs/design/handler-contract.md §4).
+message HandleRequest {
+  // The input as the coordinator holds it: its cover (the stream), and its
+  // page (command_id, correlation_id) whose body is the Command arm (with
+  // its Handling as the client sent it) or the Fact arm (with its origin).
+  io.angzarr.v1.CommandBook input = 1;
+  // The stream as loaded: the starting state (a validated snapshot) and
+  // every page after it, each with its sequence and EventMeta, and the head
+  // (next_sequence). How it is folded: docs/design/handler-contract.md §5.
+  io.angzarr.v1.EventBook history = 2;
+  // When the input was accepted: stamped by the runtime that accepted it
+  // before the handler runs, never by the caller (decision 14.37).
+  google.protobuf.Timestamp recorded_at = 3;
+  // A policy's output or a refusal fact only: its trigger
+  // (ReactionDelivery.causation; decision 14.79). Unset for a client's
+  // input.
+  io.angzarr.v1.EventRef causation = 4;
+}
+
+// What Handle answers: SUCCESS ONLY (decision 14.95): the events, the
+// state and the rules version. A refusal (ANGZARR_REASON_COMMAND_REFUSED), a
+// re-run (ABORTED) and a bug are gRPC error statuses:
+// docs/design/handler-contract.md §6.
+message HandleResponse {
+  // The events, payloads only, in order: empty, one or many (decision
+  // 14.75). How they are wrapped: docs/design/handler-contract.md §7.
+  repeated google.protobuf.Any events = 1;
+  // The state with the events folded in, filled by the client library on
+  // every answer, never by business code.
+  google.protobuf.Any state = 2;
+  // The full version of the business binary that produced this answer
+  // (e.g. "1.4.2+build.7"), baked in when the binary is built; the same
+  // value the component registered (ComponentDescriptor.rules_version).
+  // Filled by the client library. Any other value:
+  // ANGZARR_REASON_RULES_VERSION_MISMATCH (decision 14.56;
+  // docs/design/handler-contract.md §7).
+  string rules_version = 3;
+}
+
+// A business rejection as the refused policy's Translate receives it
+// (io/angzarr/handler/v1/policy.proto, TranslateRequest.refusal): the typed
+// refusal and the status it travelled as (decision 14.95;
+// docs/design/handler-contract.md §8). Typed only.
+message Refusal {
+  // The business status the refusal travelled as: its message's declared
+  // (io.angzarr.v1.refusal_status). Only business statuses are
+  // representable.
+  io.angzarr.v1.RefusalStatus status = 1;
+  // The typed refusal object: one of the command's CommandOptions.refuses
+  // types (options.proto), packed, as it travelled in the status details.
+  // Its type is the key and its fields the map.
+  google.protobuf.Any typed = 2;
+}

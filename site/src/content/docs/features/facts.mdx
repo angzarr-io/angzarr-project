@@ -1,0 +1,202 @@
+---
+title: Commands vs Facts
+---
+Not everything is a request. Some things are reality.
+
+---
+
+## The Poker Floor Example
+
+Mid-hand, the dealer accidentally exposes a card. The floor manager is called. She rules: dead hand, return all bets.
+
+Your hand aggregate doesn't get to vote on this. The ruling happened. The cards were exposed. The decision was made by a human with authority your software doesn't have. Your system records the fact and moves on.
+
+This pattern appears everywhere external authority exists—payment processors, regulatory systems, IoT sensors, human overrides. The [External Rulings example](#external-rulings) shows the implementation.
+
+---
+
+## The Distinction
+
+A **command** is a request that can be rejected. "Please reserve this inventory." The aggregate validates the request against business rules and either produces events or rejects.
+
+A **fact** is an announcement of something that already happened externally. "Stripe confirms the payment succeeded." "FedEx scanned the package in Memphis." "The floor manager issued a ruling."
+
+You cannot reject reality. You can only record it.
+
+---
+
+## Why This Matters
+
+### External Systems Don't Ask Permission
+
+When Stripe sends a webhook confirming payment, the payment has already happened. Your system's opinion is irrelevant. The event must be recorded.
+
+### Audit Trail Clarity
+
+Commands and facts have different semantics in your audit trail:
+
+| Type | Semantics | Example |
+|------|-----------|---------|
+| Command | "We decided to do X" | ReserveInventory → InventoryReserved |
+| Fact | "X happened externally" | PaymentConfirmed (from Stripe) |
+
+Mixing them obscures who made decisions and when.
+
+### Idempotency Requirements
+
+Facts from external systems often arrive multiple times (webhook retries, network issues). The system must handle duplicates gracefully without creating duplicate events.
+
+---
+
+## How It Works
+
+A fact travels through the same command coordinator as a command (`Handle`, `HandleAsync` or `HandleSync`). What makes it a fact is its page: `CommandPage.body` is a `Fact` rather than a `Command`, and the `Fact` carries its **origin**.
+
+```protobuf file=proto/io/angzarr/v1/types.proto region=command_page
+```
+
+Dispatch by arm and type, and the fact's rules: `docs/design/pipeline.md` §6 and §7.2.
+
+Facts need two things that regular commands don't:
+
+1. **An idempotency key** — Stripe might retry that webhook five times. You need to record the payment exactly once. It is `origin.external_id`: the fact's `command_id` is derived from it, so a redelivery to the same stream is answered `DUPLICATE`, with the first delivery's events.
+2. **No sequence** — a fact is never checked against a sequence: a `Fact` has no `Handling`. It is appended at the head the coordinator loaded, like any input; a lost race re-runs it on the new head.
+
+### Processing Flow
+
+The coordinator handles a fact the way it handles any command, through the one pipeline:
+
+1. Validates it (an `origin` with a non-empty `external_id`)
+2. Derives its `command_id` from `origin.external_id` and deduplicates on the addressed stream
+3. Calls the component's `Handle`, whose router dispatches it to the handler for its type (`ANGZARR_REASON_NO_FACT_HANDLER` if there is none)
+4. Appends the events the handler records at the head it loaded, each carrying the fact's origin (`EventMeta.causation`'s fact arm)
+5. Publishes them to downstream consumers, with ordinary sequence numbers
+
+A failing fact handler is a bug, never a refusal: the fact is dead-lettered and alerted, and the sender is answered `INTERNAL` `ANGZARR_REASON_FACT_DEAD_LETTERED`, never retried (decision 14.100). A fact that loses a race at every write until the race re-run cap is dead-lettered and answered the same way, even when its sender is waiting (decision 14.109).
+
+---
+
+## Idempotency in Practice
+
+Here's how you send a fact with proper idempotency:
+
+```python title="illustrative - fact delivery"
+book = CommandBook(
+    cover=Cover(domain="payments", root=payment_id),
+    page=CommandPage(
+        fact=Fact(
+            payload=Any.pack(PaymentConfirmed(
+                amount=Money(amount=5000, currency="USD"),
+                provider="stripe",
+            )),
+            origin=FactOrigin(
+                external_id="stripe_pi_abc123",  # Idempotency key
+                description="Payment intent succeeded",
+            ),
+        ),
+    ),
+)
+client.handle(book)
+```
+
+Webhook retries? Network hiccups? Duplicate deliveries? The derived `command_id` is the same every time, so the coordinator finds the events it already recorded and answers `DUPLICATE` instead of recording again.
+
+---
+
+## Declaring Facts
+
+A fact type is declared on its message with its own option, `(io.angzarr.v1.fact)` (decision 14.91), as a command is with `(io.angzarr.v1.command)`; a message carries one of the two, never both. It is owned by exactly one component, an aggregate or a process manager; code generation emits one handler for it, under the same `#[handles]` attribute as a command's but with no refusal return, and the generated dispatch routes each fact to the handler for its type.
+
+```protobuf title="illustrative - fact declaration"
+message ShipmentDispatched {
+  option (io.angzarr.v1.fact) = {
+    component: "examples.v1.OrderState"
+  };
+  string order_id = 1;
+}
+```
+
+A fact handler **records** the fact; it cannot refuse it. It receives the fact and the rebuilt state and returns the events to persist, optionally including events that flag it (for example a `ShipmentDiscrepancy` when the order was not expecting a shipment).
+
+```python title="illustrative - fact handler"
+def on_shipment_dispatched_fact(self, state, fact):
+    events = [ShipmentRecorded(order_id=fact.order_id)]
+    if not state.awaiting_shipment:
+        events.append(ShipmentDiscrepancy(order_id=state.order_id, reason="not awaiting shipment"))
+    return events
+```
+
+| Situation | Result |
+|-----------|--------|
+| Fact type with a fact handler | Routed to it; recorded |
+| No handler for the fact's type | Refused as a wiring error: `INTERNAL`, `ANGZARR_REASON_NO_FACT_HANDLER`; nothing persisted |
+| A fact type | Has no `refuses`: `FactOptions` has no such field, so a fact cannot be refused |
+
+A policy sends the facts its destination declares: for a type the destination declares a fact, the policy's generated code emits a Fact, which the destination records and never refuses. A policy also delivers the refusal fact of a refused command, to the stream of its trigger (see [Policies: Refusals](/components/policy#refusals)).
+
+---
+
+## Examples
+
+:::info[Illustrative Examples]
+The following examples show the pattern for external system integration.
+Your implementation will vary based on your webhook provider and domain.
+:::
+
+### Payment Webhooks
+
+```python title="illustrative - payment webhook"
+# Stripe webhook handler
+@webhook("/stripe")
+def handle_stripe_webhook(event: StripeEvent):
+    if event.type == "payment_intent.succeeded":
+        emit_fact(
+            domain="orders",
+            root=order_id_from_metadata(event),
+            external_id=event.id,  # Idempotency key
+            description="Stripe payment intent succeeded",
+            event=PaymentConfirmed(
+                amount=event.data.amount,
+                provider="stripe",
+            ),
+        )
+```
+
+### IoT Sensor Data
+
+```python title="illustrative - IoT sensor fact"
+# Temperature reading from sensor
+emit_fact(
+    domain="warehouse",
+    root=zone_id,
+    external_id=f"{sensor_id}:{timestamp}",  # Idempotency key
+    description="Sensor reading",
+    event=TemperatureRecorded(
+        celsius=reading.value,
+        sensor_id=sensor_id,
+    ),
+)
+```
+
+### External Rulings
+
+```python title="illustrative - external ruling"
+# Floor manager ruling in poker
+emit_fact(
+    domain="hand",
+    root=hand_id,
+    external_id=f"ruling:{ruling_id}",  # Idempotency key
+    description="Floor manager ruling",
+    event=RulingIssued(
+        ruling_type=RulingType.DEAD_HAND,
+        issued_by="floor_manager_jane",
+        reason="Cards exposed during deal",
+    ),
+)
+```
+
+---
+
+## See Also
+
+- [Components: Commands vs Facts](../components/commands-vs-facts) — Technical deep-dive

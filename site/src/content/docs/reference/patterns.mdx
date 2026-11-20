@@ -1,0 +1,216 @@
+---
+title: Patterns Reference
+---
+import { Tabs, TabItem } from '@astrojs/starlight/components';
+
+
+Common CQRS and Event Sourcing patterns used in angzarr.
+
+---
+
+## Pattern Catalog
+
+| Category | Patterns |
+|----------|----------|
+| [Delivery](#delivery-patterns) | Outbox, Idempotent Consumer |
+| [Schema Evolution](#schema-evolution) | Upcasting |
+| [Coordination](#coordination-patterns) | Correlation ID, Concurrency, Command Modes |
+| [Query](#query-patterns) | Temporal Query |
+
+---
+
+## Delivery Patterns
+
+### Outbox Pattern
+
+> **You probably don't need this.** Modern managed messaging (Kafka, SQS, Pub/Sub) already guarantees delivery. Only consider outbox if your messaging layer lacks durability.
+
+The outbox pattern ensures atomicity between database writes and event publishing:
+
+```text
+1. Events persisted to event store  }
+2. Events written to outbox table   }  ← Single transaction
+3. Background process polls outbox
+4. Events published to message bus
+5. Outbox entries marked published
+```
+
+**When to use:**
+- In-memory or non-durable message transport
+- Regulatory requirement for local audit trail
+
+**Skip when using:**
+- Kafka with `acks=all`
+- AWS SQS/SNS
+- GCP Pub/Sub
+- RabbitMQ with persistent queues
+
+### Idempotent Consumer
+
+Consumers must tolerate duplicate events. Design for natural idempotency:
+
+| Operation | Idempotent? | Fix |
+|-----------|-------------|-----|
+| `INSERT` | No | Use `INSERT ... ON CONFLICT DO NOTHING` |
+| `UPDATE SET x = x + 1` | No | Use absolute: `UPDATE SET x = $value` |
+| `UPDATE SET x = $value` | Yes | Already idempotent |
+| `DELETE WHERE id = $1` | Yes | Already idempotent |
+
+⍼ Angzarr's sequence numbers ensure events are never applied twice—both deltas (`amount: 50`) and absolute values (`new_balance: 150`) are idempotent.
+
+---
+
+## Schema Evolution
+
+### Upcasting
+
+Transform old event versions to current version when reading:
+
+<Tabs>
+<TabItem label="Python">
+
+```python
+class PlayerRegisteredV1ToV2Upcaster:
+    def can_upcast(self, event_type: str, version: int) -> bool:
+        return event_type == "PlayerRegistered" and version == 1
+
+    def upcast(self, event: dict) -> dict:
+        # V1 had "name", V2 split into "first_name" and "last_name"
+        name_parts = event["name"].split(" ", 1)
+        return {
+            "first_name": name_parts[0],
+            "last_name": name_parts[1] if len(name_parts) > 1 else "",
+            "email": event["email"],
+        }
+```
+
+</TabItem>
+</Tabs>
+
+**Key points:**
+- Stored events remain unchanged
+- Transformation happens on read
+- Enables gradual schema migration
+
+---
+
+## Coordination Patterns
+
+### Correlation ID
+
+Links related events across aggregates:
+
+```protobuf file=proto/io/angzarr/v1/types.proto region=cover
+```
+
+The correlation is the command page's (`CommandPage.correlation_id`), copied onto every event (`EventMeta.correlation_id`); a cover is stream identity only. Rules (`docs/design/identity-and-streams.md` §6):
+- A client may supply one on its command; when it is absent the coordinator sets one (pipeline step 2)
+- A policy's outputs and refusal facts carry their trigger's correlation, unchanged
+- So everything a request or a fact led to shares its correlation (`EventQueryService.GetCorrelatedEvents`)
+
+### Concurrency
+
+Optimistic concurrency, per stream, and nothing else: the coordinator has no conflict-resolution concept (decision 14.92). It appends a decision's events at the head it loaded; a write that loses the race is re-run on the new head, under the race re-run cap (default 10 runs, at least 1; decision 14.84), so a handler always decides on current state. The rules are `docs/design/pipeline.md` §4 and §5:
+
+```protobuf file=proto/io/angzarr/v1/types.proto region=concurrency
+```
+
+In short:
+
+- **No expected sequence**: the command is decided on the current state; a lost race re-runs it on the new head.
+- **An expected sequence** (`Handling.expected_sequence`, the `next_sequence` the client decided against): set and not the head the coordinator loaded, behind or ahead alike, the command is refused before the handler, `FAILED_PRECONDITION`, the framework's typed refusal `ExpectedSequenceMismatch { expected, head }` (decision 14.94). The caller re-reads and re-decides. A command that sets it and loses a race at its write is re-run and refused the same way.
+- **A retry of an applied command** is answered `DUPLICATE`, whatever its expected sequence: deduplication runs first.
+- **At the cap** a waiting caller is answered `INTERNAL` `ANGZARR_REASON_RETRY_CAP_EXHAUSTED` and nothing is dead-lettered; work with no caller waiting is dead-lettered (decision 14.85).
+
+Business rules about concurrent intent ("a second bet on the same seat") are the handler's, checked on the current state it is handed and refused with its own typed refusal.
+
+What each status means to a caller, which class it belongs to (decision 14.37) and what happens at a retry cap: see [Error Recovery](/operations/error-recovery).
+
+### Command Modes
+
+How much of a command's processing returns to the caller is chosen by the RPC called:
+
+| RPC | Mode | Projectors | Policies | Use Case |
+|-----|------|------------|----------|----------|
+| `HandleAsync` | ASYNC | Async | Async | Fire-and-forget: validated and enqueued, nothing about the decision comes back |
+| `Handle` | DECISION | Async | Async | Accept or reject synchronously; returns the persisted events |
+| `HandleSync` | SIMPLE | The named ones, sync | Async | Read-after-write: also waits for the projectors `HandleSyncRequest.projectors` names (required, non-empty) |
+
+No mode waits for reactions. Policies always run asynchronously, after the command's events are persisted, and the commands they send are separate commands with their own outcomes. Every mode publishes the persisted events downstream: there is no mode that writes silently. (Synchronous cascades were removed, decision 2.1: they coupled aggregates' availability and hid partial failure.)
+
+---
+
+## Query Patterns
+
+### Temporal Query
+
+Reconstruct state at any point in history:
+
+```python
+# Get player balance as of yesterday
+events = event_store.get_events(
+    domain="player",
+    root=player_id,
+    up_to_timestamp=yesterday,
+)
+state = build_state(events)
+print(f"Balance at {yesterday}: {state.bankroll}")
+```
+
+**Enabled by:**
+- Immutable event stream
+- Events contain absolute state
+- No destructive updates
+
+---
+
+## Advanced Patterns
+
+### Edition / Branching
+
+**Use cases:**
+
+| Scenario | How |
+|----------|-----|
+| **What-if analysis** | Branch at sequence N, apply hypothetical commands |
+| **Historical branches** | Explore alternative histories |
+| **Policy coordination** | Reactions stay in their trigger's edition; every stream they reach must be forked first |
+| **Speculative execution** | Execute commands speculatively, then delete the edition |
+
+**Per-stream forks** (decisions 14.32, 14.35 and 14.107): forking a stream starts the edition, and every stream the edition holds is forked explicitly with `ForkStream`, at the sequence the caller states; there is no automatic propagation, and an input (a client's or a policy's) to an unforked stream is refused `FAILED_PRECONDITION` `ANGZARR_REASON_EDITION_NOT_FORKED`. There is no global position, so there is no fork at one store-wide moment. `DeleteEdition` removes each forked stream's rows by enumeration. The rules are `docs/design/edition-meta-events.md`.
+
+```python
+# Create a what-if branch by forking the player's stream
+cover = Cover(domain="player", root=player_id, edition="bonus-scenario")
+admin.fork_stream(ForkStreamRequest(stream=cover, fork_sequence=head))
+
+# Commands on this cover write to the branch, not main timeline
+cmd = CommandBook(cover=cover, page=...)  # exactly one command per book
+```
+
+### Snapshots
+
+Snapshots are the framework's optimisation, never business data: every handler answer carries its state, and the coordinator keeps it as a snapshot per the domain's storage policy (by default only the newest is kept). Which snapshot may be offered (the registered state type, a compatible rules version) and which may start a temporal query: `docs/design/snapshots.md`.
+
+---
+
+## Component Coordination
+
+### Policy vs Process Manager
+
+| Aspect | Policy | Process Manager |
+|--------|------|-----------------|
+| **State** | Stateless | Own event stream |
+| **Input** | Single domain | Multiple domains |
+| **Identity** | None | Its own stream's root (by convention, the trigger's correlation_id) |
+| **Timeouts** | No | Yes |
+
+**Rule of thumb:** Start with policies. Upgrade to PM when you need state or multi-domain input.
+
+---
+
+## Next Steps
+
+- **[Aggregates](/components/aggregate)** — Command handling
+- **[Policies](/components/policy)** — Cross-domain coordination
+- **[Process Managers](/components/process-manager)** — Stateful orchestration

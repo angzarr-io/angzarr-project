@@ -1,0 +1,139 @@
+syntax = "proto3";
+package io.angzarr.examples.v1;
+
+import "io/angzarr/v1/options.proto";
+
+option csharp_namespace = "Angzarr.Examples";
+option go_package = "github.com/benjaminabbitt/angzarr/examples/go/proto/io/angzarr/examples/v1;examples";
+option java_multiple_files = true;
+option java_package = "io.angzarr.examples";
+option ruby_package = "Angzarr::Examples";
+
+// =============================================================================
+// The money read models: two single-domain projectors (decision 14.96)
+// =============================================================================
+//
+// The owner, 2026-11-02: "our examples should *not* use multi domain
+// projectors". What was one projector over wallet and table
+// (projector-wallet-table-ledger) is two, each sourcing only its own
+// domain's events:
+//   projector-wallet-ledger  bankrolls, holds, loyalty, recent results
+//   projector-table-ledger   stacks, wagers, house result, chips in and out
+// Every applied event is remembered by (domain, root, sequence), so
+// replaying or redelivering an event leaves a read model unchanged.
+//
+// Neither pairs transfers across domains, and neither judges money
+// conservation: L4 (sum(bankroll) + sum(stacks + wagers) +
+// sum(house_result) = deposits - withdrawals) is an end-to-end test
+// assertion over both read models once a run has settled, not a
+// projector's contract.
+
+message LedgerRoundResult {
+  bytes table_root = 1;
+  uint32 round = 2;
+  int64 net = 3;
+}
+
+message WalletLedgerRow {
+  bytes player_root = 1; // The wallet's root (the person's, shared with their player)
+  string display_name = 2;
+  int64 bankroll = 3;
+  int64 held = 4; // Sum of open holds
+  int64 loyalty_points = 5;
+  repeated LedgerRoundResult recent_results = 6; // Newest last, at most 10
+}
+
+message TableLedgerRow {
+  bytes table_root = 1;
+  string name = 2;
+  int64 stacks = 3;
+  int64 wagers = 4;
+  int64 house_result = 5;
+  int64 chips_in = 6;
+  int64 chips_out = 7;
+}
+
+// The wallet ledger's totals.
+message WalletLedgerTotals {
+  int64 deposits = 1;
+  int64 withdrawals = 2;
+  int64 bankrolls = 3;
+}
+
+// The table ledger's totals.
+message TableLedgerTotals {
+  int64 stacks = 1;
+  int64 wagers = 2;
+  int64 house_result = 3;
+}
+
+// Anchor of the wallet ledger: wallet events only.
+message WalletLedgerProjection {
+  option (io.angzarr.v1.component) = {
+    component_name: "projector-wallet-ledger"
+    projector: {}
+  };
+  map<string, WalletLedgerRow> wallets = 1; // key = hex(player_root)
+  WalletLedgerTotals totals = 2;
+}
+
+// Anchor of the table ledger: table events only.
+message TableLedgerProjection {
+  option (io.angzarr.v1.component) = {
+    component_name: "projector-table-ledger"
+    projector: {}
+  };
+  map<string, TableLedgerRow> tables = 1; // key = hex(table_root)
+  TableLedgerTotals totals = 2;
+}
+
+// Example read API over the wallet ledger, served by its projector process
+// next to the framework ProjectorService.
+service WalletLedgerQueryService {
+  // The wallet as the ledger sees it, or that it has never seen it.
+  rpc GetWalletBalance(GetWalletBalanceRequest) returns (WalletBalanceView);
+  // The wallet ledger's totals.
+  rpc GetWalletLedger(GetWalletLedgerRequest) returns (WalletLedgerView);
+}
+
+// Example read API over the table ledger, served by its projector process.
+service TableLedgerQueryService {
+  // The table ledger's totals and every table row.
+  rpc GetTableLedger(GetTableLedgerRequest) returns (TableLedgerView);
+}
+
+message GetWalletBalanceRequest {
+  bytes player_root = 1;
+}
+
+// A wallet's balance, or that the ledger has never seen the wallet: the
+// answer's shape says which (decision 14.91: no `found` flag beside
+// a row that is unset when it is false).
+message WalletBalanceView {
+  oneof result {
+    WalletBalance balance = 1;
+    WalletNotSeen not_seen = 2;
+  }
+}
+
+// A wallet the ledger has seen.
+message WalletBalance {
+  WalletLedgerRow wallet = 1;
+  int64 available = 2; // bankroll - held
+}
+
+// A wallet the ledger has never seen.
+message WalletNotSeen {}
+
+message GetWalletLedgerRequest {}
+
+message WalletLedgerView {
+  WalletLedgerTotals totals = 1;
+}
+
+message GetTableLedgerRequest {}
+
+message TableLedgerView {
+  TableLedgerTotals totals = 1;
+  repeated TableLedgerRow tables = 2;
+}

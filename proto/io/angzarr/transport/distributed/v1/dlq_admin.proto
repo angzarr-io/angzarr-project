@@ -1,0 +1,171 @@
+// Dead Letter Queue admin service for the `angzarr-status` operations
+// console: reads, replays and deletes the distributed transport's stored
+// dead letters (decision 14.64). Failures and their keys, filtering,
+// pagination and replay: docs/design/dlq-admin.md.
+
+syntax = "proto3";
+
+package io.angzarr.transport.distributed.v1;
+
+import "google/api/annotations.proto";
+import "google/protobuf/any.proto";
+import "google/protobuf/timestamp.proto";
+import "io/angzarr/v1/types.proto";
+
+option csharp_namespace = "Angzarr.Transport.Distributed";
+option go_package = "github.com/benjaminabbitt/angzarr/client/go/proto/io/angzarr/transport/distributed/v1;angzarrdistributed";
+option java_multiple_files = true;
+option java_package = "io.angzarr.transport.distributed";
+option ruby_package = "Angzarr::Transport::Distributed";
+
+// One row from `dlq_entries`, surfaced via the API
+// (docs/design/dlq-admin.md §2).
+message StoredDeadLetter {
+  int64 id = 1; // Store-assigned row number (not an identifier, so not a UUID)
+  string domain = 2;
+  // The dead-lettered message's correlation (a UUID; see
+  // io.angzarr.v1.UUID).
+  io.angzarr.v1.UUID correlation_id = 3;
+  // The proto-encoded DeadLetterEnvelope exactly as the publisher wrote
+  // it; never changes.
+  bytes payload = 4;
+  // AngzarrDeadLetter's why, mirrored (decisions 14.101 and 14.107,
+  // ruled 2026-11-02): a typed refusal, a reason (a key and its args, never text;
+  // decision 14.37), or a transport's own why.
+  oneof why {
+    google.protobuf.Any refusal = 5;
+    io.angzarr.v1.Diagnostic reason = 6;
+    google.protobuf.Any transport = 7;
+  }
+  string source_component = 8;
+  io.angzarr.v1.ComponentKind source_component_kind = 9; // AngzarrDeadLetter.source_component_kind
+  google.protobuf.Timestamp occurred_at = 10;
+  google.protobuf.Timestamp created_at = 11;
+  // Every replay of this entry, oldest first: when and with what result
+  // (who is in the security log; docs/design/dlq-admin.md §2).
+  repeated DeadLetterReplay replays = 12;
+}
+
+// One replay of a dead-letter entry, recorded in the entry when the replay
+// is requested and updated when its result is known.
+message DeadLetterReplay {
+  google.protobuf.Timestamp replayed_at = 1; // When the replay was requested
+  ReplayOutcome outcome = 2; // PENDING until the replayed delivery is decided
+  google.protobuf.Timestamp outcome_at = 3; // When outcome left PENDING
+  // Why the replay ended as it did (e.g. the new rejection's reason): a key
+  // and its args, never text (decision 14.37). Unset while PENDING and
+  // when nothing needs saying.
+  io.angzarr.v1.Diagnostic reason = 4;
+}
+
+// What became of one replay.
+enum ReplayOutcome {
+  REPLAY_OUTCOME_UNSPECIFIED = 0;
+  REPLAY_OUTCOME_PENDING = 1; // Enqueued; not yet decided
+  REPLAY_OUTCOME_APPLIED = 2; // Business code ran and committed (or the component processed the events)
+  REPLAY_OUTCOME_DUPLICATE = 3; // The stream already held the command's command_id: the original did apply
+  REPLAY_OUTCOME_FAILED = 4; // Failed again: rejected or re-dead-lettered (see reason)
+}
+
+// ----- ListDeadLetters --------------------------------------------------
+
+message ListDeadLettersRequest {
+  // AIP-160 filter string, AND-only; one that does not parse is
+  // INVALID_ARGUMENT DISTRIBUTED_REASON_DEAD_LETTER_QUERY_INVALID. Grammar
+  // and recognised fields: docs/design/dlq-admin.md §3.
+  string filter = 1;
+
+  // AIP-158 pagination: 0 is the server's default, and values above the
+  // server cap are clamped (docs/design/dlq-admin.md §3).
+  int32 page_size = 2;
+  string page_token = 3;
+}
+
+// A page of entries.
+message ListDeadLettersResponse {
+  repeated StoredDeadLetter entries = 1;
+  // AIP-158: empty on the last page.
+  string next_page_token = 2;
+}
+
+// ----- GetDeadLetter ----------------------------------------------------
+
+// The entry to fetch, by id.
+message GetDeadLetterRequest {
+  int64 id = 1;
+}
+
+
+// ----- ReplayDeadLetter -------------------------------------------------
+
+// The entry to replay, by id. A replay is a redelivery with the original
+// ids, as-is: docs/design/dlq-admin.md §4.
+message ReplayDeadLetterRequest {
+  int64 id = 1;
+}
+
+// A replay was requested; the row stays, with the replay recorded in it
+// (docs/design/dlq-admin.md §4).
+message ReplayDeadLetterResponse {
+  // The original correlation_id, kept on the replayed message.
+  io.angzarr.v1.UUID correlation_id = 1;
+  // The replay as recorded in the entry (outcome PENDING for a command);
+  // its replayed_at is when the replay was published.
+  DeadLetterReplay replay = 2;
+}
+
+// ----- DeleteDeadLetter -------------------------------------------------
+
+// The entry to delete, by id.
+message DeleteDeadLetterRequest {
+  int64 id = 1;
+}
+
+// Idempotent: a row was removed, or none matched; either is a success,
+// and the arm says which (decision 14.91: no flag).
+message DeleteDeadLetterResponse {
+  oneof outcome {
+    DeadLetterRemoved removed = 1;
+    NoDeadLetter no_entry = 2;
+  }
+}
+
+// The row was removed.
+message DeadLetterRemoved {}
+
+// No row matched the id.
+message NoDeadLetter {}
+
+// ----- Service ----------------------------------------------------------
+
+service DlqAdminService {
+  // List dead letters matching `filter`, paginated.
+  rpc ListDeadLetters(ListDeadLettersRequest) returns (ListDeadLettersResponse) {
+    option (google.api.http) = {
+      get: "/api/dlq"
+    };
+  }
+
+  // Fetch a single entry by primary key (AIP-131: the resource itself).
+  rpc GetDeadLetter(GetDeadLetterRequest) returns (StoredDeadLetter) {
+    option (google.api.http) = {
+      get: "/api/dlq/{id}"
+    };
+  }
+
+  // Delete a single entry. Idempotent.
+  rpc DeleteDeadLetter(DeleteDeadLetterRequest) returns (DeleteDeadLetterResponse) {
+    option (google.api.http) = {
+      delete: "/api/dlq/{id}"
+    };
+  }
+
+  // Replay a dead-letter entry: a command through HandleAsync, an event
+  // book to the component that failed (docs/design/dlq-admin.md §4).
+  rpc ReplayDeadLetter(ReplayDeadLetterRequest) returns (ReplayDeadLetterResponse) {
+    option (google.api.http) = {
+      post: "/api/dlq/{id}/replay"
+      body: "*"
+    };
+  }
+}
