@@ -1,0 +1,37 @@
+syntax = "proto3";
+package io.angzarr.transport.embedded.v1;
+
+import "google/protobuf/descriptor.proto";
+
+option csharp_namespace = "Angzarr.Transport.Embedded";
+option go_package = "github.com/angzarr-io/angzarr-client-go/proto/io/angzarr/transport/embedded/v1;angzarrembedded";
+option java_multiple_files = true;
+option java_package = "io.angzarr.transport.embedded";
+option ruby_package = "Angzarr::Transport::Embedded";
+
+// region child_protocol
+// The child-process launch protocol's declared constants (decision 14.64;
+// docs/design/child-protocol.md, sections 1 and 2): the words both sides of
+// the protocol must spell alike, set once as this file's option for every
+// language's code generator to read. Why a file option:
+// docs/design/child-protocol.md section 10.
+message ChildProtocol {
+  // The environment variable naming the child's socket path (section 1).
+  string socket_env = 1;
+  // The longest socket path a host gives, in bytes (section 1): the
+  // portable minimum of a Unix socket address's `sun_path`, less its NUL
+  // (macOS and the BSDs: 104, so 103).
+  uint32 max_socket_path_bytes = 2;
+}
+
+extend google.protobuf.FileOptions {
+  // Set on this file, once: the protocol's constants. In angzarr's
+  // extension range (options.proto).
+  ChildProtocol child_protocol = 50106;
+}
+
+option (child_protocol) = {
+  socket_env: "ANGZARR_SOCKET"
+  max_socket_path_bytes: 103
+};
+// endregion

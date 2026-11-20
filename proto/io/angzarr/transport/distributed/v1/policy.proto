@@ -1,0 +1,35 @@
+syntax = "proto3";
+package io.angzarr.transport.distributed.v1;
+
+import "google/api/annotations.proto";
+import "io/angzarr/v1/types.proto";
+
+option csharp_namespace = "Angzarr.Transport.Distributed";
+option go_package = "github.com/angzarr-io/angzarr-client-go/proto/io/angzarr/transport/distributed/v1;angzarrdistributed";
+option java_multiple_files = true;
+option java_package = "io.angzarr.transport.distributed";
+option ruby_package = "Angzarr::Transport::Distributed";
+
+// PolicyCoordinatorService: orchestrates policy execution: React per
+// source event, then check, address, stamp and deliver each output as a
+// ReactionDelivery through the transient outbox and Deliver (decision
+// 14.79). docs/design/distributed-transport.md §2; docs/design/policies.md.
+service PolicyCoordinatorService {
+  // Execute the policy over source events (the request is the source
+  // EventBook). A trigger entry point: framework components only, a client
+  // is refused PERMISSION_DENIED (docs/design/distributed-transport.md §1
+  // and §2).
+  rpc Execute(io.angzarr.v1.EventBook) returns (ExecuteResponse) {
+    option (google.api.http) = {
+      post: "/v1/policy/execute"
+      body: "*"
+    };
+  }
+}
+
+// What Execute answers: the outputs as the coordinator addressed and
+// stamped them, in trigger order and, per trigger, in the policy's order.
+// Never persisted.
+message ExecuteResponse {
+  repeated io.angzarr.v1.ReactionDelivery outputs = 1;
+}

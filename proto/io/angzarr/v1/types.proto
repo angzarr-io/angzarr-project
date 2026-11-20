@@ -1,0 +1,532 @@
+// DOC: This file is referenced in site/src/content/docs/reference/patterns.mdx
+//      Update documentation when making changes to the concurrency
+//      region, Handling, Cover (editions), Snapshot, the command identity
+//      fields, or the CommandPage body. The command handling modes
+//      (DECISION, ASYNC, SIMPLE) are RPCs, documented in
+//      docs/design/command-handling.md.
+//
+// Behaviour of these messages: docs/design/identity-and-streams.md,
+// pipeline.md, snapshots.md, diagnostics.md, dead-letters.md,
+// component-descriptors.md and edition-meta-events.md (decision 14.109).
+
+syntax = "proto3";
+package io.angzarr.v1;
+
+import "google/protobuf/any.proto";
+import "google/protobuf/timestamp.proto";
+import "io/angzarr/v1/options.proto";
+// Core imports nothing of angzarr's other packages and nothing of sererr
+// (decision 14.64): what a transport adds rides that transport's envelope
+// around these messages, never a field of theirs.
+
+option csharp_namespace = "Angzarr";
+option go_package = "github.com/angzarr-io/angzarr-client-go/proto/io/angzarr/v1;angzarr";
+option java_multiple_files = true;
+option java_package = "io.angzarr";
+option ruby_package = "Angzarr";
+
+// Type URLs: emitted as "/" + the fully-qualified name; read by the text
+// after the last "/", matched exactly. docs/design/identity-and-streams.md §1.
+
+// region uuid
+// A UUID as its 16 bytes, most significant first (RFC 9562 byte order):
+// the one type for every UUID on the wire (roots, command ids, correlation
+// ids; decision 9.1). A set value that is not exactly 16 bytes is
+// malformed (INVALID_ARGUMENT); unset means "not supplied". Sources, text
+// form and JSON: docs/design/identity-and-streams.md §2.
+message UUID {
+  bytes value = 1;
+}
+// endregion
+
+// region derived_ids
+// Framework-derived identifiers: UUIDv5 under fixed angzarr namespaces.
+//   ANGZARR_ROOT_NAMESPACE             = d4741b1a-52cd-43cf-add1-3dbb9615510b
+//   ANGZARR_COMMAND_NAMESPACE          = e2c9f744-9fe1-4b4b-bfee-ae514dde293b
+//   ANGZARR_FACT_CORRELATION_NAMESPACE = e9ef0ae2-6fc6-4c14-b713-ef03971dd867
+// The derivations (compute_root, reaction command ids, fact command ids),
+// their name encodings and worked values:
+// docs/design/identity-and-streams.md §3.
+// endregion
+
+// region minted_ids
+// Minted identifiers are UUIDv7 (RFC 9562), as a UUID message on the wire.
+// What the framework mints: docs/design/identity-and-streams.md §4.
+// endregion
+
+// region cover
+// Stream identity, and nothing else: one stream is (domain, edition, root).
+// docs/design/identity-and-streams.md §5.1.
+message Cover {
+  string domain = 1; // Domain name; never contains ':' (the root-derivation separator)
+  // The stream's root: caller-chosen (any 16 bytes), derived by
+  // compute_root (UUIDv5) or minted (UUIDv7); a process manager's too.
+  // docs/design/identity-and-streams.md §5.1.
+  UUID root = 2;
+  // Edition: the NAME of the timeline the stream belongs to. Unset is the
+  // main timeline; a set edition must be non-empty (a set empty string is
+  // refused INVALID_ARGUMENT). Forks, the not-forked rule
+  // (ANGZARR_REASON_EDITION_NOT_FORKED), what-if execution, storage and
+  // deletion: docs/design/edition-meta-events.md.
+  optional string edition = 4;
+}
+// endregion
+
+// region concurrency
+// The coordinator has no conflict-resolution concept (decision 14.92,
+// ruled 2026-11-02): a per-stream optimistic append and capped race re-runs only.
+// docs/design/pipeline.md §4.
+//
+// The framework's one refusal (decisions 14.93 and 14.94): the client's
+// expected sequence is not the stream's head, behind or ahead alike.
+// Raised by the coordinator, never by business code; listed in no
+// command's refuses; FAILED_PRECONDITION by its (refusal_status) option,
+// travelling as any typed refusal (ANGZARR_REASON_COMMAND_REFUSED).
+// docs/design/pipeline.md §5.
+message ExpectedSequenceMismatch {
+  option (io.angzarr.v1.refusal_status) = REFUSAL_STATUS_FAILED_PRECONDITION;
+  // The command's expected sequence: the next_sequence it decided against.
+  uint64 expected = 1;
+  // The stream's head the coordinator loaded (its next_sequence).
+  uint64 head = 2;
+}
+// endregion
+
+// region event_page
+// One persisted event. Sequences are uint64 wherever they appear. An event
+// has no business-time field (EventMeta.recorded_at is when it was
+// recorded). docs/design/identity-and-streams.md §5.2.
+message EventPage {
+  // What the event is (decision 14.106): a domain's event, or the
+  // framework's meta-event. Business code is handed only the event arm.
+  oneof body {
+    // A domain's event. Its type URL names the event type and version
+    // (versioned packages: pkg.v1.Foo -> pkg.v2.Foo).
+    google.protobuf.Any event = 1;
+    // A framework meta-event (docs/design/edition-meta-events.md).
+    MetaEvent meta_event = 4;
+  }
+  EventMeta meta = 2; // Provenance: which command, why, when recorded, under which rules (see EventMeta)
+  // The event's position in its stream (domain, edition, root), assigned
+  // by the framework when the event is persisted. With the stream, the
+  // event's identity (EventRef).
+  uint64 sequence = 3;
+}
+// endregion
+
+// region event_ref
+// Identifies one event: the page at `sequence` in the stream `stream`.
+// This is an event's identity (no separate event id is minted).
+// docs/design/identity-and-streams.md §5.3.
+message EventRef {
+  Cover stream = 1; // The stream holding the event (domain, edition, root)
+  uint64 sequence = 2; // The event's EventPage.sequence within that stream
+}
+// endregion
+
+// region command_identity
+// Why a command exists, and how it is deduplicated: command_id,
+// correlation_id, causation (ReactionDelivery.causation) and origin
+// (Fact.origin). docs/design/identity-and-streams.md §6; deduplication by
+// command_id on the events, §7.
+// endregion
+
+// region security_logs
+// Who did it is not data: no message records an actor, operator or
+// principal; a separate security log does (decision 12.3).
+// docs/design/identity-and-streams.md §8.
+// endregion
+
+// Where a fact came from: something that already happened outside the
+// system. Carried as Fact.origin and copied onto every event the fact
+// produces (EventMeta's fact cause). docs/design/identity-and-streams.md
+// §6.4.
+message FactOrigin {
+  // The external system's id for this fact (e.g. "pi_1234" from Stripe),
+  // in that system's format. Required: empty is refused INVALID_ARGUMENT.
+  // The fact's command_id is derived from it.
+  // docs/design/identity-and-streams.md §6.4.
+  string external_id = 1;
+  string description = 2; // Human-readable origin (e.g. "Stripe webhook"); audit only, not part of the derivation
+}
+
+// region editions
+// An edition's forks are framework meta-events in the edition's own
+// streams (decision 14.32), and main knows nothing of them.
+// docs/design/edition-meta-events.md §7.
+// endregion
+
+// region meta_events
+// The framework's meta-events (decision 14.106: a type, an
+// EventPage's meta_event arm, never a type-URL convention). What they do
+// is docs/design/edition-meta-events.md.
+message MetaEvent {
+  oneof kind {
+    EditionCreated created = 1;
+  }
+}
+
+// The first event of an edition's version of a stream, appended by
+// EditionAdminService.ForkStream at the stream's fork sequence (its own
+// EventPage.sequence). The edition is the page's cover's. Nothing else to
+// say (decision 14.107).
+message EditionCreated {}
+// endregion
+
+// region diagnostic
+// An error in a message: a key and an argument map, never rendered English
+// (decision 14.37). Keys, typed refusals, flattening and ext_err_txt:
+// docs/design/diagnostics.md.
+message Diagnostic {
+  // The key: a stable identifier, never reused for another meaning, and a
+  // valid Fluent message id. Framework codes are SCREAMING_SNAKE
+  // (ANGZARR_REASON_NO_COMPONENT_OF_KIND) or the ports' kebab-case (angzarr-ports-...);
+  // a domain's codes are its own. Required.
+  string code = 1;
+  // The arguments, by name: data (ids, counts, type URLs, a domain), never
+  // a sentence. The same names every time for a given code.
+  map<string, string> args = 2;
+}
+// endregion
+
+// region event_meta
+// Provenance of one persisted event, stamped by the framework; every
+// persisted event carries it and business code cannot set it. All pages of
+// one write share one EventMeta. docs/design/identity-and-streams.md §5.4.
+message EventMeta {
+  // The event's direct cause, always set on a persisted event, its arm the
+  // producing input's kind (decision 14.102). Its command_id is the
+  // deduplication key on the stream (docs/design/identity-and-streams.md §7).
+  oneof causation {
+    // Produced by a command (a client's or a policy's).
+    CommandCause command = 1;
+    // Produced by a fact: its id and its origin, copied.
+    FactCause fact = 2;
+  }
+  // The producing command's correlation. Never unset on a persisted event.
+  UUID correlation_id = 3;
+  // When the event was durably recorded, stamped by the server that
+  // persisted it: the only timestamp an event carries. Non-decreasing per
+  // stream. docs/design/identity-and-streams.md §5.4.
+  google.protobuf.Timestamp recorded_at = 4;
+  // The full version of the business binary that decided (or ingested) the
+  // event (e.g. "1.4.2+build.7"), stamped by the coordinator from the
+  // business logic's answer (io.angzarr.handler.v1.HandleResponse.rules_version).
+  // docs/design/identity-and-streams.md §5.4; docs/design/snapshots.md §3.
+  string rules_version = 5;
+}
+
+// An event's cause when a command produced it.
+message CommandCause {
+  // The producing command's command_id (docs/design/identity-and-streams.md §6.1).
+  UUID command_id = 1;
+}
+
+// An event's cause when a fact produced it.
+message FactCause {
+  // The producing fact's command_id (derived from its origin, or a policy's
+  // reaction id).
+  UUID command_id = 1;
+  // Where the fact came from: its Fact.origin, copied.
+  FactOrigin origin = 2;
+}
+// endregion
+
+// region aggregate_snapshot
+// Snapshot of aggregate state at a given sequence number: a framework
+// optimisation, never business data. Where snapshots come from and when
+// one is offered (state type and rules version checks):
+// docs/design/snapshots.md.
+message Snapshot {
+  // Sequence of the last event folded into `state`
+  // (docs/design/snapshots.md §2, and §5 for a TemporalQuery).
+  uint64 sequence = 1;
+  // The folded state. The name its type URL ends in is the state type
+  // recorded with the snapshot (docs/design/snapshots.md §3).
+  google.protobuf.Any state = 2;
+  // The rules version reported with the answer that returned `state`
+  // (io.angzarr.handler.v1.HandleResponse.rules_version), stamped in full by the
+  // coordinator, never by business code (docs/design/snapshots.md §3).
+  string rules_version = 3;
+}
+// endregion
+
+// region event_book
+// A run of events from one stream. Every page shares the book's Cover.
+message EventBook {
+  Cover cover = 1;
+  Snapshot snapshot = 2; // The starting state a delivery offers, when one is valid (docs/design/snapshots.md §3)
+  repeated EventPage pages = 3;
+  uint64 next_sequence = 4; // Computed on load, never stored: (last page seq OR snapshot seq if no pages) + 1
+}
+// endregion
+
+// One projector's output for one stream.
+message Projection {
+  Cover cover = 1; // The stream projected
+  string projector = 2; // Registered name of the projector
+  // Recorded by the coordinator ONLY after the projector's affirmative
+  // answer (decision 14.97): an error status or no answer leaves it
+  // unrecorded, and the run is delivered again.
+  // The projector's position in the stream after this projection: the
+  // stream's next_sequence once the projected events are applied, i.e. the
+  // sequence of the last projected event + 1.
+  uint64 next_sequence = 3;
+  google.protobuf.Any projection = 4;
+}
+
+// region handling
+// How a client asks for one command to be treated: the Command arm's alone
+// (decision 14.79). Never persisted. The pipeline, normative in
+// every runtime and mode: docs/design/pipeline.md §2; what is malformed,
+// §3.
+message Handling {
+  // The stream's next_sequence the client decided against ("I decided
+  // having seen version N"). Set and not the head the coordinator loaded,
+  // the command is refused ExpectedSequenceMismatch before business code
+  // (decision 14.94). Unset: the client stated none. The
+  // coordinator never stamps it. docs/design/pipeline.md §5.
+  optional uint64 expected_sequence = 1;
+}
+// endregion
+
+// region command_page
+// The one command of a CommandBook: its identity and a body, a Command or
+// a Fact (decision 14.79). Dispatch by arm and payload type
+// (ANGZARR_REASON_UNKNOWN_COMMAND_TYPE, ANGZARR_REASON_NO_FACT_HANDLER):
+// docs/design/pipeline.md §6.
+message CommandPage {
+  oneof body {
+    Command command = 1; // Asks the aggregate to decide; may be rejected
+    Fact fact = 2; // Records something that already happened; never rejected
+  }
+  // The command's id: client-supplied or minted (client Command), derived
+  // (Fact); unset from a client means "mint one". Recorded on every event
+  // it produces as their causation, and the deduplication key there
+  // (docs/design/identity-and-streams.md §6.1).
+  UUID command_id = 3;
+  // The workflow correlation; set by the coordinator when absent. Copied
+  // onto every event (EventMeta.correlation_id).
+  UUID correlation_id = 4;
+}
+
+// A command proper: a request for the aggregate to decide, which may emit
+// events or reject it. Upcast before dispatch (decision 14.39).
+// docs/design/pipeline.md §7.1.
+message Command {
+  google.protobuf.Any payload = 1; // The domain command; its type URL picks the handler
+  // How the system treats this command: as sent before the coordinator,
+  // resolved after it (docs/design/pipeline.md §1). Never persisted. Was
+  // CommandBook.handling (decision 14.79).
+  Handling handling = 2;
+}
+
+// A fact: something that already happened outside the system, delivered
+// through the command coordinator like any command. Its handler is
+// infallible; a failing one is a bug, dead-lettered (sender answered
+// INTERNAL ANGZARR_REASON_FACT_DEAD_LETTERED; decision 14.100).
+// docs/design/pipeline.md §7.2.
+message Fact {
+  google.protobuf.Any payload = 1; // The fact; its type URL picks the ingest handler
+  // Where the fact came from, required: copied onto every event
+  // (EventMeta's fact cause). For a policy's fact the destination derives it
+  // (ReactionDelivery).
+  FactOrigin origin = 2;
+}
+// endregion
+
+// region command_book
+// Exactly one client command or fact addressed to one stream (decision
+// 1.4); the request itself for Handle, HandleAsync and HandleSync.
+// docs/design/pipeline.md §9.
+message CommandBook {
+  Cover cover = 1; // The target stream (domain, edition, root)
+  CommandPage page = 2; // The one command
+}
+// endregion
+
+// region reaction_delivery
+// One output of a policy, or a refusal fact, as its coordinator delivers it
+// to the destination's coordinator (decision 14.79). Built only by a
+// policy's coordinator, taken only by the framework-only Deliver RPC; no
+// Handling, no fact origin. docs/design/pipeline.md §10.
+message ReactionDelivery {
+  // The destination stream: the policy's output_domain and the output's
+  // root in the trigger's edition; for a refusal fact, the trigger's own
+  // stream.
+  Cover cover = 1;
+  // The command or fact, as the policy answered it, in the arm of its kind
+  // (Output's arm; a refusal fact is always the fact arm). A oneof, not a
+  // flag (decision 14.91). Neither arm is core's Command or Fact: a
+  // reaction carries no Handling, and its fact's origin is derived.
+  oneof body {
+    google.protobuf.Any command = 2;
+    google.protobuf.Any fact = 3;
+  }
+  // Derived from (trigger, policy, index) for an output
+  // (docs/design/identity-and-streams.md §3.2); the refused command's for a
+  // refusal fact.
+  UUID command_id = 4;
+  // The trigger's.
+  UUID correlation_id = 5;
+  // The trigger: the event the policy reacted to. The reaction command_id
+  // is derived from it. NOT persisted on the events the delivery produces
+  // (docs/design/identity-and-streams.md §6.3).
+  EventRef causation = 6;
+  // The policy's registered component name: the fact origin's
+  // description, and the reacting component of the derived id.
+  string component = 7;
+}
+// endregion
+
+// region outcome
+// What the runtime did with one delivery of a command, NEVER persisted;
+// answered beside the events (decision 14.105). A rejection is never
+// an outcome: it is a gRPC error status. docs/design/pipeline.md §8.
+enum DeliveryOutcome {
+  DELIVERY_OUTCOME_UNSPECIFIED = 0; // Not reported
+  DELIVERY_OUTCOME_APPLIED = 1; // Business code ran for this delivery; the events are new
+  DELIVERY_OUTCOME_DUPLICATE = 2; // The stream already held this command_id's events; they are re-read
+}
+// endregion
+
+// ============================================================================
+// Dead Letter Queue (DLQ) Messages
+// ============================================================================
+
+// region dead_letter
+// Dead letter queue entry for failed messages requiring manual
+// intervention: its payload and why (decisions 14.78 and 14.101).
+// Per-domain topics: angzarr.dlq.{domain}. What lands here, the reason by
+// failure, the keys never recorded, and replay: docs/design/dead-letters.md.
+message AngzarrDeadLetter {
+  oneof payload {
+    // A client's command or fact that failed, stored with its ids assigned
+    // and a command's Handling as sent (docs/design/dead-letters.md §2, §7).
+    CommandBook rejected_command = 1;
+    // A policy's output or refusal fact that failed at its destination,
+    // as delivered (decision 14.79). Replayed through Deliver.
+    ReactionDelivery rejected_reaction = 2;
+    EventBook rejected_events = 3; // Events that failed (policy/projector failures)
+    // An edition removal that failed (DeleteEdition): the stream whose
+    // rows of the edition could not be removed (decision 14.107).
+    // Reason ANGZARR_REASON_EDITION_REMOVAL_FAILED (decision 14.48,
+    // amended).
+    Cover failed_edition_removal = 4;
+  }
+  // Why it was dead-lettered: exactly one of a typed refusal, a reason or
+  // a transport's own why, never text (decision 14.37).
+  // docs/design/dead-letters.md §3 to §5.
+  oneof why {
+    // A typed business refusal of an asynchronous command, packed. Its key
+    // is implied (ANGZARR_REASON_COMMAND_REFUSED), its type is the Any's
+    // type URL, and its args are its fields.
+    google.protobuf.Any refusal = 5;
+    // Every other failure the framework's packages share: a key and its
+    // args. Which key each failure records: docs/design/dead-letters.md §4.
+    Diagnostic reason = 6;
+    // A transport's own why: a message of the transport's package, packed,
+    // its key implied by its type (decision 14.107); today the
+    // distributed transport's PayloadRetrievalFailed. The angzarr-embedded
+    // kernel never sets it.
+    google.protobuf.Any transport = 7;
+  }
+  // The retries after the first attempt (0 when it was tried once).
+  // docs/design/dead-letters.md §6.
+  uint32 retry_count = 8;
+  google.protobuf.Timestamp occurred_at = 9;
+  string source_component = 10; // Which component sent to DLQ
+  ComponentKind source_component_kind = 11; // Its kind
+}
+// endregion
+
+// ============================================================================
+// Component Descriptors - Self-description for topology discovery
+// ============================================================================
+
+// ComponentKind names a kind of dispatch component as a bare tag (a dead
+// letter's source_component_kind, StoredDeadLetter, a reason's
+// component_kind arg), derived from a descriptor's `kind` oneof (decision
+// 14.78). docs/design/component-descriptors.md §1.
+enum ComponentKind {
+  COMPONENT_KIND_UNSPECIFIED = 0;
+  COMPONENT_KIND_AGGREGATE = 1;
+  COMPONENT_KIND_POLICY = 2;
+  COMPONENT_KIND_PROCESS_MANAGER = 3;
+  COMPONENT_KIND_PROJECTOR = 4;
+}
+
+// Component self-description: the one component a business process is,
+// pulled by the coordinator through ComponentService.Describe
+// (docs/design/component-registration.md §3); held, it is the component's
+// registration (§4), and refused when a check fails (§6); never stored.
+// Generated by angzarr-cli or written by hand, and checked by the
+// coordinator only: docs/design/component-descriptors.md.
+message ComponentDescriptor {
+  string name = 1;
+  // The business binary's full version, baked in when it is built: the same
+  // value the component reports on every answer
+  // (io.angzarr.handler.v1.HandleResponse.rules_version). Required
+  // (ANGZARR_REASON_MISSING_RULES_VERSION).
+  // docs/design/component-descriptors.md §4.
+  string rules_version = 2;
+  // Which kind of component, and what that kind has (decision 14.78).
+  oneof kind {
+    AggregateDescriptor aggregate = 3;
+    ProcessManagerDescriptor process_manager = 4;
+    PolicyDescriptor policy = 5;
+    ProjectorDescriptor projector = 6;
+  }
+}
+
+// An aggregate's descriptor.
+message AggregateDescriptor {
+  // The domain of the stream it owns, copied from its declaration
+  // (AggregateDecl.domain). Required (decision 14.101).
+  string domain = 1;
+  // Its event-sourced state (see StateDescriptor). Required.
+  StateDescriptor state = 2;
+}
+
+// A process manager's descriptor (a PM is a domain, decision 14.31).
+message ProcessManagerDescriptor {
+  // The domain of its own workflow stream, copied from its declaration
+  // (ProcessManagerDecl.domain). Required (decision 14.101).
+  string domain = 1;
+  // Its event-sourced state, as AggregateDescriptor.state. Required.
+  StateDescriptor state = 2;
+  // The fully-qualified type NAMES (no type URL prefix) of the command and
+  // fact types that are the PM's STARTING inputs, copied from its
+  // declaration's starting_types (decision 14.91).
+  // docs/design/component-descriptors.md §5.
+  repeated string starting_types = 3;
+}
+
+// A policy's descriptor: its one source and its one destination.
+message PolicyDescriptor {
+  // The one domain whose events it reacts to: derived by angzarr-cli from
+  // the events it names (docs/design/component-options.md §4; decision
+  // 14.78). Required: empty is
+  // ANGZARR_REASON_NO_INPUT_DOMAIN.
+  string input_domain = 1;
+  // The one domain its commands and facts go to (PolicyDecl.output_domain,
+  // options.proto; decision 14.24). Required.
+  string output_domain = 2;
+}
+
+// A projector's descriptor: its sources.
+message ProjectorDescriptor {
+  // The domains whose events it projects: derived by angzarr-cli from the
+  // events it names (docs/design/component-options.md §4; decision 14.78).
+  // No wildcard domain
+  // (decision 14.53); empty is ANGZARR_REASON_NO_INPUT_DOMAIN.
+  repeated string input_domains = 1;
+}
+
+// A component's state message, as the domain-blind coordinator needs it:
+// its type, which the snapshot rule checks. Nothing of its schema.
+message StateDescriptor {
+  // The state message's fully-qualified name ("examples.v1.TableState",
+  // no type URL prefix; decision 14.101).
+  string type_name = 1;
+}

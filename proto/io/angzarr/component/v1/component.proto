@@ -1,0 +1,24 @@
+syntax = "proto3";
+package io.angzarr.component.v1;
+
+import "io/angzarr/v1/types.proto";
+
+option csharp_namespace = "Angzarr.Component";
+option go_package = "github.com/angzarr-io/angzarr-client-go/proto/io/angzarr/component/v1;angzarrcomponent";
+option java_multiple_files = true;
+option java_package = "io.angzarr.component";
+option ruby_package = "Angzarr::Component";
+
+// ComponentService: how a coordinator learns which component its business
+// process is. Served by every business process beside its kind service (by
+// the client library's component host, never business code); the
+// coordinator pulls the descriptor and validates it. One coordinator, one
+// component, one business process; registration, refusal, failure and
+// readiness: docs/design/component-registration.md.
+service ComponentService {
+  // Describe the one component this business process is.
+  rpc Describe(DescribeRequest) returns (io.angzarr.v1.ComponentDescriptor);
+}
+
+// Describe takes no arguments.
+message DescribeRequest {}

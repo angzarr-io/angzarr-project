@@ -1,0 +1,6004 @@
+# Audit-meta decision log (passes 1–14)
+
+> **Renamed by 14.33 (2026-10-28):** where an entry below says "saga" for
+> the stateless event-to-command mapper (`SagaService`, `SagaResponse`,
+> `COMPONENT_KIND_SAGA`, `reaction_command_id`), read "policy"
+> (`PolicyService`, `PolicyResponse`, `COMPONENT_KIND_POLICY`,
+> `policy_command_id`). The entries keep their text.
+
+> **Renamed in the example by 14.38 (2026-10-28):** where an entry below
+> names the blackjack example's "player" aggregate (`PlayerState`,
+> `player.proto`, `HoldFunds`'s domain, `BuyInPlayerPolicy`,
+> `PlayerBuyInPolicy`, the settlement `TablePlayerPolicy`), read the
+> wallet (`WalletState`, `wallet.proto`, `BuyInWalletPolicy`,
+> `WalletBuyInPolicy`, `TableWalletPolicy`). "player" is now the bot that
+> decides a seat's moves.
+
+> **Renamed by 14.44 (2026-10-30):** every reason key now travels with its
+> enum's prefix (`ROUTER_REASON_`, `HOST_REASON_`, `COORDINATOR_REASON_`;
+> `reasons.proto`), and the entries below are rewritten to name the keys so.
+> 14.37's old reasons and the retired keys stay bare, as they were answered.
+
+Part of the [audit-meta design record](../audit-meta-followups.md).
+
+Each entry gives the decision, why it was made, the cost accepted with it,
+and the established practice it aligns with (or knowingly diverges from).
+The yardstick for every pass: be consistent with established CQRS/ES
+frameworks, and diverge only for polyglot ease or to hide CQRS/ES complexity
+from business code.
+
+Claims about other frameworks come from knowledge unless marked otherwise.
+They were not re-verified against each framework's current documentation for
+this note. Three of them were wrong in earlier passes; the
+[corrections](#corrections) section records them.
+
+Only the protos and the `rust/angzarr-proto` crate changed in these passes.
+Every code consequence is in the [backlog](backlog.md).
+
+## Pass 1 (9cfed59, 17bc1cd): provenance, sequences, one command per book
+
+> **Amended by 12.4 (pass 12):** `EventMeta` is now `command_id`, `causation_id`, `fact`, `correlation_id`, `recorded_at` and `rules_version`; no actor, no origin, no base sequence.
+>
+> **Amended by 13.1 and 13.3 (pass 13):** `EventMeta` is now `oneof causation { command_id 17 | triggering_event 18 }`, `fact`, `correlation_id`, `recorded_at` and `rules_version`; `causation_id` is no longer on events.
+
+**1.1 Every persisted event carries `EventMeta`.** The fields are
+`Provenance` (actor, correlation), the origin (request, causation or fact),
+`recorded_at`, the base sequence, and `rules_version`.
+- Why: any event must be explainable after the fact: who caused it, why, when,
+  against what state and under which rules.
+- Cost: bytes on every event, and stamping work in every coordinator.
+- Aligns with: event metadata in Marten (correlation and causation ids,
+  headers), Axon `MetaData`, the KurrentDB `$correlationId`/`$causationId`
+  metadata convention, and CloudEvents context attributes.
+
+**1.2 Sequences are `uint64` everywhere.**
+- Why: a stream's sequence space is not bounded at 2^32.
+- Cost: a WIRE_JSON break, plus code changes in six client languages and every
+  storage backend.
+- Aligns with: KurrentDB stream revisions (u64) and Marten's `long` versions.
+
+**1.3 Correlation is recorded per page, never on the `Cover`.**
+`Query.correlation_id` selects by it, and one write has one correlation.
+- Why: a cover is stream identity. Correlation varies per write.
+- Cost: core reads correlation from the cover in many places.
+- Aligns with: correlation as message metadata (NServiceBus, MassTransit,
+  KurrentDB), not stream identity.
+
+> **Reaffirmed by 14.28 (pass 14):** the owner kept the structure and had the protos say so firmly.
+
+**1.4 A `CommandBook` holds exactly one command.**
+- Why: deduplication and the outcome are per command. Core already ran only
+  the first page and silently ignored the rest.
+- Cost: no wire batching. A client library may batch calls.
+- Aligns with: Axon, Marten/Wolverine and Eventuous, which all dispatch one
+  command at a time.
+
+**1.5 The expected sequence is optional.** When it is present it is checked;
+when it is absent the head is stamped. Both happen before business code, and
+the base the decision used is always recorded.
+- Why: decide always sees a concrete sequence, and the record always says
+  what the decision saw.
+- Cost: coordinator work on every command.
+- Aligns with: expected-version appends in Marten, Eventuous, Equinox and
+  KurrentDB, and the Decider pattern.
+
+**1.6 Deferred sequences are deleted.** `EventPage.sequence` is always
+definite.
+- Why: deferred types existed only for facts and 2PC, and both are gone.
+- Cost: none beyond deleting code.
+
+**1.7 Facts are commands.** A fact is an external-only command, idempotent on
+`external_id`, handled by an infallible ingest handler. A failing ingest is a
+bug: it is dead-lettered, never rejected.
+- Why: one input path into an aggregate. The framework deduplicates before
+  business code, and the type system enforces "facts can't be rejected"
+  (`ingest` has no error arm).
+- Cost: facts share the command pipeline and its configuration.
+- Aligns with: **Equinox ingesters**, which feed external sources into
+  streams idempotently, and the Wolverine/NServiceBus inbox. *Correction:*
+  pass 1 claimed this matched Event Modeling's translation pattern. It does
+  not (see [C1](#corrections)).
+
+**1.8 Only two conflict strategies: `STRICT` (the default) and
+`AGGREGATE_HANDLES`.** `COMMUTATIVE`, `MANUAL` and the `Replay` RPC are
+deleted. Conflict-resolution helpers live in the client libraries.
+- Why: the other strategies hid business decisions inside the framework.
+- Cost: users of `COMMUTATIVE` move the rule into decide.
+- Aligns with: optimistic concurrency, and Axon's `ConflictResolver`, where
+  the handler sees the unseen events.
+- **Partly reversed in pass 6** (decision 6.12): `COMMUTATIVE` is back, as an
+  opt-in resolver in the client libraries, never a coordinator-side diff or a
+  `Replay` RPC. `MANUAL` stays deleted.
+
+**1.9 `Cover.ext` is removed.** Parent references live in event payloads,
+and sagas route from payloads.
+- Why: a cover is identity only.
+- Cost: storage `ext` columns, router stamping, about 60 core sites, Python's
+  `unpack_parent_cover`, and the poker protos.
+
+**1.10 No `reserved` statements.** Removed fields and messages are deleted
+outright.
+- Why: nothing has been released, and stored data is wiped across schema
+  changes.
+- Cost: old binaries mis-decode new data. This is accepted until v0.1.0.
+- Diverges from: protobuf's own guidance, deliberately, while pre-freeze.
+- **Superseded in pass 6** (decision 6.6, D6): reserve from the first stored
+  production event onwards. Deletions up to and including pass 6 stay
+  unreserved.
+
+**1.11 Editions stay in wire identity, and the main timeline is `""`.**
+`Cover.edition` and `EventRef.stream.edition` carry it, and
+`DeleteEditionEvents` refuses `""`. (Pass 6 replaced `DeleteEditionEvents`
+with the administrative `DeleteEdition`, which also refuses `""`; decision
+6.5.)
+- Why: an edition's events can never be mistaken for, or copied as,
+  main-timeline events. Placement is a storage choice.
+- Cost: the edition column stays in every schema.
+- **Superseded in pass 7** (decision 7.1): editions stay in wire identity,
+  but main is the **unset** edition (`optional string edition`), not `""`.
+
+**1.12 `rust/angzarr-proto` is a leaf crate.** It is prost only (no tonic,
+no `google.api`) and builds for wasm32.
+- Why: annals and hatpick share the wire types without pulling in angzarr's
+  runtime.
+- Cost: a fourth Rust generation of the same types, until core, the router
+  and client-rust remap onto it (backlog TG-1).
+- Restored by 14.64: the `grpc` feature added since (tonic stubs on the
+  same messages) moved to the component and transport crates, and
+  angzarr-proto (now in angzarr-core) is prost only again.
+
+## Pass 2 (46404df): removals and DRY
+
+**2.1 `CASCADE`, `ISOLATED` and the cascade error modes are deleted.**
+Reactions always run asynchronously.
+- Why: synchronous cascades coupled aggregates' availability and hid
+  partial failure.
+- Cost: replay, migration and recovery tooling cannot write silently. It must
+  let reactions run, or rebuild projections afterwards.
+- Aligns with: Axon, Marten/Wolverine and NServiceBus, where reactions are
+  asynchronous messages.
+
+> **Amended by 14.31 (pass 14):** the side channel stays deleted, but a refusal is no longer a domain event of the refusing side. A saga's target (an aggregate or a process manager) refuses the saga's command with a business rejection, optionally carrying a typed refusal object of its own domain (one of the command's `refuses` types), and records nothing. The refusal goes back to the saga, which builds one unrefusable refusal fact for the exact stream of its triggering event: by default its generated code passes through the standard `CommandRefused { command, refusal, trigger }`, the typed object packed as an `Any`, which the source handles in its `on_refused_<Command>(refusal, state)`; or, where angzarr-cli selects translate at code generation, the saga's callback reads `Refusal { event, command, response }` and returns a domestic fact, which is why translate exists: a source that does not want to unpack a foreign object, or import foreign protos, gets a domestic fact instead. Either way the fact's id is the refused command's id, the source decides what the refusal means and records its own events, and both calls go through the outbox (the fact written in the transaction that clears the command's entry), retried and deduplicated by that one id. Process managers take the replies to their steps as commands from sagas, and the refusals of their own steps as these facts.
+
+> **Amended by 14.42 (pass 14):** the coordinator, not the policy's generated code, builds the pass-through `CommandRefused` and addresses every refusal fact. The router runs only a translate callback, or answers that it has none.
+
+**2.2 The compensation and notification channel is deleted.** In its place,
+process managers handle replies, and refusals are domain events.
+- Why: a refusal is a business fact and belongs in a stream. A side channel
+  duplicated the saga mechanism.
+- Cost: compensating flows are re-modelled as refusal events plus a saga or
+  PM.
+- Aligns with: event-driven choreography, where a refusal is an event (as in
+  Event Modeling and Axon sagas reacting to events).
+
+**2.3 `undoes`/`compensates` annotations are removed.** This follows from
+2.2.
+
+**2.4 Speculative execution is replaced by editions.** A what-if is an
+ordinary command in an edition. An unconfigured edition falls back to the
+configured default edition store, and projector output follows the edition's
+storage.
+- Why: one execution path. A what-if needs no special RPCs.
+- Cost: edition lifetime and multi-instance affinity are still open (see the
+  open questions in the [index](../audit-meta-followups.md)).
+
+**2.5 Snapshots are framework policy only.** `SnapshotRetention` is deleted.
+The default keeps the newest snapshot, and business milestones are events.
+- Why: a snapshot is an optimisation, not data.
+- Cost: users of `PERSIST` re-model milestones as events, and as-of queries
+  are slower where old snapshots used to exist.
+- Aligns with: Marten, Axon and Eventuous, where snapshots are caches.
+
+**2.6 `PayloadReference` is transport-only.** It belongs on a bus envelope,
+never on a persisted page.
+- Why: the event store records resolved payloads.
+- Aligns with: the claim-check pattern (Enterprise Integration Patterns).
+
+**2.7 The DRY refactor.** `EventRef { Cover stream; sequence }`, a shared
+`Provenance`, and `Cover.edition` as a name. `EventPage.created_at` is
+deleted, so `recorded_at` is the event's only timestamp.
+
+**2.8 `CommandPage.body` is `oneof { Command, Fact }`, with each kind's
+origin inside its arm.** Dispatch is reflective: the arm picks the pipeline,
+and the type URL picks the handler. `ReactionOrigin` is renamed `Causation`.
+- Why: the arm is the fact marker, so a fact structurally cannot carry a
+  causation origin.
+- Cost: regenerated clients.
+- **Origins revised in pass 6** (decision 6.1, D1): the arms stay, but the
+  per-arm origins (`Command.origin`, `Fact.source`) moved to one shared
+  `Origin` on the page, and "a fact cannot carry a causation origin" is now a
+  validation rule rather than a structural one.
+
+**2.9 The dedup signal is an enum, never persisted** (now
+`Outcome.delivery`).
+
+## Pass 3 (9ded171): handling separated from data
+
+**3.1 `Handling { optional expected_sequence; merge }` lives on
+`CommandBook`.** The coordinator resolves it in place before business code,
+and it is never persisted.
+- Why: commands cross boundaries as bare books (saga and PM output, the DLQ,
+  `ContextualCommand`), so the request envelope cannot carry handling.
+- Aligns with: Marten/Eventuous/Axon, where the expected version travels with
+  the command.
+
+**3.2 Request wrappers are deleted.** These are `CommandRequest`,
+`ContextualCommandRequest`, `SagaHandleRequest` and
+`ProcessManagerCoordinatorRequest`.
+
+> **Amended by 14.81 (ruled 2026-11-02):** the precedence chain is gone. A command handler's conflict resolution is its state's (COMMUTATIVE where its `(state)` option lists it, else STRICT); `Handling.conflict_resolution` is reserved, and there is no per-command-type or per-component configuration and no override permission.
+
+> **Superseded by 14.92 (ruled 2026-11-02; the owner's decision 47):** the coordinator has no conflict-resolution concept. There is no resolution to configure or default.
+
+**3.3 Defaults come from configuration.** Precedence: Handling, then
+command-type config, then component config, then STRICT.
+- Why: operators set policy, and a caller may override it only where
+  configuration allows.
+
+**3.4 Violations are refused loudly.** A client is answered
+`INVALID_ARGUMENT`. A reaction command is dead-lettered as a bug. Reaction
+commands carry no `Handling`.
+
+## Pass 4 (8a803c9): sync is a call-level choice
+
+**4.1 One RPC per mode.** `Handle` is DECISION, `HandleAsync` is ASYNC (it
+returns `Empty`), and `HandleSync` is SIMPLE. `SyncMode` and `EventRequest`
+are deleted.
+- Why: how long the caller waits is not a property of the command.
+- Aligns with: Google AIP-style method naming, and the gRPC convention of one
+  method per response shape.
+
+**4.2 DLQ replay delivers through `HandleAsync`.** Replay already rides the
+bus, and its response carries no decision.
+
+## Pass 5 (b5a4da8): the critical review's fixes
+
+The review's findings are in [critical-review.md](critical-review.md). The
+idempotency research and design are in [idempotency.md](idempotency.md).
+
+> **Superseded by 12.2 (pass 12):** no key store; deduplication is by `command_id` on the events.
+
+**5.1 Idempotency key store (claims).** Keys are `request_id`+index, the
+causation tuple, and the fact's `external_id`. (Superseded by 10.1: a
+request key is `request_id` alone.) They are scoped per addressed
+aggregate, and a claim is written in the same transaction as the append. The
+outcome is an applied sequence range, and zero events is allowed. Concurrency
+is optimistic. A duplicate re-reads its events by range.
+- Why: `HandleAsync` and DLQ replay deliver at least once, and request-origin
+  commands had no deduplication at all (W1). Dedup inferred from event rows
+  left no claim for a decision that emitted no events (W2).
+- Cost: a store. A backend without atomic claims cannot offer `HandleAsync`
+  or replay.
+- Aligns with: Stripe and the IETF Idempotency-Key draft (client keys, a
+  fingerprint, 24-hour retention), and the NServiceBus outbox (atomic with
+  business data, 7-day retention). Divergences are in
+  [idempotency.md](idempotency.md).
+
+**5.2 Rejections are released, not claimed** (Wolverine-style).
+- Why: a rejected command wrote nothing, so a retry after the state changes
+  must be able to succeed.
+- Cost: a retried rejection runs business code again.
+- Aligns with: Wolverine, AWS Powertools (which deletes the record when the
+  handler throws) and the NServiceBus outbox (rollback). Diverges from Stripe,
+  which stores error results.
+
+> **Superseded by 12.2 (pass 12):** no fingerprint; a reused id with a different payload goes undetected (an accepted cost).
+
+**5.3 Payload fingerprint.** It is computed over the bytes as received. SDKs
+serialise deterministically. A request key that comes back with a different
+fingerprint is refused `FAILED_PRECONDITION`. (Extended by 10.2 to fact
+keys, by default, and by 10.4 to causation keys, always dead-lettered;
+the fingerprint's exact form is 10.3.)
+- Why: a reused key with a different body is a client bug, never a duplicate.
+- Aligns with: Stripe, which errors on changed parameters, and the IETF draft
+  (422).
+
+> **Superseded by 12.2 (pass 12):** deduplication is forever; no retention, and no DLQ age refusal.
+
+**5.4 Retention is 24 hours for client keys and 7 days for causation and
+fact keys.** DLQ replay refuses entries older than their key's retention
+unless overridden.
+- Aligns with: Stripe (24 hours) and the NServiceBus outbox's default
+  deduplication window (7 days).
+
+> **Superseded by 12.2 (pass 12):** every command has a `command_id` before it is enqueued, so neither path requires a client-supplied one.
+
+**5.5 `request_id` is required for `HandleAsync` and DLQ replay.**
+
+> **Amended by 14.31 (pass 14):** the outbox is one component-kind-agnostic capability: any component whose output leaves its own stream uses it, and today that is the saga, for its commands and its refusal facts. A process manager needs none: it is a domain, its only output is its own events, and it consumes no stream, so it has no checkpoint.
+
+**5.6 A transient outbox for all reactors.** Output is stored atomically with
+the source checkpoint, dispatched, then cleared, so that only keys remain.
+Redelivery re-sends verbatim. There is no purity contract and no
+nondeterminism dead-letter.
+- Why: without it, a reactor re-run can emit different commands under the
+  same causation keys (W3). The user was wary of purity contracts: only
+  workflow engines require determinism.
+- Cost: an outbox write per reaction.
+- Aligns with: the NServiceBus outbox, MassTransit's transactional outbox and
+  Wolverine's durable outbox. Diverges from Temporal-style deterministic
+  replay, deliberately.
+
+> **Superseded in part by 12.1 and 12.3 (pass 12):** no actor exists to stamp. Correlation is still copied from the trigger, and the coordinator now also stamps `causation_id` and the derived `command_id`.
+
+**5.7 The coordinator stamps reaction provenance (W4, W5).** Actor and
+correlation are copied from the trigger, and a reactor that sets differing
+values is refused. Correlation is never empty: it is the caller's value, or
+it is derived from `request_id` (or `external_id`). A keyless request gets a
+newly minted correlation (pass-5 choice; superseded by 8.3: request ids are
+always assigned, so the derivation is the request id verbatim and nothing
+mints a correlation).
+- Aligns with: correlation propagation in NServiceBus, MassTransit and the
+  KurrentDB conventions.
+
+**5.8 Business output is payloads plus an optional snapshot (W7).** Setting
+meta, a sequence or a different cover is refused. The "custom covers" escape
+hatch is removed from `CommandOptions.emits`.
+- Pass-5 choice: a caller of `Handle`/`HandleSync` is answered `INTERNAL`,
+  and asynchronous and reaction paths dead-letter. It is never a business
+  rejection.
+
+> **Superseded by 12.6 (pass 12):** the business logic reports `rules_version` with every response; `ComponentDescriptor.rules_version` is deleted.
+
+> **Partly restored by 14.1 (pass 14):** `ComponentDescriptor.rules_version` is back, as the binary's full build version, alongside the per-response report.
+
+**5.9 `rules_version` is declared at registration and stamped by the
+coordinator (W8).**
+- Pass-5 choice: it is declared on `ComponentDescriptor.rules_version` (field
+  4). That is the runtime self-description a component gives when it
+  registers, and the rules version changes per deployment, not per proto.
+  `ComponentOptions` in `options.proto` is a compile-time annotation and the
+  wrong lifetime.
+- annals treats the value as load-bearing; see
+  [annals-divergence.md](annals-divergence.md).
+
+**5.10 Non-main editions never reach external sinks, and the edition is in
+the default CloudEvent id and source (W10).**
+- Pass-5 choice: the id is `{domain}:{edition}:{root}:{sequence}` (main gives
+  `{domain}::{root}:{sequence}`). The source is `angzarr/{domain}` on main and
+  `angzarr/{domain}/editions/{edition}` otherwise.
+- **Amended in pass 7** (decision 7.1): main has no edition segment, so its
+  id is `{domain}:{root}:{sequence}`; the source rule is unchanged.
+
+> **Amended by 14.37 (pass 14):** `ProjectorFailure.message` (3) is deleted, unreserved; the failure is `code` and `diagnostic` (4), a key and its args, never text.
+
+**5.11 HandleSync answers OK, with per-projector failures in the `Outcome`
+(W11).** It adds `Outcome.projector_failures` and `ProjectorFailure
+{ projector, code, message }`.
+
+> **Reversed by 14.105 (ruled 2026-11-02):** HandleSync has no partial answer. A synchronous projector that fails after the decision commits fails the call UNAVAILABLE `ANGZARR_REASON_SYNC_PROJECTION_FAILED`; `ProjectorFailure` is deleted.
+
+**5.12 A failed fact ingest is answered "accepted, parked" (W11).**
+- Pass-5 choice: a new value, `DeliveryOutcome.DELIVERY_OUTCOME_PARKED` (3),
+  rather than an `Outcome` field. The delivery outcome already answers "what
+  happened to this delivery", and PARKED excludes APPLIED and DUPLICATE. A
+  separate boolean could contradict it. A parked fact is not claimed.
+
+**5.13 One set of retryable status codes (W11).**
+- Pass-5 choice: `UNAVAILABLE`, `DEADLINE_EXCEEDED`, `RESOURCE_EXHAUSTED` and
+  `ABORTED` are retryable. Everything else is terminal.
+- A stale expected sequence under STRICT moves from `FAILED_PRECONDITION` to
+  `ABORTED`, which gRPC's status-code guide names for a failed test-and-set.
+  That frees `FAILED_PRECONDITION` for business rejections and fingerprint
+  mismatches, so nothing has to parse messages.
+- Cost: core retries `INTERNAL`, `UNKNOWN`, `DATA_LOSS` and `CANCELLED`
+  today, and detects sequence conflicts by a message prefix. Backends must map
+  transient faults to `UNAVAILABLE` (backlog ST-1).
+
+**5.14 Under AGGREGATE_HANDLES the snapshot delivered is at or below
+`expected_sequence-1` (W12).** The conflict window always arrives as pages.
+
+**5.15 `recorded_at` is non-decreasing per stream, and `as_of_time` is a
+prefix (W13).** The coordinator stamps max(previous, now).
+- Aligns with: KurrentDB's and Marten's per-stream ordering.
+
+> **Superseded in part by 12.4 (pass 12):** `base_sequence` is deleted (the projector rename stands).
+
+**5.16 Renames (W14).** `EventMeta.decided_at` becomes `base_sequence`, and
+the projector coordinator's fire-and-forget `Handle` becomes `HandleAsync`
+(HTTP `/v1/projector/async`).
+- Why: `decided_at` read as a time but holds a sequence, and the mode names
+  should match the command coordinator's.
+
+**5.17 PM replies route by correlation, and causation always names the
+triggering event (W6).** The process_manager.proto text that said a reply's
+causation "names the PM's own event" was wrong.
+
+> **Amended by 12.2 and 12.3 (pass 12):** a replay keeps the original `command_id`, `correlation_id` and `causation_id`; the operator and `retention_overridden` are deleted (who replayed goes to the security log), and so is `override_retention`.
+
+**5.18 A DLQ replay keeps the original provenance, origin and keys (W9).**
+The replay's operator, time, mode, retention override and outcome are
+recorded in the entry. An event-book replay re-delivers to the failed
+component only.
+- Pass-5 choice: the audit fields are on the admin row,
+  `StoredDeadLetter.replays` (a list of `DeadLetterReplay` with a
+  `ReplayOutcome`). They are not on `AngzarrDeadLetter`, because the
+  published entry stays immutable and its bytes are what replay re-sends.
+  `ReplayDeadLetterOk.new_correlation_id` becomes `correlation_id` (the
+  original), and `ReplayDeadLetterRequest.override_retention` is added. The
+  operator comes from the call's credentials, never from the request body.
+
+> **Superseded by 12.2 (pass 12):** `IdempotencyClaim` is deleted.
+
+**5.19 `IdempotencyClaim` is a storage-only documented schema.**
+- Pass-5 choice: add it. It pins the key union, scope, fingerprint, range and
+  expiry in one typed place that every backend (and annals' optional unique
+  index) can match. It reuses the origin messages as the key, so the key
+  cannot drift from the wire.
+- Cost: a message that no RPC carries, which is labelled storage-only.
+
+**5.20 annals keeps its atomic in-process chain** as a documented,
+intentional divergence. See [annals-divergence.md](annals-divergence.md).
+
+**5.21 Scope: protos and documentation only.** No angzarr code changes now.
+The user is not taking on heavy refactoring, and everything is recorded in
+the [backlog](backlog.md).
+
+## Pass 6 (650d774): the debatable items decided
+
+The user decided the review's D1–D11 (see
+[critical-review.md](critical-review.md)) before this pass, and added the
+restoration of `COMMUTATIVE` during it. As before, only the protos, the
+`rust/angzarr-proto` crate and these documents changed. Wire breaks are
+accepted, and this round's deletions stay unreserved (6.6).
+
+> **Superseded by 12.1 (pass 12):** `Origin`, `RequestOrigin` and `Causation` are deleted; the page carries `command_id`, `correlation_id`, `causation_id` and `fact_origin`. The `Command`/`Fact` arms stay.
+
+**6.1 One `Origin` message (D1).** `Origin { oneof kind { RequestOrigin
+request; Causation causation; FactOrigin fact; } }` is the only origin
+shape. It is on the command page (`CommandPage.origin`, field 7), copied
+unchanged onto every event (`EventMeta.origin`, field 12, replacing the
+inline oneof), and is the idempotency key (`IdempotencyClaim.key`, field 10,
+replacing its inline oneof). `Command.origin` and `Fact.source` are
+deleted.
+- Validation: a Fact requires a fact origin (with a non-empty
+  `external_id`); a Command requires a request or causation origin, and a
+  Command sent with no origin is a keyless request (recorded as an empty
+  `RequestOrigin`, so `EventMeta.origin` is always set). A mismatch is
+  refused loudly: `INVALID_ARGUMENT` for a client, dead-letter and alert for
+  a reactor.
+- **Pass-6 choice: the `Command`/`Fact` arms stay**, each now holding only
+  its payload. The arm still carries the payload's kind (a decision request
+  or an already-happened fact) and drives reflective dispatch (decide or
+  ingest), and generated code and the router's arm-versus-handler guard key
+  on it. The origin says why the command exists; the arm says what it is.
+  Collapsing to one `payload` plus the origin would make the origin double
+  as the dispatch marker, which is the conflation D1 set out to remove.
+- Why: the union was stated three times, splitting provenance across page
+  and arm and needing mapping code in every language.
+- Cost: "a fact cannot carry a causation" is no longer structural: it is a
+  coordinator check (backlog OR-1).
+- Aligns with: correlation and causation as message metadata, separate from
+  the message body (NServiceBus headers, Marten metadata).
+
+**6.2 No root-request pointer (D2).** Correlation is enough: every event of
+a workflow carries the originating correlation, and `GetCorrelatedEvents`
+(6.4) returns the workflow. A reaction's events keep only their causation.
+annals' request-on-every-event is a documented divergence, or annals drops
+it (see [annals-divergence.md](annals-divergence.md)).
+- Aligns with: correlation as the workflow id (NServiceBus
+  `ConversationId`), without MassTransit's separate `InitiatorId`.
+
+**6.3 An optional attempt-audit sink (D3).** Attempts and their outcomes
+(rejections included) are reported to an optional observability sink, never
+to the event store. Only the interface and in-memory and no-op
+implementations are planned; they are angzarr core code, held until the user
+says when. The interface specification is backlog AU-1. No proto changed.
+- Why: a rejection leaves nothing in any stream, and an operator sometimes
+  needs to see what was tried.
+- Aligns with: the NServiceBus audit queue, kept outside the business
+  store.
+
+> **Amended by 13.3 (pass 13):** forward causation from the result is exact only for PM process events (`triggering_event`); reaction commands' events are linked by correlation, and exact trigger edges come from traces.
+
+**6.4 A cross-domain correlation query (D4).** `EventQueryService.
+GetCorrelatedEvents(CorrelationQuery { correlation_id, edition })` streams
+one `EventBook` per stream holding its pages of that correlation, across all
+domains. `Query.correlation_id` stays within one domain.
+- Forward causation is derived, not queried: reaction provenance copies the
+  trigger's correlation, so the result is closed under "what did this event
+  cause". The events caused by E are the result pages whose
+  `EventMeta.origin.causation.event` equals E's `EventRef`.
+- Backend indexes (a correlation index per backend) are backlog CQ-1.
+- Aligns with: KurrentDB's `$by_correlation_id` system projection.
+
+> **Superseded by 14.32 (pass 14):** editions are per-stream forks: creating one appends a fork event to an origin stream (`ForkStream`), and the fork travels with the data, each saga command in the edition forking the stream it reaches; there is no registry, no `CreateEdition` and no `Edition` record. An unknown edition is one with no stream forked and not yet deleted. `DeleteEdition` stays: sequenced after the edition's in-flight work, it removes every row tagged with the edition; main knows nothing of any of it.
+
+**6.5 Editions need an explicit, administrative create (D5).** A new
+`EditionAdminService` in `meta.proto` has `CreateEdition` and
+`DeleteEdition`. They are administrative operations: no domain command, no
+event, no replay.
+- `CreateEditionRequest { name, diverge_at, store }` records the divergence
+  point (a time: the edition reads main's prefix recorded at or before it;
+  the default is main's head at create) and an optional non-default edition
+  store. The record is `Edition { name, diverged_at, store, created_at,
+  created_by }`.
+- A created edition with no store uses the default edition store (its name
+  is recorded at create, so a later change of the default does not move
+  it). A never-created name used by a command, query or subscription is
+  refused `NOT_FOUND`.
+- `DeleteEdition` deletes the record and everything stored under the
+  edition in every domain (events, snapshots, projector output, claims). It
+  refuses `""` (`INVALID_ARGUMENT`) and an unknown name (`NOT_FOUND`).
+  (Pass 7, decision 7.1: main is unnamed, so the `""` rule reads "the name is
+  required and non-empty"; the code is unchanged.)
+- **Pass-6 choice: the RPCs live in a new `EditionAdminService` in
+  `meta.proto`** (package `io.angzarr.v1`). `meta.proto` held
+  `DeleteEditionEvents` with no service. The status console's
+  `io.angzarr.status.v1` package is the operations console's own DLQ API,
+  and editions are framework administration rather than a console concern.
+  `meta.proto`'s "meta domain commands/events" framing is replaced by
+  "administrative operations, not CQRS".
+- **`DeleteEditionEvents` is retired.** It deleted one (edition, domain);
+  `DeleteEdition` deletes the whole edition, and a per-domain delete has no
+  user.
+- Cost: what-if callers must create an edition first.
+
+**6.6 Reserve from the first stored production event (D6).** Supersedes
+1.10. Up to and including this pass, removed fields stay unreserved; from
+the first production event any store keeps, every removal reserves its
+number and name in the same change. The policy is written in
+`proto/buf.yaml`. It ties to the gate-wire-compat trigger (backlog GAP-3).
+
+> **Superseded by 14.92 (ruled 2026-11-02; the owner's decision 47):** the coordinator has no conflict-resolution concept.
+
+**6.7 The AGGREGATE_HANDLES nonce (D7).** `ContextualCommand.conflict_nonce`
+(bytes, field 3) is set when the resolved resolution is AGGREGATE_HANDLES or
+COMMUTATIVE, and empty under STRICT. The client library passes it to the
+handler and demands `resolve_conflicts(window, nonce)` with exactly that
+value before the handler returns; otherwise it discards the output and fails
+the command as stale (`ABORTED`).
+- **Pass-6 choice: an opaque per-delivery value minted by the coordinator**,
+  not `expected_sequence` itself. A handler cannot satisfy the check without
+  receiving the parameter, which is the point. It is never persisted or
+  returned, and the coordinator does not check it: enforcement is local to
+  the client library, with no gRPC round trip.
+- Set even for an empty window, so the handler path is uniform.
+- Aligns with: Axon, which fails a command when conflicting events exist and
+  the handler never examined them.
+
+> **Amended by 12.6 (pass 12):** validity is checked in the client library, where the state is decoded, against the reported rules version; a refused snapshot is answered `snapshot_refused` and the coordinator re-delivers without it.
+
+> **Amended by 14.1 (pass 14):** the coordinator checks validity before offering a snapshot, against the registered state type and the domain's version-compatibility rule; a snapshot that fails is not offered.
+
+**6.8 Snapshots record what produced them (D8).** `Snapshot.rules_version`
+(field 5; 4 was pass 2's retention field) is stamped by the framework, and
+the state type is the `Any` type URL. On load, a mismatch with the current
+registration (state type or `ComponentDescriptor.rules_version`) discards the
+snapshot and replays from events.
+- Cost: a deployment that changes `rules_version` replays every stream on its
+  next load. That is the price of never migrating snapshots.
+- Aligns with: snapshots as caches (Marten, Axon, Eventuous), invalidated
+  rather than upcast.
+
+**6.9 Cleanups (D9).**
+- `AggregateRoot` is deleted; `GetAggregateRoots` streams `Cover`, which
+  carries the edition.
+- `ComponentKind` moves from `options.proto` to `types.proto`, and
+  `options.proto` imports `types.proto` (no cycle: `types.proto` imports
+  nothing from it). `ComponentDescriptor.component_type` becomes `kind`
+  (field 5); `AngzarrDeadLetter.source_component_type` becomes
+  `source_component_kind` (field 15); `StoredDeadLetter.source_component_type`
+  becomes `source_component_kind` (field 14), so `dlq_admin.proto` imports
+  `types.proto`.
+- `AngzarrDeadLetter.cover` is dropped: the payload's cover is the stream.
+- `Projection.sequence` becomes `next_sequence` (field 3 kept): it holds the
+  stream's next_sequence after the projected events (client-rust sets it
+  from `book.next_sequence`).
+- **Pass-6 choice: `Synchronize` is deleted.** Core implements it as a
+  bidirectional stream that answers each incoming `Query` with
+  `GetEventBook`'s result. It never switches to live events, so it is not the
+  catch-up subscription the site's `pitch.mdx` advertises. It skips the
+  unary RPC's validation, is exposed through the gateway despite "not
+  REST", and has no production caller (only core's own unit test). Bulk
+  reads are `GetEvents`, and live events are `EventStreamService.Subscribe`.
+  A real catch-up subscription, if wanted, is a new design, not this RPC.
+- The edition admin RPCs (6.5).
+
+**6.10 `MergeStrategy` becomes `ConflictResolution` (D10).** Values are
+`CONFLICT_RESOLUTION_*` (lint-conformant), with numbers unchanged, and
+`Handling.merge` becomes `Handling.conflict_resolution`. Cover, Book and Page
+are kept.
+- Aligns with: Axon's "conflict resolution".
+
+**6.11 The fact codegen marker is resolved (D11).** Handler registration
+(`#[handles_fact]` / ingest) is the declaration, and the router guards arm
+against handler kind. There is no proto flag. `CommandPage`'s comment now
+says so, matching the index and backlog FA-3.
+
+> **Superseded in part by 12.7 (pass 12):** COMMUTATIVE is the DEFAULT where the state declares conflict units (otherwise STRICT); it is no longer opt-in only.
+
+**6.12 `COMMUTATIVE` is restored, opt-in, in the client libraries (user,
+during pass 6).** `CONFLICT_RESOLUTION_COMMUTATIVE = 1` (its old number).
+- The window and the nonce are delivered exactly as under
+  AGGREGATE_HANDLES, with the same snapshot bound (at or below
+  `expected_sequence-1`). The client library compares, by protobuf
+  reflection, the state fields the window changed with those the command's
+  events change. If they are disjoint, the library acknowledges the nonce
+  itself; otherwise the command fails as stale (`ABORTED`). There is no
+  `Replay` RPC and no coordinator-side diff.
+- Opt-in only: per command type or per component in configuration, or in
+  `Handling` where configuration allows. STRICT stays the default.
+- **Reverses part of 1.8**, which deleted `COMMUTATIVE` because it hid
+  business decisions inside the framework. The reason for the reversal is
+  goal 2: implementors should not have to write conflict logic for the
+  common case of non-overlapping edits. Moving the resolver into the client
+  library, behind an explicit opt-in, removes the earlier objections: the
+  coordinator stays domain-blind, there is no replay RPC, and nothing is the
+  default.
+- Diverges from: every mainstream framework. None of Axon, Marten,
+  Eventuous, KurrentDB or NServiceBus ships automatic field-overlap merging.
+  It is justified by goal 2, and it is opt-in because a structural diff
+  cannot see semantic links between fields: two commands that touch
+  different fields can still break an invariant that spans them.
+- The "protobuf reflection" diff was left unspecified here; pass 8 (8.1)
+  replaces it with declared conflict units, and decide on the head (which
+  keeps invariants checked).
+
+## Pass 7: the main timeline is the unset edition
+
+Decided by the user. As before, only the protos, the `rust/angzarr-proto`
+crate and these documents changed, wire breaks are accepted, and nothing is
+reserved: no field was removed, and the 6.6 policy (deletions unreserved
+until the first stored production event) now covers passes up to and
+including 7.
+
+**7.1 Main is the absent edition, not `""` (supersedes 1.11's "main is
+`""`").** `Cover.edition` becomes `optional string edition` (field 4
+kept), so `EventRef.stream` and every other nested `Cover` follow.
+- **Unset means main.** A set edition is a named edition and must be
+  non-empty: a set `""` is malformed and refused `INVALID_ARGUMENT`
+  wherever a `Cover` is accepted. Explicit presence makes the two
+  distinguishable on the wire.
+- `CorrelationQuery.edition` becomes `optional string` with the same
+  convention.
+- `CreateEditionRequest.name` and `DeleteEditionRequest.name` stay plain
+  strings, documented as required and non-empty. Main cannot be named to
+  them at all, so `DeleteEdition`'s "refuses `""`" rule becomes "a name is
+  required" (`INVALID_ARGUMENT` when empty), and `CreateEdition` likewise.
+  They stay plain strings because `DeleteEdition`'s name is an HTTP path
+  segment and neither RPC has a main case to express. `Edition.name` is
+  always non-empty.
+- CloudEvents: the default id is `{domain}:{root}:{sequence}` on main (no
+  edition segment) and `{domain}:{edition}:{root}:{sequence}` on a named
+  edition; three segments against at least four, since domains, roots and
+  sequences never contain `:`. The source is unchanged: `angzarr/{domain}`
+  on main and `angzarr/{domain}/editions/{edition}` otherwise.
+- The example `TrainingProjection.edition` follows the same convention.
+- Why: no magic value. `""` as main relied on proto3's implicit default, so
+  "forgot to set it" and "meant main" were the same bytes, and the empty
+  string had to be special-cased in every refusal rule and in the CloudEvent
+  id (the old `{domain}::{root}:{sequence}`). With explicit presence, main is
+  simply the absence of an edition, which is also how annals models it
+  (`Option<EditionName>`, `None` = main), and a malformed `""` is caught
+  instead of silently meaning main.
+- Cost: every generated client sees a presence-tracked field (`Option` in
+  Rust, a pointer in Go, `HasField` in Python, and so on), and core's edition
+  handling and its CloudEvent id change (backlog ED-2, ED-3, EA-1). The
+  storage representation of main (for example NULL in the edition column) is
+  each backend's choice and never reaches the wire.
+- Aligns with: protobuf's own guidance to use explicit presence when unset
+  and empty must differ.
+
+## Pass 8: conflict units, minted ids and always-assigned request ids
+
+Decided by the user. As before, only the protos, the `rust/angzarr-proto`
+crate and these documents changed, and nothing is reserved (the 6.6 policy
+now covers passes up to and including 8; nothing was removed).
+
+> **Amended by 12.7 and 12.8 (pass 12):** `bool commutative_state` is replaced by `StateOptions state = 50106`; `ConflictUnit` gains `whole_state = 4`. The unit rules are unchanged.
+
+> **Superseded by 14.92 (ruled 2026-11-02; the owner's decision 47):** the coordinator has no conflict-resolution concept. Conflict units, `(conflict)` and `(state)` are deleted.
+
+**8.1 COMMUTATIVE compares declared conflict units (replaces 6.12's
+"reflection diff").** `options.proto` gains
+`extend google.protobuf.MessageOptions { bool commutative_state = 50106; }`,
+`extend google.protobuf.FieldOptions { ConflictUnit conflict = 50107; }` and
+`message ConflictUnit { bool descend = 1; string element_key = 2; bool
+ordered = 3; }`. A generated `changed(before, after)` returns a set of unit
+paths:
+
+| Field kind | Unit | Example path |
+|---|---|---|
+| scalar / string / bytes / enum | the field | `title` |
+| optional scalar | the field; set↔unset is a change | `deadline` |
+| message, not `descend` | the whole message (deep equality) | `settings` |
+| message with `descend` | each marked inner field, recursively | `settings.cooldown_days` |
+| map | one unit per key (added, removed or changed) | `items[42]` |
+| map of messages with `descend` | per key, then per inner field | `items[42].weight` |
+| repeated message with `element_key` | per element by key; plus `field[#order]` if `ordered` and the order changed | `columns[due]` |
+| repeated message without `element_key` | the whole list | `columns` |
+| repeated scalar | the whole list | `tags` |
+| oneof | the whole oneof (a case switch or a value change) | `payment` |
+
+- **Unmarked fields conflict with everything** (fail-safe): a changed
+  unmarked field reports a wildcard unit (`*` + its path) that overlaps any
+  non-empty set. An unmarked field can only make COMMUTATIVE stricter.
+- **Floats compare bitwise** (IEEE 754 bits: NaN = NaN with equal bits, +0
+  ≠ −0), so every language agrees.
+- **Overlap** is equality or a path prefix at a `.`/`[` boundary, so every
+  coarser fallback (a non-unique element key falls back to the whole list)
+  stays sound.
+- **Recursive `descend`** is allowed to a depth of 32 descended messages; at
+  the bound the field is one whole-message unit (coarser, still sound).
+- **Path syntax** is fixed for parity: proto field names, `.` joins, keys in
+  brackets (decimal integers, `true`/`false`, enum numbers, string and bytes
+  keys with `\`, `]` and `#` escaped by `\`), so `[#order]` never collides
+  with a key.
+- **The resolver**: `window = changed(state@expected, state@head)`; decide
+  runs on head; `mine = changed(head, head + events)`. Disjoint: the library
+  acknowledges the nonce. Otherwise `ABORTED`. **Invariants are checked on
+  head**, so the residual risk is only a caller's intent that depended on a
+  disjoint unit the window changed (read A, write B).
+- **The resolver uses the current markers** (the code running decide);
+  markers are never stored with events.
+- **COMMUTATIVE requires `commutative_state`**; otherwise the command is
+  malformed (`INVALID_ARGUMENT`, refused by the client library, which alone
+  knows the state type) and such a configuration is refused at registration.
+- **Extension numbers**: 50106 and 50107, after the existing 50100, 50104
+  and 50105. 50101–50103 are skipped because deleted options used them and
+  stale descriptors in old branches still carry them.
+- **One protoc plugin generates `changed()` for every language**, plus a
+  shared golden fixture parity suite (backlog CR-1). annals generates the
+  same function from the same markers.
+- Worked example: hatpick's `ListState { option commutative_state; map<string,
+  Item> items [conflict]; repeated Column columns [conflict]; Settings
+  settings [conflict] }` gives per-item units, one unit for the column list
+  and one for the settings, which is hatpick's "touched" rule. (The fixture
+  `rust/angzarr-proto/tests/fixtures/list_state.proto` carries it.)
+- Why: "reflection diff" left granularity undefined per language, so seven
+  client libraries and annals would each have invented one. Declared units
+  make the merge rule part of the schema, reviewable and identical
+  everywhere.
+- Cost: a protoc plugin and golden suite to build (CR-1); state authors
+  annotate fields.
+- Aligns with: nothing directly (6.12's divergence stands). The unit model
+  resembles CRDT-style per-key maps and JSON Merge Patch granularity, but is
+  only a conflict detector: the merge is always "decide on head".
+
+**8.2 Every framework-minted id is a UUIDv7 (RFC 9562).** Request ids,
+anything an SDK mints for its caller (request ids, new roots), and (through
+8.3) derived correlations. Canonical lowercase 36-character text in string
+fields, 16 bytes in `UUID`. Client-supplied ids stay opaque strings that are
+never parsed. (Superseded by 9.1: every UUID is the 16-byte `UUID`
+message, and client request and correlation ids must be UUIDs.) The conflict nonce and the DLQ's int64 row ids are not
+identifiers and are not covered. Documented as the `minted_ids` region of
+`types.proto`.
+- Why: time-ordered ids index and sort well, and one rule in both runtimes
+  keeps annals and angzarr records alike.
+- Aligns with: RFC 9562's recommendation of v7 for new time-ordered keys,
+  and the same idea as Marten's sequential (comb) Guid ids.
+
+> **Superseded by 12.1 (pass 12):** request ids become command ids, still always assigned (client-supplied or a minted v7), but `minted` is deleted and minted ids deduplicate like any other.
+
+**8.3 Request ids are always assigned; only client-supplied ones
+deduplicate.** A request without a `request_id` gets a minted v7 recorded in
+its origin, so every command and event has a request id for audit.
+`RequestOrigin` gains `bool minted = 3`: set only by the coordinator (a
+client that sets it is malformed), recorded with the origin in `EventMeta`.
+A minted id is never claimed, never fingerprinted and never deduplicates;
+`HandleAsync` and DLQ replay still require a client-supplied one (empty or
+minted is refused). Supersedes "refuse keyless" for annals too.
+- **Representation chosen**: a bool on `RequestOrigin`, not a separate
+  `minted_request_id` field. Alternatives: (a) a separate field, which would
+  leave `request_id` empty on keyless requests and make every audit reader
+  check two fields; (b) a prefix or other magic in the id string, which would
+  break opacity of client ids. The bool keeps one field holding "the request
+  id", costs zero bytes for the common client-keyed case (proto3 default
+  false), and keeps `IdempotencyClaim.key` as the origin verbatim.
+- **Correlation when absent** = the request id verbatim (always present now);
+  for a fact, `external_id` verbatim; a causation is stamped from its
+  trigger. No hashing and no name-based UUID (this supersedes backlog PS-3's
+  earlier "name-based UUID" wording); nothing mints a correlation itself,
+  so pass 5's "keyless request gets a freshly minted correlation" is
+  unreachable and removed.
+  (The fact half is superseded by 9.2: a fact's correlation is
+  UUIDv5 of its `external_id`; request ids are UUIDs, so the request half
+  is still verbatim.)
+- Why: audit wants a request id everywhere; dedup must only trust keys the
+  client will reproduce on retry.
+- Cost: core, the clients and annals mint and record the id (backlog MI-1,
+  MI-2); a wire field.
+- Aligns with: request-id middleware convention (an `X-Request-Id` is
+  generated when absent and logged), while Stripe-style dedup honours only
+  the client's `Idempotency-Key`.
+
+## Pass 9: one UUID type, v5 derived ids, text at the boundary
+
+Decided by the user. As before, only the protos, the `rust/angzarr-proto`
+crate and these documents changed, and nothing is reserved (the 6.6 policy
+now covers passes up to and including 9; no field number was removed, four
+fields changed type in place).
+
+**9.1 Every UUID on the wire is the `UUID` message (16 bytes).** Supersedes
+8.2's "canonical lowercase 36-character text in string fields" and its
+"client-supplied ids stay opaque strings that are never parsed", and the
+string request and correlation ids of passes 1–8. Fields changed from
+`string` to `UUID`:
+- `RequestOrigin.request_id` (1)
+- `Provenance.correlation_id` (2)
+- `Query.correlation_id` (6)
+- `CorrelationQuery.correlation_id` (1)
+- `EventStreamFilter.correlation_id` (1)
+- `io.angzarr.status.v1.StoredDeadLetter.correlation_id` (3)
+- `io.angzarr.status.v1.ReplayDeadLetterOk.correlation_id` (1)
+
+The REST routes that put a correlation in the path now name its bytes:
+`/v1/stream/{correlation_id.value}` and
+`/v1/query/correlations/{correlation_id.value}/events`.
+`buf breaking` against pass 8 reports exactly these seven type changes
+(string to message) and nothing else. Both encodings are length-delimited,
+so old bytes would misdecode rather than fail: stored data is wiped, as
+for every pre-production pass.
+
+Client-supplied request and correlation ids must be UUIDs of any version: a
+set `UUID` whose value is not exactly 16 bytes (empty included) is refused
+`INVALID_ARGUMENT`; unset means "not supplied". Only the length is checked.
+Minted ids stay UUIDv7, and `RequestOrigin.minted` stays.
+
+Checked and left as they are:
+- `FactOrigin.external_id` stays a string: it is the external system's id,
+  in that system's format.
+- The CloudEvent `id` stays a string: the CloudEvents spec makes it one (its
+  default embeds the root as canonical text).
+- Actors (`Provenance.actor`, `Edition.created_by`,
+  `DeadLetterReplay.operator`) stay strings: they are pseudonymous ids from
+  an identity system, not ids the framework mints or derives.
+- Edition names and store names are names, not ids. The DLQ's int64 row
+  ids and the conflict nonce are not identifiers (as 8.2 said).
+- The example domain protos (`io.angzarr.examples`) are user payloads and
+  keep their own id types.
+- Why: every stored event carries a request id and a correlation id in its
+  meta (and the claim store, the correlation index and the DLQ repeat
+  them). 16 bytes against 36 characters of text, a fixed-width index key,
+  and one representation in every language.
+- Cost: clients can no longer use arbitrary strings (an order number, a
+  trace id) as request or correlation ids; they must map them to a UUID
+  (UUIDv5 of their own namespace is the obvious way). **Protobuf JSON
+  renders the bytes as base64** (e.g. `{"value": "1HQbGlLNQ8+t0T27lhVRCw=="}`),
+  and REST paths take URL-safe base64: accepted, storage cost over JSON
+  readability. The display helpers (9.3) are for humans. Storage columns
+  become uuid-typed (backlog UU-3).
+- Aligns with: UUID event ids in Marten (`Guid`) and KurrentDB, MassTransit's
+  `Guid` `CorrelationId`, and the 16-byte UUID columns of Postgres (`uuid`)
+  and MySQL (`BINARY(16)`). Diverges from Marten's, NServiceBus's and
+  KurrentDB's string correlation ids, which accept any text: deliberately,
+  for storage.
+
+> **Amended by 12.1 (pass 12):** a fact's command id is the same v5 value as its default correlation, and a third namespace (`ANGZARR_COMMAND_NAMESPACE`) derives reaction command ids. The fingerprint namespace of 10.3 is gone.
+
+**9.2 Derived ids are UUIDv5 under fixed angzarr namespaces.** Supersedes
+8.3's "for a fact, `external_id` verbatim" and its "no hashing and no
+name-based UUID" (which in turn had superseded PS-3's name-based wording).
+- **Correlation when absent**: a request's is its request id (now a UUID,
+  so verbatim, unchanged); a fact's is
+  **UUIDv5(`ANGZARR_FACT_CORRELATION_NAMESPACE`, `external_id`)**; a
+  causation's is stamped from its trigger, unchanged. Still nothing mints a
+  correlation.
+- **Derived roots**: `compute_root(domain, key)` =
+  **UUIDv5(`ANGZARR_ROOT_NAMESPACE`, `"{domain}:{key}"`)**, RFC 9562, the
+  name being UTF-8 with no normalisation. The domain never contains `:`, so
+  the name splits unambiguously.
+- **Roots**: caller-chosen roots are any 16 bytes; framework-derived roots
+  are UUIDv5 as specified; minted roots are v7.
+- **The namespaces**, each generated once as a random UUIDv4 (as RFC 9562
+  suggests for a new namespace) and fixed forever:
+  - `ANGZARR_ROOT_NAMESPACE` = `d4741b1a-52cd-43cf-add1-3dbb9615510b`
+  - `ANGZARR_FACT_CORRELATION_NAMESPACE` =
+    `e9ef0ae2-6fc6-4c14-b713-ef03971dd867`
+- **Two namespaces, not one (recommended and applied).** `"{domain}:{key}"`
+  is itself a valid `external_id`, so under one namespace a fact's
+  correlation could equal a stream's root. Separate namespaces make the two
+  id spaces unrelated by construction, at no cost. The alternative (one
+  namespace, with a prefix such as `"fact:"` on the name) works too but puts
+  a magic string in the derivation every runtime must reproduce.
+- Documented in the `derived_ids` region of `types.proto`, with worked
+  values (`compute_root("player", "alice@example.com")` =
+  `cfe936c0-2912-5ca9-96e6-f37c0b441759`; fact `"pi_1234"` =
+  `917f26ae-ea2e-58af-86de-77013a69617e`), which the crate's tests check.
+- Why: the correlation is a UUID now, and an external id is not one; a
+  name-based UUID is deterministic, so every redelivery of one fact still
+  lands in one correlation. v5 roots give every runtime the same root for
+  the same business key.
+- Cost: changing a namespace would change every derived id, so they are
+  frozen; core, every client and annals implement the derivation (backlog
+  UU-2). Two sources whose external ids coincide still share a correlation
+  (as before; a sender that must separate them supplies `correlation_id`).
+- Aligns with: RFC 9562 name-based UUIDs (its standard namespaces do the
+  same for DNS names and URLs), and the common practice of deriving
+  deterministic ids from business keys.
+
+**9.3 Text is a boundary concern.** Operations use UUID objects: compare,
+store, hash and pass the 16 bytes. Conversion to and from canonical text
+(36 lowercase hex characters, hyphenated 8-4-4-4-12, RFC 9562) happens only
+at display and input boundaries (logs, consoles, CLI arguments, a DLQ filter
+literal, CloudEvent attributes), through per-language helpers. Input
+accepts the hyphenated form in either case; output is always lowercase.
+- **Rust**: `angzarr-proto` implements them for the generated `v1::Uuid`
+  in `angzarr_proto::ids`: `Display` and `FromStr`, `from_bytes`/`to_bytes`
+  and `From<[u8; 16]>`/`TryFrom<&Uuid> for [u8; 16]`,
+  `From<uuid::Uuid>`/`TryFrom<&Uuid> for uuid::Uuid`, `is_well_formed`,
+  `compute_root`, `fact_correlation` and the two namespace constants. It
+  depends on the `uuid` crate (re-exported) without default features and
+  with only `v5` (which adds `sha1_smol`): no std requirement and no RNG,
+  so it stays wasm32-safe and light. It does not mint v7 (that needs a clock
+  and an RNG; backlog MI-2).
+- **Every other client**: backlog UU-1.
+- Why: one rendering everywhere, without paying for text in storage.
+- Cost: seven helper sets to write and keep in parity.
+- Aligns with: the usual split between a binary UUID value type and its
+  string form (Java `UUID`, .NET `Guid`, Go `google/uuid`, Python `uuid`).
+
+## Pass 10: no request index, fact mismatch refused, v5 fingerprint
+
+Decided by the user. As before, only the protos, the `rust/angzarr-proto`
+crate and these documents changed, and nothing is reserved (the 6.6 policy
+now covers passes up to and including 10: `RequestOrigin.index` (2) is
+deleted outright, and `IdempotencyClaim.fingerprint` (5) changes type in
+place). `buf breaking` against pass 9 reports exactly those: the deleted
+`index`, unreserved (name and number), and `fingerprint` from `bytes` to
+a message. Both are length-delimited, so old claim bytes would misdecode:
+stored data is wiped, as for every pre-production pass.
+
+> **Carried into 12.1 (pass 12):** the per-command id is now `CommandPage.command_id`.
+
+**10.1 `RequestOrigin.index` is deleted; a request id is per command.**
+Supersedes 5.1's `request_id`+index key. Each command carries its own
+idempotency key: a caller that sends several commands together (a batch,
+one API call fanning out) mints one request id per command and groups them
+by a shared `correlation_id`. The request claim key is `request_id` alone,
+still scoped to the addressed aggregate ((`CommandBook.cover`, key) is
+unique). `Causation.index` stays: one trigger and one reactor can emit
+several commands, and the framework, not a caller, must tell them apart.
+- Why: since pass 1 there is one command per book, and every command's
+  request id is a UUID (9.1) that the caller is free to mint. An index only
+  mattered when one id named a multi-command request; it made every
+  client keep a counter in step across retries, and gave the key a second
+  field with no meaning of its own. Grouping is what correlation is for.
+- Cost: a batch caller mints N ids instead of one (and must keep each one
+  stable across retries of that command); the wire loses a field (a
+  pre-production break, data wiped as before).
+- Aligns with: Stripe and the IETF draft, where an `Idempotency-Key` names
+  one operation, and the messaging inboxes (NServiceBus, MassTransit,
+  Wolverine), which key on one message id per message.
+
+> **Superseded by 12.2 (pass 12):** with no fingerprint there is nothing to compare; a fact re-sent with a different payload is answered DUPLICATE, undetected.
+
+**10.2 A fact re-sent with the same `external_id` and a different payload
+is refused by default; configurable to DUPLICATE plus an alert.** Resolves
+the fact half of backlog KS-10.
+- **Default**: refused `FAILED_PRECONDITION`, like a reused request key.
+  Never answered DUPLICATE and never claimed; through `HandleAsync` it is a
+  terminal failure and is dead-lettered.
+- **Configurable** per command type (the payload's type URL) or per
+  component: DUPLICATE instead (answered from the claimed range, as an
+  exact duplicate is), plus an alert and a metric. Precedence as for
+  Handling's defaults: command type, then component, then the built-in
+  default (refuse). This is **coordinator configuration, not wire**: no
+  message carries it (backlog KS-11).
+- **Causation mismatch**: left open by this decision; decided in 10.4.
+- Why: a payload that changed under the same external id is either a bug in
+  the source or a correction the domain never saw; silently answering
+  DUPLICATE would lose it. Refusing makes it visible. Some sources (webhooks
+  that re-render a timestamp or reorder JSON on redelivery) legitimately
+  vary the bytes, and for those an operator opts into DUPLICATE without
+  losing visibility, since the alert still fires.
+- Cost: a source with unstable bytes is refused until configured; the
+  coordinator gains a setting and an alert.
+- Aligns with: Stripe and the IETF draft (an error on a reused key with a
+  different payload) for the default; the inbox pattern's
+  "same message id, drop it" for the opt-in.
+
+> **Superseded by 12.2 (pass 12):** the fingerprint and `ANGZARR_FINGERPRINT_NAMESPACE` are deleted.
+
+**10.3 The fingerprint is a UUIDv5.** `fingerprint = UUIDv5(
+ANGZARR_FINGERPRINT_NAMESPACE, name)`, where name is the UTF-8 type URL's
+byte length as a **4-byte unsigned big-endian integer**, then the type URL
+bytes, then the `Any` value bytes, all as received.
+`IdempotencyClaim.fingerprint` becomes `UUID` (16 bytes; was `bytes`).
+- **The third namespace**, generated once as a random UUIDv4 and fixed:
+  `ANGZARR_FINGERPRINT_NAMESPACE` = `a749bd8c-7bf0-47e6-a5c9-dc54ebde74aa`,
+  documented in the `derived_ids` region with the root and fact-correlation
+  namespaces.
+- **Why a 4-byte big-endian length** rather than a varint: fixed width, so
+  every language writes it with its standard integer encoder (no varint
+  helper outside protobuf), and it cannot be mis-sized. A protobuf message
+  is under 2 GiB, so the length always fits. The prefix is what makes the
+  type URL / value boundary unambiguous.
+- **Worked example** (in `types.proto` and the crate's tests): type URL
+  `type.googleapis.com/examples.Deposit` (36 bytes) and value `08 2a` give
+  the name `00000024` ++ the 36 type URL bytes ++ `082a` (42 bytes) and the
+  fingerprint `6d42fa9e-0dca-5047-94b1-0ae371532630`. Computed independently
+  with Python's `uuid.uuid5` over the same bytes.
+- **Misuse detection, not security.** The fingerprint catches an honest
+  client that reuses a key for a different payload. It makes no claim
+  against an adversary, so SHA-1's chosen-collision weakness is irrelevant
+  to it. It is **unrelated to the deferred event hash chain**, which will use
+  its own strong hash with anchoring.
+- Rust: `angzarr_proto::ids::fingerprint(type_url, payload)` and
+  `FINGERPRINT_NAMESPACE`.
+- Why: one fixed 16-byte value and one derivation that every runtime
+  already has (the v5 code of 9.2), instead of an unspecified "hash" that
+  each backend and language would choose for itself.
+- Cost: core, the clients and annals compute it identically (backlog KS-4,
+  UU-2's golden list); changing the namespace or encoding would make every
+  stored claim mismatch its retries, so both are frozen.
+- Aligns with: RFC 9562 name-based UUIDs, as in 9.2; the IETF draft
+  recommends a fingerprint without fixing its algorithm.
+
+> **Superseded by 12.2 (pass 12):** no fingerprint, so no causation mismatch to detect.
+
+**10.4 A causation key re-sent with a different fingerprint is refused and
+dead-lettered, with an alert.** Resolves the causation half left open by
+10.2 (backlog KS-12). Documentation only: no field, message or number
+changes.
+- **Refused**: never applied and never answered DUPLICATE.
+- **Dead-lettered with an alert**: the command goes to the DLQ as a
+  `rejected_command`, and the alert names the stream, the (event,
+  component, index) key and both fingerprints.
+- **Not configurable**, unlike facts (10.2).
+- Why: with the transient outbox (5.6, backlog OB-1, OB-2) a reaction's
+  commands are stored once and re-sent verbatim, so a redelivery always
+  matches its claim. A mismatch can only be a framework bug or a corrupted
+  outbox. Answering DUPLICATE would hide the bug and silently drop a
+  command; applying it would run a command the claim says already ran.
+  Facts get an opt-in because external sources legitimately re-render
+  bytes; nothing legitimate varies a reaction's output.
+- Cost: none on the wire; the coordinator gains a dead-letter path and an
+  alert on the causation branch.
+- Aligns with: 3.4 (violations are refused loudly; a reaction command is
+  dead-lettered and alerted), and the request-key refusal of 5.3.
+
+## Pass 12: command ids, dedup on events, no actor, state options
+
+Decided by the user in the illuminated review of fd61f93 (flow 1, the
+client command; its findings are referenced below as T4, T5 and so on, and
+tracked in [critical-review.md](critical-review.md)). The protos, the
+`rust/angzarr-proto` crate and these documents changed. A developer guide
+was added: [docs/guide/state-and-conflicts.md](../../guide/state-and-conflicts.md).
+(Pass 11, at fd61f93, was the documentation-only decision 10.4, recorded
+under pass 10.)
+
+Nothing is reserved: the 6.6 policy now covers every pass up to and
+including 12, so removed fields, messages and enum values are deleted
+outright and stored data is wiped. `buf breaking` against fd61f93 reports
+exactly the deliberate breaks:
+- the deleted, unreserved fields `EventMeta.provenance` (1), `origin` (12)
+  and `base_sequence` (6); `CommandPage.provenance` (2) and `origin` (7);
+  `ComponentDescriptor.rules_version` (4); `Edition.created_by` (5);
+  `DeadLetterReplay.operator` (1) and `retention_overridden` (4); and
+  `ReplayDeadLetterRequest.override_retention` (3);
+- `CommandHandlerService.Handle` returning `CommandHandlerResponse` instead
+  of `EventBook`;
+- extension 50106 renamed from `commutative_state` to `state` and retyped
+  from `bool` to a message.
+The deleted messages (`Provenance`, `Origin`, `RequestOrigin`, `Causation`,
+`IdempotencyClaim`) are not wire breaks under `WIRE_JSON`, so they are not
+listed. New fields take fresh numbers (`EventMeta` 13–16, `CommandPage`
+8–11), so old bytes never misdecode into them.
+
+**12.1 One `command_id` per command; `causation_id` is plain metadata.**
+Every command carries `CommandPage.command_id` (`UUID`, field 8), assigned
+before deduplication:
+- **Client Command**: client-supplied (any UUID version, reused on every
+  retry), or a UUIDv7 the coordinator mints when the caller supplies none.
+- **Reaction command** (saga or PM): derived as UUIDv5 under the new
+  `ANGZARR_COMMAND_NAMESPACE` `e2c9f744-9fe1-4b4b-bfee-ae514dde293b`, over
+  six **netstrings**: the trigger's domain, its edition (`""` for main), its
+  root (canonical text), its sequence, the reacting component's name, and
+  the command's index. Worked example (in `types.proto` and the crate's
+  tests, computed independently with Python's `uuid.uuid5`): trigger
+  `list` / main / `01920c8e-7b3a-7cc2-9f4e-5a1b2c3d4e5f` / 7, component
+  `reminders`, index 0 has the name
+  `4:list,0:,36:01920c8e-7b3a-7cc2-9f4e-5a1b2c3d4e5f,1:7,9:reminders,1:0,`
+  and the id `45764676-e6e4-56fe-8c80-d782423577ee`.
+- **Fact**: derived as UUIDv5(`ANGZARR_FACT_CORRELATION_NAMESPACE`,
+  `external_id`). This is the same value as the fact's default correlation,
+  just as a client command's absent correlation is its command id. The
+  namespace keeps its name and value, so `pi_1234` is still
+  `917f26ae-ea2e-58af-86de-77013a69617e`.
+
+> **Amended by 13.3 (pass 13):** `causation_id` stays on the command but is no longer copied onto its events; the events' causation is the command (`EventMeta.causation.command_id`).
+
+`causation_id` (an `EventRef`, `CommandPage` field 10) names the trigger
+on reaction commands and is copied onto their events. It is metadata, not a
+key. `FactOrigin` (`external_id`, `description`) stays for audit, as
+`CommandPage.fact_origin` (11). `Origin`, `RequestOrigin` (with `minted`)
+and `Causation` are deleted. `correlation_id` moves inline (`CommandPage`
+9). Validation: a Fact needs `fact_origin` (with a non-empty
+`external_id`), and a Command never has one.
+- **Netstrings, not `:`-joined text**: a component or edition name may
+  contain `:` or `,`. Netstrings (length, `:`, bytes, `,`) split
+  unambiguously whatever the strings hold, need no escaping, and every
+  language can write them with its standard integer formatting.
+- **`minted` deleted** (a judgement call; the brief allowed keeping it "if
+  still needed"). It existed because minted ids were never keys. Now every
+  id deduplicates, and `EventMeta` has no slot for the flag, so nothing would
+  read it.
+- **The reacting component is no longer recorded on events** (it was
+  `Causation.component`). It is encoded one way in the command id: an
+  auditor can test a candidate component by recomputing the id. The
+  coordinator's security log names the delivering component.
+- Why: this is the established message-metadata convention. KurrentDB
+  (`$correlationId`, `$causationId` and event ids), NServiceBus, MassTransit
+  and Marten all give a message one id, a correlation id and a causation
+  id. Three origin shapes with their own keys had no parallel anywhere.
+- Cost: the reaction derivation must match exactly in core, every client
+  that derives it, and annals (backlog CI-2). Its namespace and encoding are
+  frozen.
+- Supersedes: 6.1 (one `Origin`), 8.3 (`minted`), 5.7's actor stamping,
+  and the keys of 5.1. Amends 9.2 (the third namespace replaces the
+  fingerprint's).
+
+**12.2 Deduplication is by `command_id`, on the events.** "Already
+applied?" means "the addressed stream already holds events whose
+`EventMeta.command_id` is this command's". Every backend keeps a
+(non-unique) index on (stream, `command_id`). A hit is answered DUPLICATE
+with those events, and business code does not run. A concurrent duplicate
+loses the append's optimistic race, re-runs from the lookup, and is answered
+DUPLICATE.
+- **Deleted**: `IdempotencyClaim`; the fingerprint (its namespace,
+  `ids::fingerprint` and the 9/10 design: 10.2, 10.3, 10.4); expiry, purge
+  and retention (5.4); the DLQ retention refusal and
+  `override_retention`/`retention_overridden`; the race-loser text (T7);
+  the fact-mismatch refuse-or-configure rule (10.2, KS-10, KS-11); the
+  "atomic claims" backend capability; and the client-key requirement on
+  `HandleAsync` and DLQ replay (5.5).
+- **Accepted costs** (the user's):
+  - a decision that emitted **zero events** leaves nothing to find, so a
+    redelivery decides again, against the then-current state
+    (Equinox-style). That is correct against the current state, but not
+    deduplicated;
+  - a **reused id with a different payload goes undetected**: it is
+    answered DUPLICATE with the first command's events;
+  - **dedup is forever**: a command id that applied to a stream can never
+    apply to it again.
+- **Judgement call: `HandleAsync` no longer requires a client-supplied
+  id.** The coordinator mints before enqueueing, so redelivery from the
+  queue and DLQ replay are deduplicated. Only the caller's own retry needs
+  a caller-supplied id, exactly as for `Handle`. This also resolves CH1:
+  reaction commands through `HandleAsync` carry their derived id.
+- Why: the key store existed to cover zero-event decisions and to detect
+  payload reuse. The user judged both not worth a second store, its
+  transaction coupling, its retention rules and its backend capability.
+  The events are already the durable record, and the id written with them
+  is atomic with the append on every backend.
+- Aligns with: KurrentDB (idempotent appends keyed on event ids) and
+  Equinox (processed ids kept in the stream, so zero-event decisions
+  re-decide). It diverges from Stripe and the IETF draft, which store a
+  response and detect payload reuse.
+- Supersedes: 5.1, 5.3, 5.4, 5.5, 5.19, 10.2, 10.3, 10.4, the KS backlog
+  workstream, and [idempotency.md](idempotency.md)'s key-store design (now
+  rewritten).
+
+**12.3 No actor anywhere; who did it goes to security logs.**
+`Provenance.actor`, `Edition.created_by` and `DeadLetterReplay.operator`
+are deleted. Every coordinator authenticates its caller and writes who
+called what (with the `command_id`) to a separate security log owned by the
+deployment. The principle is stated once, in the `security_logs` region of
+`types.proto`, and referenced from `meta.proto` and `dlq_admin.proto`.
+- Why: identity is personal data and a security concern, not domain
+  history. Putting it in immutable events pollutes the data model and makes
+  erasure a rewrite.
+- Cost: an auditor joins the event store with the security log by
+  `command_id` to answer "who".
+- Supersedes: the pseudonymous actor (pass 1 and 5.7), W4 (the reaction
+  actor stamping), T4 (actor authentication: there is no actor to
+  authenticate), and the actor-in-proto question for the edition and DLQ
+  records.
+
+> **Superseded in part by 13.1 and 13.3 (pass 13):** `command_id` (13) and `causation_id` (15) are replaced by `oneof causation { command_id 17 | triggering_event 18 }`.
+
+**12.4 `EventMeta` is `{command_id, causation_id, fact, correlation_id,
+recorded_at, rules_version}`.** The fields are 13, 15, 16, 14, 5 and 7.
+`Provenance` is deleted (correlation is inline), and so are `origin` and
+`base_sequence`.
+- `base_sequence` is deleted because it is derivable: the head a decision
+  saw is the sequence of its write's first event. A write is exactly the
+  events sharing one `command_id`, and nobody else persisted the value.
+- Supersedes: 1.1's field list and 5.16's `base_sequence` rename.
+
+**12.5 The pipeline order is normative.** In every runtime and mode the
+order is: validate → assign ids (mint or derive) → load the stream, then the
+dedup lookup → resolve and check Handling (against the loaded head) →
+business code. The load precedes the lookup so that a retry racing its
+original's commit is never applied twice under READ COMMITTED. A retry of an applied STRICT command
+with a now-stale sequence is therefore DUPLICATE, never ABORTED (T6). The
+order is written once, in the `handling` region of `types.proto`.
+
+> **Superseded by 14.1 (pass 14):** `rules_version` is the business binary's full build version, also carried on `ComponentDescriptor.rules_version`; the coordinator, not the client library, decides snapshot validity, and `snapshot_refused` is removed.
+
+**12.6 `rules_version` is reported per response.**
+`CommandHandlerService.Handle` returns `CommandHandlerResponse { EventBook
+events = 1; string rules_version = 2; bool snapshot_refused = 3; }`.
+`ProcessManagerHandleResponse` gains `rules_version` (3) and
+`snapshot_refused` (4). The coordinator stamps the reported version onto
+events and snapshots. `ComponentDescriptor.rules_version` is deleted.
+`rules_version` is a short label that the domain's author chooses (for
+example `"v3"`), bumped when decide, ingest or apply semantics change.
+- **Snapshot validity is checked where the state is decoded**, in the
+  client library, by comparing the state type URL and the rules version.
+  **Judgement call, the mechanism**: on a mismatch the library answers
+  `snapshot_refused` without running business code, and the coordinator
+  re-delivers with no snapshot and every page from 0, and stops offering
+  that snapshot. Without a signal the library could not obtain the earlier
+  pages.
+- Why: a rolling deployment runs two rules versions at once. A per-response
+  report stamps each event with the rules that actually decided it, with no
+  separate registration handshake. It also resolves T13: the coordinator
+  needed a "registered state type" it never had.
+- Cost: a string per response. Snapshot refusal costs one extra round trip
+  after each rules bump.
+- Supersedes: 5.9 (declared at registration). Amends 6.8 (where validity is
+  checked).
+
+> **Amended by 14.81 (ruled 2026-11-02):** not a default: the state's declaration is the resolution, and nothing overrides it.
+
+> **Superseded by 14.92 (ruled 2026-11-02; the owner's decision 47):** the coordinator has no conflict-resolution concept.
+
+**12.7 COMMUTATIVE is the default where the state declares conflict units;
+`StateOptions` replaces the bool.**
+- The `(state)` message option (50106) is `StateOptions { repeated
+  ConflictResolution conflict_resolutions = 1; }`. No option means STRICT +
+  AGGREGATE_HANDLES (the implicit base), and the list adds to it (in
+  practice, COMMUTATIVE).
+- `ComponentDescriptor.state` (6) is `StateDescriptor { string type_url = 1;
+  StateOptions options = 2; }`, carrying the full resolved list. The
+  coordinator takes its built-in default from it (COMMUTATIVE if listed,
+  otherwise STRICT) and refuses a command or configuration naming an
+  unsupported resolution (`INVALID_ARGUMENT`). That makes T3's
+  registration-time promise enforceable.
+- `StateOptions` is defined in `types.proto`, beside `ConflictResolution`,
+  because `options.proto` imports `types.proto`. A `StateDescriptor`
+  pointing into `options.proto` would have been an import cycle.
+- Coordinators stay domain-blind: a list of enum values is not the
+  domain's schema.
+- Why: a state whose author marked conflict units has said which edits are
+  independent. Making STRICT the default would make that work opt-in a
+  second time. The risk is documented, not hidden (12.8).
+- Cost: a modelling mistake in the markers (a dependent value split across
+  units) now merges by default. The guide treats this as a modelling
+  failure and shows the fixes.
+- Supersedes: 6.12's "opt-in only, never a default" and 8.1's
+  `bool commutative_state`.
+
+**12.8 `ConflictUnit.whole_state`, generator diagnostics, and the guide.**
+`ConflictUnit` gains `bool whole_state = 4`: an explicit "this field
+conflicts with everything", which silences the unmarked-field warning. The
+generator emits one warning (`unmarked-field`) and nine errors
+(`no-marked-fields`, `unspecified-resolution`, `marker-outside-state`,
+`descend-non-message`, `bad-element-key`, `ordered-without-key`,
+`whole-state-combined`, `oneof-member-refined` and
+`oneof-partially-marked`). They are listed in `options.proto`, and their
+exact texts and fixes are in the guide. Codegen is `angzarr_build::compile`
+for Rust (prost-build plus the generator) and `protoc-gen-angzarr` for
+everything else (CR-1, renamed from `protoc-gen-angzarr-conflict`).
+- **The guide** (`docs/guide/state-and-conflicts.md`) covers: custom
+  options, the `state` option, marking fields, the resolver, the
+  COMMUTATIVE risk section with two worked failures on hatpick's ListState,
+  the diagnostics, the build setup, registration, and versioning commands.
+- **Judgement call: the guide lives in `docs/guide/`, not the site.** The
+  generators it describes do not exist yet, and the site documents shipped
+  behaviour. It moves to the site when CR-1 lands (backlog DOC-7).
+
+**12.9 Smaller rules.**
+- A Fact with **any** Handling field is malformed (it was only
+  `expected_sequence`).
+- An empty Handling is the same as an unset one, for every command (it was
+  only stated for reaction commands).
+- The `ContextualCommand` window boundary is named explicitly: pages
+  `command.handling.expected_sequence .. events.next_sequence-1`.
+
+> **Amended by 14.31 (pass 14):** `ProcessManagerCoordinatorService` is deleted (a process manager is a domain, with no trigger entry point); a saga's refusal facts also carry the framework-only `causation_id`.
+
+**12.10 Framework-only fields and routes are authenticated by mTLS
+identity, on the same RPCs.** `causation_id`, and the caller-supplied
+trigger books of `SagaCoordinatorService.Execute` and
+`ProcessManagerCoordinatorService.Handle`, are accepted only from callers
+authenticated as framework components. A client that sends them is refused
+**PERMISSION_DENIED** (a judgement call: the message is well formed, but the
+caller is not allowed to send it, and INVALID_ARGUMENT would tell the caller
+to fix the message). The rule is in the `entry_points` region of
+`command_handler.proto`.
+- Resolves T5 (forged causation), SG3 (forged triggers) and CH1: reaction
+  delivery and DLQ replay are framework-authenticated, and carry derived or
+  original ids.
+- Cost: deployments issue framework components their own mTLS identities.
+
+> **Amended by 14.39 (pass 14):** the client library no longer upcasts. The component's coordinator upcasts an incoming command's or fact's payload through the upcaster sidecar before dispatch; the router is handed the current type only. The discouragement stands.
+
+**12.11 Commands can be upcast, but it is discouraged.** The client library
+applies the same upcaster chain to an incoming command payload, by type
+URL, before dispatch. A command type URL with no handler and no upcaster
+path is refused INVALID_ARGUMENT, naming the type URL. The docs
+(`upcaster.proto` and the guide's "Versioning commands") steer authors
+first to additive fields, then to domain handlers for both versions, and
+only last to an upcaster, as a migration aid with a planned removal.
+Command upcasting hides stale clients and adds machinery for data that is
+never stored.
+- Supersedes: "commands are never upcast", the review's first answer to
+  the same question (plan, review question 4), revised by the user before
+  this pass landed.
+- Wire: none. The chain runs inside `CommandHandlerService.Handle`, so
+  `UpcastRequest` is unchanged.
+
+**12.12 The crate.** `rust/angzarr-proto`:
+- maps every proto `bytes` field to `bytes::Bytes` (`prost_build`
+  `.bytes(["."])`; wasm32-safe);
+- relies on prost 0.14 deriving `Eq` and `Hash` on every float-free
+  message (`Uuid`, `Cover`, `EventRef`, `FactOrigin`, `StateOptions`,
+  `StateDescriptor`, `ConflictUnit`, ...). An explicit `type_attribute`
+  would conflict with that derive, so a compile-time test pins it instead;
+- replaces `ids::fingerprint` and `FINGERPRINT_NAMESPACE` with
+  `COMMAND_NAMESPACE`, `reaction_command_id(trigger, component, index)` and
+  `fact_command_id(external_id)`, keeping `fact_correlation` (now the same
+  value) and the display helpers. Its tests check values computed
+  independently with Python's `uuid.uuid5`.
+
+## Pass 13: causation is the direct cause; PM process events; reactor re-runs
+
+Decided by the user after pass 12 (eec6676), closing the two questions pass
+12 left open: the meta of a PM's own process events (review PM2, backlog
+PR-3) and reactor re-runs (review T8). The protos, the `rust/angzarr-proto`
+crate's tests and these documents changed; the crate's API did not.
+
+Nothing is reserved: the 6.6 policy now covers every pass up to and
+including 13 (`proto/buf.yaml`). `buf breaking` against eec6676 reports
+exactly the deliberate breaks: `EventMeta` field 13 (`command_id`) and field
+15 (`causation_id`) deleted without reserving their numbers or names (four
+lines, a number and a name each). The new fields take fresh numbers (17,
+18), so pass-12 bytes never misdecode into them; the crate's tests decode
+pass-12 bytes for 13 and 15 to an empty `EventMeta`. Because `command_id`
+keeps its name, its JSON (`commandId`) is unchanged.
+
+> **Amended by 14.31 (pass 14):** a process manager is a domain with no triggers, so every event, a PM's included, carries `command_id`. `triggering_event` (18) is deleted, unreserved; `causation` keeps one arm.
+
+**13.1 `EventMeta.causation` is a oneof of the event's direct cause.**
+`oneof causation { UUID command_id = 17; EventRef triggering_event = 18; }`.
+`command_id` is set on every event a command produced (client, reaction or
+fact) and is still the deduplication key (12.2). `triggering_event` is set
+only on a process manager's own process events (13.2). Exactly one is set
+on every persisted event. Field 13 is deleted, unreserved.
+- Why: the standard's causation (KurrentDB's `$causationId`, NServiceBus,
+  Marten, Wolverine) is a message's DIRECT cause. An event's direct cause is
+  the command that produced it; a process event has no command, and its
+  direct cause is the trigger the PM reacted to. A oneof states that the two
+  never coexist.
+- Cost: readers switch on the arm; the dedup index reads one arm.
+- Supersedes: 12.4's field list (with 13.3).
+
+> **Superseded by 14.31 (pass 14):** a process manager is a domain with no triggers; its inputs are commands (which sagas send it) and facts. Its events carry `causation.command_id` and their input's correlation, and deduplicate on `command_id` before the handler runs. No PM event is trigger-caused, so `triggering_event`, its index and the trigger lookup are deleted.
+
+**13.2 PM process events name their trigger, carry its correlation, and
+deduplicate on it.** The PM's coordinator stamps each process event with
+`causation.triggering_event` (the trigger's `EventRef`, the same event its
+commands' `causation_id` names), the trigger's `correlation_id`,
+`recorded_at` and the response's `rules_version`; never a `command_id` or a
+fact. "Already applied?" for a trigger is "the PM's stream holds events whose
+`triggering_event` is this trigger", on a (stream, `triggering_event`)
+index; on a hit nothing is appended. A PM writes at most one process write
+per trigger, so the trigger alone is the key. Business output stays
+payloads only. Resolves PM2; closes PR-3 (implementation: PR-4).
+- Why: the PM's stream is an aggregate's stream, and its events need the
+  same "already applied?" answer as a command's, for a checkpoint reset or a
+  redelivery that bypasses the outbox. The trigger is the identity the
+  coordinator already has; deriving a synthetic command id for events no
+  command produced would invent a message that never existed.
+- Cost: a second, non-unique index on PM streams; the zero-output cost of
+  12.2 applies (a reaction that wrote no process events leaves nothing to
+  find).
+- Rejected: a `command_id` derived from the trigger and PM name at a
+  reserved index (backlog PR-3's suggestion), for the reason above.
+
+**13.3 No command-causation on events.** `EventMeta.causation_id` (15) is
+deleted. The triggering event of a reaction command (the events' "grand
+cause") is not stored on events; that edge goes to OpenTelemetry traces and
+logs, as in Marten and Wolverine, by the same principle that sent the actor
+to security logs (12.3). `CommandPage.causation_id` (10) **stays**: it is
+the command message's own causation per the standard (a command's
+causation is its trigger), the input its derived `command_id` hashes, and
+transport and trace metadata, not persisted on its events.
+- **Forward causation** (`CorrelationQuery`): process events are linked to
+  their trigger exactly (`triggering_event`); events of reaction commands
+  are linked only by correlation (coarse), grouped per command by
+  `command_id`; exact trigger edges come from traces.
+- Why: each event records its own direct cause, as the standard does; the
+  trigger is one hop further back, and the convention keeps hops in the
+  trace. The event store records why (direct cause, correlation, rules),
+  not the whole call graph.
+- Cost (accepted): the store alone cannot answer "which events did this
+  saga's reaction to E produce"; that needs the traces, and their retention
+  is the deployment's. Backlog PS-6 (record the edge in spans) and CQ-2
+  (the helper) carry it.
+- Supersedes: 12.1's "copied onto their events" and 12.4's field list; 6.4's
+  "forward causation is derivable from the result" (now exact for process
+  events only).
+
+**13.4 Reactor re-runs: no switch; repairs are new commands.** A reaction
+`command_id` depends only on (trigger, component, index), never on the
+reactor's `rules_version` or code. A re-run over a handled trigger (a
+checkpoint reset) re-derives the same ids, which every destination answers
+DUPLICATE, and a PM's process events dedupe on `triggering_event`.
+Checkpoint resets are for recovery only. Repairing what a buggy reactor did
+is done with NEW commands (new ids), which append new, correct events after
+the buggy-era ones. **History is never lost**: nothing is overwritten,
+either way. The framework will ship standard re-drive commands that trigger
+reprocessing (backlog RD-1). Resolves T8. The guide's "Re-running reactors"
+(`docs/guide/state-and-conflicts.md`) and [idempotency.md](idempotency.md)
+document it.
+- Considered and dropped: a per-reactor configuration switch putting the
+  reactor's `rules_version` into the derivation, so a re-run after a
+  version bump would yield new ids and apply. It made toggling the switch,
+  or bumping the version, silently change every id derived afterwards, and
+  made a reset a repair mechanism with no record of intent. With it gone,
+  the question of where a saga reports its `rules_version` is moot.
+- Why: deduplication stays one simple rule (an id applies once, forever),
+  and every repair is an explicit command with its own id and audit trail,
+  as in the event-sourcing practice of compensating rather than rewriting.
+- Cost: a re-run never repairs anything; the developer issues (until RD-1,
+  hand-builds) re-drive commands.
+
+**13.5 No reacting-component field.** Events and commands carry no field
+naming the reacting saga or PM: source control says what makes what.
+Confirms 12.1's "the reacting component is no longer recorded on events".
+
+**13.6 No command-causation on events** (the principle of 13.3, recorded on
+its own): an event never carries its producing command's causation. Events
+record their direct cause only.
+
+## Pass 14: the coordinator selects snapshots by build version
+
+Decided by the owner on 2026-10-19, superseding 12.6 and backlog RV-3 as
+pass 12 wrote it. The protos, the `rust/angzarr-proto` crate's tests, the
+contract features and these documents changed; the crate's API gained one
+field.
+
+> **Amended by 14.3–14.29 (pass 14):** the coordinator pulls the descriptors (`ComponentService.Describe`); a versionless descriptor fails registration visibly in the coordinator's readiness, not with a status. One leading `v`/`V` is stripped before parsing; queries use the same rule; a response reporting a version other than the registered one is refused; a registration without a version is refused; `snapshot_refused` is NOT reserved (policy 6.6 holds); the upcast type travels in `ErrorInfo` metadata `upcast_type_url`.
+
+> **Amended by 14.39 and 14.40 (pass 14):** the client library's steps in `Handle` are dispatch, then conflicts: the coordinator has upcast the payload (14.39) and dropped the pages the snapshot covers (14.40), so the library folds the starting state and every page it is given.
+
+**14.1 `rules_version` is the build version, and the coordinator decides
+snapshot validity.** Supersedes 12.6; amends 6.8; partly restores 5.9.
+- **The business logic declares no snapshot compatibility.** It implements
+  the gRPC protocol and reports its version, nothing more.
+- **The version is the business binary's full version**, baked in at build
+  time (e.g. by versionator), never a label chosen by hand. It is still
+  reported on every `CommandHandlerResponse` and
+  `ProcessManagerHandleResponse` (`rules_version`), and the coordinator
+  stamps it **in full** on `EventMeta.rules_version` and
+  `Snapshot.rules_version`, per response, so a rolling deployment stamps
+  each event with the build that decided it.
+- **`ComponentDescriptor.rules_version` (4) is back**: the registration
+  hello a component sends its coordinator on startup carries the same full
+  version.
+- **The coordinator offers a snapshot only if** its state type URL equals
+  the registered `StateDescriptor.type_url` and its `rules_version` passes
+  the domain's compatibility rule against the registered version.
+  - Default rule: both versions parse as SemVer 2.0.0 and their major and
+    minor numbers are equal. If either does not parse, exact string
+    equality.
+  - Coordinator configuration may replace the rule per domain with an
+    accept pattern and an optional reject pattern, matched against the
+    snapshot's version. A reject match wins. Patterns use RE2 syntax
+    (linear time, no lookaround, no backreferences) with full-match
+    semantics; a pattern outside it is refused when configuration loads.
+  - A snapshot that fails is simply not offered: the delivery carries every
+    page from sequence 0.
+- **`snapshot_refused` is removed** from `CommandHandlerResponse` (3) and
+  `ProcessManagerHandleResponse` (4), with the re-deliver-without-snapshot
+  path. Both numbers and names are **reserved**, by the owner's ruling,
+  ahead of the 6.6 policy (`proto/buf.yaml`).
+- The client library's steps in `Handle` are now upcast, dispatch,
+  conflicts. It folds whatever snapshot it is given.
+- Why: compatibility is an operational policy, not business logic. A
+  build version needs no author discipline to bump, and the coordinator
+  already holds the registration, so it can refuse a snapshot before
+  delivery instead of paying a refused round trip. The registered state
+  type also settles T13 at its source.
+- Cost: every build changes the stamped version, so the default rule must
+  tolerate patch and build-metadata changes (it compares major.minor); a
+  semantic change shipped as a patch release reuses old snapshots unless
+  the domain's rule says otherwise. Operators own the per-domain override.
+- Aligns with: snapshots as caches invalidated by a version check (Marten,
+  Axon, Eventuous), here checked where the snapshot is loaded.
+
+> **Amended by 14.37 (pass 14):** the status message is the reason key, never text: an unknown command type is `ROUTER_REASON_UNKNOWN_COMMAND_TYPE` (a fact `ROUTER_REASON_NO_FACT_HANDLER`), with the sent type URL as `ErrorInfo` metadata `type_url` beside `upcast_type_url`.
+
+> **Amended by 14.39 (pass 14):** the coordinator, not the client library, upcasts Command and Fact payloads, through the upcaster sidecar. The router refuses the type it was given; the coordinator answers the caller naming both type URLs.
+
+**14.2 An unknown type after upcasting names both type URLs; facts are
+upcast too.** The client library upcasts Command and Fact payloads alike.
+A payload whose type URL, after upcasting, reaches no handler is refused
+`INVALID_ARGUMENT`; the status message names the type URL as sent, and the
+status details carry the type URL the chain ended at. Clarifies 12.11 for
+the router work (backlog VC-1).
+
+**14.3 One leading `v` is ignored by the default rule.** Before parsing
+SemVer 2.0.0, the default rule strips one leading `v` or `V` from each
+version, so `"v1.4.2"` and `"1.4.7"` compare by major.minor. Anything else
+that does not parse still falls back to exact equality of the versions as
+recorded (`"vv1.4.2"` is not stripped twice). Owner ruling, 2026-10-19.
+- Why: git tags and many build tools write versions with a `v` prefix.
+
+**14.4 Queries choose snapshots by the same rule.** While a component
+owning the queried domain is registered, `EventQueryService` (a
+`TemporalQuery` included) returns a snapshot only if it passes the state
+type check and the domain's compatibility rule against that registration.
+While none is registered, a query returns no snapshot and every page from
+sequence 0. Owner ruling, 2026-10-19.
+- Why: a query's caller folds the returned book exactly as business code
+  does, so an incompatible snapshot is as wrong there.
+- Cost: a query for an unregistered domain replays from 0.
+
+**14.5 Version skew is a handler bug.** A `CommandHandlerResponse` or
+`ProcessManagerHandleResponse` whose `rules_version` differs from the
+version in the component's registration (an empty one included) is
+refused: nothing is persisted or sent; a caller of `Handle` or
+`HandleSync` is answered `INTERNAL`; an asynchronous or reaction delivery
+(a PM's trigger included) is dead-lettered and alerted, as for any other
+handler bug (5.8). Owner ruling, 2026-10-19.
+- Why: the registered version is what snapshot selection trusts; a binary
+  answering under another version would stamp events and snapshots that
+  selection never vetted.
+
+> **Amended by 14.10 (pass 14):** the coordinator pulls the descriptor, so a versionless one is refused in the coordinator's readiness (NOT_SERVING, error log, alert), not with `INVALID_ARGUMENT`.
+
+**14.6 A registration must carry a version.** A `ComponentDescriptor` with
+an empty `rules_version` is refused `INVALID_ARGUMENT`, so a binary built
+without a baked version cannot register. With 14.5, an empty version on a
+response is refused too. Owner ruling, 2026-10-19.
+
+**14.7 `snapshot_refused` is not reserved.** Correcting 14.1: policy 6.6
+holds, so `CommandHandlerResponse` field 3 and
+`ProcessManagerHandleResponse` field 4 are deleted outright, numbers and
+names unreserved, and `proto/buf.yaml` keeps no exception. Owner ruling,
+2026-10-19.
+
+> **Amended by 14.37 (pass 14):** the sent type URL travels in `ErrorInfo` too, as `type_url`; the status message is the reason key.
+
+> **Amended by 14.39 (pass 14):** the caller still sees `type_url` (as sent) and `upcast_type_url` (where the sidecar's chain ended), but the coordinator fills them. The router knows only the type it was given, which it reports as `type_url`.
+
+**14.8 The upcast type travels in `ErrorInfo`.** Making 14.2 concrete: the
+`INVALID_ARGUMENT` status for an unknown type after upcasting carries a
+`google.rpc.ErrorInfo` whose metadata key `upcast_type_url` holds the type
+URL the chain ended at (the sent one when no upcaster applies), as the
+router already does (ADR 0001: errors cross as `google.rpc.Status` with an
+`ErrorInfo`). Owner ruling, 2026-10-19.
+
+> **Replaced by 14.21 (pass 14):** a query is judged against the answering coordinator's own registration; with one business process per coordinator there are never several.
+
+**14.9 With several versions registered, a query's snapshot must pass
+them all.** While several instances of a domain's component are registered
+with different versions (a rolling deployment), a query (`EventQueryService`,
+a `TemporalQuery` included) returns a snapshot only if it passes the
+compatibility rule against every registered version; otherwise it returns
+no snapshot and every page from sequence 0. Settles the open question in
+14.4. Owner ruling, 2026-10-19.
+- Why: a query has no instance of its own, so the only safe snapshot is
+  one every running build would accept.
+- Cost: during a rolling deployment across a major.minor change, queries
+  replay from 0 until the old instances deregister.
+
+> **Amended by 14.19 (pass 14):** `Describe` returns one `ComponentDescriptor` and `ComponentDescriptors` is deleted; the "one process may host several components" rationale below no longer holds. The pull direction stands.
+
+> **Amended by 14.42 (pass 14):** angzarr-cli generates the descriptor at build time, from the protos. The business process answers `Describe` with it unchanged, and the coordinator validates it (output domain included). The router holds no descriptor logic.
+
+**14.10 The coordinator pulls the descriptors.** Every business process
+serves `ComponentService.Describe(DescribeRequest) returns
+(ComponentDescriptors)` (new `component.proto`; `ComponentDescriptors {
+repeated ComponentDescriptor components = 1; }` in `types.proto`),
+answered by the client library from its components' generated descriptors,
+one per hosted component. The coordinator calls it when it first connects
+to the business process and again every time its channel comes back up;
+each successful answer replaces the held descriptors, and holding one is
+what "registered" means. Nothing (command, fact, trigger, event) is
+delivered to a component without a held descriptor: a waiting caller is
+answered `UNAVAILABLE`, and queued and reaction deliveries stay queued. An
+answer with an empty `rules_version` is refused as a whole: the
+coordinator holds nothing from it, logs an error naming the process and
+the component, raises an alert and stays `NOT_SERVING`. The coordinator
+reports `SERVING` (grpc.health.v1 and its readiness probe) only after a
+successful Describe. Version skew on responses stays refused (14.5).
+Amends 14.6 (the refusal surfaces in readiness, not as `INVALID_ARGUMENT`,
+because the coordinator is the caller). Owner ruling, 2026-10-19.
+- Direction: pull, keeping the existing dial direction (coordinator to
+  business), as Dapr's sidecar does when it calls the app's configuration
+  endpoint on startup.
+- Rejected: push, the business process calling its coordinator to
+  register (as Envoy's xDS clients, Temporal workers and Axon's
+  connector do). The coordinator already dials the business process, and
+  push would give every business process a coordinator address and client
+  code of its own.
+- One shared service, not a Describe RPC on each kind service: one process
+  may host several components of different kinds (the router's
+  `component_descriptors` already returns a list), so one call per process
+  describes them all, and a process serves it once whatever it hosts.
+- Cost: a coordinator whose business process is up but answered badly
+  stays not ready until the channel is re-established; it is visibly broken
+  rather than silently delivering.
+
+**14.11 A failing Describe is alerted only after a grace period.** Amends
+14.10. Every failed `ComponentService.Describe` call (unreachable, or an
+error status) is logged. An alert is raised only once Describe has kept
+failing for longer than the coordinator's `describe_alert_grace_period`
+(configuration; default 2 minutes). Until a later Describe succeeds the
+coordinator holds nothing from that process, delivers nothing and stays
+`NOT_SERVING`. A versionless answer still alerts at once (14.10). Owner
+ruling, 2026-10-19.
+- Why: a business process that is restarting fails Describe briefly and
+  routinely; paging on that is noise, while one that stays down is not.
+
+> **Amended by 14.14 (pass 14):** the PM's state has its own field, `ProcessManagerHandleResponse.process_state` (5); it no longer rides on the last `process_events` book.
+
+> **Amended by 14.40 (pass 14):** the coordinator also loads the snapshot and drops the pages it covers. The router decodes the starting state and folds every page it is given.
+
+**14.12 The client library returns the state on every response.** The
+router returns the post-command state in
+`CommandHandlerResponse.events.snapshot.state` on EVERY response, and a
+process manager's post-reaction state as `snapshot.state` on the last
+`process_events` book (a book with no pages when the reaction wrote no
+process events). Business code never decides when, and there is no
+request flag or ask. The coordinator persists it per the domain's storage
+policy (default: newest only), stamping `sequence` and `rules_version`,
+and offers the stored bytes unchanged with the next delivery, subject to
+14.1's checks and the window bound. Owner ruling, 2026-10-19 (the PM
+placement is the spec's: the response has no other state slot).
+- Why: snapshot cadence is storage policy, not business logic (2.x, SN-2);
+  the library already holds the folded state after deciding.
+- Cost: a state message on every response, whether or not the policy
+  stores it.
+
+**14.13 Client delivery-mode names follow the RPCs.** Client methods are
+`handle_async`, `handle` and `handle_sync`; the command builder's are
+`execute_async`, `execute` and `execute_sync`, named after `HandleAsync`,
+`Handle` and `HandleSync`. The client parity scenarios follow the protos:
+a command built without an expected sequence leaves it unset (the
+coordinator stamps the head), the builder method is
+`with_expected_sequence`, the default conflict resolution is
+`UNSPECIFIED`, a cover has no correlation id, and an `EventPage` payload
+is never a `PayloadReference`. Owner ruling, 2026-10-19.
+
+> **Superseded by 14.31 (pass 14):** a process manager is a domain served by `CommandHandlerService`; its state is `CommandHandlerResponse.events.snapshot.state`, as an aggregate's, and `ProcessManagerHandleResponse` is deleted.
+
+**14.14 A process manager's state has its own response field.** Amends
+14.12. `ProcessManagerHandleResponse` gains `Snapshot process_state = 5`,
+the counterpart of the request's `process_state`: the client library sets
+`process_state.state` to the post-reaction state on every response, and
+the coordinator stamps `sequence` and `rules_version` and persists it per
+the PM domain's storage policy. The `process_events` books carry payloads
+only; a snapshot on them is refused like any other non-payload output.
+Field 5, not 4, so bytes from the deleted `snapshot_refused` (4, a bool)
+can never decode into a message. Owner ruling, 2026-10-19.
+- Why: a dedicated field says what it is; riding on the last book (or a
+  page-less one) was a convention every implementation would have to know.
+
+**14.15 Builders never invent a correlation id.** A client's command
+builder sends no `correlation_id` unless the sender sets one; the
+coordinator applies the proto's rule (an absent correlation is the
+command id, itself minted as a UUIDv7 when absent; a fact's is its derived
+id). Parity C-0305 says so. Owner ruling, 2026-10-19.
+- Why: one rule, applied in one place; a client-minted correlation would
+  differ from the command id the coordinator mints and split the trail.
+
+> **Superseded by 14.20 (pass 14):** each PM has its own coordinator; `ProcessManagerHandleRequest.component` and its refusals are deleted.
+
+**14.16 One process manager per request.** The coordinator delivers a
+trigger to each subscribed PM component separately.
+`ProcessManagerHandleRequest` gains `string component = 3`, the PM's name
+as `ComponentService.Describe` reported it, and the response is that one
+PM's process events (covers: its own stream), commands and
+`process_state`. There is no fan-out to co-resident PMs and no merging of
+answers. An empty `component` is refused `INVALID_ARGUMENT` (malformed); a
+PM the process does not host is refused `NOT_FOUND`; both terminal in the
+existing status set. Owner ruling, 2026-10-19.
+- Why: each PM is its own aggregate with its own stream and state; a
+  merged answer had no single stream to append to or state to store.
+
+> **Parked by 14.27 (pass 14):** there is no batch helper; this rule waits until a caller needs batching.
+
+**14.17 A batch shares one correlation unless it opts out.** By default
+the command builder's batch helper sends ONE `correlation_id` across the
+batch's commands: the caller's if given, otherwise one it mints (UUIDv7).
+An explicit opt-out sends none, so each command defaults coordinator-side
+to its own command id. A single, unbatched builder still sends none unless
+the caller sets one (14.15). SDK helpers still mint a command id per
+command for retries (CI-7). Owner ruling, 2026-10-19.
+- Why: a batch is usually one piece of work, and sharing its correlation
+  is what lets `GetCorrelatedEvents` find all of it.
+
+**14.18 Correlation ids in the scenarios are UUIDs.** The client and
+parity scenarios used strings ("trace-123", "workflow-123") for
+correlation ids; they are 16-byte `UUID`s since 9.1, so the scenarios now
+use UUID text. Owner ruling, 2026-10-19.
+
+**14.19 One coordinator, one component, one business process.** A
+component is one aggregate, one saga, one process manager or one
+projector, and nothing hosts several. A saga or process manager emitting
+commands to several aggregates or domains, and a process manager or
+projector with several input domains, are still one component.
+`ComponentService.Describe` returns one `ComponentDescriptor`;
+`ComponentDescriptors` is deleted (it was never in a release). Amends
+14.10, whose "one process may host several components" rationale is
+withdrawn; the pull direction stands. Parity C-0498 (a host serving
+several components) is deleted. Owner ruling, 2026-10-20.
+- Evidence (owner's session log): the multi-component support came from
+  an agent plan nobody asked for, and its only production use was reverted
+  the same day.
+- Why: in event-sourcing terms, co-hosting couples independent
+  subscribers (one's failure, deploy or backlog stalls the others), and it
+  forces one `rules_version` on components that change independently. One
+  component per process keeps each subscriber's position, version and
+  readiness its own.
+- Cost: more processes and coordinators to deploy; a small example runs
+  several binaries.
+
+> **Amended by 14.31 (pass 14):** a process manager's coordinator is a command handler coordinator for its domain; several PMs told of one event are several sagas, each sending its own PM a command.
+
+**14.20 Each process manager has its own coordinator.** Supersedes 14.16.
+`ProcessManagerHandleRequest.component` (3) and its `INVALID_ARGUMENT` /
+`NOT_FOUND` refusals are deleted, as are the "never fans out / never
+merged" rules: with one PM per process and per coordinator there is
+nothing to fan out to or merge. Several PMs reacting to one domain are
+several coordinators, each delivering to its own PM with its own process
+state. Scenarios C-0576 and C-0577 are deleted; C-0578 is rewritten.
+Owner ruling, 2026-10-20.
+
+> **Amended by 14.26 (pass 14):** a standalone query server holds no registration and returns no snapshot.
+
+**14.21 A query is judged by the answering coordinator's registration.**
+Replaces 14.9. A query returns a snapshot only if it passes the state type
+check and the domain's compatibility rule against the registration of
+the coordinator answering it; while that coordinator holds none, it
+returns no snapshot. During a rolling deployment each instance's
+coordinator judges by its own instance's version. C-0560 is rewritten.
+Owner ruling, 2026-10-20.
+
+> **Amended by 14.25 (pass 14):** the open question is settled: the owning coordinator upcasts on every read and publish path through its own business process.
+
+> **Amended by 14.39 (pass 14):** an upcaster is served by an upcaster sidecar, its own process, never by the business process. It is still part of its component: no `ComponentKind`, no descriptor, no coordinator of its own. `upcaster.proto` again allows a separate binary: the sidecar.
+
+**14.22 An upcaster is part of its component.** An upcaster belongs to
+the component whose streams it upcasts. It has no `ComponentKind`, no
+descriptor and no coordinator of its own, and `UpcasterService` is served
+only by that component's own business process. The sentence allowing an
+upcaster to be "deployed as a separate binary" is deleted from
+`upcaster.proto`; no service or enum value needed removing (there is no
+upcaster kind). How a saga, process manager or projector reading another
+component's stream gets that component's upcasting stays open (backlog
+GAP-1). Owner ruling, 2026-10-20.
+
+> **Amended by 14.24 (pass 14):** a saga has exactly one source and one destination domain; `output_domains` is PROCESS_MANAGER only.
+
+**14.23 One saga per (source domain, destination domain) pair.** Every
+reaction that turns one domain's events into another domain's commands
+belongs to that pair's single saga, recorded on `ComponentOptions`
+(`options.proto`) and `SagaService` (`saga.proto`). In the blackjack
+example, the round-history and loyalty sagas (both table -> player) are
+merged into `TablePlayerSaga` (saga-table-player): per outcome in seat
+order, `RecordRoundResult` then `AwardLoyaltyPoints`. Owner ruling, 2026-10-20.
+- Why: one subscriber per pair, so one position, one deployment and one
+  version per translation, and no two sagas racing over the same event
+  for the same destination.
+
+> **Amended by 14.31 (pass 14):** a process manager sends no commands; `output_domains` (6) is deleted and `output_domain` is SAGA only.
+
+> **Amended by 14.42 (pass 14):** the policy's coordinator refuses a command for any domain but `ComponentDescriptor.output_domain`, not the client library. The descriptor now carries the output domain.
+
+**14.24 A saga has exactly one source and one destination domain.**
+Amends 14.23. A saga is a translator between two domains:
+`ComponentOptions.input_domain` is its one source and `output_domain` its
+one destination (required); `output_domains` is PROCESS_MANAGER only.
+Anything needing several destinations is a process manager. Refusals
+follow the existing style: angzarr-cli lint fails generation for a saga
+with `output_domains` or no `output_domain`; at run time the client library
+refuses a saga answer holding a command for any other domain
+(`SagaService.Handle` fails `INTERNAL` with no commands, and the
+coordinator dead-letters the trigger and alerts). The coordinator does not
+check it itself, because `ComponentDescriptor` carries no output domains.
+The blackjack example's one saga, `TablePlayerSaga` (table -> player),
+already has one destination; no example saga changed. Owner ruling,
+2026-10-20.
+- Why: a translator between two domains is the saga's whole job; fan-out
+  to several destinations is coordination, which is what a process
+  manager is for.
+
+> **Amended by 14.29 (pass 14):** "publishing to the bus" means wherever stored events reach a subscriber, live publishing and reads of stored history alike.
+
+> **Amended by 14.39 (pass 14):** the coordinator calls the upcaster sidecar's `UpcasterService`, not its business process's. It also upcasts every incoming command and fact payload before dispatch. The cost moves with it: a sidecar that is down stalls the stream's loads, queries, history reads and deliveries.
+
+**14.25 The owning coordinator upcasts on every way out of its stream.**
+Amends 14.22 and settles backlog GAP-1's open question. The coordinator of
+the component that owns a stream upcasts that stream's events on every
+read and publish path by calling its own business process's
+`UpcasterService`: loading for `Handle` (and a PM's `process_state`),
+answering queries, and publishing to the bus. Consumers (sagas, process
+managers, projectors) only ever see current event shapes and have no
+upcasters of their own. The store is never rewritten. Owner ruling,
+2026-10-20.
+- Why: the owner of a stream is the only party that knows its old shapes;
+  upcasting once on the way out keeps every reader on one shape.
+- Cost: publishing and queries call the business process; a business
+  process that is down stalls its stream's publishing and queries as well
+  as its commands.
+
+> **Amended by 14.39 (pass 14):** option (a) below would mean configuring the standalone server with the stream owner's upcaster sidecar address. The question is still open.
+
+**14.26 Event-store queries may run standalone.** `EventQueryService`
+(`query.proto`) is a read-only interface independent of
+`CommandHandlerCoordinatorService`. An aggregate (or process manager)
+coordinator serves it for its own component's domain; a standalone query
+server may serve it for downstream readers with no component behind it,
+and serves no command RPCs. Snapshots: through a coordinator, judged
+against that coordinator's registration (14.21); a standalone server holds
+no registration, so it returns no snapshot and every page from sequence 0
+(C-0556, C-0589). Owner ruling, 2026-10-20.
+- **Open (owner question): upcasting on a standalone server.** 14.25
+  assumes a component behind the server. Proposed options:
+  (a) the standalone server is configured with the stream owner's
+  `UpcasterService` address and upcasts through it, as the owner's
+  coordinator would (consistent results, but a runtime dependency on the
+  owner's business process);
+  (b) it serves events as stored, and its readers must accept old shapes
+  (no dependency, but contradicts "readers only ever see current shapes");
+  (c) it is not allowed for a domain whose component declares upcasters.
+  Recommended: (a). Not specified in the protos until ruled.
+
+**14.27 No batch helper; the batch-correlation rule is parked.** The
+command builder's batch helper is dropped, with parity C-0572 to C-0574.
+14.17's rule (a batch shares one correlation by default, the caller's or
+one the helper mints as a UUIDv7, with an explicit opt-out) is parked
+until a caller needs batching. Decision 1.4 already permits a client
+library to batch separate calls on its side; each is still its own
+CommandBook. C-0575 stands: a single command never gets a minted
+correlation. Owner ruling, 2026-10-20.
+
+**14.28 One command per CommandBook, reaffirmed.** The owner reaffirmed
+1.4 and kept the structure: `CommandBook { cover, page, handling }`, with
+`CommandPage` as the one command, never a list. The `command_book` and
+`command_page` comments now say so, citing 1.4: deduplication, the
+expected-sequence check and the outcome are per command, and there is no
+wire batching. Site pages that showed `repeated CommandPage pages` or
+several pages per book (the CommandBook glossary entry, `pitch.mdx`,
+`architecture.md`, and code samples in `patterns.mdx`, `saga.mdx` and
+`commands-vs-facts.md`) now show one page. Owner ruling, 2026-10-20.
+- Why the page structure is kept: several command pages per book may come
+  later as an enhancement, and the structure gives such a design somewhere
+  to land. It would need new per-page error, outcome and deduplication
+  semantics, and it is not planned. The protos describe only what holds
+  now: exactly one command.
+
+> **Amended by 14.39 (pass 14):** the upcasting is the sidecar's, called by the owning coordinator.
+
+**14.29 Upcasting covers stored history, not only live publishing.**
+Amends 14.25. The coordinator publishes only what it appends, and business
+code writes current shapes, so live publishing never carries an old
+shape. Old shapes reach a subscriber when it reads stored history
+(catching up, filling a gap, rebuilding). The owning coordinator upcasts
+wherever stored events reach a consumer, live publishing and history reads
+alike. C-0586 now exercises a subscriber reading stored history. Owner
+ruling, 2026-10-20 (from core's report).
+
+> **Amended by 14.31 (pass 14):** a process manager has no trigger; its root is the correlation of the commands and facts addressed to it (their cover root, which a set `correlation_id` must equal), and its edition theirs. A saga's command takes its trigger's correlation, so the rule reaches the same instance.
+
+> **Amended by 14.36 (pass 14, as amended):** the root is no longer the correlation by rule. A policy always names its command's root, for a PM as for an aggregate; "root = correlation" is a convention it may follow. The command still carries its trigger's correlation, and a `correlation_id` that differs from the cover's root is no longer malformed.
+
+**14.30 A process manager's root is its trigger's correlation id.** A
+PM instance's stream is (the PM's domain, the trigger's edition, the
+trigger's `correlation_id`), and its root IS that correlation id,
+unchanged: no derivation (no hash, no UUIDv5) and no text fallback. The
+`ProcessManagerService` comment (`process_manager.proto`, Stream) and
+`Cover.root` say so, and `buy_in.proto` no longer says the root is
+"derived from it by core". Carries over prior angzarr core's decision D-11
+(`CorrelationRootExt::correlation_root`), whose UUID branch passed a
+correlation through unchanged; its other branch, UUIDv5 of a non-UUID
+("friendly") correlation, has nothing to apply to, because every
+correlation is a 16-byte `UUID` since 9.1. Owner ruling, 2026-10-27.
+- Why: the correlation already names the one cross-domain process the PM
+  tracks, and replies route to the instance by it; using it as the root
+  makes "this correlation's PM stream" a lookup, with no formula for core,
+  the clients and annals to keep identical.
+- Cost: a PM has one instance per correlation (per edition); a workflow
+  needing two instances of the same PM under one correlation cannot have
+  them.
+- Aligns with: MassTransit's saga state machines, whose instance key is
+  the `Guid` `CorrelationId` ("Saga instances are identified by a unique
+  identifier (`Guid`), represented by the `CorrelationId` on the saga
+  instance";
+  <https://masstransit.massient.com/documentation/patterns/saga>, where
+  masstransit.io's saga documentation now redirects).
+
+> **Amended by 14.36 (pass 14, as amended):** "The root is the correlation" below is a convention only: a policy always names a PM command's root, keeping its trigger's correlation; a set `correlation_id` other than the cover's root is no longer malformed, so the start rule is the only rule a PM's coordinator adds to an aggregate's.
+
+> **Amended by 14.37 (pass 14):** `RefusalResponse` is `oneof reason { refusal (1) | diagnostic (3) }`; its `message` (2) is deleted, unreserved: no text crosses. A pass-through refusal with no path is answered `ROUTER_REASON_NO_REFUSAL_HANDLER`, not `ROUTER_REASON_NO_FACT_HANDLER`.
+
+> **Amended by 14.42 (pass 14):** the coordinator owns admission: deduplication, the refusal fact's stream check and the start rule. The router's `admit` is deleted. The coordinator also builds and addresses every refusal fact; the router answers only a translate callback's fact, or none.
+
+> **Amended by 14.78 (ruled 2026-11-02):** one refusal path. Pass-through, `CommandRefused` and the source domain's `on_refused_<Command>` dispatch are gone; a refusal reaches the policy's `Translate`, which answers a fact of its source.
+
+**14.31 A process manager is a domain.** Owner rulings of 2026-10-27
+(ruling 7 of the angzarr/annals common plan) and 2026-10-28 (rulings 7 and
+9 as settled after the pm-inputs survey; two earlier drafts of this entry,
+"facts in, facts out" and "facts only", are withdrawn). It also writes into
+the spec the owner's ruling **P1** of 2026-10-26 ("a pm would calculate
+the data needed for cross-domain commands, emit events with that data,
+then sagas for those domains would fire the events"), which the protos
+had never carried. Amends 2.2, 5.6, 12.10, 13.1, 13.2, 14.14, 14.20, 14.24
+and 14.30.
+- **A PM is just a domain.** Its inputs are COMMANDS, which it may refuse,
+  and FACTS (timeouts, webhooks, refusal facts), which it never refuses.
+  It has NO triggers: it subscribes to no domain, and the saga for
+  (another domain, the PM's domain) turns that domain's events into
+  commands to the PM. Its only output is its own events (P1): it sends no
+  commands. It is served exactly as an aggregate is: its business process
+  implements `CommandHandlerService` and its coordinator serves
+  `CommandHandlerCoordinatorService` for its domain. So
+  `ProcessManagerService`, `ProcessManagerCoordinatorService`,
+  `ProcessManagerHandleRequest` and `ProcessManagerHandleResponse` are
+  deleted, unreserved (6.6); `process_manager.proto` keeps only the
+  comment that says what sets a PM apart: its root and its start rule.
+  Its `(command)` entries are declared like an aggregate's, and `Handling`
+  applies to its commands as to any domain's.
+- **The root is the correlation (14.30 amended; a convention only, 14.36
+  as amended).**
+  A PM instance's root is its correlation id, unchanged. A command or fact addressed to a PM names
+  the instance in its cover; a `correlation_id` left unset is given the
+  root, and one set to anything else is malformed. A saga addressing a PM
+  therefore names the instance its trigger's correlation names. This is
+  the one pipeline rule a PM's coordinator adds to an aggregate's.
+- **Refusals (2.2 amended; owner's rulings, 2026-10-28; plan ruling 7,
+  "REFUSAL WIRING").** In the owner's words: "saga calls foreign command
+  handler, which refuses. saga then calls its domain command handler and
+  passes it a fact (that the foreign CH refused)". A saga's target, an
+  aggregate or a PM alike, refuses a saga's command as it refuses any
+  command (a business rejection, `FAILED_PRECONDITION`) and records
+  NOTHING. The refusal goes back to the SAGA, which builds ONE unrefusable
+  refusal fact for its OWN source domain; that domain's fact handler
+  decides what the refusal means and records its own events.
+  - **A typed refusal object.** "The base CommandRefused fact is created
+    by the saga. It will have an Any type to pack the foreign refusal
+    object into. The foreign refusal object is business-specific code. The
+    refusal object is passed back to the saga by the command-refused
+    return type." Which refusal objects a command's handler may return is
+    named by an ANNOTATION, like `emits` (the owner's ruling, for
+    consistency): `CommandOptions.refuses` (4), `repeated string`, the
+    fully-qualified refusal types, messages of the command's own domain,
+    in exactly `emits`' form (it names the types directly, as `emits` does,
+    not a wrapper message). When set, the generated handler returns its
+    events or one of those typed refusals; when empty, a raw refusal
+    payload (`Any`) or a message only. The client library packs the chosen
+    refusal object, the concrete message, into the status details as an
+    `Any`; and the refused saga receives `RefusalResponse { refusal,
+    message }` (`types.proto`: `refusal` the packed object; `message` the
+    status message, which the transport always carries, kept for the
+    translating callback and for a dead letter but never forwarded).
+    Generation fails, mirroring `emits`' references, on a `refuses` type
+    that does not resolve or is not a message of the command's own domain.
+    (The draft's `<Command>Refusal` naming convention and its orphan-name
+    lint are withdrawn.)
+  - **The saga builds the fact, so the coordinator calls it in both
+    modes.** `SagaService.OnRefused(Refusal { event, command, response })
+    returns (OnRefusedResponse)`. Pass-through (the default): the saga's
+    generated code, with no user code, answers the standard
+    `CommandRefused { command, refusal, trigger }` and nothing else
+    (`refusal` the typed object still packed; `trigger` the triggering
+    event's `EventRef`), and the source domain's command handler has a
+    generated dispatch by the foreign command's type,
+    `on_refused_<Command>(refusal, state) -> events`, where its author
+    writes the reaction and unpacks the refusal object; the source imports
+    the foreign protos (accepted). Translate: the saga's callback
+    `on_refused_<Command>(Refusal)` reads the typed refusal object and
+    returns a DOMESTIC fact, so the source never refers to the foreign
+    protos. **This is why translate exists** (owner's ruling): since
+    `CommandRefused` carries only the foreign object, with no reason or
+    message, a domain that does not want to unpack a foreign object, or
+    import foreign protos, has the saga unpack it there and hand over a
+    domestic fact.
+  - **The switch is the CLI's only.** "cli may have to have that switch,
+    as it's compile time." angzarr-cli selects pass-through or translate
+    per saga or per saga command, as a flag and as a build-config entry;
+    pass-through is its default, and selecting translate makes the saga's
+    callback for that command required, so a missing one fails generation
+    (or the build). No proto option carries the mode, and nothing about it
+    is visible at run time beyond which fact type arrives.
+  - **No declaration of what a saga sends.** "Declaring commands it may
+    send is a mistake, period." So there is no `sends`; and the source's
+    `on_refused_<Command>` dispatch is inferred from the handlers it
+    defines (the handler registration is the declaration, as for facts),
+    so there is no `refusals` either (the owner's ruling, accepting the
+    drafter's choice). Consequence,
+    stated plainly: the generator can no longer check refusal coverage
+    against what a saga sends. A refusal with no path, a pass-through
+    `CommandRefused` whose command type the source defines no handler for,
+    is caught only at RUN time: answered `ROUTER_REASON_NO_FACT_HANDLER`, dead-lettered
+    and alerted. What the generator can still check: the `refuses`
+    diagnostics above, and that a command selected for translate has its
+    callback.
+  - **Identity: the refused command's id.** The refusal fact's
+    `command_id` IS the refused command's `command_id`, in both modes, with
+    no prefix and no derivation; its `fact_origin.external_id` is that id's
+    canonical text (accepted). One id therefore appears in two streams by
+    design: never applied in the foreign (target) stream, which recorded
+    nothing, and recorded as the refusal fact in the domestic (source)
+    stream. Both ends deduplicate on it.
+  - **The exact stream (owner's ruling).** A refusal fact is accepted only
+    by the exact stream its trigger `EventRef` names: domain, root and
+    edition. The coordinator addresses it there; a fact for any other
+    stream is a saga bug, and every coordinator refuses it.
+  - **Mechanics.** The coordinator stamps the fact's `causation_id` (the
+    triggering event) and the trigger's correlation, and writes
+    it as a new outbox entry in the transaction that clears the command's
+    entry; a crash retries the step. annals makes the same calls directly,
+    in the chain. Only a business rejection reaches `OnRefused`;
+    retryable failures are retried and any other terminal failure is a
+    bug, dead-lettered and alerted. The fact is unrefusable, so
+    compensation cannot loop.
+  - **Owner's rulings (2026-10-28, accepted):** the `refuses` annotation
+    (above); `RefusalResponse { Any refusal; string message }`; the
+    source's `on_refused_<Command>` dispatch inferred from the handlers it
+    defines, with no `refusals` declaration. A refusal with no path is
+    dead-lettered for a human and alerted; a failing translating callback
+    is dead-lettered and alerted like any handler failure; a fact its
+    source cannot ingest is dead-lettered and alerted at the source.
+  - **A context object was considered and deferred.** The owner first
+    asked for an opaque context the saga could attach to a command and get
+    back in the callback, then judged it unnecessary complexity: a
+    stateless saga's event, command and response already carry everything
+    it used, except data it used but left out of the command, and the fix
+    for that is to put the data in the command. Taking one struct,
+    `Refusal`, keeps a `context` field addable later without breaking saga
+    code. Nothing extra rides in the outbox entry.
+- **The one exception to "a saga never delivers a fact".** A saga's
+  business code still emits Commands only (`SagaResponse.commands`). The
+  rule that a coordinator refuses a Fact carrying `causation_id` gets
+  exactly one exception: a refusal fact, addressed to the exact stream
+  its `causation_id` names (domain, root and edition: the stream of the
+  saga's triggering event), whose
+  `command_id` is the refused command's rather than a derivation.
+- **Start rule (B1, adapted; owner's ruling of 2026-10-28, accepted).** Only input types
+  (command or fact) the PM declares as starting (`CommandOptions.starts`,
+  3; advertised as `ComponentDescriptor.starting_types`, 7) may start an
+  instance. Any other input for a correlation with no instance is not
+  delivered, decided by the coordinator before the handler by the type URL
+  after upcasting: a FACT is skipped silently (answered `APPLIED`, no
+  events, nothing dead-lettered or alerted). A COMMAND is refused:
+  `FAILED_PRECONDITION` with an `ErrorInfo` reason `COORDINATOR_REASON_PM_NO_INSTANCE`,
+  recording nothing (the drafter's proposal, accepted by the owner).
+  Reasons: a
+  command is refusable, and a silent `APPLIED` would tell the sender a
+  command took effect that did not; a saga's refused command yields its
+  refusal fact for the saga's source, which decides what an unstarted
+  process means for it, by the same mechanism as every other refusal (or,
+  with no handler there, it is dead-lettered for a human). The alternative, a silent skip as for a fact, was not taken. A
+  PM should declare as starting every input that can arrive first.
+  `starts` on an aggregate's entry fails generation; a PM with no starting
+  input draws a generator warning (the owner's ruling); a non-PM descriptor listing
+  `starting_types` is refused like one with an empty `rules_version`.
+- **Deduplication and the handler context.** By `command_id` and by fact
+  id (a fact's `command_id`, derived from its `fact_origin`), on the PM's
+  stream, before the handler runs, as for any domain. One handler context
+  carries the input's identity (its `command_id`, its `fact_origin` for a
+  fact, its correlation, the instance's root). There is no trigger:
+  `EventMeta.triggering_event` (18) is deleted, unreserved, with its index
+  and the `find_triggered` lookup, and `EventMeta.causation` keeps one arm,
+  `command_id` (13.1 and 13.2 amended; 13.2's "trigger-caused events carry
+  no command" has no referent left). `EventConsumer.applies` (3), which
+  told a PM's own fold from a trigger, is deleted, unreserved; an `(event)`
+  entry naming a PM with a source domain fails generation.
+- **Failures.** A failing PM fact handler is a bug: the fact is
+  dead-lettered and alerted, a waiting sender answered `PARKED`. A command
+  handler failing with anything but a business rejection is a bug too,
+  handled as for an aggregate (a saga's command dead-lettered and alerted).
+- **Outputs are the PM's own events.** `ProcessManagerHandleResponse.commands`
+  (2) is deleted with the message. To act on another domain a PM records
+  an event carrying that command's data, and the saga for (the PM's
+  domain, that domain) builds the command (14.23, 14.24).
+  `ComponentOptions.output_domains` (6) is deleted, unreserved, and
+  `output_domain` is SAGA only (ruled).
+- **The outbox is polymorphic.** Owner's ruling, 2026-10-28: "leave it; if
+  we need an outbox it should be polymorphic". 5.6's transient outbox is
+  one transactional outbox naming no component kind: any component whose
+  output leaves its own stream stores that output atomically with its
+  source checkpoint, dispatches it, then clears it, and redelivery re-sends
+  it verbatim. Today the saga is the only user, for its commands and its
+  rejection facts (written as a new entry in the transaction that clears
+  the refused command's). A PM needs none:
+  its only output is its own events, and it consumes no stream, so it has
+  no checkpoint.
+- **What sagas now do:** carry every event a PM must hear of into the PM,
+  as commands, and every PM decision out of it, as commands; and deliver
+  any refusal of their commands to their own source domain as a fact,
+  passed through or translated. In the
+  blackjack example, `TableBuyInSaga` (table -> buy-in: `StartBuyIn`, the
+  starting input, and `RecordPlayerSeated`) and `PlayerBuyInSaga` (player
+  -> buy-in: `RecordFundsHeld`, `RecordFundsCaptured`) feed the PM;
+  `BuyInPlayerSaga` (buy-in -> player: `HoldFunds`, `CaptureFunds`) and
+  `BuyInTableSaga` (buy-in -> table: `ConfirmSeat`, `ReleaseSeat`) carry
+  its decisions. Two refusals run end to end, one per mode. Pass-through:
+  the wallet refuses `HoldFunds` and records nothing, `BuyInPlayerSaga`
+  forwards `CommandRefused` packing the wallet's `InsufficientFunds`, the
+  buy-in's `on_refused_HoldFunds` unpacks it and records `BuyInFailed`,
+  and `BuyInTableSaga` releases the seat. Translate (selected for
+  `ConfirmSeat` by the build config): the table refuses `ConfirmSeat` with
+  `SeatNotConfirmable`, `BuyInTableSaga`'s callback reads it and returns
+  the buy-in fact `SeatConfirmationRefused`, the PM records `BuyInSeatLost`, and
+  `BuyInPlayerSaga` releases the hold.
+- **Withdrawn with the earlier drafts:** triggers as a PM input and their
+  dedup by `find_triggered`; the `cause` oneof; the facts-only PM; sagas
+  forwarding facts to a PM, and the saga contract change that allowed it;
+  the reaction-origin fact id; the trigger-page proposal (which page of a
+  saga's trigger book is the trigger stays open, backlog OB-6).
+- **Drafter's choices.**
+  - Accepted by the owner on 2026-10-28 (owner's rulings):
+    - the correlation names the instance; a failing PM handler is
+      dead-lettered and alerted; for B1, the `starts` / `starting_types`
+      naming, the upcast type-URL match and the silent skip of a fact;
+    - the start rule for a non-starting COMMAND: refused
+      (`FAILED_PRECONDITION`, `COORDINATOR_REASON_PM_NO_INSTANCE`), recording nothing;
+    - the callback failure rules: only `FAILED_PRECONDITION` reaches the
+      callback; a refused command with no callback is dead-lettered and
+      alerted; a failing callback is dead-lettered and alerted;
+    - the deletions and shapes: `ProcessManagerService`,
+      `ProcessManagerCoordinatorService` and their messages (a PM is
+      served by `CommandHandlerService`; `process_manager.proto` is
+      comment only); `EventMeta.triggering_event`; `EventConsumer.applies`;
+      `causation` as a one-arm oneof; `Handling` on commands to a PM, as
+      on an aggregate's;
+    - the names `on_refused` (the handler prefix), `Refusal { event,
+      command, response }`, `RefusalResponse` and `OnRefused`, kept;
+      `RefusalCallback`, `RefusalFact`, `refusal_types` and the
+      `(on_refused)` option were confirmed too, then replaced by the
+      refusal-wiring ruling (below);
+    - the refusal wiring (plan ruling 7 and the rulings that refined
+      it): the saga builds the fact (so `OnRefused` serves both modes);
+      the typed refusal object, packed as an `Any`; pass-through by
+      default and translate as the CLI selects, with no proto option; no
+      declaration of what a saga sends; the refused command's id as the
+      fact's id, and its canonical text as the `external_id`;
+    - the names `CommandRefused`, `RefusalResponse` and
+      `OnRefusedResponse`;
+    - (2026-10-28, later) `CommandRefused` is only `{ command, refusal,
+      trigger }`, the reason translate exists; and a refusal fact is
+      accepted only by the exact trigger stream, root included;
+    - (2026-10-28, final) typed refusal objects named by the `refuses`
+      annotation, in `emits`' form, with `emits`-style generation errors
+      (an unresolved type, or one from another domain); `RefusalResponse
+      { Any refusal; string message }`; the source's `on_refused_<Command>`
+      dispatch inferred from its handlers, with no `refusals` declaration;
+      and PMs declaring their starting inputs (B1), with a lint warning
+      when a PM declares none.
+  - Removed by the refusal-wiring rulings: the `(on_refused)` option and
+    `RefusalCallback` on fact messages, `RefusalFact`,
+    `ComponentDescriptor.refusal_types`, the `"angzarr-refusal:"` prefix
+    and its derivation; then `ComponentOptions.sends`, `SagaSend`,
+    `refusal_fact` and the exactly-one-path rule and lint; and
+    `ComponentOptions.refusals` (inferred instead); then
+    `CommandOptions.refused_with`, and `CommandRefused`'s `reason` and
+    `message`; then the `<Command>Refusal` naming convention and its
+    orphan-name lint (replaced by `refuses`).
+  - Still for the owner to confirm:
+    - in the example, the refusal objects `InsufficientFunds` and
+      `SeatNotConfirmable`, the build config selecting translate for
+      `ConfirmSeat`, the command names (`StartBuyIn`, `RecordFundsHeld`,
+      `RecordPlayerSeated`, `RecordFundsCaptured`), the saga names
+      (`TableBuyInSaga`, `PlayerBuyInSaga`, `BuyInPlayerSaga`,
+      `BuyInTableSaga`), `BuyInFailed`, `PHASE_FAILED` and
+      `failure_reason`, and stale steps accepted as no-ops rather than
+      refused.
+- **What PMs were for, and where each warrant now lives.** The
+  2026-10-19 `process_manager.proto` warranted a PM by five things; each
+  is still served:
+  - its own workflow state, not derivable from aggregates: the PM is a
+    domain, whose stream and state are its own;
+  - status queries ("show all pending fulfillments"): the PM's own
+    events, read and projected like any domain's;
+  - timeouts and scheduling: facts addressed to the PM (a timer or a
+    webhook), never refused;
+  - reacting to several domains: sagas from those domains, sending the PM
+    commands;
+  - tracking the replies to the steps it starts: sagas into its domain for
+    the replies, and the refusal facts of its outbound sagas (passed
+    through, or translated) for the refusals.
+  The cost, in the owner's terms: the workflow's "what to send next"
+  moves out of the PM into its outbound sagas, so a PM's events must carry
+  enough data for those sagas to build each next command (a saga takes
+  everything from the event and never looks anything up). And, in the
+  owner's words, "if we want all that in a single process again, we can
+  use an annals domain for that": where a workflow's logic should live
+  together, the PM and its outbound sagas can be deployed as ONE local
+  (annals) domain, a single process in which the saga hops are chained
+  calls in one unit of work. That recovers the old single-handler cohesion
+  without a special PM shape, because components are deployment-agnostic:
+  they assume nothing about distribution (plan ruling 13).
+- Why: one input shape for every domain (commands and facts) and one
+  output shape for every stateful component (its own events); sagas are
+  the one place where one domain's events cross into another; a refusal
+  reaches the one domain that asked for the refused step, durably and
+  unrefusably, with no side channel and no stateful sender.
+- Cost: every cross-domain step is a saga hop each way, and one saga per
+  (source domain, PM) pair to deploy; every domain whose events feed a
+  domain whose sagas' commands can be refused handles their refusals,
+  importing the foreign protos in pass-through mode, and a missing handler
+  is found only at run time (a dead letter), since nothing declares what a
+  saga sends; a refusal is recorded
+  only by the
+  source, not by the refusing domain, so the target's stream never shows
+  what it turned away.
+- Aligns with: the PM-as-domain shape of IDDD (process state in an
+  aggregate fed commands by listeners), Akka (an entity with command
+  handlers) and EventFlow (sagas as event-sourced aggregates), per the
+  pm-inputs survey; and the event-carried-state idiom the owner adopted in
+  P1. Diverges knowingly from the frameworks whose sagas (their process
+  managers) consume events and send commands themselves. Verified against
+  each framework's documentation on 2026-10-28:
+  - Axon Framework 4.10: the saga example's event handler calls
+    `commandGateway.send(new PrepareShippingCommand(...))` and
+    `commandGateway.send(new CreateInvoiceCommand(...))`
+    (<https://docs.axoniq.io/axon-framework-reference/4.10/sagas/associations/>).
+    Axon Framework 5 has no saga yet ("Sagas do not have a replacement yet
+    in Axon Framework 5",
+    <https://docs.axoniq.io/axon-framework-reference/5.0/sagas/implementation/>).
+  - NServiceBus: a saga "should only interact with its own internal state
+    and send or publish messages", and for external work it should "Send
+    (command) messages to dedicated message handlers"
+    (<https://docs.particular.net/nservicebus/sagas/>).
+  - MassTransit: a saga "drives the next steps in the process by
+    publishing events or sending commands"
+    (<https://masstransit.massient.com/documentation/patterns/saga>).
+  The IDDD, Akka and EventFlow alignment is the survey's reading, not
+  re-verified for this entry.
+
+> **Amended by 14.36 (pass 14):** a fork is at the sequence its `EditionCreated.parent_sequence` states, at or below main's head for that stream (above it is a conflict), with no implicit "head at write time" rule. On arrival the system layer records the head it read; an origin `ForkStream` states its sequence. The fork point is per stream; no cross-stream snapshot is promised.
+
+**14.32 Editions are per-stream forks.** Owner rulings, 2026-10-28 (plan
+ruling 14, and the rulings on its first draft). Supersedes 6.5's
+administrative create and edition record, and EA-3's whole-system
+divergence default. Every fork is per stream: there is no global position
+and no fork at one (14.35).
+- **An edition is a set of per-stream forks.** Creating edition X forks an
+  origin stream S = (D, main, R): an `EditionForked { edition,
+  parent_sequence, propagated_from, forked_by }` event
+  (`types.proto`, the `editions` region) is appended to (D, X, R) at the
+  sequence it states, by default S's NEXT sequence (main's head), and at
+  most that (14.36). It is the first event of X's version of S, and its
+  sequence (the fork sequence) marks main's end and X's start for that
+  stream. It is a framework event: no business code ever sees it, and its
+  own `command_id` is framework-derived, never that of the command whose
+  arrival made it.
+- **Read rule, per stream.** (D, X, R) reads main's events below its own
+  fork sequence, then X's own events. Main's later events never reach it.
+- **The fork travels with the data (ruled).** The owner: "it's not lazy,
+  but it is eventually consistent. Edition creation events propagate on
+  the same system as data flows". When a SAGA's command in X reaches a
+  stream with no fork in X, that arrival is the propagation: the
+  coordinator appends the stream's `EditionForked` at the stream's main
+  head as it read it (a race with main leaves the fork where it says;
+  14.36), with
+  `propagated_from` = the fork event of the stream the saga reacted to and
+  `forked_by` = the arriving command's id, then handles the command.
+  Streams X's activity never touches are never forked; the data flow is
+  the only bound. A process manager is a domain: saga commands into it
+  carry the fork like any other, and nothing is PM-specific.
+- **From outside, refuse until propagated (ruled).** A command or fact that
+  is not a saga's, addressed in X to a stream with no fork in X, is refused
+  `FAILED_PRECONDITION` with `ErrorInfo` reason `EDITION_NOT_FORKED` (the
+  owner accepted the code), writing nothing; `ForkStream` forks such a
+  stream explicitly. A query or subscription of an unforked stream reads
+  main's version and forks nothing (ruled).
+- **No metadata store.** The edition registry is deleted: `Edition`,
+  `CreateEditionRequest` and `CreateEdition`. `EditionAdminService`
+  (`meta.proto`) is `ForkStream` (append an origin fork; the first creates
+  the edition; an already-forked stream is `ALREADY_EXISTS`),
+  `ListEditions` (a query over X's own fork events, answered as derived
+  `EditionSummary` rows) and `DeleteEdition` (below). An edition is known
+  while any fork event of it exists, which is a query over the edition
+  stores, cacheable; one never created,
+  or deleted, is refused `NOT_FOUND`. Where an edition's rows live is
+  configuration. (Store placement, `EditionSummary`, `ALREADY_EXISTS` and
+  existence as a cacheable query were accepted by the owner.)
+- **Main knows nothing of an edition (the owner's invariant).** "All
+  data/messages for the edition should exist in the EDITION's
+  stream/data store. The main timeline should have no knowledge of
+  edition create or delete." `EditionForked` lives only in the edition's
+  streams (D, X, R), in the edition's configured store, and every row of
+  X carries X in its key. Nothing is appended to, recorded in, indexed against or read
+  from main's streams for an edition's lifecycle, except that a fork reads
+  main's head (its fork sequence) and a stream in X reads main's events
+  below it. `propagated_from` names a stream in X, never in main;
+  `ListEditions` and the existence check query X's own events; X's outbox
+  entries, positions and deliveries are X's processing, apart from
+  main's. Main's coordinators, projectors and readers behave as if no
+  edition existed: creating and deleting an edition leaves main's
+  streams, outbox and positions byte-for-byte unchanged.
+- **Deletion: sequenced, then every row tagged X removed (the owner's
+  rulings).** In the owner's words: "deletion will have a seq number that
+  needs to be after the work in flight", "the retries on the timer will
+  already be handled by sequencing", "don't create new stuff for it", and
+  finally: every row of X carries X in its key, so `DeleteEdition(X)` is
+  sequenced after X's in-flight work, then removes every row tagged X
+  from X's store(s), its own sequencing included. Nothing remains: no
+  tombstone, no per-stream deleted state, no `NOT_FOUND`-after-delete
+  state beyond X being unknown again, nothing travelling to forked
+  streams, no coordinator querying fork events.
+  - **The sequence point needs no marker (the owner's ruling; superseded
+    by the amendment below, and there is no commit position, 14.35).**
+    `DeleteEdition` takes X's commit position at the call; the removal runs once all of X's work below it has completed (X's outbox
+    holds no entry below it, and X's deliveries and subscriptions have
+    passed it). That is ordering, not polling; nothing retries. So no
+    `EditionDeleted` event is written (and the message is deleted): the
+    position the call takes is the sequence. The removal takes every row
+    tagged X, including any written after the point.
+  - A later saga command in X re-forks its target like any arrival, so X
+    reappears in `ListEditions` for the user to delete again.
+  - A delete that genuinely fails (rows that cannot be removed) is
+    dead-lettered and alerted, like any failed delivery.
+  - **Known limitation:** X's work that never completes (for example
+    commands of X held in an undeployed saga's outbox) holds the delete
+    back; the edition stays visible in `ListEditions` while it waits, and
+    the user can act on it there.
+- **Withdrawn with the earlier drafts:** eager propagation of a fork from
+  the origin along recorded reaction edges, the saga coordinators' edge
+  table, the hop limit (8) and fan-out alert (1,000), the 13.3 amendment
+  for the edge rows (13.3 stands as it was), on-demand forks for any input,
+  `EditionForked.on_demand` (replaced by `forked_by`), the arrival fork's
+  re-check of a delete with its `NOT_FOUND`, any retry timer for a
+  delete, and the `EditionDeleted` tombstone that travelled the saga
+  flows (with its per-stream deleted state and its `propagated_from`).
+- **Accepted by the owner:** the shapes, `EditionForked` with `forked_by`,
+  and the fork event's own framework-derived command id.
+- **Owner's rulings, 2026-10-28 (all the drafter's choices settled):**
+  the spec as drafted is approved; `EditionDeleted` is dropped, and the
+  delete's sequence point is X's commit position at the call, with no
+  marker event (superseded by the amendment below; 14.35); `EditionForked`
+  with `forked_by`, the fork event's own framework-derived command id, `EDITION_NOT_FORKED`, store placement by
+  configuration, `EditionSummary`, `ALREADY_EXISTS` on an already-forked
+  stream, and existence as a cacheable query over fork events are all
+  accepted.
+- Why: an edition forks only what its activity touches, when the data
+  reaches it, at that stream's own point, with no second source of truth
+  beside the events, and nothing to bound but the data flow itself.
+- Cost: an edition's streams diverge at slightly different moments
+  (eventually consistent); a caller
+  that wants to address a stream the edition has not reached must fork it
+  first; existence checks query the edition stores; a deletion completes
+  eventually, in order, and waits on any of X's work that never
+  completes.
+- Aligns with: copy-on-write branching of event streams (a fork is the
+  stream's first event in the branch), and with angzarr's own rule that a
+  reaction stays in its trigger's edition.
+
+> **Amended (the owner's later rulings, 2026-10-28): meta-events, and
+> deletion as an event.** Where 14.32 above says `EditionForked`, read
+> `io.angzarr.v1.meta.EditionCreated`; where it says deletion removes every
+> row tagged X in one sequenced operation, read the sequence below. It
+> supersedes "Deletion: sequenced, then every row tagged X removed" and its
+> "no `EditionDeleted`" sub-ruling.
+> - **Framework meta-events have a reserved namespace,**
+>   `io.angzarr.v1.meta` (`meta/events.proto`). A meta-event is a real
+>   event, appended and stamped like any other with a framework-derived
+>   `command_id` of its own; stores and coordinators may recognise one by
+>   its type URL and act on it; business handlers never see one. Only the
+>   meta-events something needs are defined: `EditionCreated` (the fork
+>   event, renamed; the owner: "the fork event is renamed EDITION
+>   CREATION") and `EditionDeleted`.
+> - **Deletion is an event that exists in its domains** (the owner:
+>   "delete edition / EditionDeleted needs to be an EVENT, to propagate via
+>   sagas to other domains"; "it needs to exist in its domains"). Per
+>   stream of X, in this order: (1) RECORDED: `DeleteEdition` appends
+>   `EditionDeleted` to X's origin streams, and each stream the deletion
+>   reaches records its own, in its own domain, in sequence after its
+>   earlier work; (2) PROPAGATED: the recorded event travels onward through
+>   that domain's saga flows to the next domains, like any event
+>   (angzarr automates it; annals does it in its in-process chain of
+>   committed steps); (3) REMOVED: only after it has propagated onward (its
+>   outgoing saga steps and outbox entries for it have completed) are the
+>   stream's rows tagged X removed, the `EditionDeleted` event included.
+>   Nothing remains. A removal before propagation is a bug.
+> - `EditionDeleted { edition, propagated_from, deleted_by }`: the stream's
+>   own sequence orders the deletion after its earlier work; the last two
+>   mirror `EditionCreated`'s propagation fields.
+> - **Known limitation, with no new mechanism:** a stream of X that the
+>   deletion cannot reach through the saga flows keeps its rows and stays
+>   visible in `ListEditions`, for the user to act on.
+> - **After deletion, a later arrival is refused** (the owner, revising
+>   the draft's D6): once an edition is deleted, a later arrival in it (a
+>   saga command, or a step's position on a removed stream) is refused
+>   `NOT_FOUND`, because the edition does not exist; it re-creates neither
+>   the stream nor the edition. Only an explicit create (`ForkStream`)
+>   brings the name back. This replaces 14.32's "a later saga command in X
+>   re-forks its target like any arrival, so X reappears in
+>   `ListEditions`". A store knows it from its rows alone (flagged): an
+>   edition is DELETED, or being deleted, while any stream of it holds an
+>   `EditionDeleted`, and does not exist once no `EditionCreated` of it
+>   remains anywhere; an arrival's creation (one with `propagated_from`)
+>   and a position on a stream with no rows of the edition are refused in
+>   either case.
+> - Main is still never written: all of this lives in X.
+
+> **Amended again (the owner's rulings, 2026-10-28): who owns the edition
+> lifecycle.** The ROUTER never sees a meta-event; the ANGZARR SYSTEM
+> LAYER owns the edition lifecycle (the owner: "edition is the angzarr
+> SYSTEM").
+> - **The router** is pure business dispatch: domain, process manager and
+>   policy handlers; typed refusals and the refusal path; the dedup
+>   DECISION; the process manager start rule; and one edition rule, that
+>   a policy's commands stay in their trigger's edition.
+> - **The angzarr system layer** is ONE shared piece of system code, a
+>   transport-free crate in angzarr-core (`angzarr-io/angzarr`; working
+>   name `angzarr-system`; placed there by 14.36), which BOTH runtimes
+>   (the angzarr-embedded kernel, locally; core's coordinator,
+>   distributed) call around the router's
+>   business dispatch. It is neither the router nor reimplemented per
+>   runtime. It owns everything else of an edition:
+>   - **Creation on arrival:** when a policy's command in X arrives at a
+>     stream with no rows in X, the system layer writes that stream's
+>     `meta.EditionCreated`, then hands the command to the router as an
+>     ordinary command in X.
+>   - **Refusals, before the router is called** (the system layer's): outside input to an
+>     unforked stream, `FAILED_PRECONDITION` reason `EDITION_NOT_FORKED`;
+>     an arrival in an edition that is deleted, or being deleted,
+>     `NOT_FOUND` reason `EDITION_NOT_FOUND`; a meta-event payload
+>     arriving from outside the system layer, `INVALID_ARGUMENT` reason
+>     `META_EVENT_FROM_OUTSIDE` (flagged: the name and status). Nothing
+>     is written in any of them.
+>   - **Deletion's transit:** the system layer writes `meta.EditionDeleted` in
+>     X's origin stream(s), then propagates it along the streams its
+>     policies reached in X, as its own write in each (recorded
+>     in each, propagated onward, then removed); a stream with nothing of X
+>     left is skipped, and nothing is created or forked there. It is not
+>     carried as a policy command.
+>   - **Filtering:** the system layer filters meta-events out of everything
+>     policies and handlers see; no business code runs for one.
+
+> **Amended by 14.107 (ruled 2026-11-02):** forks no longer travel with the data: every stream is forked explicitly with ForkStream, and an input in an edition to an unforked stream is refused `ANGZARR_REASON_EDITION_NOT_FORKED`. Deletion is by enumeration of the forks, with no `EditionDeleted` event and no propagation; this revisits the 2026-10-28 ruling that a deletion is an event propagated through the policies, whose premise (forks that propagate) is gone.
+
+**14.33 The stateless event-to-command mapper is a POLICY, not a saga.**
+Owner ruling, 2026-10-28. Canon calls a saga stateful: what angzarr has
+called a saga (it reacts to one domain's events and builds commands for
+another, keeping no state of its own) is a POLICY, and the stateful
+coordinator canon calls a saga is angzarr's process manager, a domain
+(14.31). A mechanical rename, with no behaviour change:
+- `saga.proto` is `policy.proto`; `SagaService` is `PolicyService`,
+  `SagaCoordinatorService` `PolicyCoordinatorService`, `SagaResponse`
+  `PolicyResponse` (its HTTP binding `/v1/policy/execute`); `Refusal`,
+  `OnRefused` and `OnRefusedResponse` keep their names.
+- `ComponentKind.COMPONENT_KIND_SAGA` (2) is `COMPONENT_KIND_POLICY`, the
+  same number.
+- The examples' `sagas.proto` is `policies.proto`, and its `*Saga` state
+  messages are `*Policy` (`TablePlayerPolicy`, `BuyInPlayerPolicy`,
+  `BuyInTablePolicy`, `TableBuyInPolicy`, `PlayerBuyInPolicy`).
+- angzarr-proto's `ids::reaction_command_id` is `ids::policy_command_id`
+  ("reaction" stays out of code; the derivation and its namespace are
+  unchanged, so every derived id is the same).
+- Every comment, field note, region, feature (`policy_refusal.feature`,
+  the blackjack framework tier's `policy.feature`, the steps' "a policy")
+  and the ports' wording follows. `#[process_manager]` and the PM naming
+  stay as they are.
+- Earlier entries keep their text: where they say "saga" for the
+  stateless mapper, read "policy".
+- Why: one word per concept, matching the literature: a saga keeps state
+  across steps; this component never does.
+
+> **Amended by 14.91 (ruled 2026-11-02):** a fact is declared by its own option, `(io.angzarr.v1.fact)` (`FactOptions`), never by `CommandOptions.fact`, which is reserved (5). A message is a command or a fact by which option it carries.
+
+**14.34 The proto says whether an input is a command or a fact.** Owner
+ruling, 2026-10-28. `CommandOptions.fact` (`options.proto`, field 5, a
+bool): unset, the `(command)` message is a COMMAND, which its handler
+decides and may refuse; set, it is a FACT, something that already
+happened, which its handler records and cannot refuse.
+- Why: angzarr-cli's scaffold writes `#[handles_cmd]` or `#[handles_fact]`
+  from it, and the generator checks a component's markup against the
+  proto (a `#[handles_cmd]` on a fact, or a `#[handles_fact]` on a
+  command, fails generation), so the proto is the one statement of it.
+- `refuses` on a fact fails generation: a fact cannot be refused.
+  `starts` applies to both: a process manager may start from a command or
+  from a fact. `emits` applies to both.
+- Flagged: a bool rather than an enum (`InputKind { COMMAND, FACT }`): two
+  values, with command the default, need no third; an enum would leave
+  room for a kind not yet known.
+- The examples mark the buy-in's `SeatConfirmationRefused` (its translated
+  refusal fact) as a fact. The buy-in example declares no timeout or
+  expiry input yet.
+
+**14.35 No global position, ever: ordering is per stream.** Owner ruling,
+2026-10-28, hard. angzarr has no global or store-wide position, now or
+later: events are ordered within their stream only, and no store keeps an
+order across streams.
+- **The commit position is removed.** `EventStore::commit_position`,
+  `Editions::fork_point`, their dyn twins, `MemoryStore`'s bookkeeping for
+  them and the suite's checks of them are deleted from angzarr-ports.
+  `ForkStreamRequest.commit_position` (2), `EditionSummary.commit_position`
+  (4), `meta.EditionCreated.commit_position` (3) and
+  `meta.EditionDeleted.commit_position` (2) are deleted, unreserved (6.6), and `ForkStream` loses its `FAILED_PRECONDITION` for a
+  time-based fork.
+- **The time-based edition fork is dropped entirely.** An edition is
+  per-stream forks only (14.32): the origin at its own head, each stream
+  a policy command reaches at its own head on arrival. Scenario C-0638 is
+  retired.
+- **Set-based validation uses the existing primitives.** A rule that spans
+  streams ("usernames are unique") is a process manager's: a domain that
+  keeps the state the rule needs and refuses or compensates a breaking
+  claim. Reservation domains are a possible future option, seen as added
+  complexity that process managers already cover. Dynamic Consistency
+  Boundaries are not pursued at this time: DCB needs a globally ordered
+  log, which angzarr does not have (`FUTURE.md`, Set-based validation).
+- **The 2026-10-27 "commit-order ruling" was never the owner's.** The
+  store-wide commit position came in with annals 074f7ff, whose commit
+  message asserted an owner ruling the owner did not make; 14.32 took it
+  in as its time-based option. Where earlier entries cite that ruling,
+  read this one.
+- Why: per-stream ordering is what the stores can keep cheaply and
+  everywhere, in memory, in SQLite and distributed alike; a store-wide
+  order is a single point of contention that nothing in angzarr needs.
+- Cost: an edition's streams cannot be forked at one store-wide moment;
+  a consistent cross-stream snapshot is not offered.
+
+> **Amended by 14.42 (pass 14):** the policy's coordinator checks every command's root, correlation and edition (and stamps the edition), not the client library. The checks are per triggering page, from `PolicyResponse.reactions`.
+
+> **Amended by 14.86 (ruled 2026-11-02):** `EditionCreated.parent_sequence` is reserved; the event's own sequence is the fork point, so the ports' `StoreError::MalformedCreation` rule (a creation stating another parent sequence) leaves the spec. `ForkStreamRequest.parent_sequence` stays.
+
+**14.36 A policy may name a process manager's root; a fork is where it
+says.** Owner rulings, 2026-10-28. Amends 14.30, 14.31 and 14.32.
+- **Correlation traces the causal chain.** A policy sends commands to
+  foreign aggregates directly, and to process managers; its refusal facts
+  go to its own source (14.31). Every command or fact a policy sends, to
+  any target, carries its trigger's `correlation_id` unchanged.
+- **An aggregate target:** the policy names the aggregate's root, as
+  before.
+- **A process manager target: naming the root was optional (superseded
+  by the amendment below).** As first ruled, a policy could leave a PM
+  command's root for the framework to fill with the trigger's
+  correlation, or name another by an opt-in callback. The amendment below
+  withdraws the optional root, the callback and the default: a policy
+  always names the root, for every target.
+- **What changes in 14.30 and 14.31.** A PM instance's root is no longer
+  always its correlation: one instance may take inputs of several
+  correlations, and its events carry each input's correlation, as any
+  domain's do. The rule that a `correlation_id` set to anything other than
+  the cover's root is malformed is withdrawn for every PM input, a
+  client's included: such an input is delivered to the root its cover
+  names, keeping its correlation. A `correlation_id` left unset on an
+  input to a PM is still given its cover's root (14.31's rule, kept). So
+  14.31's "the one
+  pipeline rule a PM's coordinator adds to an aggregate's" is gone; the
+  start rule (B1) is now the only thing a PM's coordinator adds. 14.30's
+  cost, one instance per correlation, no longer holds. Scenario C-0598 is
+  retired.
+- **Where the shared framework code lives (14.32's second amendment
+  amended; owner ruling).** The angzarr system layer (`angzarr-system`,
+  the edition lifecycle) and the other shared coordinator crates live in
+  angzarr-core (`angzarr-io/angzarr`) as transport-free crates, called by
+  both core's coordinator and the angzarr-embedded kernel; they are not in
+  angzarr-project. angzarr-project keeps only the contract: the protos,
+  angzarr-proto and angzarr-ports.
+- **A fork is at the sequence it states (14.32 amended).**
+  `meta.EditionCreated.parent_sequence` is the fork point: the creation's
+  own sequence, below which (D, X, R) reads main's events. Main's head is
+  main's next sequence for that stream (its length). The store accepts a
+  creation at any stated sequence at or below main's head, and refuses one
+  above it as a conflict (`StoreError::Conflict`), writing nothing. There
+  is no implicit "the head at write time" rule: a store never moves a fork
+  to the head. A creation whose `parent_sequence` differs from its own
+  page's sequence is malformed (`StoreError::MalformedCreation`,
+  INVALID_ARGUMENT), writing nothing.
+- **On arrival, the system layer records the head it read.** When a
+  policy's command arriving in X creates its target's fork, the angzarr
+  system layer reads that one stream's main head and writes the
+  `EditionCreated` at it, with that `parent_sequence`. Policies never
+  handle sequences. A race with main is harmless: if main appends between
+  the read and the write, the fork still lands where it says, and the
+  edition reads main's events below it only.
+- **An origin states its sequence.** `ForkStream` names the sequence to
+  fork its stream at: `ForkStreamRequest.parent_sequence` (3), a plain
+  `uint64` the caller always states, 0 being a valid fork at the start;
+  there is no "head when unset". One above main's head is the store's
+  conflict, answered `ABORTED`, the spec's status for a failed
+  test-and-set, writing nothing.
+- **Per aggregate.** The fork point is per stream (one domain and root, in
+  X). Each stream's fork is read and stated on its own, and nothing
+  relates two streams' fork points: no cross-stream snapshot is promised
+  (14.35).
+- Text changed with it: `process_manager.proto` (Stream), `Cover.root`,
+  `Cover.edition` and the command identity region and malformed list in
+  `types.proto`, `PolicyResponse.commands` (`policy.proto`),
+  `EditionCreated.parent_sequence` (`meta/events.proto`),
+  `ForkStreamRequest` and the system layer's home (`meta.proto`,
+  `meta/events.proto`), angzarr-ports' `EventStore` docs,
+  14.32 above, and the site's process manager, editions and edition
+  glossary pages. Scenarios C-0656 to C-0665, and C-0628's ForkStream
+  now states its sequence; angzarr-ports' checks
+  `a_fork_below_mains_head_lands_at_its_stated_sequence`,
+  `a_fork_above_mains_head_is_a_conflict` and
+  `a_creation_stating_another_parent_sequence_is_malformed`, with the
+  new `StoreError::MalformedCreation`.
+- Why: a set-based rule ("usernames are unique", 14.35) needs a PM
+  instance keyed by what the rule is about, not by whichever workflow
+  happened to trigger it, and the causal chain must still be traceable
+  through it. A fork's point must be a fact the event states, not a
+  property of when the write happened to run, so a race cannot move it.
+- Cost: a policy naming a PM root must derive it from its event alone
+  (a policy looks nothing up); a PM instance shared across correlations
+  is a point of contention for those workflows. A fork below main's head
+  is accepted silently, so a stated point that is wrong (too low) is not
+  caught by the store.
+- Aligns with: MassTransit's saga state machines, whose events may be
+  correlated to an instance by a property other than the `CorrelationId`
+  (`CorrelateBy`; knowledge, not re-verified); and with copy-on-write
+  branching at a stated parent version.
+
+> **Amended (the owner's rulings, 2026-10-28, after reviewing the
+> router's tests): a policy always names the root.** In the owner's words:
+> "don't differentiate process managers"; "do we need the root callback
+> period, or is it unnecessary complexity? the policy is going to always
+> have access to set the root"; and, of the default, "Drop it: a policy
+> always sets the root". It supersedes 14.36's optional PM root, its
+> `root_<Command>` callback and its framework-filled default. The fork
+> rules above are unchanged.
+> - **A policy names its command's root (`cover.root`) for EVERY target,**
+>   aggregate or process manager alike. There is no kind-specific rule:
+>   the router never knows the target's kind. A policy command with no
+>   root is a policy bug for every target: refused `INTERNAL` with
+>   `ErrorInfo` reason `COORDINATOR_REASON_POLICY_COMMAND_NO_ROOT` (extras `domain` and
+>   `command_type`), dead-lettered and alerted, never delivered.
+> - **No root callback and no default root.** Nothing fills in a root: the
+>   trigger's correlation is no longer given to a PM command as its root.
+>   14.30's "the root is the correlation" is a convention a policy may
+>   follow by writing it (setting the root to its trigger's correlation).
+>   C-0657 becomes the one any-target scenario (C-0665 is merged into it
+>   and retired); C-0664 is retired. C-0658, C-0659 and C-0660 have the
+>   policy set the root directly; C-0601 has its policy set the root to its
+>   trigger's correlation. C-0666 pins `COORDINATOR_REASON_POLICY_COMMAND_OTHER_CORRELATION`.
+> - **Kept:** every command or fact a policy sends carries its trigger's
+>   correlation unchanged, and one carrying another correlation is a
+>   policy bug, refused `INTERNAL` with reason
+>   `COORDINATOR_REASON_POLICY_COMMAND_OTHER_CORRELATION`, dead-lettered and alerted. A PM
+>   input whose correlation differs from its root is admitted (the
+>   correlation-equals-root rule stays withdrawn). An unset correlation on
+>   a PM input is still given its cover's root (14.31).
+> - Why: one rule for every target, and none the router must tell apart
+>   by kind; the policy already builds the command from its event, so
+>   naming the root is no extra burden, and a callback and a default were
+>   two ways to say what the policy can write directly.
+
+> **Amended by 14.39 (pass 14):** `DUPLICATE_UPCASTER_CHAIN` is retired, because the router holds no upcaster chain. So is `DUPLICATE_COMMAND_HANDLER`, whose only condition was an old type that is also a current type. From the router, `ROUTER_REASON_UNKNOWN_COMMAND_TYPE` and `ROUTER_REASON_NO_FACT_HANDLER` carry `type_url` only, the type the router was given. The coordinator answers the caller with `type_url` as sent and `upcast_type_url`.
+
+> **Amended by 14.42 (pass 14):** the reason keys, their owner, status and arg names live in `catalog/reasons.toml` and are generated per language. Classification by status is the coordinator's. Many router keys retire or move to the coordinator (14.42 lists them). A language with only exceptions marks a bug with no cause by a named unclassified error.
+
+> **Amended by 14.44 (2026-10-30):** the reason keys are the enums of `reasons.proto` (`RouterReason`, `HostReason`, `CoordinatorReason`), not a TOML catalog; a key travels as its value's full name, its enum's prefix included (`ROUTER_REASON_DUPLICATE_COMPONENT`), and every enum reserves the retired keys. Every key named in this log before 14.44 is written here with its prefix, except the old reasons of 14.37's inventory and the retired keys, which were only ever answered bare. Nothing is generated per language from a catalog.
+
+> **Amended by 14.107 (ruled 2026-11-02):** the fork on arrival at the main head is gone; ForkStream's stated sequence is the only fork point.
+
+**14.37 Errors carry a key and an argument map, never rendered English;
+the input's acceptance time is delivered.** Owner rulings, 2026-10-28.
+Amends 5.11, 14.2, 14.8 and 14.31. In the owner's words: "we should *not*
+carry the full english text, but the key and the map".
+- **The rule.** Every error angzarr sends is a KEY and an ARGUMENT MAP.
+  Text is rendered only where it is displayed (a console, a UI, a client's
+  `message()`), from a Fluent catalog keyed by the code. A diagnostic's
+  display, in logs, is its code plus its args. No free text crosses any
+  boundary: not a gRPC status message, not a dead letter, not a response
+  field. One exception, a third-party library's own error text, carried
+  verbatim as the arg `ext_err_txt` (owner's rulings, 2026-10-29, late,
+  below).
+- **Quoting in a display.** In a code-plus-args display, a value that is empty or holds whitespace, `=`, `"` or `\` is written double-quoted, its `"` and `\` backslash-escaped; any other value stays bare, so every line parses back (owner ruling, 2026-10-29).
+- **It covers handlers too.** A typed rejection is its refusal message
+  (the `Any` of one of the command's `refuses` types): its type is the
+  key, its fields the map. Any other rejection carries a diagnostic code
+  plus args, its code being the reason. A handler bug carries a diagnostic
+  code plus args too: the router answers it `ROUTER_REASON_UNHANDLED_HANDLER_ERROR`, with
+  the handler's own code and args as its cause, and what escaped (an
+  error's text, a panic's message) stays in the handler's own log. A
+  panic's cause is `ROUTER_REASON_HANDLER_PANICKED`.
+- **On the wire.** The gRPC status message IS the reason key, and the
+  `google.rpc.ErrorInfo` (domain `angzarr.io`) carries the same key as its
+  reason and the args as its metadata. Every distinct condition gets its
+  own reason key: no two conditions share one and differ only by text. In
+  a message, the key and map are `Diagnostic { code (1), args (2) }`
+  (`types.proto`, the `diagnostic` region; `args` a `map<string,
+  string>`). A wrapped cause is flattened into the args: the cause's code
+  under the arg's name, each of its args under `<name>.<arg>` (`cause` =
+  `annals-store-sql-io`, `cause.errno` = `10`), in `Diagnostic.args` and
+  `ErrorInfo` metadata alike.
+- **The router's reason inventory.** Built from angzarr-router's
+  `crates/router/src/error.rs` and its call sites (branch `poc/dispatch`),
+  reconciled with the router agent's proposal. Conditions that shared a
+  reason and differed by English text get their own keys (details in the
+  `ErrorInfo` metadata):
+
+  | Old reason | Condition | New key (metadata) |
+  |---|---|---|
+  | `UNHANDLED_HANDLER_ERROR` | a fold fails on persisted events (`ROUTER_REASON_FOLD_FAILED` text) | `ROUTER_REASON_FOLD_FAILED` (`sequence` and `type_url`, or `first_sequence` and `last_sequence`; `state_type_url`; the fold's own failure as `cause`) |
+  | `UNHANDLED_HANDLER_ERROR` | a fold fails on an event the command emitted (`ROUTER_REASON_FOLD_FAILED_EMITTED` text) | `ROUTER_REASON_FOLD_FAILED_EMITTED` (as `ROUTER_REASON_FOLD_FAILED`) |
+  | `UNHANDLED_HANDLER_ERROR` | an error escaped a handler, or it panicked | `ROUTER_REASON_UNHANDLED_HANDLER_ERROR` (the handler's code and args as `cause`; `ROUTER_REASON_HANDLER_PANICKED` for a panic) |
+  | `NO_HANDLER_REGISTERED` | a command type no handler claims, after upcasting | `ROUTER_REASON_UNKNOWN_COMMAND_TYPE` (`type_url`, `upcast_type_url`) |
+  | `NO_HANDLER_REGISTERED` | a dispatch to a kind the business process does not host | `ROUTER_REASON_NO_COMPONENT_OF_KIND` |
+  | `NO_HANDLER_REGISTERED` | a policy given a book of a domain it does not consume | `POLICY_SOURCE_OUTSIDE_INPUT_DOMAIN` (`domain`, `expected_domain`) |
+  | `NO_FACT_HANDLER` | a fact type no handler claims | `ROUTER_REASON_NO_FACT_HANDLER` (`type_url`, `upcast_type_url`) |
+  | `NO_FACT_HANDLER` | a pass-through `CommandRefused` the source has no `on_refused_<Command>` for | `ROUTER_REASON_NO_REFUSAL_HANDLER` (`command_type`) |
+  | `DUPLICATE_REGISTRATION` | "a router hosts one component", and "this business process already hosts its one component" (the C ABI's one-at-a-time path): one condition | `ROUTER_REASON_DUPLICATE_COMPONENT` (`component`, `component_kind`) |
+  | `DUPLICATE_REGISTRATION` | "a component has one upcaster chain" | `DUPLICATE_UPCASTER_CHAIN` |
+  | `MISSING_COMMAND_BOOK` | a `Refusal` with no command | `REFUSAL_WITHOUT_COMMAND` |
+  | `MISSING_COMMAND_BOOK` | a `Refusal` with no event | `REFUSAL_WITHOUT_EVENT` |
+  | `MALFORMED_REFUSAL_FACT` (`reason` "no fact") | `OnRefusedResponse` holds no fact | `REFUSAL_FACT_MISSING` |
+  | `MALFORMED_REFUSAL_FACT` ("set the fact's cover or handling") | the policy set the fact's cover or handling | `COORDINATOR_REASON_REFUSAL_FACT_ADDRESSED` |
+  | `MALFORMED_REFUSAL_FACT` ("no page") | the fact has no page | `COORDINATOR_REASON_REFUSAL_FACT_NO_PAGE` |
+  | `MALFORMED_REFUSAL_FACT` ("the page is not a Fact") | the page is a Command | `COORDINATOR_REASON_REFUSAL_FACT_NOT_A_FACT` |
+  | `MALFORMED_REFUSAL_FACT` ("set the fact's identity") | the policy set the fact's identity | `COORDINATOR_REASON_REFUSAL_FACT_IDENTIFIED` |
+  | `MALFORMED_REFUSAL_FACT` ("no refused command") | the refusal carries no refused command | `REFUSAL_WITHOUT_REFUSED_COMMAND` |
+  | `MALFORMED_REFUSAL_FACT` ("no command_id") | the refused command carries no `command_id` | `REFUSED_COMMAND_WITHOUT_ID` |
+  | `MALFORMED_REFUSAL_FACT` ("no triggering stream") | the refusal carries no triggering stream | `REFUSAL_WITHOUT_TRIGGER_STREAM` |
+  | `ANY_DECODE_FAILED` ("failed to decode X", one text per message) | bytes that do not decode as the message expected: one condition | `ROUTER_REASON_ANY_DECODE_FAILED` (`message_type`) |
+  | none (empty code; router-ffi) | a host callback's status bytes do not decode | `HOST_STATUS_UNDECODABLE` |
+  | none (router-ffi) | a null pointer crosses the C ABI | `NULL_ABI_POINTER` (`argument`) |
+
+  `MALFORMED_REFUSAL_FACT`, `DUPLICATE_REGISTRATION` and
+  `NO_HANDLER_REGISTERED` are retired (the last split three ways: an
+  unknown type is `ROUTER_REASON_UNKNOWN_COMMAND_TYPE`, the rest `ROUTER_REASON_NO_COMPONENT_OF_KIND`
+  and `POLICY_SOURCE_OUTSIDE_INPUT_DOMAIN`; owner ruling, 2026-10-29). The codes that
+  were already one per condition keep their key and lose their English
+  constant: `COORDINATOR_REASON_MISSING_RULES_VERSION`, `COORDINATOR_REASON_MISSING_STATE_TYPE`,
+  `COORDINATOR_REASON_STARTING_TYPES_ON_NON_PM`, `DUPLICATE_COMMAND_HANDLER`,
+  `ROUTER_REASON_NO_HANDLERS_REGISTERED`, `MISSING_COMMAND_BOOK`, `MISSING_COMMAND_PAGE`,
+  `MISSING_COMMAND_PAYLOAD`, `MISSING_EVENT_BOOK_COVER`,
+  `EMPTY_POLICY_SOURCE`, `ROUTER_REASON_PERSISTED_EVENT_CORRUPT`, `COORDINATOR_REASON_CONFLICT_UNRESOLVED`,
+  `COORDINATOR_REASON_CONFLICT_OVERLAP`, `ROUTER_REASON_CONFLICT_RESOLUTION_UNSUPPORTED`,
+  `COORDINATOR_REASON_POLICY_COMMAND_OUTSIDE_DESTINATION`, `COORDINATOR_REASON_POLICY_COMMAND_OUTSIDE_EDITION`,
+  `COORDINATOR_REASON_POLICY_COMMAND_NO_ROOT`, `COORDINATOR_REASON_POLICY_COMMAND_OTHER_CORRELATION`,
+  `COORDINATOR_REASON_PM_NO_INSTANCE` and `COORDINATOR_REASON_REFUSAL_FACT_WRONG_STREAM`. The `fold_message`
+  metadata entry becomes the fold's `cause`.
+- **Proto text fields become key + map.** Removed fields stay unreserved
+  (6.6):
+  - `RefusalResponse.message` (2) is deleted; `RefusalResponse` is
+    `oneof reason { Any refusal = 1; Diagnostic diagnostic = 3; }`, a typed
+    refusal or an untyped rejection's diagnostic;
+  - `ProjectorFailure.message` (3) is deleted; `ProjectorFailure.diagnostic`
+    (4) is added beside `code` (2);
+  - `AngzarrDeadLetter.rejection_reason` (3), "Human-readable reason", is
+    deleted; `AngzarrDeadLetter.reason` (16, a `Diagnostic`) is added;
+  - `EventProcessingFailedDetails.error` (1) is deleted;
+    `EventProcessingFailedDetails.failure` (5) is added;
+  - `PayloadRetrievalFailedDetails.error` (5) is deleted;
+    `PayloadRetrievalFailedDetails.failure` (6) is added;
+  - in `dlq_admin.proto`, `StoredDeadLetter.rejection_reason` (5) and
+    `details` (7, "free-form debug detail") are deleted and
+    `StoredDeadLetter.reason` (15) added; `DeadLetterReplay.detail` (7,
+    "Human-readable detail") is deleted and `DeadLetterReplay.reason` (8)
+    added.
+  - angzarr-ports' `Cause { code, message }` becomes `Cause { code, args }`,
+    and `StoreError`'s `Display` is the code then its args, never English.
+- **Text fields found and left for the owner** (not errors angzarr
+  sends, or a standard's shape): `ProblemDetails.title` and `detail`
+  (`dlq_admin.proto`, RFC 7807, human-readable by that standard);
+  `sererr.v1.CapturedError.message` and `ExceptionMechanism.description`
+  (a captured foreign exception's text, Sentry's shape, for DLQ triage);
+  `FactOrigin.description` (an audit label, "Stripe webhook", not an
+  error).
+- **The input's acceptance time.** `ContextualCommand.recorded_at` (4, a
+  `Timestamp`) is stamped by core's coordinator or the angzarr-embedded
+  kernel when the input is accepted, so command and fact handlers can read
+  it.
+- Text changed with it: the `diagnostic` region, `RefusalResponse`,
+  `ProjectorFailure`, `ContextualCommand`, the DLQ details and
+  `AngzarrDeadLetter` in `types.proto`; the unknown-type refusal in
+  `types.proto`, `command_handler.proto` and `upcaster.proto`; the refusal
+  wiring in `policy.proto`, the no-path refusal in `options.proto`;
+  `StoredDeadLetter` and `DeadLetterReplay` in `dlq_admin.proto`.
+  Scenarios C-0539, C-0540, C-0580, C-0165, C-0459, C-0551, C-0293,
+  C-0294, C-0444 to C-0446, C-0448, C-0618 and C-0624, and the parity scenarios C-0131, C-0341, C-0344, C-0345,
+  C-0349, C-0352, C-0355 and C-0363 assert keys and args instead of text;
+  new scenarios C-0667 to C-0677; step rule 18; angzarr-ports'
+  `Cause`, its error tests and docs; angzarr-proto's `tests/diagnostics.rs`;
+  the site's error recovery, observability, error handling and language
+  notes pages, and the snippets that raised English.
+- **Owner's rulings, 2026-10-28 (all the drafter's choices settled):**
+  the decision as drafted is approved, with these:
+  - A typed refusal's wire reason, and so its status message, is
+    `ROUTER_REASON_COMMAND_REFUSED`, with `ErrorInfo` metadata `refusal_type` naming the
+    object's fully-qualified type and the object in the status details:
+    an `ErrorInfo` reason is SCREAMING_SNAKE (AIP-193, knowledge), which a
+    type name is not. A catalog keys a typed refusal by its full type name
+    with each `.` replaced by `-` (a Fluent id has no dots).
+  - `Diagnostic` is one shared message; `args` are strings, as
+    `ErrorInfo` metadata is.
+  - `RefusalResponse` is a oneof; `StoredDeadLetter.details` is deleted
+    outright (the structured detail is the payload's `rejection_details`,
+    which `payload_view` renders).
+  - A wrapped cause is flattened as `<name>` and `<name>.<arg>`.
+  - The events of the write carry `ContextualCommand.recorded_at` as their
+    `EventMeta.recorded_at`, which persistence still holds to
+    `max(previous, now)` (5.15).
+- **Owner's clarifications, 2026-10-29:**
+  - In process too, an error's `Display` is its code then its args
+    (` name=value` each, a wrapped cause flattened as on the wire), never
+    English: English comes only from a catalog keyed by the code, where
+    the error is shown.
+  - (Superseded by `ext_err_txt`, the late rulings below: "a store
+    driver's message text stays in the adapter's local log".)
+  - Two classes of error, and the gRPC status decides which: a business
+    refusal is FAILED_PRECONDITION, INVALID_ARGUMENT, NOT_FOUND,
+    ALREADY_EXISTS, OUT_OF_RANGE or PERMISSION_DENIED (it reaches the
+    issuing policy's OnRefused); a bug is INTERNAL, UNKNOWN or DATA_LOSS
+    (alerted and dead-lettered); UNAVAILABLE, ABORTED and the like are
+    retried. (Superseded by the latest rulings below: four classes.) A handler refuses with a status from the business set and a
+    key and args, or fails as a bug with a key and args
+    (`ROUTER_REASON_UNHANDLED_HANDLER_ERROR`, its key the `cause`). Supersedes the
+    morning's "only FAILED_PRECONDITION is a business refusal".
+  - The router's own structural errors on malformed input are bugs, not
+    business refusals: `MISSING_COMMAND_BOOK`, `MISSING_COMMAND_PAGE`,
+    `MISSING_COMMAND_PAYLOAD`, `ROUTER_REASON_UNKNOWN_COMMAND_TYPE`, `ROUTER_REASON_NO_FACT_HANDLER`,
+    `ROUTER_REASON_NO_REFUSAL_HANDLER`, `REFUSAL_WITHOUT_COMMAND`, `REFUSAL_WITHOUT_EVENT`,
+    `ROUTER_REASON_ANY_DECODE_FAILED` and every other condition the router answered
+    INVALID_ARGUMENT or NOT_FOUND are INTERNAL, alerted and dead-lettered,
+    and never reach a policy's OnRefused. INVALID_ARGUMENT and NOT_FOUND
+    are a handler's, for a business refusal. (A coordinator's own
+    validation of a client's malformed command still answers
+    INVALID_ARGUMENT.) Scenarios C-0539, C-0540, C-0670, C-0492 and C-0610
+    say INTERNAL.
+  - `NO_HANDLER_REGISTERED` is retired (above).
+  - The retryable class (UNAVAILABLE, ABORTED, UNIMPLEMENTED and every
+    other status outside the business and bug sets) is "retry with
+    backoff, cap, then dead letter which will generate visibility": the
+    backoff and the cap are configuration, like `on_bug`, and the runtime
+    applies them, not the router. UNIMPLEMENTED (a misroute or a stale
+    deployment) stays retryable.
+  - Following from the classes: C-0617 now says an INVALID_ARGUMENT
+    answer reaches the policy's OnRefused (it no longer dead-letters), and
+    `command_handler.proto`'s status list (and `policy.proto`'s
+    Refusals) state the three classes instead of filing INVALID_ARGUMENT
+    under "Terminal (malformed)".
+  - A rebuild's applier or batched fold that panics fails the fold like
+    one that errs: `ROUTER_REASON_FOLD_FAILED` (`ROUTER_REASON_FOLD_FAILED_EMITTED` for the command's
+    own events) with cause `ROUTER_REASON_HANDLER_PANICKED`, the page named when an
+    applier panicked and the batch's range when a batched fold did. A
+    snapshot loader that panics does the same, naming the snapshot
+    (`sequence`, and the snapshot state's `type_url`); one that errs stays
+    `ROUTER_REASON_PERSISTED_EVENT_CORRUPT`.
+- **Owner's rulings, 2026-10-29 (late):**
+  - **`ext_err_txt`.** Where angzarr converts a THIRD-PARTY library's
+    error (an SQLite driver's, an I/O error, a tonic transport error, a
+    protobuf decode error), the library's own text is carried verbatim as
+    the arg `ext_err_txt`, beside the library's numeric code where it has
+    one (`cause` = `annals-store-sql-io`, `cause.errno` = `5`,
+    `cause.ext_err_txt` = `database is locked`). Supersedes "a store
+    driver's message text stays in the adapter's local log". angzarr's own
+    errors carry no English, as above. A user handler's text is NOT
+    captured: it stays in the handler's own log (C-0669, C-0672).
+  - Retry is on by default and configurable: exponential backoff with
+    jitter, up to a cap; configuration sets the scale (the base delay and
+    its growth factor), the jitter factor and the cap (the attempts, or the
+    total time, before giving up). At the cap the input is dead-lettered
+    and alerted, and a policy step's position then follows its bug setting
+    (`on_policy_bug`: move past the trigger, or stay).
+- **Owner's rulings, 2026-10-29 (latest): four classes.** Supersedes the
+  late rulings' "a business refusal is one class, fatal" and the proposal
+  for a handler's retryable bug. The gRPC status decides the class:
+  - **Business, fatal:** FAILED_PRECONDITION, INVALID_ARGUMENT, NOT_FOUND,
+    ALREADY_EXISTS, OUT_OF_RANGE, PERMISSION_DENIED. Final: returned to the
+    caller, or to the issuing policy's OnRefused; never retried.
+  - **Business, immediate return:** ABORTED. "Re-read and re-decide": the
+    answer was decided on state that has moved. The framework's conflicts
+    (a stale or mismatched `expected_sequence`, a COMMUTATIVE overlap, an
+    unresolved conflict window) are this class, and a handler may choose
+    it too, with its own key (angzarr-router's
+    `CodedError::immediate(key, args)`), going out as ABORTED with that
+    key as the reason. It is returned at once to an outside caller: no
+    retry, no dead letter; the caller re-reads and decides again. For a
+    POLICY step the runtime is the caller: it reloads and re-runs the step
+    under the capped backoff (above), then dead-letters it and alerts; the
+    policy's position then follows `on_policy_bug`. Never a policy's
+    OnRefused. This is the runtime's to do, not the router's. (A queued
+    HandleAsync command carrying its caller's own `expected_sequence` has
+    no caller to return to: it is dead-lettered with
+    SequenceMismatchDetails, as `command_handler.proto` says.)
+  - **Bug, fatal:** INTERNAL, UNKNOWN, DATA_LOSS. Dead-lettered and
+    alerted at once; never OnRefused.
+  - **Bug, retryable:** retried with capped exponential backoff and
+    jitter, then dead-lettered and alerted; never OnRefused. A handler
+    whose dependency is down PICKS the status, one of UNAVAILABLE,
+    DEADLINE_EXCEEDED or RESOURCE_EXHAUSTED (angzarr-router's
+    `CodedError::retryable_bug(RetryableStatus, key, args)`), and the bug
+    goes out as that status, with the reason `ROUTER_REASON_UNHANDLED_HANDLER_ERROR` and
+    the handler's key and args as its `cause` (scenario C-0678).
+    UNIMPLEMENTED and every other status outside the three classes above
+    are retryable bugs too (the framework's: a misroute, a stale
+    deployment).
+  - **The retryable statuses are not interchangeable** (the owner's
+    words): UNAVAILABLE means resend; DEADLINE_EXCEEDED means resend only
+    if the call is idempotent (the work may have happened); RESOURCE_EXHAUSTED
+    means wait longer before resending; ABORTED means re-read and
+    re-decide. A retry loop honours the difference: angzarr's commands are
+    idempotent by `command_id` (deduplication), so a DEADLINE_EXCEEDED
+    resend is safe where the command carries its id; RESOURCE_EXHAUSTED
+    backs off further than UNAVAILABLE.
+  - Text changed with it: `command_handler.proto` (the status codes;
+    HandleAsync's later rejection), `policy.proto` (Refusals); C-0617
+    gains an ABORTED row; C-0678 (a handler's retryable bug, each status)
+    and C-0679 (a handler's immediate-return business error).
+- Why: one representation of an error everywhere, that code can branch on
+  and any language can render; English on the wire was both a parsing
+  temptation and the only thing telling several conditions apart.
+- Cost: every client library and the router ship or read a catalog to show
+  text; logs show codes, not sentences; a handler can no longer explain a
+  rejection in prose to its caller.
+- Aligns with: Google's AIP-193 (a machine-readable `ErrorInfo.reason`
+  and metadata, with the message for humans; here the message too is the
+  key) and Project Fluent's message ids with named arguments (knowledge,
+  not re-verified).
+
+**14.38 The blackjack example: a wallet, and a player that decides.**
+Owner rulings, 2026-10-28, for the example protos
+(`proto/io/angzarr/examples/v1/`), so angzarr-embedded can run blackjack
+with a Rust table and a Python player.
+- **The wallet.** The aggregate that was "player" is the WALLET (domain
+  `wallet`, Rust): identity, funds, holds and captures, loyalty.
+  `player.proto` is `wallet.proto`; `PlayerState` is `WalletState`
+  (`WalletAggregate`); `RegisterPlayer`, `ImportPlayer`, `PlayerRegistered`
+  and `PlayerImported` are `RegisterWallet`, `ImportWallet`,
+  `WalletRegistered` and `WalletImported`; `PLAYER_ALREADY_EXISTS` and
+  `PLAYER_NOT_FOUND` are `WALLET_ALREADY_EXISTS` and `WALLET_NOT_FOUND`.
+  Everything that named it follows: `BuyInPlayerPolicy` and
+  `PlayerBuyInPolicy` are `BuyInWalletPolicy` and `WalletBuyInPolicy`; the
+  settlement policy `TablePlayerPolicy` (table -> wallet: round results and
+  loyalty) is `TableWalletPolicy`; the ledger subscribes to `wallet`, with
+  `WalletLedgerRow`, `wallets`, `GetWalletBalance`, `WalletBalanceView`;
+  `player.feature` is `wallet.feature`, and the buy-in, refusal and codegen
+  scenarios that used the wallet say `wallet`.
+- **The player.** A new aggregate, PLAYER (domain `player`, Python), is the
+  bot. It has state (it is not a policy) and makes decisions:
+  `DecideMove { table_root, round, seat, cards, total, soft, dealer_up,
+  can_double, stack, wager }` produces `MoveDecided { table_root, round,
+  seat, action }`, `action` a `MoveAction` (`MOVE_ACTION_HIT`, `_STAND`,
+  `_DOUBLE_DOWN`). Its state is minimal (`decisions`, `hands_seen`), with
+  room for a model's inputs; PyTorch lives here later. It needs no
+  registration command: its stream starts at its first `DecideMove`.
+- **Two policies (Rust).** `TablePlayerPolicy` (table -> player):
+  `TurnStarted` -> `DecideMove`, root `TurnStarted.player_root`.
+  `PlayerTablePolicy` (player -> table): `MoveDecided` -> `Hit`, `Stand` or
+  `DoubleDown { seat }`, root `MoveDecided.table_root`. Each names its
+  target root (14.36).
+- **One table event added (drafter's choice, for the owner to confirm):**
+  `TurnStarted { round, seat, player_root, hand, dealer_up, can_double,
+  stack, wager }`, recorded right after the event that makes a decision
+  point (`RoundDealt`, `CardDealt`, `HandStood` or `HandDoubled` whose turn
+  names a seat), never once the round settles. Why: the policy takes
+  everything from one event, and none carries a decision point whole.
+  `RoundDealt` names only the first seat; `CardDealt`, `HandStood` and
+  `HandDoubled` give `next_turn` but not that seat's cards (dealt earlier)
+  or the up-card; and no turn event carries the seat's `player_root`. It
+  carries only what a player may see, never the hole card or the shoe
+  (R8's "no peeking").
+- **Markers.** `emits` on every command of the wallet, the table, the
+  buy-in and the player; `refuses` stays on `HoldFunds` and `ConfirmSeat`;
+  `fact` stays on `SeatConfirmationRefused`. `Hit`, `Stand` and
+  `DoubleDown` name no `refuses`: the table asks only the seat on turn and
+  `can_double` says when doubling is allowed, so a refused move is a bug,
+  dead-lettered and alerted (the player defines no `on_refused` handler).
+- **Drafter's choices, for the owner to confirm.** A person's wallet and
+  player share one root (the table's `player_root`); `TurnStarted` and its
+  name; `can_double`, `stack` and `wager` on the turn (so the bot never
+  asks for an illegal double); the bot's hand as flat fields rather than
+  importing the table's `SeatHand`; `MoveAction` values prefixed; no
+  typed refusal for a move; `emits` on every command.
+- **Tonight's driver** seats a player with `RequestSeat` then
+  `ConfirmSeat` sent directly, with no buy-in deployed, so no wallet funds
+  are held or spent and ledger rule L3 does not hold for that table.
+- Text changed with it: the example protos, `options.proto`'s refusal
+  example, the example and framework feature READMEs, `RULES.md`; new
+  scenarios EU-1505 to EU-1510 (`round.feature`) and EU-1600 to EU-1609
+  (`bot_play.feature`).
+- Why: the demo needs a player that decides, in another language, without
+  breaking the money model the wallet owns; a stateless translator on each
+  side keeps the table and the bot unaware of each other.
+- Cost: one extra table event per decision; a person is two streams (wallet
+  and player) under one root; the rename touches every consumer of the old
+  `player` types.
+
+> **Amended (the owner's ruling, 2026-10-29):** `MoveDecided` copies from
+> `DecideMove` everything the decision used: it is `MoveDecided {
+> table_root, round, seat, action, cards (5), total (6), soft (7),
+> dealer_up (8) }`, the existing numbers unchanged. Why: the player's state
+> is rebuilt from its events only, and `hands_seen` (decisions taken on a
+> two-card hand) cannot be counted from an event that does not carry the
+> hand; with the inputs on it, each event is a self-describing (state,
+> action) row for the model to learn from. Cost: the hand is recorded
+> twice, on the table's `TurnStarted` and on the player's `MoveDecided`.
+
+**14.39 The coordinator upcasts, through an upcaster sidecar; the router
+never sees an old shape.** Owner ruling, 2026-10-29 (plan
+`router-call-model`, later rulings). Amends 12.11, 14.1, 14.2, 14.8, 14.22,
+14.25, 14.29 and 14.37; replaces 12.11's in-router chain.
+- **Who upcasts.** Only the coordinator of the component that owns a
+  stream. As before, it upcasts that stream's events on every way out
+  (14.25, 14.29): loading for `Handle`, answering queries, and wherever
+  stored events reach a subscriber. It now also upcasts the payload of
+  every incoming Command and Fact, before it decides anything by the
+  payload's type and before dispatch. That covers a process manager's start
+  rule (14.31, B1), checked against `ComponentDescriptor.starting_types`,
+  and the per-type conflict-resolution configuration. The router (the
+  client library) has no upcaster chain and upcasts nothing. Every payload
+  and event it is handed is in the current shape.
+- **The sidecar.** An upcaster sidecar does the upcasting. It is a process
+  of its own that serves `UpcasterService` and gRPC health. It is not the
+  business process.
+  - In the distributed runtime it is a container beside the component's
+    business process and coordinator. Its address is in the coordinator's
+    configuration.
+  - In angzarr-embedded it is either a child process the host launches the
+    way it launches a remote domain, or a Rust upcaster registered with the
+    kernel in-process. The kernel calls the Rust upcaster directly, under
+    the same contract.
+- **Still part of its component.** As 14.22 says, the sidecar serves only
+  its component's domain. It has no `ComponentKind`, no descriptor and no
+  coordinator of its own, and its one caller is that component's
+  coordinator. 14.22's rule that the business process serves
+  `UpcasterService` is reversed, and `upcaster.proto` again allows an
+  upcaster deployed as a separate binary: the sidecar.
+- **One chain, by type URL.** As 12.11 had it, an upcaster's rules are keyed
+  by type URL, and the same chain covers events and inputs. The wire is
+  unchanged. The coordinator sends an input's payload as a one-page
+  `UpcastRequest` whose page carries only `payload`, and takes the payload
+  of the page returned.
+- **Unknown type after upcasting.** The router refuses a Command (or Fact)
+  whose type URL no handler claims: `INTERNAL`, `ROUTER_REASON_UNKNOWN_COMMAND_TYPE` (or
+  `ROUTER_REASON_NO_FACT_HANDLER`), with `type_url` the type it was given. The coordinator
+  holds both types. It answers the caller with the router's status, but
+  `type_url` is now the type as sent and `upcast_type_url` the type the
+  sidecar returned. With no rule applied, or no sidecar, the two are the
+  same. What the caller sees is unchanged (14.2, 14.8, 14.37). What changes
+  is who fills it in. C-0539 and C-0540 are now coordinator scenarios, and
+  the router's own refusal is C-0682.
+- **Retired with the router's chain:** `DUPLICATE_UPCASTER_CHAIN`, and the
+  build-time check that refused an old type that is also a current command
+  type (`DUPLICATE_COMMAND_HANDLER`). Nothing holds both sets now.
+- **Drafter's choices, confirmed by the owner (2026-10-29):**
+  - No sidecar configured: nothing is upcast.
+  - A sidecar configured but unreachable or failing: the coordinator
+    delivers nothing that needs upcasting, and reports `NOT_SERVING`
+    (C-0681). A synchronous caller and a query are answered `UNAVAILABLE`
+    (retryable). Queued and reaction deliveries stay queued.
+  - A rule the sidecar fails on is a handler bug (5.8).
+  - In angzarr-embedded, a launched sidecar is a `[[domain]]` entry with
+    `kind = "upcaster"`, naming the domain it upcasts. A registered Rust
+    upcaster counts as that domain's sidecar.
+  - The wire stays unchanged, an input's payload riding in an `EventPage`.
+  - The build-time check for an old type that is also a current type is
+    dropped, not moved.
+  - No admit RPC for a remote process manager: the coordinator applies the
+    start rule itself (14.42; 14.41 for the embedded host).
+- **Text changed with it:** the comments of `upcaster.proto`,
+  `command_handler.proto`, `component.proto`, `types.proto`, `query.proto`
+  and `process_manager.proto`, and the wallet example's comment.
+  `handling.feature`: C-0537 to C-0540 move to `upcasting.feature`, new
+  C-0682 is the router's refusal naming the type it was given, the
+  unknown-type rows of the error table carry `type_url` only, and the
+  `DUPLICATE_UPCASTER_CHAIN` row is gone. `upcasting.feature`: the sidecar
+  in its background and description, the moved C-0537 to C-0540, and new
+  C-0680 (a start rule judged on the upcast type) and C-0681 (a sidecar
+  that is down). Also the guide's "Versioning commands", backlog VC-1 and GAP-1,
+  FUTURE.md, and the site's upcasting, components and error pages.
+- Why: the owner wants the router small enough to write one per language.
+  Upcasting is the coordinator's work already for events (14.25), and doing
+  inputs in the same place gives one upcaster per component, one call path
+  and one deployment. A router that never sees an old shape needs no chain,
+  no upcast role in the C ABI, and no upcast-aware start rule.
+- Cost: one more process per component that upcasts, and one more network
+  hop (a Unix socket in angzarr-embedded) on every load, query, history
+  read and input. A sidecar that is down stalls all of them. The coordinator
+  also rewrites the router's unknown-type refusal for its caller.
+- Aligns with: Axon and Marten run upcasters inside the framework's read
+  path, not in handler code. Here that path is the coordinator, and the
+  sidecar keeps it domain-blind.
+
+**14.40 The coordinator handles snapshots; the router only folds what it
+is given.** Owner ruling, 2026-10-29. Amends 14.1 and 14.12, and the
+`ContextualCommand` and `Snapshot` comments.
+- **Loading.** The coordinator loads the snapshot it chose (14.1, 14.21,
+  the window bound) and drops every page the snapshot covers (sequence
+  `<= snapshot.sequence`). It delivers the snapshot's state as the starting
+  state, with only the pages after it. No delivery holds a page the
+  snapshot covers.
+- **Folding.** The router decodes the starting state with the state's own
+  codec, the inverse of the state it returns. Then it folds every page it
+  is given, in order, without comparing sequences with the snapshot. It has
+  no snapshot loader and no covered-page filter. C-0287 is rewritten to
+  say the coordinator drops the covered pages.
+- **Writing.** The coordinator decides when to write a snapshot. It works
+  from the state the router returns on every answer (14.12), applies the
+  domain's storage policy, and stamps `sequence` and `rules_version`. The
+  router never decides.
+- **Wire: none.** On a delivery, `EventBook.snapshot` is the starting state.
+- **Confirmed by the owner (2026-10-29):** the router has no covered-page
+  guard ("snapshots are coordinator work"); one state codec, with no
+  snapshot vocabulary, decodes the starting state and encodes the state
+  the router returns; `EventBook.snapshot` keeps its name.
+- Why: the coordinator already chooses the snapshot and reads the store, so
+  dropping covered pages where it reads leaves one place that knows what a
+  snapshot covers. It also shrinks the router toward one per language, as
+  14.39 does.
+- Cost: the router no longer guards against a covered page. A coordinator
+  bug that delivers one double-folds it, and nothing refuses it.
+- Aligns with: snapshots as caches the event store's reader applies
+  (Marten, Eventuous), with the handler folding only events.
+
+> **Amended by 14.42 (pass 14; owner's rulings, 2026-10-29):** the start rule is the kernel's own, not angzarr-router's `admit_rules`, which 14.42 deletes. For a remote process manager the kernel matches the upcast input's type name against the child's descriptor's `starting_types`, with no router call and no admit RPC. `PolicyComponent` has no `component_descriptor`: the descriptor is generated by angzarr-cli and validated by the coordinator. Its refusal callback (`dispatch_refusal`) answers an optional translated payload: present for translate, absent for no translation. The kernel then builds the pass-through `CommandRefused`, addresses every refusal fact and checks the policy's commands. Codegen C-0607 now expects the bare type name `fulfillment.StartFulfillment`.
+
+**14.41 angzarr-embedded's host applies a remote process manager's start
+rule, and carries policy and projector children.** Owner rulings,
+2026-10-29 (plan `router-call-model`, and the review of the red tests on
+angzarr-embedded `feat/host-admit-policies`). Applies 14.39 to the
+embedded host; amends 14.31's start rule text and 14.37's classes for a
+projector.
+- **The bug.** angzarr-embedded-host's `RemoteCommandHandler` did not
+  override angzarr-router's `CommandHandler::admit`, so it got the
+  default `admit_rules(arrival, None)`: validation and deduplication, but
+  no start rule. A remote process manager's non-starting input with no
+  instance reached the child, which started an instance it should not.
+- **The host applies the start rule; there is no admit RPC.** Admit is
+  coordinator work (14.39). For a child whose descriptor is a
+  PROCESS_MANAGER, the remote handler's admit is `admit_rules(arrival,
+  Some(starts))`, `starts` matching the arrival's payload against the
+  descriptor's `starting_types`; for an aggregate it is `admit_rules(arrival,
+  None)`. The payload is the one the coordinator upcast before admitting.
+  Nothing in the router's admit needs the child: validation reads the
+  arrival's cover and causation, deduplication the events recorded under
+  the input's id, the start rule the stream's existence, the body arm and
+  the type; editions are the runtime's. The first ruling's admit RPC is
+  withdrawn. Wire: none.
+- **`starting_types` lists type names.** Fully-qualified names with no
+  type URL prefix (`examples.v1.OpenTable`), as angzarr-router's
+  `DomainDispatch` advertises them; the coordinator matches the name an
+  input's type URL ends in. Text: `ComponentDescriptor.starting_types`
+  (`types.proto`), `component.proto`'s refusal rule, and
+  `process_manager.proto`'s start rule. No field changes.
+- **`[[component]]`, with `kind`.** angzarr-embedded's config table
+  `[[domain]]` is renamed `[[component]]` (a policy is not a domain). Its
+  `kind` is `"domain"` (the default; an aggregate or a process manager,
+  `CommandHandlerService`, which of the two its descriptor says),
+  `"policy"` (`PolicyService`), `"projector"` (`ProjectorService`) or
+  `"upcaster"` (14.39's sidecar). The host launches, handshakes, describes
+  and supervises every kind alike, and refuses at start a child whose
+  descriptor's kind disagrees with its `kind`. A policy's source and a
+  projector's are the descriptor's one input (`ComponentDescriptor.inputs`).
+- **A policy as the router sees it.** angzarr-router gains
+  `PolicyComponent`, beside `CommandHandler` and `ProjectorHandler`
+  (`name`, `input_domain`, `dispatch`, `dispatch_refusal`,
+  `component_descriptor`), which `PolicyDispatch` implements; a remote
+  policy implements it over `PolicyService`. The kernel runs either as any
+  policy of its source: `Handle` with the one triggering event's book, its
+  commands stamped and checked as an in-process policy's are; a business
+  refusal of one goes to `OnRefused` with the `Refusal`, and the fact it
+  answers is addressed to the trigger's stream.
+- **A projector's failures follow 14.37's four classes.** A fatal bug
+  (INTERNAL, UNKNOWN, DATA_LOSS) is dead-lettered and alerted at once, not
+  retried. A retryable bug (UNAVAILABLE, DEADLINE_EXCEEDED,
+  RESOURCE_EXHAUSTED and every status outside the other classes) is retried
+  under the capped backoff, then dead-lettered. ABORTED is re-run under the
+  same backoff, the runtime being the caller. A projector has no business
+  refusal: it records what happened and refuses nothing (`ProjectorService`
+  declares no refusals, and the events it is handed are committed), so a
+  business status from a projector is its bug, dead-lettered as a fatal
+  one. In every case the events stay committed, and the call that committed
+  them fails after the commit, naming the projector.
+- Red tests: angzarr-embedded `feat/host-admit-policies`,
+  `crates/angzarr-embedded-host/src/components.test.rs`; angzarr-router
+  `feat/policy-component`, `router.test.rs`.
+- Why: the start rule is decided by the type, and after 14.39 the type the
+  host holds is current, so no round trip to the child is needed.
+  FUTURE.md's first PyTorch spike is a policy, and a Python projector is as
+  natural; a host carrying only domains forced them in-process, in Rust.
+- Cost: the host holds the descriptor's starting types and matches them by
+  name; a start rule that ever needed more than the type (the state, say)
+  would need the child again. Two more child kinds to supervise, and a
+  projector's retries delay the call that committed. Every embedded config
+  renames its tables.
+
+> **Amended by 14.42 (as built, angzarr-embedded `feat/host-admit-policies`
+> 91d230a, angzarr-router `feat/policy-component` b71612e):** the start rule
+> is the kernel's own code (`Registry::start_rule`), not the router's
+> `admit_rules`: membership of the upcast type's name in the descriptor's
+> `starting_types`, `COORDINATOR_REASON_PM_NO_INSTANCE` for a command and a silent skip for a
+> fact, applied after the router's admit for every process manager.
+> `PolicyComponent` carries no `component_descriptor`, and its
+> `dispatch_refusal` answers the translated fact's payload or `None` (no
+> translation); the kernel builds the pass-through `CommandRefused` and
+> addresses every refusal fact. A remote policy's `OnRefused` answer that is
+> more than a payload is refused as the policy's bug (C-0685's keys). The
+> router hosts a `PolicyDispatch` as before: the trait serves runtimes.
+
+> **Amended by 14.44 (2026-10-30):** the reason keys are the enums of `reasons.proto` (`RouterReason`, `HostReason`, `CoordinatorReason`), not a TOML catalog; a key travels as its value's full name, its enum's prefix included (`ROUTER_REASON_DUPLICATE_COMPONENT`), and every enum reserves the retired keys. Every key named in this log before 14.44 is written here with its prefix, except the old reasons of 14.37's inventory and the retired keys, which were only ever answered bare. Nothing is generated per language from a catalog.
+
+> **Amended by 14.78 (ruled 2026-11-02):** the conflict nonce and its report are gone (decision 46, Q5); a refusal travels in band (`DecideResponse.refused`, Q2); handler answers hold only payloads, so the output-shape refusals are unrepresentable.
+
+**14.42 The router keeps dispatch; everything else is the
+coordinator's.** Owner rulings, 2026-10-29 (plan `router-call-model`,
+latest rulings). Amends 2.2 (as amended by 14.31), 14.10, 14.24, 14.31,
+14.36 and 14.37, and supersedes ADR 0001. It follows 14.39 (upcasting) and
+14.40 (snapshots) toward a router small enough to write natively in each
+language.
+- **A router per language.** Python gets a native router, and the Rust
+  router stays as the reference. router-ffi and its `abi.proto` are
+  retired, and so is the plan for a generated C ABI. The handler-contract
+  tier (`features/handler-contract/`, with its fixtures in `fixture/`) is
+  the router's COMPLETE contract, and CI runs it against every router.
+  angzarr-router's own conformance features are ported into it (C-0693 to
+  C-0714), without the envelope guards that are no longer the router's.
+- **What the router does, and nothing else.**
+  - It routes by type URL, refusing a type it does not handle:
+    `ROUTER_REASON_UNKNOWN_COMMAND_TYPE`, `ROUTER_REASON_NO_FACT_HANDLER`, or `ROUTER_REASON_NO_REFUSAL_HANDLER` for
+    a `CommandRefused` with no `on_refused_<Command>`.
+  - It folds the starting state and every page it is given (14.40).
+  - It runs decide or ingest, and answers the events, the state and the
+    rules version.
+  - It reports a stale command's conflicts (below).
+  - It runs a policy's handlers once per page and answers their commands
+    grouped by triggering page.
+  - It runs a policy's translating callback, or answers that it has none.
+  - It runs a projector.
+  - It turns whatever escapes business code into a key and its args.
+- **Admission.** The router's `admit` is deleted, and there is no admit
+  RPC. The coordinator owns all three of admit's jobs:
+  - deduplication (pipeline step 3, as before);
+  - the refusal fact's stream check (`COORDINATOR_REASON_REFUSAL_FACT_WRONG_STREAM`, input
+    validation);
+  - a process manager's start rule (`COORDINATOR_REASON_PM_NO_INSTANCE`, or a silent skip for
+    a fact), judged against `ComponentDescriptor.starting_types` by the
+    type name after upcasting (14.39).
+
+  14.41 applies this in angzarr-embedded's host.
+- **Descriptor.** angzarr-cli generates the whole `ComponentDescriptor` at
+  build time from the protos, with the build's baked-in version as its
+  `rules_version`. The business process answers `Describe` with it
+  unchanged, and the router holds no descriptor logic. The coordinator
+  validates it and refuses, as a readiness failure:
+  - an empty version (`COORDINATOR_REASON_MISSING_RULES_VERSION`);
+  - starting types on a kind that is not a process manager
+    (`COORDINATOR_REASON_STARTING_TYPES_ON_NON_PM`);
+  - an aggregate or process manager with no state (`COORDINATOR_REASON_MISSING_STATE_TYPE`);
+  - a policy or projector with a state (`COORDINATOR_REASON_STATE_ON_STATELESS_KIND`);
+  - a policy with other than exactly one input (`COORDINATOR_REASON_POLICY_INPUT_COUNT`,
+    arg `input_count`);
+  - a policy with no output domain (`COORDINATOR_REASON_POLICY_NO_OUTPUT_DOMAIN`);
+  - an output domain on any other kind (`COORDINATOR_REASON_OUTPUT_DOMAIN_ON_NON_POLICY`).
+
+  **Wire:** `ComponentDescriptor.output_domain` (8), for a policy only.
+- **Error catalog.** `catalog/reasons.toml` in angzarr-project lists every
+  framework reason key once: who answers it (the router or the
+  coordinator), its gRPC status, and its arg names. Each language's
+  constants are generated from it, and the catalog lists the retired keys
+  so they are never reused. `scripts/check_reasons.py`, part of
+  `just contracts`, checks its shape and that no feature or proto names a
+  retired key. Classification by status (14.37's four classes) is the
+  coordinator's: the router answers a status and a key and never
+  classifies.
+- **Policy outputs.** The router answers each handled page's commands as
+  business code returned them. The new message is
+  `PolicyResponse.reactions` (2), each a `PolicyReaction {
+  trigger_sequence, commands }`, in page order. The policy's coordinator
+  checks every command against four rules, and one failure refuses the
+  whole answer as a policy bug: nothing is delivered, and the trigger is
+  dead-lettered and alerted. The rules:
+  - **Destination:** the cover's domain is the descriptor's output domain
+    (`COORDINATOR_REASON_POLICY_COMMAND_OUTSIDE_DESTINATION`).
+  - **Edition:** unset, or the trigger's. An unset edition is stamped with
+    the trigger's (`COORDINATOR_REASON_POLICY_COMMAND_OUTSIDE_EDITION`).
+  - **Root:** named (`COORDINATOR_REASON_POLICY_COMMAND_NO_ROOT`).
+  - **Correlation:** unset, or the trigger's
+    (`COORDINATOR_REASON_POLICY_COMMAND_OTHER_CORRELATION`).
+
+  A command's index within its reaction is the index its derived id is
+  built from. **Wire:** `PolicyResponse.commands` (1) is deleted,
+  unreserved (policy 6.6), and `reactions` (2) and `PolicyReaction` are
+  added. Grouping by trigger is what tells the coordinator each command's
+  causation, so it can check and stamp per trigger.
+- **Refusals.** For `OnRefused`, the router runs the translating callback
+  for the refused command's type and answers a fact page holding only the
+  callback's payload. With no callback it answers an empty
+  `OnRefusedResponse`: no translation. The coordinator then:
+  - builds the pass-through `CommandRefused` itself, when there is no
+    translation;
+  - addresses every refusal fact and stamps its identity, as
+    `address_refusal_fact` did;
+  - refuses, as a policy bug, a translated fact that is more than a
+    payload (`COORDINATOR_REASON_REFUSAL_FACT_ADDRESSED`, `COORDINATOR_REASON_REFUSAL_FACT_NO_PAGE`,
+    `COORDINATOR_REASON_REFUSAL_FACT_NOT_A_FACT`, `COORDINATOR_REASON_REFUSAL_FACT_IDENTIFIED`; C-0685).
+
+  **Wire:** none (an unset `OnRefusedResponse.fact` now means no
+  translation).
+- **Envelope guards.** The coordinator builds every delivery well formed,
+  and its input validation covers what a client sends. The router guards
+  no envelope.
+- **Conflicts.** The router no longer discards a stale command's events.
+  It reports, and the coordinator judges:
+  - **AGGREGATE_HANDLES:** the router reports the nonce the handler passed
+    to `resolve_conflicts`, empty if it never called it. The coordinator
+    accepts the events only if that is the nonce it delivered
+    (`COORDINATOR_REASON_CONFLICT_UNRESOLVED`, ABORTED).
+  - **COMMUTATIVE:** the router reports `window = changed(expected, head)`
+    and `mine = changed(head, head + events)`. The coordinator applies
+    options.proto's Overlap rule (`COORDINATOR_REASON_CONFLICT_OVERLAP`, ABORTED, metadata
+    `window_units` and `command_units`).
+
+  Either way a failed judgement persists nothing. The router keeps
+  `ROUTER_REASON_CONFLICT_RESOLUTION_UNSUPPORTED` for a COMMUTATIVE delivery to a state
+  with no resolver. **Wire:** `CommandHandlerResponse.conflict` (4), a
+  `ConflictReport { resolved_nonce, window_units, command_units }`. It is
+  field 4, not 3, because the deleted `snapshot_refused` (3, a bool) must
+  never decode into it.
+- **Panics (C-0669).** In a language with only exceptions (Python), the
+  client library exports a named unclassified exception
+  (`angzarr_client.UnclassifiedError`). Raising it is a
+  bug with no cause (`ROUTER_REASON_UNHANDLED_HANDLER_ERROR`). Any other exception is a
+  panic: `ROUTER_REASON_UNHANDLED_HANDLER_ERROR` with cause `ROUTER_REASON_HANDLER_PANICKED`. Rust is
+  unchanged: an unclassified error has no cause, and a panic is
+  `ROUTER_REASON_HANDLER_PANICKED`.
+- **Retired keys** (listed in the catalog):
+  - `MISSING_COMMAND_BOOK`, `MISSING_COMMAND_PAGE`,
+    `MISSING_COMMAND_PAYLOAD`, `MISSING_EVENT_BOOK_COVER`,
+    `EMPTY_POLICY_SOURCE` and `POLICY_SOURCE_OUTSIDE_INPUT_DOMAIN`: the
+    envelope guards.
+  - `REFUSAL_FACT_MISSING`: an empty answer now means no translation.
+  - `REFUSAL_WITHOUT_COMMAND`, `REFUSAL_WITHOUT_EVENT`,
+    `REFUSAL_WITHOUT_REFUSED_COMMAND`, `REFUSED_COMMAND_WITHOUT_ID` and
+    `REFUSAL_WITHOUT_TRIGGER_STREAM`: the coordinator builds the `Refusal`
+    from its own outbox entry.
+  - `HOST_STATUS_UNDECODABLE` and `NULL_ABI_POINTER`: router-ffi is gone.
+  - `ROUTER_REASON_ANY_DECODE_FAILED` for a `ContextualCommand`'s bytes: the key stays
+    for payloads.
+- **Moved to the coordinator's or the CLI's tier:**
+  - C-0583 to `policy_addressing.feature`.
+  - C-0535 and C-0565 to `codegen/descriptor.feature`.
+  - The judgement halves of C-0543, C-0544, C-0545, C-0547 and C-0550 to
+    new C-0683 and C-0684 in `conflict_resolution.feature`. The router
+    scenarios now assert the report.
+  - The refusal-fact rows of C-0670 to new C-0685 in
+    `policy_refusal.feature`.
+  - C-0613 now has the coordinator building the pass-through fact.
+- **New:**
+  - Router: C-0688 (every page given is folded), C-0689 (reactions by
+    triggering page), C-0690 (commands answered unchecked), C-0691 (a
+    translated fact's payload alone) and C-0692 (no translation).
+  - Coordinator: C-0687 (descriptor validation).
+  - CLI: C-0715 and C-0716 (the output domain in the generated
+    descriptor).
+- **Drafter's choices, confirmed by the owner (2026-10-29):**
+  - the catalog's form, a TOML file, and its `READINESS` pseudo-status;
+  - the new keys, one per condition as 14.37 requires:
+    `COORDINATOR_REASON_STATE_ON_STATELESS_KIND`, `COORDINATOR_REASON_POLICY_INPUT_COUNT`,
+    `COORDINATOR_REASON_POLICY_NO_OUTPUT_DOMAIN` and `COORDINATOR_REASON_OUTPUT_DOMAIN_ON_NON_POLICY` (the
+    drafted `POLICY_DOMAINS_INVALID`, which covered two conditions, was
+    split before it was ever answered);
+  - one reaction per handled page, an empty one included, and none for an
+    unhandled page;
+  - `ROUTER_REASON_UNKNOWN_COMMAND_TYPE` stays in the router. The generated descriptor
+    does not list the handled types;
+  - Python's unclassified exception is `angzarr_client.UnclassifiedError`;
+  - the `PolicyResponse` wire break (field 1 deleted, unreserved) is
+    accepted;
+  - a stale command's events cross the wire even when the coordinator
+    discards them, rather than costing a second round trip.
+- Why: the owner wants a native Python router of about 0.9k lines. Every
+  rule moved here is generic, with no business code in it, so it belongs
+  where it can be written once, in the coordinator. The router keeps only
+  what must call business code. The handler-contract tier then holds a
+  second router to the first by behaviour, not by sharing a binary.
+- Cost:
+  - Three wire changes: one breaking (`PolicyResponse`) and two additive.
+  - Each coordinator (core and the angzarr-embedded kernel) takes on
+    admission, descriptor validation, policy checks, refusal building and
+    conflict judgement.
+  - A stale command's events cross the wire even when the coordinator will
+    discard them.
+  - A router bug in a report (a wrong unit set) is no longer caught where
+    the units are computed.
+- Aligns with: Axon, where the framework, not the handler, owns command
+  routing guards, deduplication and saga association. The handler-contract
+  tier plays the part of a TCK (a technology compatibility kit), as the
+  Reactive Streams TCK does for its implementations.
+- **Amendment, 2026-10-31 (owner ruling: generated code is
+  hand-replaceable).** A descriptor written by hand is supported: business
+  code may write the `ComponentDescriptor` to its documented schema in
+  place of angzarr-cli's (client-python's `describe()` builds one), and the
+  coordinator validates it exactly as a generated one. The business
+  process still answers `Describe` with it unchanged, and the router still
+  holds no descriptor logic. The client library's component host checks
+  one thing at registration: the descriptor's `rules_version` must be the
+  version the component's answers report, else it refuses at once,
+  `HOST_REASON_DESCRIPTOR_RULES_VERSION_MISMATCH` (14.44, amended; C-0743).
+  `types.proto` (`ComponentDescriptor`, its `state`) and `component.proto`
+  (`ComponentService`) say so.
+
+**14.43 A purge is guarded by the head its caller read.** Owner rulings,
+2026-10-29: angzarr-ports' `Purge` gains an expected-head guard, and the
+shape below, guarding by length, was approved with its red tests.
+- **The bug.** A purge is a decision made on a read. taskloom's prune reads
+  a stream, sees a removal, then purges it. Unguarded, a task re-created
+  under the same id between the read and the purge, or a second prune
+  racing the first, loses the new task's events.
+- **The signature.** `Purge::purge(&self, stream: StreamRef, expected: u64)
+  -> Result<u64, StoreError>`. `expected` is the stream's head as read, the
+  same length a write's `Append::expected` is checked against. There is no
+  "any" form. `Append` has none either, and an unguarded purge is the bug
+  itself; a caller that has not read the stream reads its head first. The
+  answer is still how many events were removed.
+- **A stale head is a conflict.** A purge of a stream not at `expected` is
+  refused with `StoreError::Conflict { expected, actual }`, `actual` being
+  the head the store found. It removes NOTHING: not the events, the
+  snapshot, the command ids or the positions on the stream. The class is a
+  write conflict's, business-immediate (ABORTED, `Recovery::Retry`): re-read,
+  decide again.
+- **An absent stream is at 0.** A purge at 0 removes whatever the stream
+  still holds (a snapshot, positions) and answers 0. A purge at more than 0
+  is a conflict, and that is how the second of two prunes that read the
+  same head learns that the first got there before it.
+- **Editions.** A purge of an edition stream is allowed, guarded by its
+  head as read: main's events below its fork, then its own (14.32). It
+  removes only the stream's own rows, never main's, and afterwards the
+  stream reads as main's again. A purge does not replace
+  `Editions::remove_deleted`.
+- **Positions go only when the purge lands.** They are removed in the same
+  atomic step as the events, or not at all.
+- Tests: angzarr-project `spec/20261019-draft`, `rust/angzarr-ports`
+  (`contract.rs`'s `purge` section: `a_purge_at_the_streams_head_removes_it`,
+  `a_purge_at_a_stale_head_is_a_conflict_and_removes_nothing`,
+  `a_purge_of_an_absent_stream_is_at_zero`,
+  `a_purge_removes_positions_only_when_it_lands`,
+  `a_purge_of_a_forked_stream_is_guarded_by_its_head_as_read`; `tests/meta.rs`'s
+  bugs `PurgeIgnoresTheHead`, `RefusedPurgeTakesPositions` and
+  `PurgeGuardsByMain`). angzarr-embedded `feat/purge-expected-head` runs the
+  same section on `SqliteStore`.
+- **Known limit: ABA.** A head is a length, so the guard cannot tell a
+  stream from one that was purged and re-created to the same length in
+  between: a purge at that length deletes the new stream. Closing it would
+  need the guard to carry the last event's identity as well; the owner
+  chose the length alone.
+- Open: a purge of main does nothing to the edition streams forked from
+  it, which read main's events below their forks, so a forked stream loses
+  that history. Whether it should do something is not decided.
+- Why: the ruling. It is the same optimistic check that every write makes,
+  applied to the one destructive call that lacked it.
+- Cost: every caller passes a head, so a caller that held none now makes a
+  read first. A purge that loses a race is retried, not merged.
+
+**14.44 The reason keys are proto enums, one per owner, under buf's
+standard names.** Owner rulings, 2026-10-30. Amends 14.37 and 14.42.
+- **The ruling.** `catalog/reasons.toml`, its gate
+  `scripts/check_reasons.py` and the `check-reasons` recipe are deleted.
+  The framework's reason keys are three enums in
+  `proto/io/angzarr/v1/reasons.proto`, one per component that answers them:
+  - `RouterReason`: the client library's router, in every language.
+  - `HostReason`: the client library's component host, in every language
+    (`parity/client/hosting.feature`): `HOST_REASON_UPCASTER_WITH_COMPONENT`
+    and `HOST_REASON_NO_COMPONENTS_REGISTERED` (added by the owner), each a
+    refusal to start.
+  - `CoordinatorReason`: core's coordinator and the angzarr-embedded
+    kernel.
+
+  Each value's comment gives the status it travels with and its args;
+  "Readiness" replaces the catalog's `READINESS` pseudo-status. There are no
+  custom options. angzarr-proto compiles and embeds the file.
+- **The wire strings change.** A key travels as its value's FULL name, the
+  enum's prefix included: the gRPC status message, the `ErrorInfo` reason
+  and `Diagnostic.code` were `DUPLICATE_COMPONENT` and are now
+  `ROUTER_REASON_DUPLICATE_COMPONENT`, never a number. The enums follow
+  buf's standard lint with no exception: `ENUM_VALUE_PREFIX` and
+  `ENUM_ZERO_VALUE_SUFFIX` leave `buf.yaml`'s `except` list, with no
+  per-file exception either: the blackjack example's `Suit` values become
+  `SUIT_CLUBS`, `SUIT_DIAMONDS`, `SUIT_HEARTS` and `SUIT_SPADES`, each
+  keeping its number (owner ruling, 2026-10-30), so a stored `Card`
+  decodes as before and only the JSON names change. The owner
+  accepted the change over keeping bare names behind a lint exception: the
+  enums lint as any proto does, and a key names its owner. Every feature,
+  proto comment, guide, site page, backlog line and decision in this repo
+  that named a key now names it prefixed; where this log quotes an old
+  reason (14.37's inventory) or a retired key, it stays bare, as it was
+  answered. No message carries these enums as a field: the numbers are
+  bookkeeping, and renumbering one breaks nothing on the wire. Each
+  language reads the name off its generated enum (prost's
+  `as_str_name()`, Python's `RouterReason.Name(...)`), and each Fluent
+  catalog's message ids change with the keys.
+- **Retired keys are `reserved`.** Every enum reserves every key 14.37,
+  14.39 and 14.42 retired, under its own prefix
+  (`ROUTER_REASON_MISSING_COMMAND_BOOK`), so protoc refuses a value that
+  brings one back in any of them. This departs from 6.6's "deleted,
+  unreserved" deliberately: a reservation here guards a meaning, not stored
+  bytes, so it starts the day a key retires. The catalog's retired list had
+  missed 14.37's three (`MALFORMED_REFUSAL_FACT`, `DUPLICATE_REGISTRATION`,
+  `NO_HANDLER_REGISTERED`); the enums reserve them too.
+- **The prose check stays, smaller.** `just contracts` runs
+  `check-reason-names`, a grep of the features, the protos and the site
+  docs that refuses a retired key, bare or prefixed, and a live key without
+  its prefix. protoc's `reserved` stops a retired key returning as a
+  value; it cannot see a scenario or a doc page naming one, and that is
+  what the old scan was for. The grep now also covers the site docs, where
+  it found three stale rows, and every file under `features/`, not only
+  `.feature` files, where it found a fixture comment naming one.
+- Why: nothing consumed the constants generated from the TOML (angzarr-cli
+  `poc/local-wiring`'s `angzarr reasons`); angzarr-router's `error::codes`,
+  angzarr-embedded's `next::reasons` and client-python's
+  `router/errors.py` each wrote the keys by hand; the one live check was a
+  router test comparing names. The TOML was a fourth format beside proto,
+  Gherkin and Fluent, with its own parser in each consumer. The protos are
+  already every language's shared input, and protoc already generates
+  each language's enum.
+- Cost:
+  - Every wire string changes, so every router, coordinator, client
+    library, Fluent catalog and test that names a key changes with it, in
+    one coordinated step.
+  - Keys are longer, and the prefix repeats the owner in every log line.
+  - A new key is a proto change (and an angzarr-proto release), not a
+    one-line TOML entry.
+  - Tag numbers must be kept, though nothing reads them.
+  - A status and args live in comments, checked by nothing; a consumer
+    that needs them typed would need custom options.
+  - The retired list is written three times, once per enum
+    (angzarr-proto's `tests/reasons.rs` holds them equal).
+- Aligns with: buf's standard style guide for enum values. Diverges from
+  Google's own reasons (`google.api.ErrorReason`), whose value names, used
+  as `ErrorInfo.reason`, carry no prefix.
+- **Amended, 2026-10-30 (owner ruling).** `ROUTER_REASON_DUPLICATE_COMPONENT`
+  has two arg pairs: the router answers `component`, `component_kind`; the
+  client library's component host, refusing a second component, answers
+  `registered`, `refused`, naming the component already registered and the
+  one refused (C-0579 in `parity/client/hosting.feature`). Its value
+  comment in `reasons.proto` says so.
+- **Amended, 2026-10-31 (owner ruling: every refusal carries a spec
+  key).** `HostReason` gains `HOST_REASON_DESCRIPTOR_RULES_VERSION_MISMATCH`
+  (INTERNAL; args `component`, `described`, `reported`): the component
+  host refuses, at registration, a descriptor whose `rules_version`
+  (`described`) is not the version its component's answers report
+  (`reported`), so nothing the coordinator would refuse is served
+  (14.42, amended; C-0743). client-python raised it under a client-local
+  code, `DESCRIPTOR_RULES_VERSION_MISMATCH`. Its
+  `DESCRIPTOR_RESOLUTION_UNSPECIFIED` is no host refusal and gets no key
+  here: `describe()`, the client library's descriptor builder, raises it
+  for an UNSPECIFIED conflict resolution before any host is involved.
+
+> **Superseded by 14.92 (ruled 2026-11-02; the owner's decision 47):** the coordinator has no conflict-resolution concept. A client's expected sequence is data for its handler; `COORDINATOR_REASON_EXPECTED_SEQUENCE_STALE` is retired. The race re-run on the new head stays.
+
+> **Amended by 14.104 (ruled 2026-11-02):** keys are named by LAYER, not by owner: one enum per layer, `ANGZARR_REASON_*` (core: the router's, the component host's and the coordinator's keys, merged into `AngzarrReason`), `EMBEDDED_REASON_*` and `DISTRIBUTED_REASON_*`. Which component raises a key is in its comment, not its string.
+
+**14.45 A stale expected sequence is STRICT's key; a command that loses
+a race at its write is re-run or re-delivered.** Owner ruling, 2026-10-30,
+amended twice the same day (below). Follows 14.35, 14.37, 14.42 and 14.44.
+- **The key.** `CoordinatorReason` gains
+  `COORDINATOR_REASON_EXPECTED_SEQUENCE_STALE`: ABORTED, args `expected`
+  (the command's `CommandBook.handling.expected_sequence`) and `actual` (the
+  stream's head, its `next_sequence`). Its class is business, immediate
+  return (14.37): a direct client gets ABORTED and decides; a policy step is
+  re-run under the retry cap. Until now a stale command under STRICT was
+  ABORTED with no key at all.
+- **STRICT alone answers it.** A STRICT command whose expected sequence is
+  not the head gets the key, however that is found: at load, before
+  business code (C-0717), or at the write, by losing a same-stream race to
+  another write that lands between its load and its append (C-0718). A
+  command whose sender named the head it decided against is never re-run
+  under STRICT.
+- **AGGREGATE_HANDLES and COMMUTATIVE follow their own rules.** A moved
+  stream is never answered the key: the window is delivered and the
+  resolution's rule decides (the nonce, `COORDINATOR_REASON_CONFLICT_UNRESOLVED`;
+  unit overlap, `COORDINATOR_REASON_CONFLICT_OVERLAP`; 14.42; C-0721). If
+  another write to the same stream lands after the window is delivered and
+  before the command's append, the coordinator re-delivers the widened
+  window (expected sequence to the new head, a fresh nonce) and the rule
+  decides again on it (C-0722, C-0723). Re-deliveries are capped by 14.37's
+  retry cap; at the cap the command is dead-lettered and alerted, as any
+  exhausted retry is, nothing is persisted, and a waiting caller is
+  answered `COORDINATOR_REASON_RETRY_CAP_EXHAUSTED` (14.46; C-0724).
+- **Without an expected sequence, a lost race is retried.** The
+  coordinator stamps such a command with the head it loads, and if another
+  write to the same stream lands before its append, it re-runs the command
+  on the new head, under the race re-run cap (14.46); the command is never
+  answered the key (C-0719). That
+  is optimistic concurrency, per stream only (14.35): a write to another
+  stream is never a conflict (C-0720).
+- The proto prose agrees: `reasons.proto`'s value comment, `types.proto`'s
+  `ConflictResolution` region and `Handling.expected_sequence`, and
+  `command_handler.proto`'s status codes and `Handle`;
+  `features/coordinator-contract/conflict_resolution.feature` carries
+  C-0717 to C-0724.
+- Why: the ruling. A stale sequence was the one framework conflict without
+  a key, so a caller could not tell it from a handler's own ABORTED; and
+  the prose said a stamped command "can never be stale" without saying what
+  happens when it loses a race at the write.
+- Cost: every coordinator (core's and angzarr-embedded's) answers the key,
+  re-runs a stamped command and re-delivers an AGGREGATE_HANDLES or
+  COMMUTATIVE one that loses a race; either invokes business code again,
+  so a handler sees the same command more than once.
+- **Amendments, 2026-10-30.** (1) Owner correction, "strict only on
+  expected seq"; "aggregate handles and commutative should follow their
+  rules": the key, first given at the write under every resolution, became
+  STRICT's alone (C-0718 narrowed to STRICT; C-0721 added). (2) Owner
+  ruling: a race lost at the write under AGGREGATE_HANDLES or COMMUTATIVE
+  re-delivers the widened window under the retry cap, closing what (1)
+  left open (C-0722 to C-0724). (3) 14.46: the caller's key at the cap,
+  and the race re-run cap for a stamped re-run.
+
+> **Amended by 14.47 (2026-10-30):** the key means only "behind the
+> head". An expected sequence ahead of the head is malformed under every
+> resolution, INVALID_ARGUMENT `COORDINATOR_REASON_EXPECTED_SEQUENCE_AHEAD`;
+> C-0717 loses its ahead example.
+
+> **Amended by 14.84 and corrected by 14.85 (ruled 2026-11-02):** the race re-run cap is at least 1 (no cap-0 opt-out, `COORDINATOR_REASON_STORE_CONFLICT` reserved); and, to the owner's ruling of 2026-10-31, a caller waiting on Handle or HandleSync at either cap is answered `COORDINATOR_REASON_RETRY_CAP_EXHAUSTED` and nothing is dead-lettered.
+
+**14.46 A caller waiting at a retry cap gets its own key; a stamped re-run
+has its own cap.** Owner rulings, 2026-10-30. Follows 14.37 and 14.45.
+- **The key.** `CoordinatorReason` gains
+  `COORDINATOR_REASON_RETRY_CAP_EXHAUSTED`: INTERNAL, args `attempts` (how
+  many times business code ran) and `cap` (the configured limit reached:
+  a count, or a total time where a cap is configured as one). The
+  coordinator answers it to a caller waiting on `Handle` or `HandleSync`
+  (a client, or a policy coordinator delivering a reaction command in
+  DECISION or SIMPLE mode) when it gave up on that command at a cap: the
+  command is dead-lettered and alerted and nothing is persisted. No
+  `cause`: every path that answers it ends in a lost write race, which
+  carries no key.
+- **Where a caller is waiting.** The coordinator's own retries of a command
+  in flight, both bounded by a write race: an AGGREGATE_HANDLES or
+  COMMUTATIVE re-delivery of the widened window, at 14.37's retry cap
+  (C-0724), and a stamped command's re-run on the new head, at the race
+  re-run cap (C-0725). 14.37's other retries have no caller waiting: a
+  retryable bug is retried by a framework retry loop (reaction delivery,
+  the transient outbox, asynchronous commands, projector retries) that is
+  itself the caller, and an ABORTED policy step is re-run by its runtime;
+  both dead-letter as before and answer no one. `HandleAsync` has no
+  caller to answer either.
+- **Why INTERNAL.** 14.37's status decides the class, and the class decides
+  what the caller does next. At the cap the retries are spent and the dead
+  letter holds the command; 14.37 says a cap ends in a dead letter and an
+  alert, a policy step's position then following `on_policy_bug`. Bug,
+  fatal (INTERNAL) is the one class whose caller does exactly that: never
+  retries, never reaches OnRefused, and a policy step follows
+  `on_policy_bug`. ABORTED was the other candidate (the cause is
+  contention: "re-read and re-decide"), but 14.37 defines ABORTED as
+  returned "at once ... no retry, no dead letter", and a policy runtime
+  answered ABORTED re-runs the step, re-sending a command already
+  dead-lettered. A retryable status (RESOURCE_EXHAUSTED) has the same
+  flaw. A business status would reach OnRefused, which no framework
+  failure does.
+- **The race re-run cap.** A command without an expected sequence that
+  loses a same-stream race is re-run on the new head (14.45, C-0719) at
+  most to the race re-run cap, separate from 14.37's retry cap: a count of
+  runs of business code, the first included, default 10. It is coordinator
+  configuration, like the retry cap (`command_handler.proto`, status
+  codes). Re-runs are not immediate: between runs the coordinator waits
+  with 14.37's exponential backoff and jitter (the same scale and jitter
+  factor as the retry cap's), so racing writers spread out instead of
+  colliding again. Why 10: a re-run happens only when another write lands
+  in the gap between a load and its append, so ten losses in a row mean a
+  stream too hot for more re-runs to win, and each re-run invokes business
+  code again; 10 is the client library's default retry attempts (C-0127).
+  At the cap the command is dead-lettered and alerted, nothing is
+  persisted, and a waiting caller is answered the key (C-0725).
+- **A fact at the cap is parked.** A fact (a timeout, a webhook) is always
+  stamped with the head (`types.proto`, Fact), so a lost race re-runs it
+  under the race re-run cap like any stamped command. Facts are never
+  refused, so a fact that reaches the cap is never answered the key: it
+  is dead-lettered and alerted, nothing is persisted, and its sender is
+  answered "accepted, parked" (OK, `Outcome.delivery` PARKED, no events),
+  as for a fact whose ingest handler fails (C-0726). The key is the
+  answer to a command alone.
+- **The dead letter's reason.** A command or fact dead-lettered at either
+  cap records `COORDINATOR_REASON_RETRY_CAP_EXHAUSTED`, with the same
+  args (`attempts`, `cap`), as its `AngzarrDeadLetter.reason`, whether or
+  not a caller was waiting.
+- The proto prose agrees: `reasons.proto`'s value comment,
+  `command_handler.proto`'s status codes and `Handle`, `types.proto`'s
+  `ConflictResolution` region, `Handling.expected_sequence`, the
+  pipeline's race line and `AngzarrDeadLetter.reason`;
+  `conflict_resolution.feature` pins the key in C-0724 and adds C-0725
+  and C-0726.
+- Why: the rulings. A caller waiting at a cap had no answer, and a stamped
+  re-run had no bound.
+- Cost: every coordinator counts re-runs per command, backs off between
+  them, and answers the key (a fact, PARKED); one more setting to
+  configure.
+- **Amendment, 2026-10-30.** Owner rulings: the race re-run cap's default
+  is 10 (no longer proposed) and its re-runs back off with jitter; a fact
+  at the cap is parked, never answered the key (C-0726); and, the
+  coordinator deciding for consistency, a dead letter at either cap
+  records the key as its reason.
+- **Amendment, 2026-10-30 (cap 0).** A race re-run cap of 0 is the opt-out for a consumer that owns its retries: a lost race is never re-run, and never parked or dead-lettered by the coordinator, whatever the retry cap says; it goes back to its caller at once as the store's retryable conflict, and a policy step's position holds at its trigger, moving past only after a dead letter (14.37), so the next catch-up runs it again (C-0740 command, C-0741 fact, C-0742 policy step).
+  The proto prose agrees: `command_handler.proto`'s status codes,
+  `types.proto`'s `ConflictResolution` region and `reasons.proto`'s
+  `COORDINATOR_REASON_RETRY_CAP_EXHAUSTED`. C-0742's policy uses the
+  coordinator tier's generic vocabulary (`"payment"` to `"order"`).
+- **Amendment, 2026-10-31 (cap 0, keyed).** The store's conflict a lost
+  race goes back as at a cap of 0 is UNAVAILABLE
+  `COORDINATOR_REASON_STORE_CONFLICT`, args `expected` and `actual`
+  (14.51).
+
+> **Superseded by 14.92 (ruled 2026-11-02; the owner's decision 47):** the coordinator has no conflict-resolution concept. The coordinator does not interpret an expected sequence; `COORDINATOR_REASON_EXPECTED_SEQUENCE_AHEAD` is retired.
+
+**14.47 An expected sequence ahead of the head is malformed, under every
+resolution.** Owner ruling, 2026-10-30. Amends 14.45; follows 14.37 and
+14.44.
+- **The key.** `CoordinatorReason` gains
+  `COORDINATOR_REASON_EXPECTED_SEQUENCE_AHEAD`: INVALID_ARGUMENT, args
+  `expected` (the command's `CommandBook.handling.expected_sequence`) and
+  `head` (the stream's head, its `next_sequence`). Its class is business,
+  fatal (14.37): malformed input, never retried.
+- **Every resolution.** A command whose expected sequence is greater than
+  the head (expects 7, head at 3) names a state the stream never held.
+  There is nothing to resolve and no window to deliver, so STRICT,
+  AGGREGATE_HANDLES and COMMUTATIVE alike refuse it with the key when it
+  is loaded (pipeline step 4, before business code): business code is
+  not invoked and nothing is persisted (C-0727). A head only moves
+  forward, so a command is never found ahead at its write.
+- **Deduplication first.** The check needs the head, so it runs after the
+  load and after deduplication (pipeline steps 3 and 4): a command whose
+  command_id the stream already holds is answered DUPLICATE with its
+  stored events whatever its expected sequence, ahead included, and is
+  never answered the key (C-0728). A retry of an applied command is
+  answered as its first delivery was, as for a stale one (14.45).
+- **An asynchronous command.** `HandleAsync` validates before enqueueing
+  (step 1), and the check needs the head, so an ahead command is accepted
+  there and refused when it is processed, with no caller to answer. A
+  `HandleAsync` command refused by any business, fatal key, this one
+  included, is dead-lettered with that key and its args as its
+  `AngzarrDeadLetter.reason`, and alerted, never retried (C-0729).
+- **The stale key narrows.** `COORDINATOR_REASON_EXPECTED_SEQUENCE_STALE`
+  now means only "behind the head", under STRICT (14.45). C-0162, which
+  answered a STRICT command ahead of the stream ABORTED, is retired, and
+  C-0717 loses its ahead example.
+- The proto prose agrees: `reasons.proto`'s value comments (both keys),
+  `types.proto`'s `ConflictResolution` region, `Handling.expected_sequence`
+  and the pipeline, and `command_handler.proto`'s status codes and
+  `Handle` and `HandleAsync`, and `AngzarrDeadLetter.reason`;
+  `conflict_resolution.feature` adds C-0727 to C-0729. angzarr-proto's
+  `tests/reasons.rs` pins the key.
+- Why: the ruling. Ahead is not contention: re-reading cannot make it
+  succeed, so ABORTED ("re-read and re-decide") sent a caller into a loop,
+  and under AGGREGATE_HANDLES and COMMUTATIVE the window
+  (expected .. head-1) was undefined.
+- Cost: every coordinator compares the expected sequence with the head in
+  both directions and answers a second key; a caller that sent an ahead
+  sequence and treated ABORTED as retryable now gets a final refusal.
+- **Amendment, 2026-10-30.** Owner confirmations: deduplication runs
+  before the ahead check, so a retry of an applied command answers
+  DUPLICATE whatever its expected sequence (C-0728); and a `HandleAsync`
+  command refused by any business, fatal key, this one included, is
+  dead-lettered with that key as its reason and alerted (C-0729).
+
+> **Superseded by 14.78 (ruled 2026-11-02):** a dead letter is its reason, `retry_count` and, for a typed refusal, the refusal object; the `rejection_details` variants and their mapping are retired.
+
+**14.48 Every dead letter carries the details variant its reason
+chooses.** Owner rulings, 2026-10-30, amended the same day (below).
+Follows 14.37, 14.45, 14.46 and 14.47.
+- **The rule.** Every dead letter carries exactly one
+  `rejection_details` variant (`dead_letter_queue.feature`), and its
+  reason chooses which. The mapping is written once, on
+  `AngzarrDeadLetter.rejection_details` in `types.proto`; this entry and
+  the features refer to it.
+- **The sequence keys carry `SequenceMismatchDetails`.**
+  `COORDINATOR_REASON_EXPECTED_SEQUENCE_STALE` maps its args `expected`
+  and `actual` to `expected_sequence` and `actual_sequence`;
+  `COORDINATOR_REASON_EXPECTED_SEQUENCE_AHEAD` maps `expected` and `head`
+  (the head is the stream's `next_sequence`, which `actual_sequence`
+  holds). The conflict keys (`COORDINATOR_REASON_CONFLICT_UNRESOLVED`,
+  `COORDINATOR_REASON_CONFLICT_OVERLAP`), and a handler's own ABORTED
+  key, reach a dead letter only on an asynchronous command carrying its
+  caller's expected sequence, which `command_handler.proto` (status codes)
+  already dead-letters with `SequenceMismatchDetails`.
+- **A typed refusal carries `CommandRefusedDetails`.** A new variant,
+  `command_refused` (17): `refusal_type` (1) and the refusal object as a
+  `google.protobuf.Any` (2), kept whole for an asynchronous command
+  refused `ROUTER_REASON_COMMAND_REFUSED`. A new variant rather than an
+  `Any` added to the processing variant: a refusal is the handler's
+  answer, not a failure, so `retry_count`, `is_transient` and
+  `stack_trace` would mean nothing beside it, and the admin API's
+  `RejectionType` (`REJECTION_TYPE_COMMAND_REFUSED`, 4) can filter
+  refusals apart from bugs. A typed refusal always travels as that key,
+  so a handler's own business key (an untyped Diagnostic) stays with the
+  processing variant.
+- **Every other key carries `ProcessingFailedDetails`**, its `failure`
+  the reason's Diagnostic: `COORDINATOR_REASON_RETRY_CAP_EXHAUSTED`
+  (`retry_count` the retries, `attempts` less the first run, as
+  `ProcessingFailedDetails.retry_count` counts them (14.49);
+  `is_transient` true, with or without an
+  expected sequence: `expected_sequence` is the command's
+  `handling.expected_sequence`, which a stamped command or a fact does not
+  carry), an untyped business, fatal refusal of an asynchronous command
+  (`COORDINATOR_REASON_PM_NO_INSTANCE`, a handler's own key; `retry_count`
+  0, `is_transient` false), every fatal bug, a failed edition removal,
+  and a retryable bug at its cap. A claim-checked payload that cannot be
+  retrieved keeps `PayloadRetrievalFailedDetails`.
+- **The rename.** `EventProcessingFailedDetails` is renamed
+  `ProcessingFailedDetails`, its oneof field `event_processing_failed`
+  `processing_failed`, and `REJECTION_TYPE_EVENT_PROCESSING_FAILED`
+  `REJECTION_TYPE_PROCESSING_FAILED`, since it now carries commands and
+  removals too. Every field number and enum number is unchanged, so the
+  binary wire is compatible; the generated types, the JSON field name and
+  the enum's name (the string `dlq_entries.rejection_type` stores) change.
+- **Keys for the two dead letters that had none.**
+  `COORDINATOR_REASON_POLICY_COMMAND_WITH_HANDLING` (INTERNAL; args
+  `domain`, `command_type`): a reaction command carrying Handling, refused
+  by the policy's coordinator or, reaching its destination, dead-lettered
+  there as a reactor bug (C-0552). None of the four
+  `COORDINATOR_REASON_POLICY_COMMAND_*` keys matched: they name the
+  destination, edition, root and correlation checks.
+  `COORDINATOR_REASON_EDITION_REMOVAL_FAILED` (INTERNAL; args `edition`,
+  `attempts`, `cause`): a deleted edition's rows in one stream could not
+  be removed (C-0641). Its payload is the new arm
+  `failed_edition_removal` (18), an `EventBook`: the stream as its cover,
+  its `meta.EditionDeleted` as the one page (`meta/events.proto` imports
+  `types.proto`, so the meta message cannot be named here). Replay
+  attempts the removal again.
+- **Every dead letter is keyed: the policy's remaining reaction checks
+  get keys.** A policy's reaction that fails the identity or Fact checks
+  (`PolicyResponse.reactions`) dead-lettered its trigger with no key. No
+  existing key matched exactly (the `COORDINATOR_REASON_REFUSAL_FACT_*`
+  keys are for the facts `OnRefused` answers, not reactions), so three
+  are added, each INTERNAL and a fatal bug, mapped to
+  `ProcessingFailedDetails`:
+  `COORDINATOR_REASON_POLICY_COMMAND_OTHER_IDENTITY` (args `domain`,
+  `command_type`, `field`): a command_id or causation_id other than the
+  stamp, `field` naming which;
+  `COORDINATOR_REASON_POLICY_COMMAND_IS_FACT` (args `domain`,
+  `command_type`, the Fact's payload type): a reaction that is a Fact;
+  `COORDINATOR_REASON_POLICY_COMMAND_FACT_ORIGIN` (args `domain`,
+  `command_type`): a reaction Command carrying `fact_origin`, refused by
+  the policy's coordinator or, reaching its destination, dead-lettered
+  there as a reactor bug, as `..._WITH_HANDLING` is. C-0734 and C-0735
+  pin them.
+- **A retryable bug at its cap records its own key**, as last answered,
+  never `COORDINATOR_REASON_RETRY_CAP_EXHAUSTED`, which stays the key for
+  write races only (14.46); the `AngzarrDeadLetter.reason` comment and the
+  key's value comment say so.
+- **Never a dead letter's reason:** the readiness keys, the `HostReason`
+  keys, `ROUTER_REASON_NO_HANDLERS_REGISTERED`,
+  `ROUTER_REASON_DUPLICATE_COMPONENT` and `ROUTER_REASON_HANDLER_PANICKED`
+  (only ever a cause).
+- **Compensation leaves the feature.** Compensation is no longer part of
+  the contract (RM-2): `dead_letter_queue.feature` drops its compensation
+  sources and the `compensation_delivery_failed` variant the proto never
+  had, and retires C-0448; the DLQ glossary page drops
+  `CompensationDeliveryFailedDetails`.
+- `dead_letter_queue.feature` adds C-0730 (an asynchronous command ahead),
+  C-0731 (an asynchronous STRICT command behind), C-0732 (a retry cap,
+  stamped and AGGREGATE_HANDLES) and C-0733 (a typed refusal's object
+  kept); C-0552 and C-0641 pin their new keys, and
+  `policy_addressing.feature`'s C-0734 and C-0735 the three reaction
+  keys. angzarr-proto's `tests/diagnostics.rs` pins the variants' numbers
+  (13 kept, 17, 18) and `tests/reasons.rs` the five keys.
+- Why: the rulings. The feature promised exactly one variant without
+  saying which, so two coordinators could dead-letter the same refusal
+  differently, and the admin API's `RejectionType` filter would split them.
+- Cost: every coordinator fills the details for each key as mapped;
+  readers of the renamed types and JSON field update.
+- **Amendment, 2026-10-30.** Owner rulings on the first draft's open
+  points: the typed refusal is kept (`CommandRefusedDetails`); the
+  processing variant is renamed; the reactor-bug command and the failed
+  edition removal get keys (and the removal a payload arm); a retryable
+  bug at its cap records its own key; the compensation text is removed
+  and C-0448 retired. Then the rule "every dead letter is keyed": the
+  policy's identity, Fact and fact-origin checks on its reactions get
+  their three keys.
+
+**14.49 Four keys for limits and conditions any coordinator may enforce.**
+Owner rulings, 2026-10-30. Follows 14.37, 14.44, 14.46 and 14.48. Keys
+angzarr-embedded answered under codes of its own get spec keys, each a
+condition any coordinator (the step limit: any router) may enforce; one
+that does not enforce it never answers it.
+- **`COORDINATOR_REASON_POLICY_COMMAND_UNKNOWN_DOMAIN`**: INTERNAL, bug,
+  fatal; args `domain`, `command_type`. A policy's reaction command for a
+  domain its coordinator cannot route (no component of it registered, no
+  coordinator for it known elsewhere), found when the reactions are
+  checked, after the destination check: never delivered, its trigger
+  dead-lettered with the key (`processing_failed`, `retry_count` 0,
+  `is_transient` false) and alerted (C-0736). A client's command for an
+  unknown domain stays the client's malformed input.
+- **`COORDINATOR_REASON_HANDLER_UNAVAILABLE`**: UNAVAILABLE, bug,
+  retryable; args `domain`, `cause` (the transport's failure). The business
+  process handling the domain could not be reached: nothing ran, nothing
+  was written, and UNAVAILABLE means resend, under the retry cap. At the
+  cap the input is dead-lettered with THIS key, as last answered (14.48,
+  amended: a retryable bug at its cap records its own key, never
+  `COORDINATOR_REASON_RETRY_CAP_EXHAUSTED`), `processing_failed` with
+  `is_transient` true, and alerted (C-0738). A business process that is
+  reached and answers its own retryable bug stays
+  `ROUTER_REASON_UNHANDLED_HANDLER_ERROR` (C-0678).
+- **`COORDINATOR_REASON_CHAIN_TOO_DEEP`** (a limit): INTERNAL, bug, fatal;
+  arg `limit`. Where a coordinator follows the chain of reactions from the
+  input a caller sent (that input at depth 0), a reaction deeper than its
+  chain depth limit (configuration) is not delivered, and the trigger
+  whose reaction it was is dead-lettered with the key and alerted (C-0737).
+- **`ROUTER_REASON_TOO_MANY_STEPS`** (a limit): INTERNAL, bug, fatal; arg
+  `limit`. Where a client library lets a decision continue in follow-on
+  steps (one decision, committed together), a decision that ran more steps
+  than the router's step limit keeps nothing and fails as a handler's bug
+  does (C-0739).
+- **Why these statuses (14.37's four classes).** The status decides the
+  class, and the class what the caller does next. The two limits and the
+  unknown domain are deterministic: the same input runs as deep, as long,
+  or to the same missing domain again, so a retryable status
+  (RESOURCE_EXHAUSTED, the gRPC status for a limit, means "wait longer
+  before resending") would only re-run business code to the cap for the
+  same answer, and ABORTED would have a policy runtime re-run the step. A
+  business status (OUT_OF_RANGE, FAILED_PRECONDITION) would reach the
+  issuing policy's OnRefused, whose compensating reaction, for a chain too
+  deep, deepens the very chain; and none of the three is a handler's
+  answer. Bug, fatal (INTERNAL) dead-letters and alerts at once, which a
+  policy cycle, a step that never settles and a policy wired to a domain
+  the deployment does not host all need: an operator's fix. An unreachable
+  business process is the one transient condition: resending can succeed
+  once it is back, so UNAVAILABLE ("resend"), a retryable bug.
+- **`retry_count` is the retries.** `ProcessingFailedDetails.retry_count`
+  counts "retry attempts before DLQ routing": the retries after the first
+  attempt, 0 for an input tried once. 14.48's mapping on
+  `AngzarrDeadLetter.rejection_details` said "the attempts made" and "arg
+  attempts", which count the first; it now says the retries (`attempts`
+  less the first run, or the first removal), and C-0732 and C-0444, three
+  attempts, assert `retry_count` 2. The field's comment says so.
+- The proto prose agrees: `reasons.proto`'s value comments,
+  `types.proto`'s `rejection_details` mapping and `retry_count`;
+  `policy_addressing.feature` adds C-0736 and C-0737,
+  `dead_letter_queue.feature` C-0738 and C-0739;
+  `scripts/check_reason_keys.py` pins the four keys.
+- Why: the rulings. angzarr-embedded dead-lettered these under its own
+  codes (`REMOTE_HANDLER_UNAVAILABLE`, `ANGZARR_EMBEDDED_TOO_MANY_STEPS`,
+  `angzarr-embedded-next-chain-too-deep`), so two coordinators keyed the
+  same condition differently, against "every dead letter is keyed" (14.48).
+- Cost: every coordinator that enforces a limit answers its key; readers of
+  `retry_count` that took it for the attempts count one fewer.
+
+> **Amended by 14.78, 14.82 and 14.87 (ruled 2026-11-02):** sources are derived from the events named, not declared; a refusal is one message per reason, not a code enum; a component has one required name, with no per-kind default formulas.
+
+> **Amended by 14.104 (ruled 2026-11-02):** `ROUTER_REASON_TOO_MANY_STEPS` is retired with the step cap (C-0739 retired): `Emit` is the one return type, with no step cap. A step that always continues never terminates, a handler bug with no framework guard.
+
+**14.50 Generation reads cardinality, sources, names and refusal codes from
+the proto; the host config is strict.** Owner rulings, 2026-10-31 (the
+overnight generator and app-generation rulings). Follows 14.31, 14.37 and
+14.38.
+- **Emits cardinality.** REVERSED by 14.75: there is no cardinality; every
+  handling returns a list of events. As first ruled:
+  `CommandOptions.emits_cardinality` (field 6, enum
+  `EmitsCardinality`): `EMITS_CARDINALITY_ONE` (the default, and what
+  unset means), `EMITS_CARDINALITY_OPTIONAL`, `EMITS_CARDINALITY_MANY`.
+  ONE is one event of each emits type, a fixed tuple; OPTIONAL is that or
+  nothing; MANY is any number of events of the emits types. It applies to
+  commands and facts; with no emits only MANY is accepted. The generator
+  types the handler's result from it, so a repeat that emits nothing, or
+  a variable subset, needs no hand edit. table.proto marks RequestSeat,
+  ConfirmSeat and ReleaseSeat OPTIONAL and DealRound, Hit, Stand and
+  DoubleDown MANY.
+- **A projector's sources are a list.** `ComponentOptions.input_domains`
+  (field 8), PROJECTOR only: one projector, one handler, many source
+  domains. Every (event) entry naming the projector sets a domain from the
+  list; `input_domain` alone means a one-entry list; both together, a
+  duplicate, a listed domain no entry names, or the field on another kind
+  fails generation. A policy keeps exactly one source. The ledger lists
+  `table` and `wallet`.
+- **Names come from the proto.** `ComponentOptions.component_name` (field
+  9) is the component's name in an application: the host config's
+  `[[component]]`, the generated registration and hand-written code all
+  take it from one public helper. Unset, it defaults by kind: an
+  aggregate's domain; `pmg-` + a process manager's domain; `policy-` +
+  input_domain + `-` + output_domain (unique, one policy per pair);
+  `projector-` + the anchor message name in kebab case. `name` (field 4)
+  stays the code base name. The blackjack policies and pmg-buy-in take the
+  defaults; the ledger declares `projector-wallet-table-ledger`.
+- **Rejection codes are a typed refusal.** A domain's codes are one refusal
+  message with a nested `Reason` enum (`REASON_` + the code) and one
+  optional field per argument, named in each refusing command's
+  `refuses`; the ErrorInfo.reason on the wire is the value's name without
+  the prefix. The generated diagnostic key is the generator's, from the
+  refusal's full name and reason, its args the set fields, and a public
+  helper reproduces it. table.proto declares `TableRefused` with its
+  eighteen codes, named by every command but ConfirmSeat (which keeps
+  `SeatNotConfirmable`) and ReleaseSeat (which never refuses).
+- **A command may refuse several types.** `refuses` was always repeated;
+  the generator lifts its one-refusal-per-command limit, and the handler
+  returns any of them.
+- **An outside event consumer is a reference.** An (event) entry naming a
+  component outside the descriptor set being generated is skipped, not
+  refused, so one domain's protos generate alone; `angzarr lint app`
+  reports a component an application lists but does not have.
+- **The host config is strict.** `kind` is required on every
+  `[[component]]` (no `domain` default; existing configs add it); unknown
+  keys and values are refused, with the key path in the error; every
+  component is listed, in-process policies and projectors too, and the
+  generated main registers what the config lists.
+- Why: the generator wrote names, result types and refusals the examples
+  then hand-edited (examples-rust's `HAND-EDIT` markers); each now comes
+  from the proto, so hand-written and generated code agree.
+- Open: TableRefused carries codes of two status classes (five are
+  INVALID_ARGUMENT), while a typed refusal is a business rejection,
+  FAILED_PRECONDITION (the refusals region of options.proto). Nothing in
+  the markup carries a code's class yet; until a ruling, the client
+  library reports FAILED_PRECONDITION and table.proto's comments record
+  the intended class. (Settled by 14.52: a per-value status option.)
+- Cost: configs without `kind`, or with keys the host does not know, stop
+  loading; generators read three new options.
+
+> **Amended by 14.84 (ruled 2026-11-02):** `COORDINATOR_REASON_STORE_CONFLICT` is retired with the race re-run cap of 0.
+
+**14.51 A retryable failure carries a key, for when the retry fails.**
+Owner rulings, 2026-10-31 (morning). Follows 14.37, 14.46 (cap 0), 14.48
+and 14.49. In the owner's words: "retryables need to carry a spec key in
+the event that the retry fails."
+- **The rule.** Every failure a coordinator retries, or hands back for its
+  caller to retry (14.37's bug, retryable class: UNAVAILABLE,
+  DEADLINE_EXCEEDED, RESOURCE_EXHAUSTED, UNIMPLEMENTED and every other
+  status outside the other three classes), is answered under a reason key
+  of its own. When the retries are spent, whoever gives up reports that
+  key: the coordinator as the dead letter's reason (14.48, amended: as
+  last answered), a caller that owns its retries as its final answer.
+  Never a bare status. `reasons.proto`'s header and
+  `command_handler.proto`'s status codes say so.
+- **`COORDINATOR_REASON_STORE_CONFLICT`**: UNAVAILABLE, bug, retryable;
+  args `expected` (the head the coordinator stamped) and `actual` (the
+  stream's head). The answer for a stamped command or fact that loses a
+  same-stream race at its write under a race re-run cap of 0 (14.46,
+  amended): handed back at once, with no wait, never re-run, parked,
+  dead-lettered or alerted; a policy step's position holds at its trigger.
+  UNAVAILABLE (resend) because nothing was written and a resend, starting
+  at deduplication, is safe; not ABORTED, which 14.37 keeps for "re-read
+  and re-decide" answers a caller decides on, while here the coordinator
+  re-reads for the caller on the resend. Never answered at a cap above 0
+  (there, a re-run, then `COORDINATOR_REASON_RETRY_CAP_EXHAUSTED`), and
+  never under STRICT (`COORDINATOR_REASON_EXPECTED_SEQUENCE_STALE`).
+  C-0740 to C-0742 assert the status, key and args (step rule 18).
+- **The audit.** Every retryable path the spec describes, and the key it
+  carries:
+
+  | Path | Status | Key | At the cap |
+  |---|---|---|---|
+  | a handler's retryable bug (C-0678) | the status it picks | `ROUTER_REASON_UNHANDLED_HANDLER_ERROR`, its key the `cause` | dead-lettered with it (14.48) |
+  | a misrouted dispatch (a policy to an aggregate's process) | UNIMPLEMENTED | `ROUTER_REASON_NO_COMPONENT_OF_KIND` | dead-lettered with it |
+  | a business process that cannot be reached | UNAVAILABLE | `COORDINATOR_REASON_HANDLER_UNAVAILABLE` (14.49) | dead-lettered with it (C-0738) |
+  | a policy step answered ABORTED | ABORTED | the conflict's own key | dead-lettered with it (14.48) |
+  | a lost race at cap 0 | UNAVAILABLE | **new** `COORDINATOR_REASON_STORE_CONFLICT` | never: the caller retries (C-0740 to C-0742) |
+  | the event store fails to answer | UNAVAILABLE | **new** `COORDINATOR_REASON_STORE_UNAVAILABLE` (`cause`) | dead-lettered with it (C-0744) |
+  | an upcaster sidecar down (14.39) | UNAVAILABLE | **new** `COORDINATOR_REASON_UPCASTER_UNAVAILABLE` (`domain`, `cause`) | never: queued work waits (C-0681) |
+  | no descriptor held | UNAVAILABLE | **new** `COORDINATOR_REASON_COMPONENT_NOT_REGISTERED` (`domain`) | never: queued work waits (C-0562) |
+  | a command sent to a standalone query server | UNIMPLEMENTED | **new** `COORDINATOR_REASON_COMMANDS_NOT_SERVED` (`domain`) | never: nothing is queued (C-0588) |
+  | a claim-checked payload that cannot be retrieved | UNAVAILABLE | **new** `COORDINATOR_REASON_PAYLOAD_UNAVAILABLE` (`uri`, `cause`) | dead-lettered with it, `payload_retrieval_failed` (C-0447) |
+  | a projector's retryable failure (C-0677) | the projector's | its own code (`ProjectorFailure.diagnostic`) | as the projector's failure |
+
+  The race re-runs above a cap of 0 already end in
+  `COORDINATOR_REASON_RETRY_CAP_EXHAUSTED` (14.46). A coordinator that
+  cannot reach its upcaster, or holds no descriptor, was answering a bare
+  UNAVAILABLE, and a store's own failure and an unretrievable payload had
+  no key at all: the dead letter at the cap had nothing to record.
+- **Drafter's choices, confirmed by the owner (2026-10-31):**
+  - The store's failure and the payload's are keyed by the coordinator,
+    the store's or payload store's own code and args its `cause`
+    (angzarr-ports' `StoreError::Unavailable` cause, `annals-store-sql-io`
+    and the like), so the key is the same whatever the adapter.
+  - The query server's misroute stays UNIMPLEMENTED, as before, keyed
+    `COORDINATOR_REASON_COMMANDS_NOT_SERVED` rather than moved to a
+    business status.
+- The proto prose agrees: `reasons.proto`'s header and six value comments
+  (and `COORDINATOR_REASON_RETRY_CAP_EXHAUSTED`'s), `command_handler.proto`'s
+  status codes, `types.proto`'s `ConflictResolution` region and the
+  `rejection_details` mapping, `upcaster.proto`'s Failure,
+  `component.proto`'s Registration and `query.proto`'s header. Scenarios
+  C-0740 to C-0742, C-0681, C-0562, C-0588 and C-0447 assert the keys;
+  `dead_letter_queue.feature` adds C-0744; `scripts/check_reason_keys.py`
+  pins the six keys.
+- Why: the ruling. A retry that fails leaves its giver-up holding only a
+  status, which tells neither an operator nor a catalog what failed.
+- Cost: every coordinator answers six more keys; a consumer that owns its
+  retries (a race re-run cap of 0) reports the key it was handed.
+
+> **Amended by 14.82 (ruled 2026-11-02):** the status is marked on the refusal MESSAGE (`refusal_status`, now a MessageOptions extension, 50104).
+
+> **Amended by 14.111 (ruled 2026-11-16):** `RefusalStatus` also holds `REFUSAL_STATUS_ABORTED` (10), whose class is 14.37's immediate return.
+
+> **Amended by 14.105 (ruled 2026-11-02):** a synchronous projector's failure (C-0677) is answered as `ANGZARR_REASON_SYNC_PROJECTION_FAILED` (UNAVAILABLE), its own key the cause, never a `ProjectorFailure` entry.
+
+**14.52 A refusal code's status is marked on its Reason value.** Owner
+ruling, 2026-10-31 (morning). Settles 14.50's Open point; follows 14.37.
+- **The option.** `options.proto` adds
+  `extend google.protobuf.EnumValueOptions { RefusalStatus refusal_status
+  = 50108; }` and the enum `RefusalStatus`, holding the six business
+  statuses of 14.37 and nothing else: `REFUSAL_STATUS_INVALID_ARGUMENT`
+  (3), `_NOT_FOUND` (5), `_ALREADY_EXISTS` (6), `_PERMISSION_DENIED` (7),
+  `_FAILED_PRECONDITION` (9), `_OUT_OF_RANGE` (11), and
+  `REFUSAL_STATUS_UNSPECIFIED` (0), which means FAILED_PRECONDITION, the
+  default. A typed refusal's code is refused under its value's status, its
+  ErrorInfo.reason the value's name without the prefix (14.50); the
+  generated refusal and the public helper a hand-written handler uses
+  read the same option. Generation fails on the option anywhere but a
+  non-zero value of the nested `Reason` of a message some command's
+  `refuses` names (C-0746).
+- **Why this shape.**
+  - On `EnumValueOptions`, a scalar: the status is a property of one
+    code, so it sits on that code's value, beside its comment; a
+    command-level or message-level table would repeat every code's name
+    and could drift from the enum.
+  - A closed enum, not `google.rpc.Code`: only a business status may be
+    marked, since a refusal reaches the issuing policy's OnRefused, which a
+    bug (INTERNAL) or a retryable status (UNAVAILABLE, ABORTED) never may.
+    With `google.rpc.Code` every generator would need a rule refusing the
+    other eleven codes; here they cannot be written. It also keeps
+    `google/rpc/code.proto` out of `options.proto`'s imports.
+  - Numbered as `google.rpc.Code`: the status is the value's number, so
+    a generator converts by a cast, with no table to keep in step.
+  - A scalar, not an options message: one fact to carry; a message can
+    replace it later only by a new extension number, which is acceptable
+    for a speculative need.
+- **The table.** table.proto marks its five INVALID_ARGUMENT codes, as
+  examples-rust reported them before the generated table (`rejection.rs`'s
+  `status()`, examples-rust ec88f59): `REASON_INVALID_TABLE_CONFIG`,
+  `REASON_SEAT_OUT_OF_RANGE`, `REASON_BUY_IN_OUT_OF_RANGE`,
+  `REASON_BET_OUT_OF_RANGE`, `REASON_BET_NOT_EVEN`; the other thirteen
+  stay FAILED_PRECONDITION, unmarked.
+- The proto prose agrees: `options.proto`'s new `refusal_status` region
+  and its refusals region; table.proto's header and `TableRefused`.
+  `component_options.feature` adds C-0745 and C-0746.
+- Why: the ruling. A refusal message carried codes of two statuses with
+  nothing in the markup to tell them apart, so the generated table
+  reported every code FAILED_PRECONDITION.
+- Cost: every generator reads one more option; a client library's typed
+  refusal takes its status from the code rather than a constant.
+
+**14.53 There is no wildcard projector domain.** Owner ruling,
+2026-10-31 (architecture review, Q4). Retires the `"*"` domain that
+C-0714 asserted (ported from angzarr-router's conformance features, 14.42).
+- **The rule.** A projector lists every domain it reads, in
+  `input_domains` or `input_domain` (14.50), or through its (event)
+  entries. No domain name means "every domain", and a delivery from a
+  domain the projector does not list folds nothing (C-0713).
+- **Retired:** C-0714 (a projector declaring the `"*"` domain folds every
+  domain). Its ID is not reused. The parity constant `WILDCARD_DOMAIN` is
+  gone from C-0097's list of exported domain constants.
+- The proto prose agrees: `options.proto`'s `input_domains` says every
+  source is named. `projector_dispatch.feature`'s description records the
+  retirement.
+- Why: the ruling. angzarr-embedded refused a `"*"` projector at
+  start-up while the handler-contract and client-python's router accepted
+  it; the spec takes the explicit form rather than adding a wildcard to
+  every router and host.
+- Cost: a cross-domain projector names every domain it reads, and is
+  edited when a domain is added. client-python drops `WILDCARD_DOMAIN` and
+  the `"*"` path of `ProjectorDispatch` and `describe()`.
+
+**14.54 `buf breaking` gates the spec.** Owner ruling, 2026-10-31
+(architecture review, Q6). The trigger 6.6 (D6) and backlog GAP-3 named,
+"the first production event any store keeps", has fired: taskloom has
+kept its events in angzarr-embedded's SQLite store since 2026-10-31.
+- **The gate.** `just proto-breaking` (buf.yaml's `WIRE_JSON` rules)
+  compares the protos against their merge base with the spec draft (the
+  justfile's `DRAFT_BRANCH`), so a branch answers only for what it
+  changed. It runs in `just contracts`, the Contracts workflow, and the
+  pre-push hook (`push-check`), for each pushed commit: refused on a
+  protected branch (the default and the dated drafts), a warning on any
+  other, the rule red tests follow.
+- **From now on** a removed field, enum value or message reserves its
+  number and name in the same change (6.6), and an incompatible change is
+  a new message version plus an upcaster (14.39), never an edit in place.
+  Stored data is no longer wiped across schema changes.
+- Nothing is reserved by this entry: nothing was removed between the first
+  stored event and the gate.
+- Why: the ruling. Stored events must keep decoding; a wire break found
+  at review is found too late.
+- Cost: every proto change is held to compatibility; the gate needs the
+  draft fetched, and docker, as proto-lint does. GAP-3 is closed.
+
+> **Amended by 14.101 (ruled 2026-11-02):** the coordinator owns every descriptor check: `HOST_REASON_PROJECTOR_NO_INPUT_DOMAIN` is retired, and an empty projector source is `COORDINATOR_REASON_NO_INPUT_DOMAIN`, one rule with the policy's.
+
+**14.55 A projector naming no source domain is refused.** Owner ruling,
+2026-10-31. Follows 14.53 and 14.44.
+- **The rule.** A projector whose descriptor names no input domain (its
+  `inputs` empty; no `input_domains`, `input_domain` or (event) entry
+  naming one) is refused at registration, before anything is served, and
+  nothing is registered. With no wildcard domain (14.53) it would fold
+  nothing.
+- **`HOST_REASON_PROJECTOR_NO_INPUT_DOMAIN`**: INTERNAL, a refusal to
+  start raised as the language's configuration error; args `component`.
+  In `HostReason` because the component host refuses it where it
+  registers the component, as it refuses
+  `HOST_REASON_DESCRIPTOR_RULES_VERSION_MISMATCH` (14.44, amended). A
+  client whose `describe()` builds the descriptor from the dispatch table
+  refuses such a table there with the same key. angzarr-embedded's host,
+  which refuses a child projector describing no input, answers it too.
+- C-0747 in `parity/client/hosting.feature` asserts the key and arg;
+  `scripts/check_reason_keys.py` pins it. The proto prose agrees:
+  `reasons.proto`'s value comment and `options.proto`'s `input_domains`.
+- Why: the ruling. angzarr-embedded refused such a projector at start-up
+  under a local error with no key, while client-python's router folded
+  every book for a table given no domains: a wildcard by omission.
+- Cost: every client library's host and descriptor builder refuse one
+  more case under one more key.
+
+**14.56 A response of another rules version is refused under a key.**
+Owner ruling, 2026-10-31. Follows 14.37 and 14.51.
+- **The rule.** `command_handler.proto` already has the coordinator
+  refuse a CommandHandlerResponse whose `rules_version` differs from the
+  version registered for its component, and persist nothing. The refusal
+  now carries a key.
+- **`COORDINATOR_REASON_RULES_VERSION_MISMATCH`**: INTERNAL, bug, fatal;
+  args `component`, `registered` (the descriptor's `rules_version`) and
+  `reported` (the response's, an empty one included). A caller of Handle
+  or HandleSync is answered it; an asynchronous or reaction delivery is
+  dead-lettered with it as its reason (14.48) and alerted.
+- C-0748 in `rules_version.feature` asserts the status, key and args;
+  C-0558 and C-0559 keep the refusal's consequences.
+  `scripts/check_reason_keys.py` pins the key. The proto prose agrees:
+  `reasons.proto`'s value comment and `command_handler.proto`'s Handle.
+- Why: the ruling. The refusal was answered as a bare INTERNAL, which
+  tells neither an operator nor a catalog what failed.
+- Cost: every coordinator answers one more key; angzarr-embedded is
+  re-keyed to it later.
+
+**14.57 The protos are BSD-3-Clause; the rest of the spec stays AGPL.**
+Owner ruling, 2026-10-31: "BSD wherever linked". User business logic must
+never be bound by the AGPL: anything a user's process links is
+BSD-3-Clause, and only what runs beside it, never linked, stays AGPL.
+- **The protos.** Every client library and in-process host compiles
+  `proto/` into the user's process, so `proto/io/angzarr/` is
+  BSD-3-Clause, under `proto/LICENSE` (the text and holder of
+  angzarr-embedded's). The vendored third-party protos keep their own
+  licences: `proto/google/api/` (Google's, Apache-2.0) and
+  `proto/sererr/v1/` (sererr's, BSD-3-Clause or MIT).
+- **Everything else stays AGPL-3.0**: the features, the parity suite,
+  the docs, the site and the scripts. The client libraries run the
+  features as their tests and ship none of them in a library: client-java
+  and client-csharp copy them into test resources only, and
+  client-python's sdist includes only `angzarr-project/proto/`. One
+  exception to check: client-rust's Cargo.toml sets no `include`, so a
+  `cargo publish` would package the whole angzarr-project submodule,
+  features included, as data in the crate.
+- The README's licence section says so, one sentence each.
+- Why: the ruling.
+- Cost: two licences in one repository, split by directory.
+
+**14.58 Linked code is dual licensed, Apache-2.0 OR BSD-3-Clause.** Owner
+ruling, 2026-10-31. Amends 14.57.
+- **The rule.** Everything 14.57's "BSD wherever linked" made BSD-3-Clause
+  is `Apache-2.0 OR BSD-3-Clause`, at the user's option: here,
+  `proto/io/angzarr/`, under `proto/LICENSE-APACHE` and
+  `proto/LICENSE-BSD` (the BSD text 14.57 added, renamed). The vendored
+  third-party protos keep their own licences, and everything else stays
+  AGPL-3.0, as 14.57 has it.
+- The README's licence section says so.
+- Why: the ruling.
+- Cost: two licence texts under `proto/`.
+
+> **Amended by 14.112 (2026-11-20):** the whole repository is `Apache-2.0 OR BSD-3-Clause`; nothing stays AGPL.
+
+> **Amended by 14.80 (ruled 2026-11-02):** there is no handshake line; readiness is grpc.health SERVING on the path the host chose.
+
+**14.59 The child-process launch protocol is in the spec.** Admitted by
+the owner, 2026-10-31, as architecture-fixes A1 (review S4: "orchestrate
+those fixes"); the drafter's text follows angzarr-embedded wherever the
+two copies disagreed, as the admission directs. Follows FUTURE.md's "gRPC
+over a local socket".
+- **The rule.** How a host launches a business process written in another
+  language as a child, and how the two find each other, is normative in
+  `docs/design/child-protocol.md`: the socket path the host chooses, in
+  `ANGZARR_SOCKET`; the one stdout line `angzarr-handshake v1
+  unix:<absolute path>`, its grammar, and how a reader classifies a line
+  by its first word (not a handshake, skipped; a handshake; malformed,
+  refused); stdout before and after it; readiness, the overall server
+  SERVING on grpc.health.v1 before the line is written; shutdown on
+  stdin's end of file or SIGTERM, the host's stdin, SIGTERM, SIGKILL
+  steps; and who removes the socket file.
+- **`HOST_REASON_HANDSHAKE_MALFORMED`**: INTERNAL, a refusal to start;
+  args `line`, the line as read, its line ending removed. Answered by
+  whatever reads a child's handshake: a host that launches children, and a
+  client's handshake parser. It replaces angzarr-embedded's
+  `angzarr-embedded-host-handshake-malformed` and client-python's bare
+  `HANDSHAKE_MALFORMED`. `scripts/check_reason_keys.py` pins it.
+- **`parity/client/child.feature`**, C-0749 to C-0756: run by every client
+  that provides a child shim against it (the handshake-line outlines by
+  any reader of the line).
+- **Where the two copies disagreed, angzarr-embedded's behaviour is the
+  norm:**
+  - Lines before the handshake: embedded skips any line whose first word is
+    not `angzarr-handshake`; client-python promised nothing would precede
+    it. The norm: a child SHOULD write nothing first, MAY write such lines,
+    and a host skips them. client-python's child, which writes nothing,
+    conforms already.
+  - Stdout after the handshake: embedded drains it onto its own stderr;
+    client-python's child closes it. The norm: never protocol; the host
+    drains it onto its stderr, and the child MAY write there or close it.
+    Both conform.
+  - A longer first word (`angzarr-handshaker ...`) and any line not
+    starting `angzarr-handshake`, the empty line included: embedded says
+    not a handshake, client-python's `parse_handshake` refused it as
+    malformed. The norm is embedded's.
+  - A CR LF line ending: embedded removes it; client-python's parser kept
+    the CR in the path. The norm removes it.
+- **Not ruled here:** a key for a handshake that never arrives, or a child
+  whose stdout closes first (the host's own failures); the host watching
+  every child's health after the handshake; a language-neutral
+  conformance probe. These are S4's host-side half.
+- Why: the contract every non-Rust client must implement lived only in
+  angzarr-embedded's rustdoc and a hand copy in client-python, which
+  already disagreed (review S4; layering F3, polyglot 1).
+- Cost: a client providing a child shim runs one more feature, and
+  angzarr-embedded's host is held to the text where it differs (its
+  malformed key, and readiness it does not check yet).
+
+**14.60 A framework key is its own code, its args and English are the
+spec's.** Admitted by the owner, 2026-10-31, as architecture-fixes C2
+(review K5 and layering F4: "spec keys as the codes"). Amends 14.37's
+catalog rule and 14.44.
+- **The rule.** A condition the spec keys (RouterReason, HostReason,
+  CoordinatorReason) is answered under that key, verbatim, everywhere:
+  on the wire, as before, and as every runtime's in-process diagnostic
+  code, which no runtime renames to a code of its own. Crate-prefixed
+  codes stay for conditions the spec does not key.
+- **Args on the value.** Each live key's args are named by a custom
+  option on its value, `(io.angzarr.v1.reason) = { args: [...] }`
+  (`ReasonOptions`, extending `EnumValueOptions` at 50109, after
+  `refusal_status`'s 50108), `{}` for a key with none, so a key whose
+  args were never declared is told apart. The value comments no longer
+  list args. A key whose answerers give different args
+  (ROUTER_REASON_DUPLICATE_COMPONENT: the router's component and
+  component_kind, the host's registered and refused) declares every
+  name, and an answer gives none it does not declare. Each language
+  generates its arg-name constants from the option; none types them by
+  hand.
+- **One catalog.** `proto/io/angzarr/v1/reasons.en-US.ftl` holds the
+  English for every live key, one message each, naming only args every
+  answer of its key gives and never its `cause` (a wrapped key renders
+  as its own message). It is language-neutral data that every runtime
+  embeds, so it sits under `proto/io/angzarr/`, beside reasons.proto,
+  where 14.58 puts what a user's process links.
+- **The gate.** `just check-reason-keys` refuses a live key without the
+  option, an arg that is not snake_case or is declared twice, and a
+  catalog with a key missing, a message for no live key, a message
+  twice, or a variable its key does not declare.
+- Why: one condition had two names (the key and a runtime's code) with
+  translation tables between them, its arg names were prose re-typed in
+  three places, and no catalog held a spec key (review K5, F4).
+- Cost: buf-compatible (an option added, no field or value changed);
+  every runtime's codes for spec conditions change to the keys, and
+  its own catalog drops their messages.
+
+**14.61 A policy and a projector read the event's whole context.** Admitted
+by the owner, 2026-10-31, as architecture-fixes D3 (review polyglot 4:
+"handlers get the full context", the owner's hard rule).
+- **The rule.** A policy's handler and a projector's fold are given the
+  event as delivered with all of its context: its book's cover, the page's
+  sequence, and the page's whole `EventMeta`, its causation (the producing
+  command's id), correlation, fact origin, rules version and
+  `recorded_at`, none withheld. A runtime may wrap them in a typed
+  context, but every field is reachable from it, and the same fields are
+  reachable in every language. A binding whose policy or projector API
+  passes the event alone (or the event and its cover) offers the
+  context-taking form as its default or only one.
+- **`context.feature`**, C-0757 (a policy) and C-0758 (a projector): the
+  handler reads back every field of the metadata its event was delivered
+  with. Every router binds both.
+- Why: an aggregate's handler got its whole command context, but a
+  policy's and a projector's were curated in Rust (no causation, fact
+  origin or rules version) and defaulted away in Python (`(event, cover)`
+  and `(projection, event)`), so one component ported between languages
+  saw different facts.
+- Cost: none on the wire; bindings whose default form dropped the context
+  change their signature.
+
+> **Amended by 14.80 (ruled 2026-11-02):** the three handshake keys are reserved; `HOST_REASON_CHILD_NOT_SERVING` covers a child not SERVING within the host's time limit.
+
+**14.62 The host's failures with a child are spec keys; the socket path
+is UTF-8.** Ruled by the owner, 2026-11-01: "seven host keys plus UTF-8".
+Amends 14.59.
+- **The keys.** The failures angzarr-embedded's host coded under codes of
+  its own when a child breaks the launch protocol are HostReason keys,
+  their args on the `(reason)` option and their English in
+  `reasons.en-US.ftl` (14.60), named in `docs/design/child-protocol.md`,
+  section 7:
+  - `HOST_REASON_HANDSHAKE_TIMEOUT`, INTERNAL, args `timeout_ms`: no
+    handshake within the host's time limit;
+  - `HOST_REASON_HANDSHAKE_CLOSED`, INTERNAL, no args: the child's stdout
+    ended first;
+  - `HOST_REASON_CHILD_NOT_SERVING`, INTERNAL, args `component`, `status`:
+    health other than SERVING once it had handshaken;
+  - `HOST_REASON_CHILD_EXIT_STATUS`, INTERNAL, args `component`,
+    `exit_code`: a nonzero exit on its stdin's end;
+  - `HOST_REASON_CHILD_NOT_EXITED`, INTERNAL, args `component`, `ended`:
+    no exit by itself within its grace;
+  - `HOST_REASON_PROBE_INPUT`, INVALID_ARGUMENT, args `component`, `kind`:
+    a conformance probe given an input its child does not handle.
+
+  The arg names are embedded's, but for its `domain`, which is the
+  component's name in the host's configuration: `component`, as every
+  other HostReason key names it. They replace embedded's
+  `angzarr-embedded-host-handshake-timeout`, `-handshake-closed`,
+  `-not-serving`, `-exit-status`, `-not-exited` and `-probe-input`.
+  `scripts/check_reason_keys.py` pins all six.
+- **The socket path is UTF-8.** The handshake's ABNF holds the path to
+  UTF-8 (RFC 3629), and `ANGZARR_SOCKET` with it: a host chooses a UTF-8
+  path, and a child given one that is not writes no handshake and exits
+  with a status other than 0.
+- **A path that is not UTF-8 is `HOST_REASON_HANDSHAKE_MALFORMED`**, not a
+  key of its own; the seventh code, embedded's
+  `angzarr-embedded-host-handshake-path-not-utf8`, is retired with no
+  successor. Why: the ruling makes such a line a malformed handshake, and
+  section 2's rule 3 already keys every line that starts
+  `angzarr-handshake` and does not match the grammar, so a reader
+  classifies by the grammar alone, with no check after it; a reader that
+  holds lines as text (client-python's `parse_handshake`) has no second
+  condition to tell apart; and `line` already holds the path, so nothing
+  a path key's arg would carry is lost. A line that is not UTF-8 is given
+  as `line` with each byte outside printable ASCII, and each backslash,
+  written `\xhh`.
+- **`parity/client/child.feature`**, C-0759 to C-0762: a UTF-8 path of any
+  characters is named; one that is not UTF-8 is malformed, given back
+  escaped; a line that is not UTF-8 and does not start
+  `angzarr-handshake` is not a handshake; a child given a socket path that
+  is not UTF-8 fails to start.
+- Why: the ruling. The host's own failures were the one part of the
+  launch protocol's refusals no other host could answer alike (14.59's
+  "not ruled here"), and a path's encoding was left to each reader.
+- Cost: buf-compatible (six values added); embedded's codes for these
+  conditions change to the keys, and a child shim that wrote any path it
+  was given checks it is UTF-8.
+
+**14.63 A host checks every child's health and restarts an unhealthy
+one.** Ruled by the owner, 2026-11-01: "supervision". Fills in 14.59's
+"not ruled here" on what a host does with a child's health after its
+handshake.
+- **The rule.** `docs/design/child-protocol.md`, section 8: every check
+  interval a host sends each child a grpc.health.v1 `Check` for the
+  overall server, with a deadline, which finds a child wedged with its
+  watch still SERVING. A child is unhealthy while its health is seen other
+  than SERVING (a check answered otherwise, failed or past its deadline, or
+  its watch reporting otherwise), and sent no new call meanwhile; one
+  unhealthy for its whole grace is restarted, judged when its health is
+  next seen; past the host's restart limit it stays down, every call to it
+  failing retryably (`COORDINATOR_REASON_HANDLER_UNAVAILABLE`), as a call
+  to a child that is not running does.
+- **In flight.** A call in flight on a child the host stops fails
+  retryably, and the host never sends it again: a restart neither loses
+  nor duplicates a command; its caller decides whether to retry.
+- **Configuration** is the host's: angzarr-embedded's `angzarr.yaml`
+  gains `supervision.health_check_interval_ms`,
+  `health_check_deadline_ms`, `unhealthy_grace_ms` and
+  `unhealthy_restart_limit`, each with a default, at the config's
+  `schema_version` 2. A child that exits by itself is restarted as the
+  host chooses, outside the limit.
+- **`parity/host/supervision.feature`**, C-0763 to C-0768: the first
+  host-tier scenarios, run by every host with its clock in the test's
+  hands; no client binds them.
+- Why: the ruling. A watch alone misses a child that is wedged but whose
+  health service still answers, and a host that only withdrew an
+  unhealthy child's calls left it down for good.
+- Cost: none on the wire; a host keeps a timer per child, and a child's
+  health service answers a `Check` every interval.
+
+**14.64 The protos are four packages: core, the component contract, and a
+package per transport.** Ruled by the owner, 2026-11-01: "split the angzarr
+protos into four packages". Restores 1.12, and amends 14.60's one catalog.
+- **The packages, and their direction.** `transport.distributed ->
+  component -> core` and `transport.embedded -> component -> core`; the
+  transports never import each other, and core imports nothing of angzarr's
+  other packages and no sererr. A file imports only what it uses, so the
+  direction is carried by the crates (each transport's crate depends on the
+  component crate) where a transport's file names nothing of component.
+  - **Core, `io.angzarr.v1`** (keeps its name): messages only, what a
+    Rust-only embedded application with no gRPC needs. Its crate,
+    angzarr-proto, is again a prost-only wasm32 leaf with no `grpc` feature
+    (1.12).
+  - **The component contract, `io.angzarr.component.v1`**: the handler-side
+    services only, nothing tied to how they are reached. angzarr-embedded's
+    host imports it for its non-Rust children; the distributed layer
+    imports it to call remote handlers.
+  - **`io.angzarr.transport.embedded.v1`**: the local-process transport,
+    the child launch protocol's constants and its keys.
+  - **`io.angzarr.transport.distributed.v1`**: the distributed transport,
+    its services and their messages, its envelopes and its keys.
+- **The cut.** Every message, enum and service, and its package:
+
+  | Item | Package |
+  |---|---|
+  | `UUID`, `Cover`, `ConflictResolution`, `StateOptions`, `EventPage`, `EventRef`, `FactOrigin`, `Diagnostic`, `CommandRefused`, `RefusalResponse`, `EventMeta`, `Snapshot`, `EventBook`, `Projection`, `Handling`, `CommandPage`, `Command`, `Fact`, `CommandBook`, `Outcome` (stripped), `DeliveryOutcome`, `ContextualCommand`, `SequenceMismatchDetails`, `CommandRefusedDetails`, `ProcessingFailedDetails` (stripped), `AngzarrDeadLetter` (stripped), `Target`, `ComponentKind`, `ComponentDescriptor`, `StateDescriptor` (types.proto) | core |
+  | `CommandHandlerResponse`, `ConflictReport` (command_handler.proto; the router and the kernel use them in process) | core |
+  | `PolicyResponse`, `PolicyReaction`, `Refusal`, `OnRefusedResponse` (policy.proto; the router uses them in process) | core |
+  | `UpcastRequest`, `UpcastResponse` (upcaster.proto; the kernel upcasts in process) | core |
+  | `EditionSummary` (meta.proto; angzarr-ports' `list_editions`) | core |
+  | `meta.EditionCreated`, `meta.EditionDeleted` (meta/events.proto) | core (`io.angzarr.v1.meta`) |
+  | `ComponentOptions`, `CommandOptions`, `EmitsCardinality`, `EventConsumer`, `ConflictUnit`, `RefusalStatus` and the options (options.proto) | core |
+  | `ReasonOptions`, `RouterReason`, `HostReason`, `CoordinatorReason` (reasons.proto) | core |
+  | `CommandHandlerService`, `PolicyService`, `ProjectorService`, `UpcasterService`, `ComponentService` | component |
+  | `DescribeRequest` (no runtime uses it in process) | component |
+  | `ChildProtocol` and its `(child_protocol)` file option (child_protocol.proto) | transport.embedded |
+  | `HostReason` (the child's keys; reasons.proto) | transport.embedded |
+  | `CommandHandlerCoordinatorService` (DECISION, ASYNC and SIMPLE), `CommandResponse`, `SyncOutcome`, `ProjectorFailure` (command_handler.proto) | transport.distributed |
+  | `PolicyCoordinatorService` (policy.proto), `ProjectorCoordinatorService` (projector.proto) | transport.distributed |
+  | `EventQueryService`, `Query`, `CorrelationQuery`, `TemporalQuery`, `SequenceRange`, `SequenceSet` (query.proto) | transport.distributed |
+  | `EventStreamService`, `EventStreamFilter` (stream.proto) | transport.distributed |
+  | `EditionAdminService`, `ForkStreamRequest`, `ListEditionsRequest`, `ListEditionsResponse`, `DeleteEditionRequest` (meta.proto) | transport.distributed |
+  | `DlqAdminService` and every message and enum of dlq_admin.proto, folded in from `io.angzarr.status.v1` | transport.distributed |
+  | `CloudEvent`, `CloudEventsResponse` (cloudevents.proto) | transport.distributed |
+  | `BusEnvelope`, `ClaimCheck`, `PayloadStorageType`, `PayloadReference` (bus.proto) | transport.distributed |
+  | `DeadLetterEnvelope`, `PayloadRetrievalFailedDetails` (dead_letter.proto) | transport.distributed |
+  | `CoordinatorReason` (the distribution-only keys; reasons.proto) | transport.distributed |
+
+  A file whose every item moved went with them: `component.proto`,
+  `projector.proto`, `query.proto`, `stream.proto`, `cloudevents.proto` and
+  `status/v1/dlq_admin.proto`. A file that keeps core messages keeps the
+  prose every runtime follows (the command modes, the pipeline and the
+  status codes in `command_handler.proto`; policies, refusals and the outbox
+  in `policy.proto`; the upcaster's rules in `upcaster.proto`; editions in
+  `meta.proto`), and its services moved beside the files that cite it.
+- **Strip and wrap.** A distribution-only field leaves core, its number and
+  name reserved, and the transport's envelope wraps the core message; no
+  field is added back to core.
+  - `Outcome.projections` (2) and `projector_failures` (3) move to
+    `SyncOutcome`, which wraps `Outcome`; `CommandResponse.outcome` is a
+    `SyncOutcome`.
+  - `ProcessingFailedDetails.stack_trace` (4) moves to
+    `DeadLetterEnvelope.stack_trace`, `AngzarrDeadLetter.metadata` (8) to
+    `DeadLetterEnvelope.metadata`, and the `payload_retrieval_failed` arm
+    (14) to `DeadLetterEnvelope.payload_retrieval_failed`; a dead letter
+    for an unretrievable payload carries `processing_failed`, as every
+    other retryable failure at its cap does (C-0447 says so).
+  - `PayloadReference` and `PayloadStorageType` ride the new `BusEnvelope`
+    and its `ClaimCheck`s (the protos had no bus envelope before).
+  - Kept in core, though their comments read as transport: `Cover.edition`
+    (editions are the system layer's, in every runtime),
+    `CommandPage.causation_id` (the kernel's checks read it),
+    `ContextualCommand.conflict_nonce` and `recorded_at` (stamped by
+    whichever runtime handles the command). Their comments now say so.
+- **A key lives in the package whose code raises it.** A moved key keeps
+  its string: each transport's enum keeps core's name and prefix
+  (`io.angzarr.transport.embedded.v1.HostReason`,
+  `io.angzarr.transport.distributed.v1.CoordinatorReason`), and core's
+  enum reserves the moved names and numbers. A key's string stays unique
+  across every package, since it is what travels.
+  - **To transport.embedded:** `HOST_REASON_HANDSHAKE_MALFORMED`,
+    `_HANDSHAKE_TIMEOUT`, `_HANDSHAKE_CLOSED`, `_CHILD_NOT_SERVING`,
+    `_CHILD_EXIT_STATUS`, `_CHILD_NOT_EXITED`, `_PROBE_INPUT`
+    (angzarr-embedded's host, and a client's handshake parser).
+  - **To transport.distributed:** `COORDINATOR_REASON_COMPONENT_NOT_REGISTERED`
+    (registration by a coordinator's Describe pull),
+    `_COMMANDS_NOT_SERVED` (a standalone query server) and
+    `_PAYLOAD_UNAVAILABLE` (the claim check): no runtime but a distributed
+    coordinator raises them. None was renamed.
+  - **Stay in core:** every `RouterReason` key; `HostReason`'s
+    `UPCASTER_WITH_COMPONENT`, `NO_COMPONENTS_REGISTERED`,
+    `DESCRIPTOR_RULES_VERSION_MISMATCH` and `PROJECTOR_NO_INPUT_DOMAIN`
+    (configuration and composition, which a Rust-only application can hit);
+    and every other `CoordinatorReason` key, the kernel's as much as
+    core's coordinator's, `EDITION_REMOVAL_FAILED` among them (the system
+    layer removes an edition's rows in every runtime).
+- **One catalog per package.** Each `reasons.proto` has its
+  `reasons.en-US.ftl` beside it, holding exactly its keys, so a runtime
+  embeds the English of the packages it links and no more (a Rust-only
+  application carries no transport's text), and each crate exports its own
+  `REASONS_EN_US`. `just check-reason-keys` holds each file and its
+  catalog to 14.44's and 14.60's rules, every moved key reserved in core and
+  live in its transport; `just check-reason-names` reads all three files.
+- **Declared constants are a file option.** proto3 has no constants, an
+  enum value holds no string, and the spec declared none before, so the
+  child protocol's constants (`angzarr-handshake`, `v1`, `unix:`,
+  `ANGZARR_SOCKET`, the 107-byte path limit) are a `ChildProtocol` message
+  set as `child_protocol.proto`'s `(child_protocol)` option (FileOptions
+  50110): the idiom the spec already uses for data a generator reads off the
+  descriptor ((component), (state), (reason)).
+- **The DLQ admin is folded in** (`io.angzarr.status.v1` becomes
+  `io.angzarr.transport.distributed.v1`, its file moved whole, every
+  message and number unchanged): only a distributed deployment keeps an
+  admin store of dead letters, and a fifth package for one service would sit
+  outside the four the ruling names. `StoredDeadLetter.payload` holds a
+  `DeadLetterEnvelope`.
+- **The crates** (angzarr-core, beside angzarr-proto, each `Apache-2.0 OR
+  BSD-3-Clause`): `angzarr-proto` (core, prost only, wasm32),
+  `angzarr-proto-component` (the services' tonic stubs, always: they are
+  the crate's whole reason to exist), `angzarr-proto-transport-embedded`
+  (the constants and its keys, prost only) and
+  `angzarr-proto-transport-distributed` (its messages and the services'
+  tonic stubs).
+- Why: the ruling. A Rust-only application linked tonic's codegen, sererr
+  and the coordinator's services through one package, and a key or a field
+  only a distributed coordinator raises or sets read as every runtime's.
+- Cost: buf-compatible for core (every removed field and value reserved);
+  every moved service's gRPC method path changes
+  (`/io.angzarr.v1.CommandHandlerService/Handle` becomes
+  `/io.angzarr.component.v1.CommandHandlerService/Handle`), so a host and
+  its children move in lockstep; the moved messages' full names and type
+  URLs change; `CommandResponse.outcome` is a `SyncOutcome`. No stored data
+  changes meaning: core keeps its name, and no runtime ever set a stripped
+  field.
+
+> **Amended by 14.104 (ruled 2026-11-02):** each package's keys are one enum, prefixed by its layer: core's `AngzarrReason`, the embedded transport's `EmbeddedReason`, the distributed transport's `DistributedReason`. A moved key's string is now its layer's.
+
+> **Amended by 14.105 (ruled 2026-11-02):** `CommandResponse`, `SyncOutcome` and core's `Outcome` are deleted: Handle and Deliver answer `CommandResult { events; delivery }`, HandleSync `CommandSyncResult { events; delivery; projections }`, in the distributed transport; `DeliveryOutcome` stays in core.
+
+**14.65 A key declares its status, a key of one stream names it, and the
+keys a runtime lacked are added.** Ruled by the owner, 2026-11-01, on the 2026-10-31 run's
+decisions 11 ("add `stream` to the coordinator keys that concern a single
+stream"), 27 ("declare it on the option"), 26 (C-0590: "add a key and
+refuse the answer as a handler bug"; C-0633: "add `EDITION_NOT_FORKED` and
+check it before the handler runs") and 21 ("unify on the spec keys").
+Amends 14.60.
+- **The status is on the option.** `ReasonOptions.status`, a
+  `ReasonStatus` (core's reasons.proto), set on every live key of every
+  package's reasons.proto; a value's number is its `google.rpc.Code`
+  number, and `REASON_STATUS_READINESS` (100, no code) marks a readiness
+  refusal, which never travels as a status. The key's comment keeps only
+  what the status alone cannot say (a retryable bug's picked status,
+  C-0678). `just check-reason-keys` refuses a live key with no status.
+  Each language's generated tables carry it beside the args (Rust's
+  `status()` on each key enum, Python's `reason_args.STATUS`), and a
+  runtime raises a spec key under its generated status, never one typed by
+  hand.
+- **`stream`.** A coordinator key that concerns one stream declares a
+  `stream` arg, the stream's text: its domain, `/`, its root as canonical
+  lowercase UUID text, then `@` and its edition when it is in one
+  (reasons.proto's header). They are `CONFLICT_UNRESOLVED`,
+  `CONFLICT_OVERLAP`, `PM_NO_INSTANCE`, `EXPECTED_SEQUENCE_STALE`,
+  `RETRY_CAP_EXHAUSTED`, `EXPECTED_SEQUENCE_AHEAD`,
+  `EDITION_REMOVAL_FAILED`, `HANDLER_UNAVAILABLE`, `STORE_CONFLICT`,
+  `RULES_VERSION_MISMATCH` and the two keys below, each `stream` first; the
+  catalog names it. A key about a reaction command (`POLICY_COMMAND_*`), a
+  refusal fact, a component's readiness or a store or sidecar as a whole
+  concerns no one stream and names none. Adding an arg breaks nothing on
+  the wire.
+- **`COORDINATOR_REASON_EVENTS_NOT_ITS_STREAM`** (38; INTERNAL; `stream`,
+  `event_stream`). A domain's or process manager's answer whose events book
+  names another stream (another edition included) is refused before any
+  write and dead-lettered as a handler bug (C-0590).
+- **`COORDINATOR_REASON_EDITION_NOT_FORKED`** (39; FAILED_PRECONDITION;
+  `stream`, `edition`). An outside input to a stream not forked in its
+  edition is refused when it is loaded, before business code runs, by the
+  store's Editions capability (C-0633, C-0654), where the scenarios named
+  an unprefixed key reasons.proto did not hold.
+- **One misconfiguration validator, on the spec's keys** (the 2026-10-31
+  run's decision 21: "unify on the spec keys"). A runtime holds every
+  component it registers, in process or a child's descriptor alike, to one
+  set of rules, each refusal under a spec key: the descriptor rules'
+  `COORDINATOR_REASON_*` readiness keys, `ROUTER_REASON_DUPLICATE_COMPONENT`
+  for a name registered twice, and `HOST_REASON_PROJECTOR_NO_INPUT_DOMAIN`.
+  The gaps it found are keys: `HOST_REASON_UPCASTER_UNKNOWN_DOMAIN` (12;
+  `domain`), `HOST_REASON_UPCASTER_OTHER_DOMAIN` (13; `domain`,
+  `upcaster`), `HOST_REASON_RESOLUTION_UNSUPPORTED` (14; `component`,
+  `resolution`, `command_type`), `HOST_REASON_REMOTE_SOURCE` (15;
+  `component`, `domain`), `HOST_REASON_STATE_TYPE_MISMATCH` (16;
+  `component`, `type_url`, `state_type_url`), each INTERNAL, a refusal to
+  start; and
+  `COORDINATOR_REASON_STATE_RESOLUTIONS_INVALID` (40; `component`;
+  readiness), a state listing a value that is no resolution or lacking the
+  implicit base.
+- Why: the rulings. An operator lost the stream a kernel error named once
+  its code became the spec's key (14.60), a status lived only in prose,
+  and two scenarios named behaviour no key carried.
+- Cost: a new arg on ten keys (none removed); every runtime's raised
+  statuses now come from the generated table.
+
+> **Amended by 14.104 (ruled 2026-11-02):** a key's status is `google.rpc.Code` itself (vendored `google/rpc/code.proto`); `ReasonStatus` is deleted. `RefusalStatus` stays, the business-only subset for refusals.
+
+**14.66 The E2 divergences, settled.** Ruled by the owner, 2026-11-01, on
+the 2026-10-31 run's decision 26, group by group. Amends 14.32 (the main
+timeline's spellings), 14.40 (snapshot selection) and 14.42 (COMMUTATIVE's
+delivery).
+- **The head-of-stream shortcut is normative (C-0149).** A COMMUTATIVE
+  command at the head has no window and nothing to compare: it is
+  delivered as STRICT (`Handling.conflict_resolution` STRICT, no nonce)
+  and handled as STRICT handles it (types.proto, ConflictResolution and
+  `ContextualCommand.conflict_nonce`). The runtimes already did.
+- **The main timeline is unset only (C-0409).** An empty edition is
+  malformed, and `"angzarr"` names an edition like any other, as
+  types.proto's `Cover.edition` says; the scenario that read `""`,
+  `"angzarr"` and unset as one timeline is rewritten to the rule.
+- **No edition override (C-0140).** policy.proto's PolicyResponse holds: a
+  policy's command into any other edition than its trigger's is refused
+  `COORDINATOR_REASON_POLICY_COMMAND_OUTSIDE_EDITION`, a policy bug; the
+  scenario that had the coordinator override it is rewritten to the rule.
+- **No snapshot patterns (C-0527 to C-0530 retired).** A snapshot passes
+  the default rule (types.proto, the snapshot region) or is not offered; no
+  domain configures accept or reject patterns, and no pattern is refused
+  at load, since none is read. The scenario IDs stay reserved.
+- **Kept as the spec says**, the runtimes moving to it: a policy command to
+  a domain no coordinator can route dead-letters its triggering event, not
+  the command (C-0736); a fact whose handler fails is parked and answered
+  OK, PARKED (C-0599); a failing policy handler is retried under the retry
+  policy before it is dead-lettered (C-0444); a translating refusal
+  callback that fails is dead-lettered (C-0619); a dead letter's
+  `occurred_at` is the runtime's clock, the source of `recorded_at`, in
+  UTC. The codegen tier's five errors are refused and its warnings are
+  `lint app`'s (C-0582, C-0604 to C-0606, C-0626; C-0514 to C-0517,
+  C-0611).
+- Why: the rulings. Each scenario and its runtime now say one thing.
+- Cost: a domain that configured snapshot patterns (none does) loses them;
+  nothing on the wire changes.
+
+**14.67 A component's restart count clears after a healthy window.**
+Ruled by the owner, 2026-11-01, on the 2026-10-31 run's decision 24:
+"reset after a healthy window". Amends 14.63.
+- **The rule** (`docs/design/child-protocol.md`, section 8): a host counts
+  a component's restarts for its child's health against its restart limit
+  until the child has been healthy for the whole reset window, unbroken;
+  then the count clears. A child seen unhealthy within the window starts
+  it over.
+- **Configuration** is the host's: angzarr-embedded's `angzarr.yaml` gains
+  `supervision.unhealthy_reset_ms` (default 600000, 10 minutes) at the
+  config's `schema_version` 3; a version-2, version-1 or unstamped file
+  reads with the default.
+- **`parity/host/supervision.feature`**, C-0769 and C-0770.
+- Why: the ruling. A long-running host otherwise gave up, in time, on a
+  child that wedges only now and then.
+- Cost: none on the wire.
+
+**14.68 A projector's and a saga's driver keeps the record of what it
+processed; a purge never touches it.** Ruled by the owner, 2026-11-01, on
+the 2026-10-31 run's decision 20: "a stored capability on the projector
+coordinators (distributed) or in embedded's driving machinery. Embedded's
+may be in memory only, but the same capability must exist. Purge doesn't
+own the projector's record", clarified "projectors and sagas do get to
+track state of what they've processed". Amends 14.43 (a purge removed the
+positions on its stream).
+- **The record.** A projector's driver, and a policy's (a saga's: a
+  process manager is composed of policies, 14.31), keeps every stream its
+  handler has seen and where it is on each, its next sequence. It is one
+  capability, angzarr-ports' `Processed` (the record read, and a stream
+  forgotten), whatever keeps it: a distributed coordinator stores it
+  durably, angzarr-embedded's catch-up may hold it in memory or in the
+  store. Positions are written as ever, in a write.
+- **A purge never touches it.** A purge removes a stream, its snapshot, its
+  command ids and the dead letters about it; the positions on it stay.
+- **A stream gone.** A driver compares its record with the store's
+  listing of streams (`ListStreams`); a stream it holds that the store no
+  longer lists is gone. It hands its handler the stream's gone book (its
+  cover, no page, `next_sequence` 0: what a projector already took as
+  gone), then forgets the stream. A purge made while no driver ran is found
+  so at the next one, which the positions a purge removed could not tell.
+- **A stream purged and written again** before a driver runs is still
+  listed. A driver holding a position past its head hands it from its
+  start; one written again to at least the old position (the purge's known
+  ABA limit, 14.43) is not told apart by a stored record.
+- **`features/coordinator-contract/processed_state.feature`**, C-0771 to
+  C-0774.
+- Why: the ruling. A purge made while no catch-up ran was undetectable,
+  since the purge deleted the very position that said the stream existed.
+- Cost: the positions of a purged stream stay until its driver forgets it;
+  a store's `ListPositions` becomes `Processed`.
+
+> **Amended by 14.91 (ruled 2026-11-02):** "what its destination declares" is the destination's `(command)` or `(fact)` option; the policy's output and a ReactionDelivery carry `oneof body { command; fact }`, not a payload and a flag.
+
+**14.69 A policy emits what its destination declares.** Ruled by the
+owner, 2026-11-01, on the 2026-10-31 run's decision 28, as re-ruled ("a
+policy emits what the destination declares. Facts: the destination's
+declared fact types are emitted as facts, with no refusal path. Commands:
+command types stay refusable, and a refused command returns as a fact to
+the policy's source stream"), and on the design's questions
+(`policy-facts.plan.md`, section 7). Amends 14.31 (the one exception to
+"a policy never delivers a fact"), 14.32 (the arrival rule), 14.33's
+translation into commands and 14.42 (a policy's output checks); decision
+26's C-0139 rewrite is this one's.
+- **The arm.** For a type its destination declares a fact
+  (`CommandOptions.fact`), a policy emits a Fact, which is recorded and
+  never refused; for a command type, a Command, refusable as ever, its
+  refusal path unchanged. The policy's generated code reads the
+  declaration; business code never picks the arm. One reaction
+  (`PolicyReaction`) holds both, in the order returned.
+- **Identity** (ruling 1: "the same id as a reaction command
+  (policy_command_id), with external_id as its canonical text and the
+  trigger's causation. Commands and facts share one index space"). A
+  type turned from command to fact keeps its id, so a re-run across the
+  change is answered DUPLICATE. The coordinator stamps the fact's
+  `fact_origin`; business code that sets one on either arm is a policy
+  bug, `COORDINATOR_REASON_POLICY_COMMAND_FACT_ORIGIN` (reworded).
+  `COORDINATOR_REASON_POLICY_COMMAND_IS_FACT` (26) is retired, its name
+  and number reserved.
+- **The arm unchecked at the source** (ruling 2: "a mismatched arm is
+  refused by the destination's router as a bug and dead-lettered. No
+  descriptor change"): `ROUTER_REASON_NO_FACT_HANDLER` or
+  `ROUTER_REASON_UNKNOWN_COMMAND_TYPE`, at the destination.
+- **Two kinds of causation-bearing fact** (ruling 3: "told apart by
+  payload, with no marker. The exact-stream check applies only to
+  CommandRefused"). A Fact with a `causation_id` is a policy's output,
+  accepted only from the runtime that delivers it, its `command_id` taken
+  as stamped; the receiver holds a `CommandRefused` to its trigger's exact
+  stream, and a translated refusal fact's address stays its issuing
+  coordinator's (14.42).
+- **Delivery.** A policy's fact whose handler fails is dead-lettered and
+  alerted at its destination and answered OK, PARKED, which completes the
+  policy's step (C-0599's rule). A policy's fact in edition X forks the
+  stream it reaches on arrival, as its command does (14.32, "a policy's
+  command or fact"). C-0139: a policy's facts and commands keep the source
+  edition; a policy still emits no event.
+- **A same-domain policy** (ruling 8: "allowed, as long as a policy never
+  addresses its trigger's exact stream"): a policy may address its own
+  domain at another root (C-0780).
+- **A fact for a process manager with no instance** (ruling 10: "a fact for
+  a missing PM instance (non-starting) is DEAD-LETTERED, like a command.
+  This amends C-0593's silent skip"): dead-lettered with
+  `COORDINATOR_REASON_PM_NO_INSTANCE` and alerted, recording nothing;
+  never refused, so its sender is answered OK, PARKED.
+- **Scenarios.** `features/coordinator-contract/policy_facts.feature`,
+  C-0775 to C-0780; C-0781 (`edition_forks.feature`); C-0782 and C-0610
+  rewritten (`fact_flow.feature`); C-0139 rewritten; C-0593 rewritten;
+  C-0734's Fact row now the fact-origin key; C-0783 (handler-contract
+  `handling.feature`, the router passing a reaction's facts through).
+  C-0184, C-0188, C-0189 and C-0493 stay retired.
+- Why: the rulings. A process manager is composed of policies (14.31): a
+  step whose destination cannot refuse it (a reply recorded, an undo) is
+  a fact, so it needs no refusal path and compensation cannot loop.
+- Cost: no wire change. A fact type's validation moves into its fact
+  handler, which flags with an event; a non-starting fact for an absent
+  process manager instance now reaches a human.
+
+> **Superseded by 14.78 and 14.88 (ruled 2026-11-02):** `PolicyReaction` is deleted, and the exception mechanism (`proto/breaking.exception` and its `just proto-breaking` logic) is removed.
+
+**14.70 `PolicyReaction.commands` is `outputs`: the gate's one
+exception.** Ruled by the owner, 2026-11-02, on the escalation of 14.69's
+implementation: "One-off gate exception, full rename". Amends 14.54 (the
+gate) and 14.69 (which kept the name).
+- **The rename.** `PolicyReaction.commands` (2) is `outputs`, name and JSON
+  name; its number and its wire bytes are unchanged. It holds a reaction's
+  commands and facts alike (14.69), so it is named for both. No store keeps
+  a `PolicyReaction`: it is a policy's answer to its coordinator, never
+  stored ("no stored data exists", the owner).
+- **The exception.** `buf breaking` (14.54) refuses the JSON name's change.
+  `proto/breaking.exception` records exactly one exception: the commit that
+  renames the field, and buf's two findings for it (the field's name and
+  its `json_name`). `just proto-breaking` lets those two findings, and
+  nothing else, through while that commit is in what it checks and not yet
+  in its base; a further finding, or one of the two missing, fails it as
+  before. Once the commit is on the draft, everything forked after it has
+  it in its base, so nothing is excepted again.
+- **Not an allowlist.** The file names one commit, never a list: a later
+  exception is a decision of its own that replaces it, and the gate stays
+  strict for every other change.
+- Why: the ruling. The gate guards stored data, and none holds this field;
+  a name that says only "commands" misreads a reaction that carries facts.
+- Cost: JSON readers of a `PolicyReaction` (none stored, none outside the
+  framework's own runtimes) read `outputs`; every runtime and generator
+  renames its accessor.
+
+**14.71 A policy never addresses its trigger's own stream.** Ruled by the
+owner, 2026-11-02, on the escalation of 14.69's implementation: "Enforce:
+new key, rewrite C-0737". Enforces 14.69's ruling 8 ("allowed, as long as
+a policy never addresses its trigger's exact stream").
+- **The rule.** A policy's command or fact whose cover names its trigger's
+  domain and root, on the main timeline or in the trigger's edition (the
+  edition rule stamps every output with the trigger's, so no other
+  edition reaches this check), is a policy bug: the policy's coordinator
+  refuses the whole answer, delivers nothing, and dead-letters the
+  trigger, as for every other output check (`PolicyResponse.reactions`).
+  Its own domain at another root stays allowed (C-0780).
+- **`COORDINATOR_REASON_POLICY_TARGETS_ITS_TRIGGER`** (41; INTERNAL; args
+  `stream`, the trigger's stream text per 14.65's single-stream rule, and
+  `command_type`). Checked after the edition rule.
+- **Scenarios.** C-0784 (`policy_facts.feature`: a command and a fact on
+  the main timeline, a command in an edition). C-0737's chain now
+  addresses another order at each depth; it tested the depth limit, and
+  its same-order chain is refused by this rule at depth 1.
+- Why: the ruling. A policy that answers its own trigger's stream is an
+  aggregate deciding through a side door, and with a refusal path, a loop
+  on its own stream.
+- Cost: one more check per output, in each coordinator.
+
+> **Amended by 14.100 (ruled 2026-11-02):** a fact that cannot be recorded is dead-lettered and its sender answered INTERNAL `COORDINATOR_REASON_FACT_DEAD_LETTERED` (non-retryable), never OK PARKED; `DELIVERY_OUTCOME_PARKED` is removed.
+
+> **Extended by 14.110 (ruled 2026-11-07):** a fact handler's whole failure surface is a `Bug`: a classified bug keeps its code, args and retryable status on the wire, an unclassified one is the unhandled-handler-error reason with no cause, and the type holds no refusal.
+
+**14.72 A fact its business process answers with a rejection is
+dead-lettered.** Ruled by the owner, 2026-11-02, on the escalation of
+14.69's implementation ("2 should dead-letter"), overturning that
+implementation's reading that such a fact's step simply fails.
+- **The rule.** A fact is never refused, so a business process that
+  answers one with a business status (a rejection: FAILED_PRECONDITION and
+  the rest of 14.37's business statuses) has a bug. The coordinator
+  dead-letters the fact (rejected_command), under the key and args the
+  process answered, and alerts, as for any input it cannot deliver; the
+  sender is answered OK, PARKED, with no events. A policy's fact so parked
+  is its step done (14.69), and nothing takes the refusal path: no
+  OnRefused, no refusal fact.
+- **Scenarios.** C-0785 (`policy_facts.feature`, a policy's fact) and
+  C-0786 (`fact_flow.feature`, a client's).
+- Why: the ruling. Only a command is refused (14.31); a rejection for a
+  fact is no answer a sender can act on.
+- Cost: none on the wire.
+
+> **Amended by 14.91 (ruled 2026-11-02):** the arm the generator emits is `Output.body`'s `command` or `fact` arm, read from the destination's `(command)` or `(fact)` option.
+
+**14.73 The generator emits each policy output's arm, and refusal handlers
+only where a command declares `refuses`.** Ruled by the owner: decision 28
+of the 2026-10-31 run, as re-ruled 2026-11-01 (14.69: "the policy's
+generated code reads the declaration; business code never picks the
+arm"), and decision 3 of that run's report, 2026-11-01 ("only commands that
+declare `refuses`"). Amends 14.31's generated pass-through handlers.
+- **The arm.** A policy's generated code, in every language, sends each
+  output its reaction returns in the arm its destination's
+  `(command).fact` declares: a Fact for a fact type, a Command otherwise.
+  A reaction returns any input of its destination, command or fact, and
+  never names the arm.
+- **Refusal handlers.** A domain's generated `on_refused_<command>` (a
+  stub in the scaffold, and its registration in the dispatch) exists only
+  for a command its policies send whose `(command).refuses` names a type:
+  one with no typed refusal has nothing for a handler to read, and its
+  refusal, if any, is dead-lettered as one with no handler
+  (`ROUTER_REASON_NO_REFUSAL_HANDLER`). A fact has no refusal at all.
+- **Scenarios.** C-0794 and C-0795 (`codegen/component_options.feature`).
+- Why: the rulings. A reaction that picked its own arm could contradict
+  its destination; a handler for a refusal no command types was noise
+  (one per command a policy's target takes).
+- Cost: a domain that wants a command's refusal handed to it names a
+  `refuses` type for that command.
+- Amended by 14.76: every command a policy sends names a `refuses` type, and
+  a generated policy always translates, so a generated policy never passes
+  a refusal through.
+
+> **Amended by 14.83 (ruled 2026-11-02):** an undo's target must be a fact, and a registration whose undo targets a command is refused; `CompensationFailed` and the `UndoTargetsCommand` warning are gone, and decision 38 is moot.
+
+**14.74 A process manager's compensation is code, kept by its client
+library.** Ruled by the owner, 2026-11-01, on decision 28's design
+(`policy-facts.plan.md`, section 7: ruling 5, "a code-level step/undo
+pairing plus a `rollback(state, reason)` helper per language, with its
+journal in the PM's own events, kept equal across languages by
+handler-contract scenarios"; ruling 6, "a refused undo makes the PM record
+CompensationFailed"), and on the scaffold design's Q10 (2026-11-02: "the
+client library's step registration checks each undo's target against the
+descriptor at startup"). Cites 2.2 (no compensation channel) and 2.3 (no
+`undoes` or `compensates` annotation): nothing of it is in proto.
+- **A step** pairs, in code, the PM event that records it done (its
+  reply, folded into the state: the journal is the PM's own events) with
+  its undo: an event of the PM's own, built from the step's record, that
+  the PM's outbound policy turns into what the step's destination
+  declares, a fact where it can (14.69).
+- **Rollback.** `rollback(state, reason)` returns the PM's failed event,
+  then the undo of each completed step, newest first: one handling, the
+  PM's events (a list, as every handling's, 14.75). The failed event's fold marks the
+  PM rolled back.
+- **A late reply.** A reply for a step that arrives after the rollback is
+  recorded and undone at once: the tooling returns the step's record, then
+  its undo.
+- **An undo that may be refused.** Which event undoes which step is known
+  only in code, so the client library checks it when the step is
+  registered, at startup, against the descriptor: an undo whose target its
+  destination declares a command, not a fact, is warned of (a warning,
+  not a refusal: some undos really can be refused). A refused undo's
+  refusal reaching the PM records CompensationFailed for its step.
+- **Per language.** angzarr-embedded's markup (Rust) and client-python
+  each offer the pairing and the helper; the handler-contract tier's
+  `compensation.feature` (C-0787 to C-0793, C-0796) is bound by both, so they
+  agree.
+- **Not in it.** Deadlines (ruling 7): a timeout stays an outside fact
+  addressed to the PM.
+- **CompensationFailed is the alert.** Ruled by the owner, 2026-11-02
+  (decision 38, option (a)), settling ruling 6's "is dead-lettered and
+  alerted": a refused undo's refusal reaching the PM records
+  CompensationFailed on the PM's own stream, its handling succeeds, and
+  the refusal is not dead-lettered. A human learns of it by watching that
+  event, through a projector or subscriber. C-0793 pins the event,
+  C-0796 that the handling succeeds and nothing is dead-lettered.
+  - Why: a handling either commits events or is dead-lettered, never both.
+  - Cost: a refused undo does not show in the dead-letter queue; whoever
+    must hear of it watches CompensationFailed.
+  - Revisit: only for a kernel side record, an outbox-like alert table
+    that one handling could write beside its events. Not ruled.
+- Why: the rulings. Temporal's `Saga` and MassTransit's routing slips keep
+  the same journal; here it is the PM's own events, so a rebuild replays
+  it, and an undo that is a fact cannot loop.
+- Cost: a PM author declares each step's undo in code; the generator
+  checks nothing of it.
+
+**14.75 Every handling returns a list of events; there is no emits
+cardinality.** Ruled by the owner, 2026-11-02 (the 2026-10-31 run's
+decision 45: "why the heck is emit cardinality a thing at all? it should
+return an array/list/vector of events, always. that can be empty, singular,
+or many"). Reverses 14.50's emits-cardinality bullet; supersedes that run's
+decision 43 (no OPTIONAL annotations needed).
+- **The rule.** A command handler and a fact handler, in every language the
+  generator writes, return a list of the component's events: empty, one or
+  many. A command's `emits` types that list when it names them; with none,
+  any of the component's events. A command may still refuse, as before.
+- **The option.** `CommandOptions.emits_cardinality` (field 6) is removed,
+  its number and name `reserved`, and the enum `EmitsCardinality` deleted.
+  table.proto drops its seven uses. `buf breaking` (14.54) passes: its
+  WIRE_JSON rules accept a field removed with its number and name
+  reserved, and an enum's deletion, so no exception (14.70) is needed.
+- **The wire is unchanged.** A handling was always a list on the wire
+  (`EventBook.pages`); the cardinality only typed the generated handler.
+  No runtime read it.
+- **Facts may record nothing.** A fact whose effect is already recorded, or
+  that is stale for its stream, records nothing (an empty list), where it
+  used to record an event of no effect. The blackjack wallet's repeated
+  capture, release, round result and award (EU-1418, EU-1421, EU-1434,
+  EU-1435) and a hold never placed (EU-1419) record nothing; so does the
+  buy-in for another buy-in's news (EU-1557).
+- **Scenarios.** C-0797 (`codegen/component_options.feature`).
+- Why: the ruling. A handling's events are a list on the wire; a second
+  declaration of how many, which a repeat or a variable subset contradicts,
+  bought only a compile-time check.
+- Cost: the compile-time "exactly these events" check on a handler that
+  always emits one is lost, and every handler's signature changes in both
+  languages.
+
+> **Amended by 14.78 and 14.89 (ruled 2026-11-02):** the domain-side refusal handler is gone; a policy has ONE refusal callback over its target's refusal messages, handling the refusals of the commands it sends, every other arm a Bug.
+
+> **Amended by 14.99 (ruled 2026-11-02):** the rule that every command of a policy-targeted domain names a `refuses` type is DROPPED: with typed refusals only (14.95), an empty `refuses` means the command cannot refuse, so every sent command has a path by construction.
+
+> **Amended by 14.104 (ruled 2026-11-02):** in every client library a command handler returns an `Emit` (`Emit::of(events)`, optionally `.then(step)`); the wire is still the one list.
+
+**14.76 Every command a policy sends has a refusal path, and a generated
+policy always translates.** Ruled by the owner, 2026-11-02 (the 2026-10-31
+run's decision 42, on item S's escalations S-2 and S-4: "all commands must
+declare a refusal path"; "the compensation *must* execute to tell the
+source domain of the business failure"). Amends 14.73 and 14.31's refusal
+modes; rewrites C-0612, C-0623 and C-0795.
+- **Every sent command declares `refuses`.** Nothing declares what a policy
+  sends (14.31), and a policy may send any command of its target, so every
+  command (not fact) of a domain some policy targets names at least one
+  `refuses` type. One that names none is a coded generation and lint
+  error naming the policy and the command.
+- **The source takes a fact.** A policy's refusal callback answers a fact
+  of its source, so a policy whose target has a command and whose source
+  takes no fact is a coded generation and lint error.
+- **The policy's callback is required.** A generated policy's interface has
+  `<command>_refused` for every command of its target, required in every
+  language: in Rust a trait method with no default (a missing one does not
+  compile), in Python an abstract method of the generated base class. It
+  returns the source's fact choice or a Bug (Rust `Result<<Source>Fact,
+  Bug>`), and cannot decline: a refusal of a command the policy never sends
+  is answered with a Bug.
+- **The domain's handler may still decline.** A source domain's generated
+  `on_refused_<command>` (14.73) is unchanged and may decline. A generated
+  policy never passes a refusal through, so for its commands the handler
+  is not reached; it stays for a policy written by hand, for which
+  pass-through stays the protocol's (PolicyService.OnRefused).
+- **NO_REFUSAL_HANDLER.** `ROUTER_REASON_NO_REFUSAL_HANDLER` is unreachable
+  for the commands a generated policy sends; it stays for a hand-written
+  policy's pass-through.
+- **The CLI's switch.** `--translate <policy>:<command>=<fact>` no longer
+  selects a mode: it names the source fact the scaffolded callback
+  returns.
+- **The examples.** DecideMove refuses with DecideMoveRefused, translated
+  into the table's RecordMoveUndecided; Hit, Stand and DoubleDown's
+  TableRefused is translated into the player's RecordMoveRefused; HoldFunds'
+  InsufficientFunds into the buy-in's FundsHoldRefused (EU-1562); the
+  wallet's client commands refuse with WalletRefused.
+- **Scenarios.** C-0612, C-0623 and C-0795 rewritten; C-0798 and C-0799
+  (`codegen/component_options.feature`).
+- Why: the rulings. A refusal that nothing handles leaves the business
+  process that sent the command unaware it failed; a compensation must run.
+- Cost: every command of a targeted domain names a refusal type; each
+  generated policy implements a callback per target command, the ones it
+  never sends answering a Bug.
+
+**14.77 The blackjack buy-in compensates as 14.74 shapes it.** Ruled by the
+owner, 2026-11-02 (the 2026-10-31 run's decision 44, option (a)).
+- **Failed events trigger nothing.** BuyInFailed (the wallet refused
+  HoldFunds) and BuyInSeatLost (the table refused ConfirmSeat) are the
+  rollback's failed events, folded by the PM alone.
+- **Undo events.** SeatReleaseDue (policy-buy-in-table sends ReleaseSeat)
+  undoes the held seat, recorded by BuyInStarted; HoldReleaseDue
+  (policy-buy-in-wallet sends ReleaseHold) undoes the held funds, recorded
+  by BuyInFundsHeld. Both undos are facts.
+- **CompensationFailed** is the PM's alert for a refused undo (14.74,
+  decision 38 (a)); both undos are facts, so the buy-in never records it
+  today.
+- **A late hold.** Funds held after the buy-in failed are recorded as
+  BuyInLateFundsHeld, distinct from BuyInFundsHeld, which would ask the
+  table to confirm the seat, and undone at once with HoldReleaseDue
+  (EU-1611).
+- **The refusals' facts.** FundsHoldRefused (new, from 14.76) and
+  SeatConfirmationRefused each roll the buy-in back.
+- **Scenarios.** EU-1562, EU-1610 and EU-1611 (blackjack-framework
+  `process_manager.feature`) are bound by examples-rust, its buy-in rebuilt
+  on angzarr-embedded's `Compensation`.
+- Why: the ruling; the example shows 14.74's tooling end to end.
+- Cost: no wire change beyond new messages; BuyInFailed and BuyInSeatLost
+  no longer feed a policy.
+
+## Decision 46 and the rulings audit (ruled 2026-11-02)
+
+> **Ruled 2026-11-02.** Entries 14.78 to 14.109 were drafted on branch
+> `review/proto-layers-46` and reviewed by the owner (review guide
+> `proto-layers-review.md`, session inept-sixth-stick). The owner
+> approved the branch on 2026-11-02; it was cut as `spec/20261102-draft`,
+> the new proto-breaking baseline, and these entries were promoted from
+> DRAFT to ruled.
+
+> **Amended by 14.95 (ruled 2026-11-02):** Q2 is REVERSED: errors travel as gRPC statuses. Decide and Ingest answer success only; a refusal is a business status with its typed object in the details, a re-run ABORTED, a bug its error status. `COORDINATOR_REASON_ANSWER_NO_RESULT` is retired, and refusals are typed only.
+
+**14.78 The handler layer: handlers get the books and return only
+what they decide.** From decision 46 ("we need to wrap things by
+layers/more proto ...") and its rulings Q1-Q3, Q5-Q7, #2-#5 (2026-11-02).
+- **A new package, `io.angzarr.handler.v1` (Q1).** Dependency: component
+  -> handler -> core. A request carries the full angzarr context
+  read-only, the books (the owner: "ensure that the business logic inputs
+  carry the angzarr metadata as well (command books, event books)"). A
+  response carries only what business code decides: payloads, the
+  post-decision state, the rules version, a conflict report, a refusal.
+- **Messages.** `DecideRequest { CommandBook command; EventBook history;
+  recorded_at }` -> `DecideResponse { oneof result { Decided decided;
+  Refusal refused; Diagnostic aborted }; rules_version }` (Q2: in band;
+  REVERSED by 14.95: success only, errors as gRPC statuses);
+  `IngestRequest` -> `IngestResponse`; `ReactRequest { EventBook trigger }`
+  (one page, one call per trigger, Q3) -> `ReactResponse { repeated Output
+  { root, payload, fact } }`; `TranslateRequest { trigger, command,
+  Refusal }` -> `TranslateResponse { Any fact }`; `ProjectRequest` ->
+  `ProjectResponse { Any projection }`; `UpcastRequest` ->
+  `UpcastResponse { repeated Any payloads }`.
+- **Services retyped under new RPC names:** Decide, Ingest, React,
+  Translate, Project, UpcastPayloads; `PolicyCoordinatorService.Execute`
+  becomes `ExecuteStamped`. The old RPCs are deleted, never retyped.
+- **Core trimmed.** ContextualCommand, CommandHandlerResponse,
+  ConflictReport, PolicyResponse, PolicyReaction, Refusal,
+  OnRefusedResponse, RefusalResponse, CommandRefused, UpcastRequest,
+  UpcastResponse and Target are deleted; none was stored.
+- **Q5** (superseded by 14.92: there is no conflict concept at all). The
+  conflict nonce and any acknowledgement go (the owner: "drop the entire
+  thing. if a second call is happening, we don't need it").
+  AGGREGATE_HANDLES's handler decides on the window and nothing is
+  reported; COMMUTATIVE still reports its two unit sets.
+  `COORDINATOR_REASON_CONFLICT_UNRESOLVED` is retired.
+- **#2, #3.** `ComponentOptions` and `ComponentDescriptor` are a `oneof
+  kind` with per-kind messages (old fields reserved). A policy's and a
+  projector's sources are derived from the events they name;
+  `EventConsumer.domain` is an override for an event whose owner is outside
+  the descriptor set only.
+- **#4.** A dead letter is its payload, `reason`, `retry_count` (19) and,
+  for a typed refusal, `refusal` (20). `rejection_details` (12, 13, 17),
+  its three messages and `RejectionType` are retired;
+  `StoredDeadLetter.rejection_type` (6) is reserved and the admin filter
+  keys on `reason_code`. Q7: old rows rely on the stored-data waiver.
+- **#5.** One refusal path: pass-through, `CommandRefused` and the source
+  domain's refusal dispatch are removed. Q6:
+  `ROUTER_REASON_NO_REFUSAL_HANDLER` stays, re-scoped to the policy's
+  router.
+- **Reason keys.** Retired, reserved by name and number: CONFLICT_UNRESOLVED,
+  REFUSAL_FACT_WRONG_STREAM, POLICY_COMMAND_OUTSIDE_DESTINATION,
+  _OUTSIDE_EDITION, _OTHER_CORRELATION, _OTHER_IDENTITY,
+  REFUSAL_FACT_ADDRESSED, _NO_PAGE, _NOT_A_FACT, _IDENTIFIED,
+  EVENTS_NOT_ITS_STREAM, STARTING_TYPES_ON_NON_PM, STATE_ON_STATELESS_KIND,
+  OUTPUT_DOMAIN_ON_NON_POLICY, POLICY_INPUT_COUNT (all
+  `COORDINATOR_REASON_`). New: POLICY_NO_INPUT_DOMAIN, DESCRIPTOR_NO_KIND,
+  ANSWER_NO_RESULT.
+- Why: the rulings. A message that holds only what a handler decides makes
+  each "refuse what the type allows" check unrepresentable.
+- Cost: every runtime's handler dispatch and every coordinator change;
+  the features named in the review guide are falsified and wait on review.
+
+**14.79 A reaction is a ReactionDelivery; Handling is the
+Command's and origin the Fact's.** Decision 46, Q4 (a), as its own commit.
+- `ReactionDelivery { cover, payload, fact, command_id, correlation_id,
+  causation, component }`, through the framework-only
+  `CommandHandlerCoordinatorService.Deliver`, answered as Handle.
+- `Command { payload, handling }`, `Fact { payload, origin }`;
+  `CommandBook.handling` (6), `CommandPage.causation_id` (10) and
+  `.fact_origin` (11) reserved. A client's book cannot carry a causation,
+  so the PERMISSION_DENIED check for one goes.
+- `AngzarrDeadLetter.rejected_reaction` (21); `DecideRequest` and
+  `IngestRequest` gain `causation`; `TranslateRequest.command` and
+  `ExecuteResponse.outputs` are ReactionDeliveries.
+- `COORDINATOR_REASON_POLICY_COMMAND_WITH_HANDLING` and `_FACT_ORIGIN`
+  retired.
+- Cost: old dead-letter rows of reaction commands lose their Handling,
+  origin and causation (the waiver); a reaction is always delivered in
+  DECISION mode.
+
+**14.80 No child handshake line.** The owner's ruling F1. The host
+chooses the socket path, so readiness is grpc.health SERVING on it, within
+the host's time limit. `HOST_REASON_HANDSHAKE_MALFORMED`, `_TIMEOUT` and
+`_CLOSED` are reserved; `HOST_REASON_CHILD_NOT_SERVING` covers a child not
+SERVING in time (arg `timeout_ms` added). `ChildProtocol`'s handshake
+constants are reserved. `docs/design/child-protocol.md` follows. Amends
+14.59 and 14.62.
+
+> **Superseded by 14.92 (ruled 2026-11-02):** there is no resolution for a state to declare.
+
+**14.81 The state declares the conflict resolution.** The owner's
+ruling F2. COMMUTATIVE where the state's `(state)` option lists it, STRICT
+otherwise; nothing overrides it. `Handling.conflict_resolution` (2) is
+reserved; the per-command-type and per-component configuration and the
+override permission are gone from the text.
+`ROUTER_REASON_CONFLICT_RESOLUTION_UNSUPPORTED` and
+`HOST_REASON_RESOLUTION_UNSUPPORTED` are retired. Open: no state now
+reaches AGGREGATE_HANDLES. Amends 3.3 and 12.7.
+
+**14.82 One message per refusal.** The owner's ruling F3. Each
+refusal is its own message, named in the `refuses` of each command that
+refuses with it, with its status as a MESSAGE option (`refusal_status`
+moves to MessageOptions, number 50104; 50111 is angzarr-build's
+`choice`) and one wire key (COMMAND_REFUSED plus its
+type). TableRefused's 18 codes and WalletRefused's 6 become messages.
+Amends 14.50 and 14.52.
+
+**14.83 An undo's target must be a fact.** The owner's ruling F4.
+A compensation whose undo targets a command is refused at registration.
+`CompensationFailed` (buy_in.proto, the compensation fixture) and the
+`UndoTargetsCommand` warning are gone. Decision 38 (how a human hears of a
+refused undo) is moot: no undo can be refused. Amends 14.74 and 14.77.
+
+**14.84 The race re-run cap is at least 1.** The owner's ruling F5.
+The cap-0 opt-out is retired and `COORDINATOR_REASON_STORE_CONFLICT`
+reserved; a configuration of 0 is refused when it is loaded. C-0740 to
+C-0742 retire. Amends 14.46 and 14.51.
+
+**14.85 A sync command writes no dead letter at the retry cap.**
+Corrects 14.46 to the owner's ruling of 2026-10-31 ("Sync commands write no
+dead letter at the retry cap"): a caller waiting on Handle or HandleSync is
+answered `COORDINATOR_REASON_RETRY_CAP_EXHAUSTED` and nothing is
+dead-lettered; work with no caller waiting is dead-lettered and alerted.
+
+**14.86 The parent is authoritative; a fork is its own event's
+sequence.** The owner's ruling F7 ("the parent should never have any
+concept of forks/branches. It is authoritative, period.").
+`EditionCreated.parent_sequence` (2) is reserved, and the ports'
+`MalformedCreation` rule leaves the spec (14.36).
+`ForkStreamRequest.parent_sequence` stays.
+
+**14.87 One required component name.** The owner's ruling F8.
+`ComponentOptions.name` (4) is reserved; `component_name` (9) is the one
+name, required, with no per-kind default formula. The example protos write
+each component's current name once. Amends 14.50.
+
+**14.88 F9's four items.** The owner's ruling F9: the breaking-gate
+exception mechanism is removed (amends 14.70); a non-SemVer
+`rules_version` is refused at registration
+(`COORDINATOR_REASON_RULES_VERSION_NOT_SEMVER`), dropping the
+string-equality fallback; a readiness marker replaces
+`REASON_STATUS_READINESS` (100, reserved; the marker became a oneof arm in
+14.91);
+`ROUTER_REASON_DUPLICATE_COMPONENT` has one owner, the router, and one arg
+set (`registered`, `refused`). taskloom's `defers`/`initial` item is
+taskloom code and is not here.
+
+> **Reversed in part by 14.104 (ruled 2026-11-02):** the SemVer refusal (item 2) is REVERSED: a non-SemVer `rules_version` is accepted at registration, and snapshots of a non-SemVer version are offered by exact string equality, as angzarr-embedded does. `COORDINATOR_REASON_RULES_VERSION_NOT_SEMVER` is retired. The other three items stand.
+
+**14.89 Ingest answers ingested or aborted; one refusal callback
+per policy; a refused move stands the hand.** Owner rulings, 2026-11-02.
+- `IngestResponse` is `oneof { Ingested ingested; Diagnostic aborted }`;
+  an abort is a bug, dead-lettered per 14.72. There is no refusal arm.
+- A policy has ONE refusal callback over a choice of its target's refusal
+  messages. Its author handles the refusals of the commands it sends, and
+  every other arm answers a Bug (the owner: "it only needs the
+  reversal/compensation for the commands its sending, not every possible
+  command"). There is no `sends` declaration (2026-10-28 stands). Amends
+  14.76.
+- Blackjack: a refused DecideMove makes the table stand the hand
+  (RecordMoveUndecided emits HandStood and what follows), so the round
+  always completes. (Removed by 14.100: a player always decides, so
+  RecordMoveUndecided, MoveUndecided and this rule are gone.)
+
+**14.90 The scheduler's time facts.** The owner's direction,
+2026-11-02 ("external, firing facts (datetime reached) into the domains
+that asked for them"; "we'll want proto for those time facts").
+`io.angzarr.scheduler.v1`: `ArmAlarm { target, alarm_id, at }`,
+`CancelAlarm { alarm_id }`, and the fact `AlarmReached { alarm_id, at }`,
+whose `fact_origin.external_id` is derived from (target stream, alarm_id,
+at) so a repeated delivery deduplicates. One scheduler stream per target
+stream (D5 Q5); the target re-checks. Supersedes FUTURE.md's timer sketch
+where they differ.
+
+**14.91 No boolean switches: a kind is a type, a oneof or its own
+option.** The owner's review of the draft, 2026-11-02: "stop using boolean
+switches. bool fact is anathema. fact should be their own message type";
+"if something needs to carry commands OR facts, have it be a oneof";
+"usually, bools are the wrong choice to begin with. they're almost always
+better served with an enum at this level of programming"; and "blackjacks
+bools are fine, as they implement fixed rules".
+- **A fact is its own declaration.** `CommandOptions.fact` (5) is reserved;
+  a fact carries `(io.angzarr.v1.fact)` = `FactOptions { component; emits }`
+  (MessageOptions 50112). A command keeps `(command)` with `refuses`. Every
+  example and the compensation fixture are re-annotated. Amends 14.34,
+  14.69 and 14.73.
+- **Starting inputs are listed by the PM.** `CommandOptions.starts` (3) is
+  reserved; `ProcessManagerDecl.starting_types` lists them, and the
+  descriptor's `starting_types` is copied from it.
+- **Command OR fact is a oneof.** `io.angzarr.handler.v1.Output` and
+  `ReactionDelivery` carry `oneof body { Any command; Any fact }` in place of
+  a payload and `bool fact`. (`CommandPage` already had its oneof.)
+- **Conflict units** (superseded by 14.92: `ConflictUnit` is deleted). `ConflictUnit`'s `descend`, `ordered` and
+  `whole_state` switches (and `element_key`) are reserved for `oneof unit {
+  Natural natural; Descend inner_fields; Keyed keyed; WholeState wildcard
+  }`, with `Keyed { element_key; oneof order { order_ignored |
+  order_is_state }; oneof element { whole | inner_fields } }`.
+- **Reason surfaces.** `ReasonOptions.status` (2) is reserved for `oneof
+  surfaces { ReasonStatus grpc_status; Readiness readiness }`; the
+  `readiness` bool of 14.88 is gone.
+- **Shapes, not flags.** `DeleteDeadLetterOk.deleted` (1) becomes `oneof
+  outcome { removed | no_entry }`; the ledger's `WalletBalanceView.found`
+  becomes `oneof result { balance | not_seen }` and `LedgerView.balanced` the
+  enum `LedgerState` (BALANCED, IN_FLIGHT, UNBALANCED); both superseded by
+  14.96, which splits the ledger and drops `LedgerState`.
+- **Kept bools**, each data with two states only: blackjack's (the owner),
+  the wallet's `registered` and `loyalty_enrolled`, the compensation
+  fixture's `failed`, and the vendored `sererr` and `google.api` messages.
+
+> **Amended by 14.93 (ruled 2026-11-02):** the framework writes one staleness refusal, `io.angzarr.handler.v1.ExpectedSequenceMismatch`, which a handler raises; consequence (3) of 14.92 ("no framework staleness refusal") is reversed.
+
+> **Amended by 14.94 (ruled 2026-11-02):** the coordinator checks one thing of staleness: a set expected sequence other than the loaded head is refused `ExpectedSequenceMismatch` before the handler runs. The rest of 14.92 stands.
+
+**14.92 The coordinator has no conflict concept.** The owner's
+decision 47, 2026-11-02: "does the coordinator need to care, at all, about
+conflicts, or should we just delegate it?" ... "and let the business logic
+handle it". Supersedes F2 (14.81), Q5 (14.78) and the review guide's
+ConflictReport variants A/B; amends 3.3, 6.7, 8.1, 12.7, 14.42, 14.45, 14.47
+and 14.66.
+- **Removed:** `ConflictResolution` (STRICT, COMMUTATIVE, AGGREGATE_HANDLES);
+  `StateOptions` and the `(state)` option (50106); `ConflictUnit` and the
+  `(conflict)` option (FieldOptions 50107), with the 14.91 oneof built for
+  it; `ConflictReport` and `Decided.conflict`; the conflict window and its
+  snapshot bound; `StateDescriptor.options` (2, reserved);
+  `Handling.conflict_resolution` (already reserved).
+- **Reason keys retired:** `COORDINATOR_REASON_CONFLICT_OVERLAP` (2),
+  `_EXPECTED_SEQUENCE_STALE` (20), `_EXPECTED_SEQUENCE_AHEAD` (22),
+  `_STATE_RESOLUTIONS_INVALID` (40).
+- **What stays, and why it is not conflict handling:** the store's
+  per-stream optimistic append at the head the coordinator loaded, and the
+  coordinator re-running a lost race on the new head under the race re-run
+  cap (the kernel owns retries), so the handler always decides on current
+  state. A handler cannot see concurrent writers, so write atomicity cannot
+  be delegated to it.
+- **A client's expected sequence** stays as DATA in the command the handler
+  receives (`Handling.expected_sequence`); the coordinator does not
+  interpret, stamp or refuse on it. A handler that cares compares it with
+  its state and refuses with its own typed refusal. (A reading put to the
+  owner for confirmation in the review guide.)
+- **Not part of this proto draft:** embedded's `Catalog::supports` check and
+  `Malformed::{Unknown,Unsupported}ConflictResolution`, which go with the
+  implementation.
+
+> **Amended by 14.94 (ruled 2026-11-02):** the check is the COORDINATOR's; the message moves to core, and no command lists it in `refuses` (the widened own-domain rule is reverted).
+
+**14.93 The framework's one refusal: ExpectedSequenceMismatch.**
+The owner, on 14.92's consequence 3: "framework needs a staleness refusal
+written". Amends 14.92.
+- `io.angzarr.handler.v1.ExpectedSequenceMismatch { uint64 expected = 1;
+  uint64 head = 2; }`, marked `(refusal_status) =
+  REFUSAL_STATUS_FAILED_PRECONDITION`. Its wire key is
+  `ROUTER_REASON_COMMAND_REFUSED`, refusal_type its full name, as any typed
+  refusal's.
+- **In the handler package:** it is what a handler answers (a
+  `Refusal.typed` in `DecideResponse.refused`), and only handlers raise it;
+  core is the coordinator's records, and the coordinator never raises it.
+- **The handler raises it,** comparing `Handling.expected_sequence` with
+  `history.next_sequence`. The coordinator still does not interpret the
+  expected sequence (14.92).
+- **Declared like any refusal:** a command that may be refused so lists it
+  in `refuses`; the own-domain rule for `refuses` admits this one framework
+  message. No implicit "every command may return it" rule.
+- **Behind and ahead are one refusal:** either way the client decided against
+  a version that is not the head, and its remedy is the same (re-read).
+
+**14.94 The staleness check is the coordinator's.** The owner's
+ruling, 2026-11-02. Amends 14.92 and 14.93.
+- **The check.** When a command's `Handling.expected_sequence` is set and
+  differs from the head the coordinator loaded, the coordinator refuses
+  with `io.angzarr.v1.ExpectedSequenceMismatch { expected, head }`
+  (FAILED_PRECONDITION) BEFORE calling the handler. Behind and ahead are
+  one refusal. It is pipeline step 4, after deduplication: a retry of an
+  applied command is still DUPLICATE.
+- **No modes.** Decision 47's other removals stand: no resolution, no
+  window, no units, no report. A command without an expected sequence is
+  decided on the current state.
+- **Race re-runs.** A command with an expected sequence that loses a race
+  at its write is re-run, finds the head moved, and is refused; one without
+  re-runs on the new head as before.
+- **Core, not the handler package.** The coordinator raises it. On the wire
+  it is a typed refusal (`ROUTER_REASON_COMMAND_REFUSED`, refusal_type its
+  name); a HandleAsync command so refused is dead-lettered with it as
+  `AngzarrDeadLetter.refusal`.
+- **Not declared.** No command lists it in `refuses`; the own-domain rule
+  for `refuses` is back to as it was.
+
+**14.95 Errors travel as gRPC statuses; refusals are typed
+only.** The owner's review, 2026-11-02: "grpc should carry the error (both
+retryable and not)". REVERSES decision 46's Q2 (14.78); amends 14.37's
+untyped rejection, 14.52's default status and 14.89's Ingest oneof.
+- **Success only.** `DecideResponse { Decided decided; rules_version }` and
+  `IngestResponse { Ingested ingested; rules_version }`: no result oneofs,
+  no `aborted` arms. `COORDINATOR_REASON_ANSWER_NO_RESULT` (44) is retired
+  and reserved.
+- **Every other outcome is a gRPC status** (AIP-193, 14.37): a refusal is
+  the business status its message declares, with a `google.rpc.ErrorInfo`
+  (`ROUTER_REASON_COMMAND_REFUSED`, `refusal_type`) and the typed refusal
+  in the status details; a re-run is ABORTED under the handler's own key; a
+  bug is its error status. Any error from Ingest is a bug (14.72).
+- **Typed refusals only.** The untyped `Diagnostic` refusal is gone: a
+  command whose `refuses` names nothing cannot refuse.
+- **Every refusal declares its status.** `REFUSAL_STATUS_UNSPECIFIED` no
+  longer means FAILED_PRECONDITION: generation fails for a refusal message
+  that sets no `refusal_status`. The example refusals now declare it.
+- **`Refusal`** stays only as `TranslateRequest.refusal`: `{ RefusalStatus
+  status; Any typed }`, read off the target's status by the policy's
+  coordinator.
+- **Facts keep arriving in a CommandBook** (the owner's call; no change).
+
+**14.96 Upcasts keyed by sequence; projectors per stream; the
+examples' ledger split.** The owner's review round 2, 2026-11-02.
+- **Upcaster.** `UpcastResponse { repeated Upcasted pages }`, `Upcasted {
+  uint64 sequence; Any payload }`, matched to the request's pages by
+  sequence, never by position. A command's or a fact's one page is sent and
+  answered keyed 0 (it has no stream sequence).
+- **Projector contract.** A multi-source projector receives each stream's
+  run independently, in any order across streams; there is no cross-stream
+  order. The one `Any` projection, edition-keyed read models and
+  `ProjectRequest`'s `EventBook` are unchanged.
+- **The owner's wording**, in the projector protos, options.proto and the
+  site's projector page: multi-domain projectors should be rare and are
+  not substitutes for process managers or business logic; the capability
+  exists for system capabilities such as the timekeeping module, global
+  logging and the like.
+- **Examples use no multi-domain projector** (the owner: "our examples
+  should *not* use multi domain projectors"). The ledger
+  (projector-wallet-table-ledger) is split into projector-wallet-ledger
+  (WalletLedgerProjection: bankrolls, holds, loyalty, recent results) and
+  projector-table-ledger (TableLedgerProjection: stacks, wagers, house
+  result, chips in and out), each sourcing its own domain only, with
+  `WalletLedgerQueryService` and `TableLedgerQueryService`. `LedgerState`
+  (14.91), the in-flight transfer pairing and invariant L4 leave the
+  projector's contract; L4 money conservation becomes an end-to-end test
+  assertion over both read models once a run settles.
+
+**14.97 An upcast keys a lone payload by NoSequence; a projector's
+run is marked only after its affirmative answer.** The owner's review round
+3, 2026-11-02. Amends 14.96 and 14.68.
+- **Upcaster.** `Upcasted { oneof key { uint64 sequence; NoSequence
+  no_sequence }; Any payload }`, `NoSequence` "a lone command or fact
+  payload, which has no stream sequence" (the owner: "Single is not the
+  appropriate name. NO_SEQ or something similar"). The request is `oneof
+  input { UpcastPages pages; Any lone_payload }`. The sequence-0 convention
+  of 14.96 is gone.
+- **Projector delivery.** The owner: "coordinator should not mark as done
+  until business logic responds with an affirmative". The coordinator
+  records a run's position only after the projector's affirmative
+  `ProjectResponse`; an error status or no answer leaves it unmarked and
+  the run is redelivered. A run whose read-model write landed but whose
+  mark did not is delivered again, and the projector skips what it applied,
+  by (stream, sequence), which the request carries.
+- **The ledgers.** "The table ledger balances" (round.feature, table.feature)
+  is rule L2, the table's own chips: a table-ledger assertion, not e2e.
+
+> **Amended by 14.110 (ruled 2026-11-07), handler side only:** the handler attribute is two, `#[handles_cmd]` and `#[handles_fact]`, and a fact handler has its own return type. The wire half (one `HandleInput` RPC, one request and response, one coordinator for both) is unaffected.
+
+**14.98 One verb for commands and facts: HandleInput.** The
+owner's review round 4, 2026-11-02: "I want fact and command to use the
+same verb for Handle or similar. moving from a fact to a command should be
+relatively simple to do". Amends decision 46's Q3 (14.78); React stays per
+trigger event.
+- **One RPC.** `CommandHandlerService.HandleInput(HandleRequest) ->
+  HandleResponse` replaces Decide and Ingest. Named HandleInput, not
+  Handle: Handle is the service's deleted RPC, and retyping it is a wire
+  break buf refuses.
+- **`HandleRequest { CommandBook input; EventBook history; recorded_at;
+  causation }`**: the input book's page holds the command or the fact arm.
+  **`HandleResponse { repeated Any events; Any state; rules_version }`.**
+  `DecideRequest`, `DecideResponse`, `Decided`, `IngestRequest`,
+  `IngestResponse` and `Ingested` (all new on this branch) are gone.
+- **Only a command's handling may refuse** (a gRPC status, 14.95); a fact's
+  never does, and any error for a fact is a bug (14.72).
+- **One attribute,** `#[handles]`, replacing `#[handles_cmd]` and
+  `#[handles_fact]`: the message's option, (command) or (fact), is the
+  declaration. Converting a message between the two changes only its
+  option; the generated handler's signature then gains or loses the
+  refusal return at compile time.
+
+**14.99 No rule that a sent command name a refusal; skipped
+references warn; string type references are deliberate.** The owner's
+review round 4, 2026-11-02.
+- **14.76's rule dropped.** An empty `refuses` means the command cannot
+  refuse (typed only, 14.95), so a sent command always has a path. The
+  example's `DecideMoveRefused` existed only for that rule and is removed;
+  `DecideMove` refuses nothing. The table's `RecordMoveUndecided` and
+  `MoveUndecided` become unreachable, kept pending the owner's call.
+- **Skipped references warn.** A consumer component outside the generated
+  set is still a reference, but generation warns for each, by name:
+  cross-domain references, which generally should not exist, are flagged
+  so they get checked.
+- **Strings name types, deliberately.** Protobuf options cannot hold a
+  type reference; generation resolves every name and fails on an unknown
+  one.
+
+**14.100 The rewrite holds no reservations; a dead-lettered fact's
+sender is answered non-retryable.** The owner's review round 5, 2026-11-02.
+- **No reservations** (the owner: "when we rewrite this, we're removing all
+  the held integers/reservations for removed items"). Every `reserved`
+  statement and every comment about a removed field is gone from the
+  protos. Fields are renumbered contiguously from 1 in declaration order,
+  per message, and enum values contiguously from 0, except RefusalStatus and
+  ReasonStatus, whose numbers are google.rpc.Codes by design. Extensions are
+  50100 component, 50101 command, 50102 fact, 50103 event, 50104
+  refusal_status, 50105 reason, 50106 child_protocol. This log keeps what
+  was removed and why; the protos do not.
+- **Freed names reused:** `CommandHandlerService.Handle` (was HandleInput),
+  `PolicyCoordinatorService.Execute` (was ExecuteStamped),
+  `UpcasterService.Upcast` (was UpcastPayloads).
+- **The wire break is deliberate.** `just proto-breaking` fails against
+  the draft and is not bypassed; the rewrite needs a new buf baseline, the
+  owner's call. Existing stores cross it by an export and import, probably
+  to JSONL (the owner).
+- **A dead-lettered fact** (its handler failed, or it hit the race re-run
+  cap) is answered INTERNAL `COORDINATOR_REASON_FACT_DEAD_LETTERED` (args
+  stream, cause), non-retryable (the owner: "non-retryable. if retrying
+  senders repark, it's a logic bug. they shouldn't be retrying").
+  `DELIVERY_OUTCOME_PARKED` is removed. Amends 14.72 and 14.46.
+- **`Handling` stays** (the owner).
+- **A player always decides:** `RecordMoveUndecided`, `MoveUndecided` and
+  the stand-the-hand rule (14.89) are removed.
+
+**14.101 A dead letter's why is a oneof; one replay, as is; the
+descriptor names domains and types by name.** The owner's rulings, review
+round 5, 2026-11-02.
+- **Why.** `AngzarrDeadLetter` holds `oneof why { Any refusal; Diagnostic
+  reason }`. A typed refusal of an asynchronous command is the refusal arm,
+  its key implied (`ROUTER_REASON_COMMAND_REFUSED`), its type the Any's type
+  URL, its args its fields; every other failure is the reason arm. The
+  "refusal iff reason is COMMAND_REFUSED" rule and the duplicate
+  `refusal_type` arg go. `StoredDeadLetter` mirrors the oneof; the admin
+  filter takes `reason_code` (a refusal entry's implied key) and
+  `refusal_type`. `retry_count` stays.
+- **One replay, as is.** The `FRESH_SEQUENCE` mode, and with it the
+  `ReplayMode` enum and its three fields, are removed; a replayed stale
+  command is refused again, which is correct.
+- **Descriptor domains.** `AggregateDescriptor` and
+  `ProcessManagerDescriptor` carry a required `domain`, copied from the
+  declaration; empty is the new readiness key
+  `COORDINATOR_REASON_DESCRIPTOR_NO_DOMAIN`. After F8 the name no longer
+  implies the domain.
+- **Names, not type URLs.** `StateDescriptor.type_url` becomes `type_name`,
+  the state's fully-qualified name; the snapshot rule compares it with the
+  name the state's type URL ends in. `Any.type_url` is unchanged.
+- **The coordinator owns every descriptor check.**
+  `HOST_REASON_PROJECTOR_NO_INPUT_DOMAIN` is retired;
+  `COORDINATOR_REASON_POLICY_NO_INPUT_DOMAIN` becomes
+  `COORDINATOR_REASON_NO_INPUT_DOMAIN` (args component, component_kind), one
+  rule for a policy's and a projector's empty source. Amends 14.55.
+- `ComponentKind` stays as the bare tag.
+
+**14.102 EventMeta's cause mirrors the input; one neutral refusal
+key; live-key checkers; the coordinator owns every descriptor check.** The
+owner's review round 6, 2026-11-02.
+- **EventMeta.causation** is `oneof { CommandCause command; FactCause fact
+  }`, `CommandCause { command_id }`, `FactCause { command_id; origin }`,
+  mirroring CommandPage's Command|Fact. The separate `fact` field and its
+  "set iff a Fact" rule go; the deduplication index reads command_id from
+  whichever arm is set.
+- **A neutral refusal key.** `ROUTER_REASON_COMMAND_REFUSED` becomes
+  `ANGZARR_REASON_COMMAND_REFUSED`, in a new core enum `AngzarrReason` (keys
+  raised by more than one component): the router raises it for a handler's
+  refusal, the coordinator for its `ExpectedSequenceMismatch`, and it is a
+  dead letter's implied refusal key.
+- **The rules_version divergence**, verified against angzarr-embedded
+  origin/main 06c59a9: its production (the build version), its check of
+  every answer and its full stamping match the spec. It still differs in
+  two points, which the note on `EventMeta.rules_version` now states,
+  pending the owner's review: it accepts a non-SemVer version at
+  registration (14.88 refuses it), and it offers a snapshot by exact
+  equality when either version is not SemVer (14.88 has no equality
+  fallback). annals-divergence.md's "author's short label" description is
+  stale.
+- **Reason checkers validate live keys only** (the owner dropped the
+  retired-key check): `check-reason-keys` and `check-reason-names` no longer
+  require or read reservations, and their retired-key tables are gone.
+- **The coordinator owns every descriptor check.**
+  `HOST_REASON_DESCRIPTOR_RULES_VERSION_MISMATCH` and
+  `HOST_REASON_STATE_TYPE_MISMATCH` are retired; the coordinator's
+  equivalents are `COORDINATOR_REASON_RULES_VERSION_MISMATCH` (existing) and
+  the new `COORDINATOR_REASON_STATE_TYPE_MISMATCH` (an answer whose state is
+  not the registered type).
+- **The baseline:** a new dated draft branch cut from the approved commit,
+  with the justfile's `DRAFT_BRANCH` pointed at it, when the owner
+  approves.
+
+> **Amended by 14.104 (ruled 2026-11-02):** the rules_version divergence is closed, by the spec moving to angzarr-embedded's rule (14.88's SemVer refusal reversed); the note on `EventMeta.rules_version` is dropped.
+
+**14.103 Narrative is not proto.** The owner: "If its
+narrative/normative text, why is it proto?"
+- The four core protos that defined nothing are deleted:
+  `io/angzarr/v1/command_handler.proto`, `policy.proto`,
+  `process_manager.proto` and `upcaster.proto`. Their normative text, as it
+  stood after 14.102, is `docs/design/command-handling.md`,
+  `docs/design/policies.md`, `docs/design/process-managers.md` and
+  `docs/design/upcasting.md`, in child-protocol.md's style, with numbered
+  sections. Every reference points at the docs, by section. The policy
+  text is approved in substance (the late-caught skewed arm and
+  `on_policy_bug` stay).
+- **The comment rule from now on:** a proto comment says what a field or
+  message IS; behaviour, pipelines and rules go in the design docs. Applied
+  to the moved text; the other protos are flagged for review, not churned.
+
+> **Amended by 14.110 (ruled 2026-11-07):** `Emit` is the return type of a command handler; a fact handler returns `FactEmit` with `Bug` as its only failure. The one decision and the absence of a step cap hold for both.
+
+**14.104 Keys by layer; statuses are google.rpc.Code; Emit with no
+step cap; the SemVer refusal reversed.** The owner's review round 7, from
+the reasons review, 2026-11-02.
+- **Key prefixes by LAYER, not role.** Core's keys are one enum,
+  AngzarrReason in package io.angzarr.v1, prefixed `ANGZARR_REASON_`: RouterReason,
+  HostReason, CoordinatorReason and 14.102's AngzarrReason are merged into
+  it. The embedded transport's are `EmbeddedReason`, `EMBEDDED_REASON_*`;
+  the distributed transport's `DistributedReason`, `DISTRIBUTED_REASON_*`.
+  Each key's comment opens with the component that raises it ("Raised by
+  the router.", "... the component host ...", "... the coordinator."); the
+  role is not in the string. Every key keeps its suffix, so the rename is
+  the prefix only. The reasons header no longer says "the key also names
+  its owner".
+- **Why one merged enum, not four enums sharing a prefix.** buf's
+  ENUM_VALUE_PREFIX requires every value to carry ITS enum's name as its
+  prefix, so `RouterReason` with `ANGZARR_REASON_*` values fails lint, and
+  the repo keeps STANDARD lint with no exception. Protobuf also scopes enum
+  values as siblings of their enum, so four enums in `io.angzarr.v1` could
+  not each have their own `ANGZARR_REASON_UNSPECIFIED`. One enum per layer
+  is the only clean form.
+- **A key's status is `google.rpc.Code`.** `ReasonOptions.grpc_status` is
+  `google.rpc.Code` directly, from `google/rpc/code.proto`, vendored
+  verbatim beside `google/api` (the protos build with protoc as well as
+  buf, and `just proto-docs` runs protoc-gen-doc on the tree; buf resolves
+  the vendored file from the module, with no dependency or network). buf
+  lint ignores the vendored `google` tree, Google's files and not
+  angzarr's. `ReasonStatus` is deleted; `OK` is no key's status.
+  `RefusalStatus` stays, the business-only subset a refusal declares.
+- **`Emit` is the one return type, with no step cap.** The owner: "emit,
+  optional, no step cap. the step cap is accidental complexity". Every
+  command handler, in every client library, returns
+  `Emit::of(events)`, optionally `.then(step)`; the wire stays one event
+  list. `ROUTER_REASON_TOO_MANY_STEPS` and all step-cap text are removed,
+  and C-0739 is retired. A step must be idempotent on its own result. The
+  accepted cost: a step that always continues never terminates, a handler
+  bug with no framework guard (`docs/design/command-handling.md` §9).
+- **The SemVer refusal is reversed** (14.88's item 2). A non-SemVer
+  `rules_version` is accepted at registration, and snapshots of a
+  non-SemVer version are offered by exact string equality of the versions
+  as recorded, as angzarr-embedded does
+  (`crates/angzarr-embedded/src/catalog.rs`, `compatible`).
+  `COORDINATOR_REASON_RULES_VERSION_NOT_SEMVER` is retired, the
+  divergence note on `EventMeta.rules_version` is dropped, and
+  `annals-divergence.md` lists `rules_version` where the runtimes agree.
+- **Old to new, for clients and the importer:** every old key string maps
+  to its new one by prefix (`ROUTER_REASON_`, `HOST_REASON_` and
+  `COORDINATOR_REASON_` of core to `ANGZARR_REASON_`; the embedded
+  transport's `HOST_REASON_` to `EMBEDDED_REASON_`; the distributed
+  transport's `COORDINATOR_REASON_` to `DISTRIBUTED_REASON_`), except the
+  two retired keys, which map to nothing. The prefix alone does not say
+  which: core's `HOST_REASON_` keys and the embedded transport's differ, so
+  the map is this table, key by key. A stored dead letter's
+  `Diagnostic.code`, a stored `StoredDeadLetter.reason_code` and a
+  catalog's message ids are rewritten by it.
+  (`ANGZARR_REASON_COMMAND_REFUSED` keeps its string.)
+
+  | Old key | New key |
+  |---|---|
+  | `ROUTER_REASON_UNHANDLED_HANDLER_ERROR` | `ANGZARR_REASON_UNHANDLED_HANDLER_ERROR` |
+  | `ROUTER_REASON_HANDLER_PANICKED` | `ANGZARR_REASON_HANDLER_PANICKED` |
+  | `ROUTER_REASON_FOLD_FAILED` | `ANGZARR_REASON_FOLD_FAILED` |
+  | `ROUTER_REASON_FOLD_FAILED_EMITTED` | `ANGZARR_REASON_FOLD_FAILED_EMITTED` |
+  | `ROUTER_REASON_PERSISTED_EVENT_CORRUPT` | `ANGZARR_REASON_PERSISTED_EVENT_CORRUPT` |
+  | `ROUTER_REASON_ANY_DECODE_FAILED` | `ANGZARR_REASON_ANY_DECODE_FAILED` |
+  | `ROUTER_REASON_UNKNOWN_COMMAND_TYPE` | `ANGZARR_REASON_UNKNOWN_COMMAND_TYPE` |
+  | `ROUTER_REASON_NO_FACT_HANDLER` | `ANGZARR_REASON_NO_FACT_HANDLER` |
+  | `ROUTER_REASON_NO_REFUSAL_HANDLER` | `ANGZARR_REASON_NO_REFUSAL_HANDLER` |
+  | `ROUTER_REASON_NO_COMPONENT_OF_KIND` | `ANGZARR_REASON_NO_COMPONENT_OF_KIND` |
+  | `ROUTER_REASON_NO_HANDLERS_REGISTERED` | `ANGZARR_REASON_NO_HANDLERS_REGISTERED` |
+  | `ROUTER_REASON_DUPLICATE_COMPONENT` | `ANGZARR_REASON_DUPLICATE_COMPONENT` |
+  | `HOST_REASON_UPCASTER_WITH_COMPONENT` | `ANGZARR_REASON_UPCASTER_WITH_COMPONENT` |
+  | `HOST_REASON_NO_COMPONENTS_REGISTERED` | `ANGZARR_REASON_NO_COMPONENTS_REGISTERED` |
+  | `HOST_REASON_UPCASTER_UNKNOWN_DOMAIN` | `ANGZARR_REASON_UPCASTER_UNKNOWN_DOMAIN` |
+  | `HOST_REASON_UPCASTER_OTHER_DOMAIN` | `ANGZARR_REASON_UPCASTER_OTHER_DOMAIN` |
+  | `HOST_REASON_REMOTE_SOURCE` | `ANGZARR_REASON_REMOTE_SOURCE` |
+  | `COORDINATOR_REASON_PM_NO_INSTANCE` | `ANGZARR_REASON_PM_NO_INSTANCE` |
+  | `COORDINATOR_REASON_POLICY_COMMAND_NO_ROOT` | `ANGZARR_REASON_POLICY_COMMAND_NO_ROOT` |
+  | `COORDINATOR_REASON_MISSING_RULES_VERSION` | `ANGZARR_REASON_MISSING_RULES_VERSION` |
+  | `COORDINATOR_REASON_MISSING_STATE_TYPE` | `ANGZARR_REASON_MISSING_STATE_TYPE` |
+  | `COORDINATOR_REASON_POLICY_NO_OUTPUT_DOMAIN` | `ANGZARR_REASON_POLICY_NO_OUTPUT_DOMAIN` |
+  | `COORDINATOR_REASON_RETRY_CAP_EXHAUSTED` | `ANGZARR_REASON_RETRY_CAP_EXHAUSTED` |
+  | `COORDINATOR_REASON_EDITION_REMOVAL_FAILED` | `ANGZARR_REASON_EDITION_REMOVAL_FAILED` |
+  | `COORDINATOR_REASON_POLICY_COMMAND_UNKNOWN_DOMAIN` | `ANGZARR_REASON_POLICY_COMMAND_UNKNOWN_DOMAIN` |
+  | `COORDINATOR_REASON_HANDLER_UNAVAILABLE` | `ANGZARR_REASON_HANDLER_UNAVAILABLE` |
+  | `COORDINATOR_REASON_CHAIN_TOO_DEEP` | `ANGZARR_REASON_CHAIN_TOO_DEEP` |
+  | `COORDINATOR_REASON_STORE_UNAVAILABLE` | `ANGZARR_REASON_STORE_UNAVAILABLE` |
+  | `COORDINATOR_REASON_UPCASTER_UNAVAILABLE` | `ANGZARR_REASON_UPCASTER_UNAVAILABLE` |
+  | `COORDINATOR_REASON_RULES_VERSION_MISMATCH` | `ANGZARR_REASON_RULES_VERSION_MISMATCH` |
+  | `COORDINATOR_REASON_EDITION_NOT_FORKED` | `ANGZARR_REASON_EDITION_NOT_FORKED` |
+  | `COORDINATOR_REASON_POLICY_TARGETS_ITS_TRIGGER` | `ANGZARR_REASON_POLICY_TARGETS_ITS_TRIGGER` |
+  | `COORDINATOR_REASON_NO_INPUT_DOMAIN` | `ANGZARR_REASON_NO_INPUT_DOMAIN` |
+  | `COORDINATOR_REASON_DESCRIPTOR_NO_KIND` | `ANGZARR_REASON_DESCRIPTOR_NO_KIND` |
+  | `COORDINATOR_REASON_FACT_DEAD_LETTERED` | `ANGZARR_REASON_FACT_DEAD_LETTERED` |
+  | `COORDINATOR_REASON_DESCRIPTOR_NO_DOMAIN` | `ANGZARR_REASON_DESCRIPTOR_NO_DOMAIN` |
+  | `COORDINATOR_REASON_STATE_TYPE_MISMATCH` | `ANGZARR_REASON_STATE_TYPE_MISMATCH` |
+  | `HOST_REASON_CHILD_NOT_SERVING` | `EMBEDDED_REASON_CHILD_NOT_SERVING` |
+  | `HOST_REASON_CHILD_EXIT_STATUS` | `EMBEDDED_REASON_CHILD_EXIT_STATUS` |
+  | `HOST_REASON_CHILD_NOT_EXITED` | `EMBEDDED_REASON_CHILD_NOT_EXITED` |
+  | `HOST_REASON_PROBE_INPUT` | `EMBEDDED_REASON_PROBE_INPUT` |
+  | `COORDINATOR_REASON_COMPONENT_NOT_REGISTERED` | `DISTRIBUTED_REASON_COMPONENT_NOT_REGISTERED` |
+  | `COORDINATOR_REASON_COMMANDS_NOT_SERVED` | `DISTRIBUTED_REASON_COMMANDS_NOT_SERVED` |
+  | `COORDINATOR_REASON_PAYLOAD_UNAVAILABLE` | `DISTRIBUTED_REASON_PAYLOAD_UNAVAILABLE` |
+  | `ROUTER_REASON_TOO_MANY_STEPS` | retired (no step cap) |
+  | `COORDINATOR_REASON_RULES_VERSION_NOT_SEMVER` | retired (14.88's refusal reversed) |
+
+**14.105 One response per command RPC; a failed synchronous
+projector is a retryable error.** The owner's review round 8, from the
+distributed command_handler review, 2026-11-02 (distributed returns within
+the month, so these protos are live).
+- **HandleSync stays, with no partial answer.** A synchronous projector
+  that fails after the decision commits fails the call with UNAVAILABLE
+  `ANGZARR_REASON_SYNC_PROJECTION_FAILED` (raised by the coordinator; args
+  `stream`, `projector`, `cause`; `stream` because the key concerns one
+  stream, 14.65). The decision stays committed. The caller's retry with the
+  same command_id deduplicates (DUPLICATE), answers the same events and
+  waits on the synchronous projectors again. Never a dead letter's reason.
+  `ProjectorFailure` is deleted, and HandleSync's text no longer says a
+  projector failure never turns the answer into an error (reverses 5.11).
+- **One response per RPC.** `Handle` and `Deliver` answer `CommandResult
+  { EventBook events; DeliveryOutcome delivery }`; `HandleSync` answers
+  `CommandSyncResult { EventBook events; DeliveryOutcome delivery;
+  repeated Projection projections }`, both in the distributed transport.
+  Named so they do not collide with the handler layer's
+  `io.angzarr.handler.v1.HandleResponse` (which keeps its name, with
+  `HandleRequest`): they are the RESULT of a command (or a fact) as its
+  caller sees it, events and delivery, where the handler layer's is a
+  handler's response; one stem, `Command…Result`, pairs the two, the sync
+  one adding the projections. (The owner's first names in the round were
+  `HandleResponse` and `HandleSyncResponse`.)
+  `CommandResponse`, `SyncOutcome` and core's `Outcome` wrapper are
+  deleted; `DeliveryOutcome` (APPLIED, DUPLICATE) stays in core, and the
+  embedded kernel answers the same pair, events and delivery. The
+  projector coordinator's HandleSync names the key its failure becomes.
+- **14.104's Emit covers command and fact handlers** (an aggregate's or a
+  process manager's), confirmed by the owner (a fact handler's is
+  `FactEmit`, 14.110); policies and projectors
+  return no events and are outside it.
+- **`EventStreamService.Subscribe` takes a target and catches up.**
+  `SubscribeRequest { oneof target { StreamFrom stream; CorrelationFrom
+  correlation } }`, replacing `EventStreamFilter`.
+  (Amended by 14.106: the start is an inclusive `from_sequence`, and a
+  cursor carries `next_sequence`.)
+  `StreamFrom { Cover cover; optional uint64 after_sequence }`: every page
+  of the stream after `after_sequence` (from 0 when unset), then live, in
+  stream order, with no gap and no duplicate; a reconnect resumes from the
+  last sequence seen. `CorrelationFrom { UUID correlation_id; repeated
+  StreamCursor seen; optional string edition }`, `StreamCursor { Cover
+  cover; uint64 sequence }`: every page of the correlation in every domain
+  after each listed stream's cursor (from 0 for a stream not listed), then
+  live. Order is per stream only; there is no cross-stream order and no
+  store-wide position: the resume point is a set of per-stream positions.
+  A subscriber builds `seen` from the cover and last page sequence of each
+  EventBook it received, the highest per cover. Edition rules as before:
+  `cover.edition`, or the correlation's optional edition. REST/SSE: GET
+  `/v1/stream/{domain}/{root}` for a stream; POST
+  `/v1/stream/correlations/{correlation_id}` with the request as body for
+  a correlation, since `seen` cannot travel in a query string.
+- **`GetEventBook` and `GetEvents` both stay** (owner).
+- **`GetAggregateRoots` is `ListStreams`**, route `/v1/query/streams`: it
+  lists every stream (domain, edition, root), not only aggregates'.
+
+**14.106 DLQ admin answers plain results; subscriptions start at
+an inclusive sequence.** The owner's review round 9, 2026-11-02.
+- **DlqAdminService returns plain results.** `ListDeadLetters` answers
+  `ListDeadLettersResponse { entries; next_page_token }`; `GetDeadLetter`
+  answers the `StoredDeadLetter` itself (AIP-131); `ReplayDeadLetter`
+  answers `ReplayDeadLetterResponse { correlation_id; replayed_at; replay
+  }`; `DeleteDeadLetter` answers `DeleteDeadLetterResponse { oneof outcome
+  { removed; no_entry } }` (the delete outcome is data, and stays). Every
+  `oneof state { ok; degraded }` envelope, its `checked_at` and `source`,
+  the `…Ok` messages and `ProblemDetails` are deleted.
+- **Failures are gRPC statuses with keys.** New distributed keys:
+  `DISTRIBUTED_REASON_DEAD_LETTER_STORE_UNAVAILABLE` (UNAVAILABLE, arg
+  `cause`), `DISTRIBUTED_REASON_DEAD_LETTER_NOT_FOUND` (NOT_FOUND, arg `id`;
+  Get and Replay), `DISTRIBUTED_REASON_DEAD_LETTER_QUERY_INVALID`
+  (INVALID_ARGUMENT, arg `field`: a filter or page token that does not
+  parse). `ANGZARR_REASON_STORE_UNAVAILABLE` is the event store's, so the
+  admin store has its own. An HTTP gateway may map statuses to
+  `application/problem+json` at the edge; that is the gateway's concern.
+- **`StoredDeadLetter.payload_view` is dropped**; a console decodes
+  `payload` with descriptors. `replays` is renumbered 11.
+- **A subscription starts at an inclusive sequence** (amends 14.105):
+  `StreamFrom.from_sequence` (`uint64`, not optional; 0 is the start, a
+  resume is the last sequence seen + 1, as `SequenceRange.lower`), and
+  `StreamCursor.next_sequence`, the next sequence to deliver. A subscriber
+  builds `seen` from each stream's last received sequence + 1.
+- **A correlation subscription over HTTP is POST/SSE** (accepted); a
+  browser's `EventSource` is GET-only, so a browser uses a fetch-based SSE
+  reader.
+- **Meta-events are a type.** `EventPage`'s payload is `oneof body {
+  google.protobuf.Any event = 1; MetaEvent meta_event = 4 }` (the arm is
+  `meta_event`, since `EventPage.meta` is already the page's EventMeta).
+  `MetaEvent { oneof kind { EditionCreated created; EditionDeleted deleted
+  } }`, with both meta-events, moves into core's types.proto (the
+  `meta_events` region): EventPage is core's, and meta/events.proto
+  imported types.proto, so the only acyclic place is beside it.
+  meta/events.proto and the `io.angzarr.v1.meta` package are deleted; the
+  `/io.angzarr.v1.meta.*` type-URL convention and every "recognise by type
+  URL" text go. The client library hands business code only the event
+  arm. No input carries a meta-event (CommandPage has no meta arm), so
+  "a meta-event from outside" is unrepresentable and its refusal text
+  goes. The propagation and deletion text moves to
+  `docs/design/edition-meta-events.md` (14.103's comment rule).
+- **EditionCreated** is `oneof source { OriginFork origin; PropagatedFork
+  propagated }`, `OriginFork {}`, `PropagatedFork { EventRef from; UUID
+  forked_by }`, replacing the presence-coded `propagated_from` and
+  `forked_by`; its `edition` field is dropped (the page's cover names it).
+- **`ForkStreamRequest.parent_sequence` is `fork_sequence`.**
+- **"annals" is angzarr-embedded** in the protos and the living docs
+  (types.proto, annals-divergence.md's text, idempotency.md,
+  audit-meta-followups.md's index, the state-and-conflicts guide); the
+  historical log entries keep it.
+
+**14.107 Explicit forks only; deletion by enumeration; one why
+for a transport; minimal envelopes.** The owner's review round 10,
+2026-11-02.
+- **What editions are for.** An edition's main use is operations research
+  and experimenting; it is not restricted to that and may hold real data.
+  It is a deliberately crafted system, so explicit creation is the rule:
+  whoever builds one decides which streams it holds (the owner: "there's no
+  real reason they shouldn't be used for more, but the explicit creation is
+  absolutely permissable because they're crafted systems").
+- **No automatic propagation.** The owner: "propagation of an edition
+  without edition created should be an error". A command or fact in
+  edition X, from a client or a policy, to a stream with no
+  `EditionCreated` in X is refused FAILED_PRECONDITION
+  `ANGZARR_REASON_EDITION_NOT_FORKED` (reused); a policy's reaction so
+  refused is dead-lettered as any failed delivery. Every stream is forked
+  explicitly with ForkStream. The propagation path, `PropagatedFork`,
+  `OriginFork`, `forked_by` and the source oneof are deleted:
+  `EditionCreated {}` is empty, the page's sequence its fork point and its
+  cover its edition. `EditionSummary.origins` is `forks` (every fork; the
+  count is its length, so `forked_streams` goes).
+- **Deletion by enumeration.** DeleteEdition finds X's forked streams by
+  their `EditionCreated` events, as ListEditions does, and removes each
+  stream's rows directly. `EditionDeleted`, its propagation and the system
+  layer's deletion machinery are deleted; `MetaEvent`'s oneof keeps one
+  arm, `created` (kept a oneof, so a later meta-event is an arm, not a
+  reshape). A later arrival in a deleted X is refused by the same
+  not-forked rule. A per-stream removal can still fail, so
+  `failed_edition_removal` stays, now the stream's `Cover` (there is no
+  deletion event to carry). This revisits the 2026-10-28 deletion ruling
+  ("EditionDeleted needs to be an EVENT, to propagate via policies"): its
+  premise, forks that propagate through the policies, is gone.
+- **Envelopes.** `PayloadStorageType` is dropped (the URI scheme says it;
+  `PayloadReference` renumbered 1-4). `PayloadRetrievalFailedDetails` is
+  `PayloadRetrievalFailed { PayloadReference reference; Diagnostic failure
+  }`, and it is the dead letter's why: core's `AngzarrDeadLetter.why` gains
+  a third arm, `google.protobuf.Any transport`, a transport's own why, its
+  key implied by its type (`DISTRIBUTED_REASON_PAYLOAD_UNAVAILABLE` for
+  this one); `StoredDeadLetter.why` mirrors it. Why core and not the
+  envelope: core cannot name a distributed type, and a why on the envelope
+  beside core's would give one dead letter two whys, the "set iff reason"
+  rule this removes. `DeadLetterEnvelope.metadata` is dropped.
+- **`PolicyCoordinatorService.Execute`'s text** no longer says the policy's
+  configuration sets how outputs are delivered: there is one way.
+- **`ReplayDeadLetterResponse.replayed_at` is dropped** (the replay's own
+  `replayed_at` says it).
+- **Kept by the owner:** the `meta_event` arm name and the two extra DLQ
+  keys of 14.106.
+- **HandleSync names its projectors.** `HandleSync(HandleSyncRequest {
+  CommandBook command; repeated string projectors })`: the registered
+  names of the projectors to wait for, a call-level choice; no projector
+  carries a synchronous mode. The list is required (an empty one would be
+  a second path to Handle): empty is INVALID_ARGUMENT
+  `ANGZARR_REASON_SYNC_NO_PROJECTORS`; a named projector not subscribed to
+  the command's domain, an unknown name included, is INVALID_ARGUMENT
+  `ANGZARR_REASON_SYNC_PROJECTOR_NOT_SUBSCRIBED` (args `domain`,
+  `projector`); both before anything runs. A name listed twice is waited
+  for once. `CommandSyncResult.projections` are the named projectors'.
+- **No edition sink ban.** An edition's projected CloudEvents publish to
+  the configured sinks like main's; the ban text in the projector protos
+  and cloudevents.proto is removed.
+
+**14.108 The official CloudEvents format; an exact type match; a
+portable socket path.** The owner's CloudEvents rulings (sent in round 10)
+and review round 11, 2026-11-02.
+- **The CloudEvents Protobuf Format is adopted.** `io.cloudevents.v1`
+  (`CloudEvent`, its nested `CloudEventAttributeValue`, `CloudEventBatch`)
+  is vendored verbatim at `proto/io/cloudevents/v1/cloudevents.proto` from
+  github.com/cloudevents/spec `cloudevents/formats/cloudevents.proto`
+  (commit bad81171bd3d1c0343ef43b4b2ad4ffca9dc2012), Apache-2.0, and buf
+  lint ignores it as it does `google/`. Its package and options build
+  under buf unchanged. angzarr's own `CloudEvent` is deleted;
+  `CloudEventsResponse` is `repeated io.cloudevents.v1.CloudEvent events`.
+  The former defaults are text: the framework fills `id`, `source`,
+  `subject`, `type`, `spec_version`, `time` and the `correlationid`
+  extension attribute when the projector leaves them empty, with the
+  edition segments as before.
+- **An exact type match.** External publishing triggers only when
+  `projection.type_url` names exactly
+  `io.angzarr.transport.distributed.v1.CloudEventsResponse` (its full name
+  after the last "/", as every type URL is read); the "message name after
+  any prefix" rule is removed.
+- **`ChildProtocol.max_socket_path_bytes` is 103**, the portable minimum:
+  macOS and the BSDs give `sun_path` 104 bytes, less its NUL (Linux would
+  allow 107). child-protocol.md §1 says why.
+- **14.107's `AngzarrDeadLetter.why` `Any transport` arm is accepted** as
+  is.
+
+**14.109 A fact at the race re-run cap stays dead-lettered; the
+protos hold no behaviour prose.** The owner's final items before approving
+the branch, 2026-11-02.
+- **Facts differ from commands at the cap.** A fact that loses a race at
+  every write until the race re-run cap is dead-lettered and its sender,
+  waiting or not, answered INTERNAL `ANGZARR_REASON_FACT_DEAD_LETTERED`
+  (as 14.100); a command with a waiting caller is answered
+  `ANGZARR_REASON_RETRY_CAP_EXHAUSTED` and is not dead-lettered (14.85).
+  command-handling.md §4 states the difference. Closes the guide's open
+  point 11.
+- **14.103's comment rule applied to every proto.** The behaviour prose of
+  types.proto, options.proto, reasons.proto (core and both transports),
+  the component and handler protos, the distributed transport's protos,
+  core meta.proto, scheduler.proto and child_protocol.proto moves to
+  `docs/design/`: new identity-and-streams.md, pipeline.md, snapshots.md,
+  diagnostics.md, dead-letters.md, component-descriptors.md,
+  component-options.md, reason-keys.md, distributed-transport.md,
+  queries-and-subscriptions.md, dlq-admin.md, cloudevents.md,
+  handler-contract.md, component-registration.md, projectors.md and
+  scheduler.md; extended command-handling.md, edition-meta-events.md,
+  policies.md, upcasting.md and child-protocol.md. Only comments change:
+  every declaration, option literal and region marker is unchanged.
+  References are re-pointed to the docs by section.
+
+**14.110 Facts are a separate handler kind: FactEmit, Bug, two
+attributes.** The owner's ruling, 2026-11-07. Amends 14.98 (handler side
+only) and 14.104, extends 14.72.
+- **Two return types.** A command handler returns
+  `Result<Emit<S>, Refuses<..>>`; a fact handler returns
+  `Result<FactEmit<S>, Bug>`. `Emit` keeps its name. `FactEmit` carries a
+  fact's events and continuation steps exactly as `Emit` does: one
+  decision, every step's events in order, no step cap, each step idempotent
+  on its own result.
+- **A fact never refuses.** `Bug` is a classified bug: a bug code, args and
+  a retryable status, with no refusal, no typed refusal and no re-run. A
+  refusal cannot be expressed in a fact's steps because the type cannot
+  hold one. An unclassified bug still maps to
+  `ANGZARR_REASON_UNHANDLED_HANDLER_ERROR` with no cause (14.72); a
+  classified one keeps its code, args and status on the wire.
+- **Two attributes.** `#[handles_cmd]` (commands) and `#[handles_fact]`
+  (facts). The kind is the attribute, not read from the return type.
+  Generation emits the matching attribute and signature from the
+  message's `(command)` or `(fact)` option; a `(fact)` message handled by
+  `handles_cmd`, or a `(command)` message handled by `handles_fact`, is a
+  generation failure.
+- **Explicit conversion only.** `Bug::from_error(e)` and the `.bug()`
+  result extension convert an ordinary error; there is no blanket `From`.
+  A refusal passed through them is demoted to a bug whose cause is the
+  refusal's key.
+- **14.98 and 14.104, restated.** The wire stays one verb for both kinds
+  (14.98's `HandleInput`, request and response, unchanged). Only the
+  handler attribute and return types split. 14.104's one-decision,
+  no-step-cap semantics apply to `Emit` and `FactEmit` alike.
+- **Scenarios.** C-0648, C-0864 (the two attributes), C-0851 (a fact
+  returns `FactEmit`), C-0878 (a fact step is idempotent on its own
+  result), C-0875 (`Bug::from_error` demotes a refusal), C-0876 (a fact
+  step cannot return a refusal), C-0877 (a kind and attribute that
+  disagree fail generation; replaces the retired C-0650). C-0845 and the
+  fact-decode row of C-0670 are unchanged.
+- Why: a fact is recorded, never refused; a type that cannot hold a
+  refusal makes that a property of the signature, not of a runtime check.
+- Cost: two attributes where there was one; converting a message between
+  `(command)` and `(fact)` changes its option, its attribute and its
+  handler's signature.
+
+**14.111 A typed refusal may declare ABORTED.** The value is the owner's
+ruling, 2026-11-16 (ctxloom's step 10b, question 3). How the kernel treats
+it (below) is the implementing agent's reading of 14.37, confirmed by the
+owner on 2026-11-18. Amends 14.52 and 14.82; follows 14.37.
+- **The value.** `RefusalStatus` gains `REFUSAL_STATUS_ABORTED = 10`, its
+  google.rpc.Code number, beside the six business-fatal statuses. A
+  refusal message may declare it as its `(refusal_status)`; the generated
+  refusal and the public helper read it as they read the others.
+- **The class is the status's.** 14.37 holds: the status alone decides.
+  An ABORTED refusal is "re-read and re-decide": returned at once to an
+  outside caller, its typed refusal in the details as any refusal's is;
+  a policy step refused with it is reloaded and run again under the
+  capped backoff, then dead-lettered and alerted, never handed to the
+  policy's Translate. A fact's handling still never refuses (14.72).
+- **Why.** A caller that acted on a version it read (an etag) and finds it
+  moved is told to re-read, with the typed refusal naming what moved;
+  FAILED_PRECONDITION would tell it the state forbids the request.
+- **Scenarios.** C-0617 gains the row of a typed refusal declaring ABORTED.
+
+## Corrections
+
+Facts the earlier passes or the design note got wrong:
+
+- **C1. Facts-as-commands is not Event Modeling's translation pattern.**
+  Event Modeling's translation brings external information in as events,
+  read through views by a translator that then issues commands. The real
+  analogue for "external facts ingested idempotently into a stream" is
+  **Equinox's ingesters**, together with the inbox pattern in Wolverine and
+  NServiceBus. (Plan item 4 and decision 1.7 originally cited Event
+  Modeling.)
+- **C2. KurrentDB has `MultiStreamAppend`** (25.1 and later). Known gap 8
+  previously said KurrentDB has "no multi-stream transactions". The
+  comparison is corrected in the [backlog](backlog.md)
+  (GAP-2).
+- **C3. Axon has no "decision commands" versus "notification commands"
+  distinction.** Its command handlers are uniform. The site page
+  `components/commands-vs-facts.md` claims otherwise, and must lose that
+  section (backlog DOC-3).
+
+**14.112 The whole repository is Apache-2.0 OR BSD-3-Clause.** Owner ruling,
+2026-11-20. Amends 14.57 and 14.58.
+- **The rule.** The spec, docs site, protos, contracts and build images are
+  `Apache-2.0 OR BSD-3-Clause`, at the user's option, under the root
+  `LICENSE-APACHE` and `LICENSE-BSD` (the AGPL `LICENSE` is gone).
+  `proto/` keeps identical copies for the buf module. The vendored
+  third-party protos keep their own licences.
+- No outside contributors exist (owner confirmed), so no consent is needed.
+- The README, `site/package.json` and the pitch page say so.

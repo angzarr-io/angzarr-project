@@ -1,0 +1,196 @@
+// @ts-check
+import { defineConfig } from 'astro/config';
+import starlight from '@astrojs/starlight';
+import starlightBlog from 'starlight-blog';
+import { fileURLToPath } from 'node:url';
+import path from 'node:path';
+import remarkCodeRegion from './src/plugins/remark-code-region.mjs';
+import remarkMermaid from './src/plugins/remark-mermaid.mjs';
+
+const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+
+export default defineConfig({
+	site: 'https://angzarr.io',
+	trailingSlash: 'ignore',
+	redirects: {
+		// Docusaurus blog pagination → Starlight pagination
+		'/blog/page/2': '/blog/2',
+		'/blog/page/3': '/blog/3',
+		'/blog/page/4': '/blog/4',
+		// Docusaurus archive → blog index
+		'/blog/archive': '/blog',
+		// Sagas renamed policies (2026-10-28 ruling)
+		'/components/saga': '/components/policy',
+		'/glossary/saga': '/glossary/policy',
+		'/examples/sagas': '/examples/policies',
+	},
+	markdown: {
+		remarkPlugins: [
+			[remarkCodeRegion, { rootDir: repoRoot, lenient: process.env.DOCS_LENIENT === '1' }],
+			remarkMermaid,
+		],
+	},
+	integrations: [
+		starlight({
+			title: '⍼ Angzarr',
+			description: 'Polyglot Event Sourcing & CQRS Framework',
+			head: [
+				{
+					tag: 'script',
+					attrs: { type: 'module' },
+					content: `
+import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs';
+function run() {
+	const dark = document.documentElement.dataset.theme === 'dark';
+	mermaid.initialize({ startOnLoad: false, theme: dark ? 'dark' : 'default', securityLevel: 'loose' });
+	mermaid.run({ querySelector: 'pre.mermaid' });
+}
+if (document.readyState !== 'loading') run(); else document.addEventListener('DOMContentLoaded', run);
+document.addEventListener('astro:after-swap', run);
+					`.trim(),
+				},
+			],
+			social: [{ icon: 'github', label: 'GitHub', href: 'https://github.com/angzarr-io/angzarr' }],
+			editLink: {
+				baseUrl: 'https://github.com/angzarr-io/angzarr-project/edit/main/',
+			},
+			plugins: [
+				starlightBlog({
+					title: 'Angzarr Blog',
+					postCount: 10,
+					recentPostCount: 5,
+					authors: {
+						angzarr: {
+							name: 'Ben Abbitt',
+							title: 'Consultant, Software Architect, AI Wrangler',
+							url: 'https://github.com/benjaminabbitt',
+							picture: 'https://github.com/benjaminabbitt.png',
+						},
+					},
+				}),
+			],
+			sidebar: [
+				{ label: 'Why Event Sourcing', slug: '' },
+				{
+					label: 'Features',
+					items: [
+						{ label: 'Overview', slug: 'features' },
+						{ label: 'Small Footprint', slug: 'features/small-footprint' },
+						{ label: 'Facts', slug: 'features/facts' },
+						{ label: 'Editions', slug: 'features/editions' },
+						{ label: 'ML Training', slug: 'features/ml-training' },
+						{ label: 'Upcasting', slug: 'features/upcasting' },
+						{ label: 'Projections', slug: 'features/projections' },
+						{ label: 'Polyglot', slug: 'features/polyglot' },
+						{ label: 'Performance', slug: 'features/performance' },
+						{ label: 'Observability', slug: 'features/observability' },
+					],
+				},
+				{ label: 'Patterns Explained', slug: 'patterns-explained' },
+				{ label: 'Intro', slug: 'intro' },
+				{ label: 'Getting Started', slug: 'getting-started' },
+				{ label: 'Architecture', slug: 'architecture' },
+				{
+					label: 'Components',
+					autogenerate: { directory: 'components' },
+				},
+				{
+					label: 'SDKs',
+					items: [
+						{ label: 'Overview', slug: 'sdks' },
+						{ label: 'Clients', slug: 'sdks/clients' },
+						{ label: 'Builders', slug: 'sdks/builders' },
+						{ label: 'Error Handling', slug: 'sdks/error-handling' },
+						{
+							label: 'By Language',
+							items: [
+								{
+									label: 'Rust',
+									items: [
+										{ label: 'Repo', link: 'https://github.com/angzarr-io/angzarr-client-rust', attrs: { target: '_blank' } },
+										{ label: 'API docs', link: 'https://rust.angzarr.io/', attrs: { target: '_blank' } },
+									],
+								},
+								{
+									label: 'Python',
+									items: [
+										{ label: 'Repo', link: 'https://github.com/angzarr-io/angzarr-client-python', attrs: { target: '_blank' } },
+										{ label: 'API docs', link: 'https://python.angzarr.io/', attrs: { target: '_blank' } },
+									],
+								},
+								{
+									label: 'Go',
+									items: [
+										{ label: 'Repo', link: 'https://github.com/angzarr-io/angzarr-client-go', attrs: { target: '_blank' } },
+									],
+								},
+								{
+									label: 'Java',
+									items: [
+										{ label: 'Repo', link: 'https://github.com/angzarr-io/angzarr-client-java', attrs: { target: '_blank' } },
+									],
+								},
+								{
+									label: 'C#',
+									items: [
+										{ label: 'Repo', link: 'https://github.com/angzarr-io/angzarr-client-csharp', attrs: { target: '_blank' } },
+									],
+								},
+								{
+									label: 'C++',
+									items: [
+										{ label: 'Repo', link: 'https://github.com/angzarr-io/angzarr-client-cpp', attrs: { target: '_blank' } },
+									],
+								},
+							],
+						},
+					],
+				},
+				{
+					label: 'Tooling',
+					items: [
+						{ label: 'Just', slug: 'tooling/just' },
+						{ label: 'Cucumber', slug: 'tooling/cucumber' },
+						{ label: 'Testcontainers', slug: 'tooling/testcontainers' },
+						{ label: 'Just Overlays', slug: 'tooling/just-overlays' },
+						{ label: 'SCM', slug: 'tooling/scm' },
+						{ label: 'Claude', slug: 'tooling/claude' },
+						{ label: 'Bacon', slug: 'tooling/bacon' },
+						{ label: 'Container Overlay', slug: 'tooling/container-overlay' },
+						{ label: 'OpenTofu', slug: 'tooling/opentofu' },
+						{
+							label: 'Databases',
+							autogenerate: { directory: 'tooling/databases' },
+						},
+						{
+							label: 'Message Buses',
+							autogenerate: { directory: 'tooling/buses' },
+						},
+					],
+				},
+				{
+					label: 'Operations',
+					autogenerate: { directory: 'operations' },
+				},
+				{
+					label: 'Reference',
+					autogenerate: { directory: 'reference' },
+				},
+				{
+					label: 'Examples',
+					items: [
+						{ label: 'Why Poker', slug: 'examples/why-poker' },
+						{ label: 'Aggregates', slug: 'examples/aggregates' },
+						{ label: 'Policies', slug: 'examples/policies' },
+						{ label: 'Projectors', slug: 'examples/projectors' },
+						{ label: 'Language Notes', slug: 'examples/language-notes' },
+					],
+				},
+				{
+					label: 'Glossary',
+					autogenerate: { directory: 'glossary' },
+				},
+			],
+		}),
+	],
+});

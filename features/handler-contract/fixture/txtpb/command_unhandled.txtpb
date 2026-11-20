@@ -1,0 +1,13 @@
+# A HandleRequest for a command with no registered handler (Reserve is the
+# command the policy emits, never handled here): drives
+# ANGZARR_REASON_UNKNOWN_COMMAND_TYPE before any fold.
+input {
+  cover { domain: "counter" }
+  page {
+    command {
+      payload {
+        [type.googleapis.com/test.counter.Reserve] {}
+      }
+    }
+  }
+}

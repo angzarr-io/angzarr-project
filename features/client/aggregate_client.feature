@@ -1,0 +1,169 @@
+# docs:start:aggregate_client_contract
+Feature: Executing commands against aggregates
+  Clients send commands to aggregates to change their state. Commands are
+  validated, processed, and result in events being persisted. Callers can
+  send without waiting (handle_async), wait for the decision (handle), or
+  also wait for the projectors the call names (handle_sync, decision
+  14.107); these are named after the coordinator RPCs HandleAsync, Handle
+  and HandleSync. No mode waits for policies or process managers.
+
+  "At sequence N" sets the command's expected sequence (Handling): the
+  coordinator refuses a set expected sequence other than the stream's head,
+  behind or ahead alike, before business code runs, with its typed refusal
+  ExpectedSequenceMismatch, FAILED_PRECONDITION (decision 14.94). There is
+  no conflict resolution (decision 14.92).
+
+  Without command execution, the system cannot accept user actions or
+  change aggregate state.
+# docs:end:aggregate_client_contract
+
+  Background:
+    Given a client connected to the test backend
+
+  # ==========================================================================
+  # Basic Command Execution
+  # ==========================================================================
+
+  # docs:start:client_command
+  @C-0191
+  Scenario: Executing a command on a brand-new aggregate
+    Given a new aggregate root in domain "orders"
+    When I send a "CreateOrder" command with data "customer-123"
+    Then the command is accepted
+    And a single "OrderCreated" event is recorded
+
+  @C-0192
+  Scenario: Executing a command on an existing aggregate
+    Given an aggregate "orders" with root "order-001" at sequence 3
+    When I send an "AddItem" command at sequence 3
+    Then the command is accepted
+    And the new events continue the history from sequence 3
+
+  @C-0193
+  Scenario: Commands carry a correlation ID through to their events
+    Given a new aggregate root in domain "orders"
+    When I send a command tagged with correlation ID "0192f3a4-5b6c-7d8e-9f01-23456789ab02"
+    Then the command is accepted
+    And the resulting events carry correlation ID "0192f3a4-5b6c-7d8e-9f01-23456789ab02"
+  # docs:end:client_command
+
+  # ==========================================================================
+  # Optimistic Concurrency
+  # ==========================================================================
+
+  # docs:start:client_concurrency
+  @C-0194
+  Scenario: Sending a command at the wrong sequence is refused
+    Given an aggregate "orders" with root "order-002" at sequence 5
+    When I send a command at sequence 3
+    Then the command is refused FAILED_PRECONDITION with an ExpectedSequenceMismatch naming expected 3 and head 5
+
+  @C-0195
+  Scenario: Only one of two concurrent writes can land
+    Given an aggregate "orders" with root "order-003" at sequence 0
+    When two commands are sent concurrently at sequence 0
+    Then one command is accepted
+    And the other is refused FAILED_PRECONDITION with an ExpectedSequenceMismatch naming expected 0 and head 1
+
+  @C-0196
+  Scenario: Retrying at the current sequence after a stale write succeeds
+    # The first attempt is refused by the coordinator, never by business
+    # code (decision 14.94).
+    Given an aggregate "orders" with root "order-004" at sequence 5
+    When I send a command at sequence 3
+    Then the command is refused FAILED_PRECONDITION with an ExpectedSequenceMismatch naming expected 3 and head 5
+    When I look up the current sequence for "orders" root "order-004"
+    And I retry the command at that sequence
+    Then the command is accepted
+  # docs:end:client_concurrency
+
+  # ==========================================================================
+  # Delivery modes
+  # ==========================================================================
+
+  @C-0197
+  Scenario: A command sent with handle_async returns before it is decided
+    Given a new aggregate root in domain "orders"
+    When I send a command with handle_async
+    Then the call returns without the command's events
+    And the response returns before any projectors have caught up
+
+  @C-0198
+  Scenario: A command sent with handle_sync waits for the projectors it names
+    Given a new aggregate root in domain "orders"
+    And a projector "order-summary" subscribed to the "orders" domain
+    When I send a command with handle_sync naming projector "order-summary"
+    Then the response carries one projection, from "order-summary", covering the command's events
+
+  # ==========================================================================
+  # Command Validation
+  # ==========================================================================
+
+  @C-0200
+  Scenario: A malformed command is refused as invalid
+    Given an aggregate "orders" with root "order-005"
+    When I send a command with a malformed payload
+    Then the command is refused as invalid
+
+  @C-0201
+  Scenario: A command missing required fields is refused with the field name
+    Given a new aggregate root in domain "orders"
+    When I send a command missing required fields
+    Then the command is refused as invalid
+    And the refusal names the missing field
+
+  @C-0202
+  Scenario: A command for an unknown domain is refused
+    When I send a command to domain "nonexistent"
+    Then the command is refused because the domain is unknown
+
+  # ==========================================================================
+  # Multi-Event Commands
+  # ==========================================================================
+
+  @C-0203
+  Scenario: A single command can produce multiple events
+    Given an aggregate "orders" with root "order-006" at sequence 0
+    When I send a command that produces 3 events
+    Then 3 events are recorded
+    And the events occupy consecutive sequences starting at 0
+
+  @C-0204
+  Scenario: A multi-event command lands atomically
+    Given an aggregate "orders" with root "order-007" at sequence 0
+    When I send a command that produces 3 events
+    And I read back the events for "orders" root "order-007"
+    Then either all 3 events are present or none of them are
+
+  # ==========================================================================
+  # Connection Handling
+  # ==========================================================================
+
+  @C-0205
+  Scenario: The client surfaces a connection failure
+    Given the aggregate service is unavailable
+    When I attempt to send a command
+    Then the call fails because the service cannot be reached
+
+  @C-0206
+  Scenario: The client surfaces a timeout when the service is slow
+    Given the aggregate service does not respond in time
+    When I send a command with a short timeout
+    Then the call fails because the deadline was exceeded
+
+  # ==========================================================================
+  # New Aggregate Creation
+  # ==========================================================================
+
+  @C-0207
+  Scenario: The first command on an aggregate creates it
+    Given no aggregate exists for domain "orders" root "order-new"
+    When I send a "CreateOrder" command for root "order-new" at sequence 0
+    Then the command is accepted
+    And the aggregate now exists with one event
+
+  @C-0208
+  Scenario: The first command on an aggregate must start at sequence 0
+    Given no aggregate exists for domain "orders" root "order-new2"
+    When I send a command at sequence 5
+    Then the command is refused FAILED_PRECONDITION with an ExpectedSequenceMismatch naming expected 5 and head 0

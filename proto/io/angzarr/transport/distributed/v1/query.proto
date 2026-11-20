@@ -1,0 +1,97 @@
+syntax = "proto3";
+package io.angzarr.transport.distributed.v1;
+
+import "google/api/annotations.proto";
+import "google/protobuf/empty.proto";
+import "google/protobuf/timestamp.proto";
+import "io/angzarr/v1/types.proto";
+
+option csharp_namespace = "Angzarr.Transport.Distributed";
+option go_package = "github.com/angzarr-io/angzarr-client-go/proto/io/angzarr/transport/distributed/v1;angzarrdistributed";
+option java_multiple_files = true;
+option java_package = "io.angzarr.transport.distributed";
+option ruby_package = "Angzarr::Transport::Distributed";
+
+// EventQueryService: the read-only query interface for retrieving events,
+// served by a coordinator for its own domain or standalone (decision
+// 14.51). Snapshots, upcasting and editions on query:
+// docs/design/queries-and-subscriptions.md §1.
+service EventQueryService {
+  // Get a single EventBook (unary) - use for explicit queries with gRPC tooling
+  rpc GetEventBook(Query) returns (io.angzarr.v1.EventBook) {
+    option (google.api.http) = {get: "/v1/query/{cover.domain}/events"};
+  }
+  // Stream EventBooks matching query - use for bulk retrieval (SSE)
+  rpc GetEvents(Query) returns (stream io.angzarr.v1.EventBook) {
+    option (google.api.http) = {get: "/v1/query/{cover.domain}/events/stream"};
+  }
+  // Every event of one correlation, across all domains: one EventBook per
+  // stream. docs/design/queries-and-subscriptions.md §4.
+  rpc GetCorrelatedEvents(CorrelationQuery) returns (stream io.angzarr.v1.EventBook) {
+    option (google.api.http) = {get: "/v1/query/correlations/{correlation_id.value}/events"};
+  }
+  // List every stream (SSE): one Cover (domain, edition, root) per stream.
+  rpc ListStreams(google.protobuf.Empty) returns (stream io.angzarr.v1.Cover) {
+    option (google.api.http) = {get: "/v1/query/streams"};
+  }
+  // Live events: EventStreamService.Subscribe
+  // (docs/design/queries-and-subscriptions.md §5).
+}
+
+// region query_types
+// The query messages: the distributed transport's, with the service that
+// takes them (decision 14.64).
+
+// A range of sequences, from lower (inclusive).
+message SequenceRange {
+  uint64 lower = 1;
+  optional uint64 upper = 2; // If not set, query to latest
+}
+
+// An explicit set of sequences.
+message SequenceSet {
+  repeated uint64 values = 1;
+}
+
+// Temporal query: aggregate state at a point in history, by sequence or by
+// recorded time. Which snapshot it may start from:
+// docs/design/queries-and-subscriptions.md §3.
+message TemporalQuery {
+  oneof point_in_time {
+    google.protobuf.Timestamp as_of_time = 1; // The prefix of events with EventMeta.recorded_at <= this
+    uint64 as_of_sequence = 2; // Events with sequence <= this
+  }
+}
+
+// Selects events within one domain (cover.domain, required): by stream,
+// by correlation, or both, on cover.edition's timeline; the selection, when
+// set, applies within each selected stream.
+// docs/design/queries-and-subscriptions.md §2.
+message Query {
+  io.angzarr.v1.Cover cover = 1;
+  oneof selection {
+    SequenceRange range = 2;
+    SequenceSet sequences = 3;
+    TemporalQuery temporal = 4;
+  }
+  // Correlation selector: optional; when set, only pages with this
+  // EventMeta.correlation_id, within cover.domain. Not 16 bytes is
+  // INVALID_ARGUMENT. docs/design/queries-and-subscriptions.md §2.
+  io.angzarr.v1.UUID correlation_id = 5;
+}
+
+// region correlation_query
+// Selects every event of one correlation, across all domains: the whole
+// workflow a request or a fact started (EventQueryService.GetCorrelatedEvents).
+// The result, and the forward causation it gives:
+// docs/design/queries-and-subscriptions.md §4.
+message CorrelationQuery {
+  // Required: INVALID_ARGUMENT when unset or not 16 bytes.
+  io.angzarr.v1.UUID correlation_id = 1;
+  // The timeline, as Cover.edition: unset = main; a set name must be
+  // non-empty and a known edition (docs/design/queries-and-subscriptions.md
+  // §4).
+  optional string edition = 2;
+}
+// endregion
+// endregion

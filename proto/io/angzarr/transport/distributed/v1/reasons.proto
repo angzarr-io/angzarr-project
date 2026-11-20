@@ -1,0 +1,61 @@
+syntax = "proto3";
+package io.angzarr.transport.distributed.v1;
+
+import "io/angzarr/v1/reasons.proto";
+
+option csharp_namespace = "Angzarr.Transport.Distributed";
+option go_package = "github.com/angzarr-io/angzarr-client-go/proto/io/angzarr/transport/distributed/v1;angzarrdistributed";
+option java_multiple_files = true;
+option java_package = "io.angzarr.transport.distributed";
+option ruby_package = "Angzarr::Transport::Distributed";
+
+// The distributed transport's reason keys, DISTRIBUTED_REASON_* (decisions
+// 14.64 and 14.104): what only a distributed coordinator raises.
+// The key rules (docs/design/reason-keys.md §1 to §7) hold here; its
+// English is reasons.en-US.ftl beside this file. Per-key behaviour:
+// docs/design/reason-keys.md §12.
+enum DistributedReason {
+  DISTRIBUTED_REASON_UNSPECIFIED = 0;
+  // Raised by a distributed coordinator.
+  // The coordinator holds no descriptor of `domain`'s component.
+  // docs/design/reason-keys.md §12.1.
+  DISTRIBUTED_REASON_COMPONENT_NOT_REGISTERED = 1 [(io.angzarr.v1.reason) = {
+    args: ["domain"]
+    grpc_status: UNAVAILABLE
+  }];
+  // Raised by a distributed coordinator.
+  // A command or fact sent to a standalone query server for `domain`.
+  // docs/design/reason-keys.md §12.2.
+  DISTRIBUTED_REASON_COMMANDS_NOT_SERVED = 2 [(io.angzarr.v1.reason) = {
+    args: ["domain"]
+    grpc_status: UNIMPLEMENTED
+  }];
+  // Raised by a distributed coordinator.
+  // A claim-checked payload (at `uri`) that could not be retrieved.
+  // docs/design/reason-keys.md §12.3.
+  DISTRIBUTED_REASON_PAYLOAD_UNAVAILABLE = 3 [(io.angzarr.v1.reason) = {
+    args: ["uri", "cause"]
+    grpc_status: UNAVAILABLE
+  }];
+  // Raised by a distributed coordinator.
+  // DlqAdminService's dead-letter store could not be reached or failed to
+  // answer. docs/design/reason-keys.md §12.4.
+  DISTRIBUTED_REASON_DEAD_LETTER_STORE_UNAVAILABLE = 4 [(io.angzarr.v1.reason) = {
+    args: ["cause"]
+    grpc_status: UNAVAILABLE
+  }];
+  // Raised by a distributed coordinator.
+  // DlqAdminService.GetDeadLetter or ReplayDeadLetter given an id (`id`)
+  // with no entry. docs/design/reason-keys.md §12.5.
+  DISTRIBUTED_REASON_DEAD_LETTER_NOT_FOUND = 5 [(io.angzarr.v1.reason) = {
+    args: ["id"]
+    grpc_status: NOT_FOUND
+  }];
+  // Raised by a distributed coordinator.
+  // DlqAdminService.ListDeadLetters given a filter or page token that does
+  // not parse (`field`). docs/design/reason-keys.md §12.6.
+  DISTRIBUTED_REASON_DEAD_LETTER_QUERY_INVALID = 6 [(io.angzarr.v1.reason) = {
+    args: ["field"]
+    grpc_status: INVALID_ARGUMENT
+  }];
+}
