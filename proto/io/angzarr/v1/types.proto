@@ -174,7 +174,7 @@ message EditionCreated {}
 // endregion
 
 // region diagnostic
-// An error in a message: a key and an argument map, never rendered English
+// An error in a message: a key and typed args, never rendered English
 // (decision 14.37). Keys, typed refusals, flattening and ext_err_txt:
 // docs/design/diagnostics.md.
 message Diagnostic {
@@ -183,9 +183,27 @@ message Diagnostic {
   // (ANGZARR_REASON_NO_COMPONENT_OF_KIND) or the ports' kebab-case (angzarr-ports-...);
   // a domain's codes are its own. Required.
   string code = 1;
-  // The arguments, by name: data (ids, counts, type URLs, a domain), never
-  // a sentence. The same names every time for a given code.
-  map<string, string> args = 2;
+  // The retired flattened `map<string, string> args`: a reader of old data
+  // yields the code with no args.
+  reserved 2;
+  reserved "args";
+  // The arguments, in the diagnostic's own order: data (ids, counts, type
+  // URLs, a domain, a nested cause), never a sentence. The same names every
+  // time for a given code.
+  repeated DiagnosticArg typed_args = 3;
+}
+
+// One named argument of a Diagnostic, typed as the error that produced it
+// holds it. A cause that is itself an error is `nested`, even with no
+// arguments of its own.
+message DiagnosticArg {
+  string name = 1;
+  oneof value {
+    string text = 2;
+    sint64 int = 3;
+    uint64 uint = 4;
+    Diagnostic nested = 5;
+  }
 }
 // endregion
 

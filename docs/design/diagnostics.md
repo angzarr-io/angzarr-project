@@ -1,10 +1,10 @@
 # Diagnostics: reason keys, arguments and typed refusals
 
-**Status:** normative (decisions 14.37, 14.42, 14.44; as amended by decisions 14.95 and 14.104; C-0669). Moved from `proto/io/angzarr/v1/types.proto`'s comments (decision 14.109). Covers how every error travels: a key and an argument map, never rendered English, on a gRPC status and in a message; typed business refusals on the wire; handler aborts and bugs; the framework's reason keys; and how a wrapped cause is flattened. The message is `types.proto`'s `diagnostic` region (`Diagnostic`); the keys are each layer's `reasons.proto`.
+**Status:** normative (decisions 14.37, 14.42, 14.44; as amended by decisions 14.95, 14.104 and 14.112; C-0669). Moved from `proto/io/angzarr/v1/types.proto`'s comments (decision 14.109). Covers how every error travels: a key and typed args, never rendered English, on a gRPC status and in a message; typed business refusals on the wire; handler aborts and bugs; the framework's reason keys; and how a wrapped cause is held in a message and flattened for a status. The message is `types.proto`'s `diagnostic` region (`Diagnostic`); the keys are each layer's `reasons.proto`.
 
-## 1. A key and an argument map
+## 1. A key and typed args
 
-Errors carry a KEY and an ARGUMENT MAP, never rendered English (decision
+Errors carry a KEY and ARGS, never rendered English (decision
 14.37). Text is rendered only where it is displayed (a console, a UI, a
 client's message()), from a Fluent catalog keyed by the code; logs show
 the code and its args as they are. No free text crosses any boundary:
@@ -26,6 +26,16 @@ SCREAMING_SNAKE (`ANGZARR_REASON_NO_COMPONENT_OF_KIND`) or the ports'
 kebab-case (angzarr-ports-...); a domain's codes are its own. Its args
 are data (ids, counts, type URLs, a domain), never a sentence, and the
 same names every time for a given code.
+
+In a message the args are `Diagnostic.typed_args`, a list of
+`DiagnosticArg { name, oneof value { text, int, uint, nested } }` in the
+diagnostic's own order, each typed as the error that produced it holds it
+(a string as `text`, a signed number as `int`, an unsigned one as `uint`,
+a wrapped cause as `nested`, a `Diagnostic`). A cause with no args of its
+own is still `nested`, never its code as text. A name appears once. The
+retired `map<string, string> args` (field 2) is reserved: a reader of data
+written with it yields the code with no args, and there is no legacy
+decode.
 
 ## 2. Typed business refusals
 
@@ -70,7 +80,11 @@ type name with each "." replaced by "-" (a Fluent id has no dots).
 A cause wrapped inside a diagnostic is flattened into the args: the
 cause's code under the arg's name, and each of its args under
 "<name>.<arg>" (so "cause" = "angzarr-embedded-store-sql-io",
-"cause.errno" = "10"). The same flattening serves ErrorInfo metadata.
+"cause.errno" = "10"), a number as its decimal text. A Diagnostic holds the
+cause as a `nested` arg and is flattened only where text is all there is:
+ErrorInfo metadata (a flat string map), a dead-letter line, and the
+extras of a router or coordinator error (string pairs, written as `text`
+args). The router's own errors never type their extras.
 
 ## 6. Third-party text: ext_err_txt
 

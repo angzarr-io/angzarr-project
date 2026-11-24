@@ -2667,6 +2667,8 @@ says.** Owner rulings, 2026-10-28. Amends 14.30, 14.31 and 14.32.
 
 > **Amended by 14.107 (ruled 2026-11-02):** the fork on arrival at the main head is gone; ForkStream's stated sequence is the only fork point.
 
+> **Amended by 14.112 (2026-11-24):** a message's args are typed, `Diagnostic { code (1), typed_args (3) }`, and a wrapped cause is a `nested` arg; the flat `map<string, string>` (2) is retired. `ErrorInfo` metadata stays the flat string map.
+
 **14.37 Errors carry a key and an argument map, never rendered English;
 the input's acceptance time is delivered.** Owner rulings, 2026-10-28.
 Amends 5.11, 14.2, 14.8 and 14.31. In the owner's words: "we should *not*
@@ -5972,6 +5974,37 @@ owner on 2026-11-18. Amends 14.52 and 14.82; follows 14.37.
   moved is told to re-read, with the typed refusal naming what moved;
   FAILED_PRECONDITION would tell it the state forbids the request.
 - **Scenarios.** C-0617 gains the row of a typed refusal declaring ABORTED.
+
+**14.112 A Diagnostic's args are typed, and a wrapped cause is nested.**
+Owner rulings, 2026-11-24. Amends 14.37.
+- **The shape.** `Diagnostic { code (1); reserved 2 / "args"; repeated
+  DiagnosticArg typed_args (3) }` and `DiagnosticArg { name (1); oneof value
+  { string text (2); sint64 int (3); uint64 uint (4); Diagnostic nested
+  (5) } }`. The args are a list, in the diagnostic's own order, so one
+  value has one byte form.
+- **Old bytes are dropped.** A reader of data written with the map (field
+  2, no `typed_args`) yields the code with no args. There is no legacy
+  decode path; new writers write only `typed_args`.
+- **Typing goes only where real args exist.** angzarr-embedded writes a
+  `coded_diagnostic::Diagnostic`'s args one to one (Str as `text`, Int as
+  `int`, Uint as `uint`, Nested as `nested`, an argless cause still
+  `nested`) and reads them back the same way; both conversions are public
+  there (`DiagnosticToWire::to_wire`, `WireDiagnosticExt::to_report`). The
+  router's and the coordinators' errors (`CodedError`, `Coded`) hold only
+  string extras, so they write them as `text` args, unchanged in meaning.
+  `ErrorInfo.metadata` stays a flat string map.
+- **Flattening is for text.** A dead-letter line, `ErrorInfo` metadata and
+  a fold failure's `cause` extras are the text pairs of 14.37's
+  flattening (`Diagnostic.flat_args`): a number as its decimal text, a
+  nested cause as its code under the arg's name and its own args under
+  `<name>.<arg>`, recursively.
+- **Why.** A cause flattened into names with dots loses its type and its
+  boundary: a number cannot be told from text, a cause with no args cannot
+  be told from a string, and a reader must re-parse `<name>.` markers. A
+  consumer (a run layer recording why a step failed) reads the structure
+  back as the error that produced it.
+- **Cost.** A wire break for `Diagnostic` (field 2 retired); every reader
+  of `.args` moves to `typed_args` or `flat_args`.
 
 ## Corrections
 
