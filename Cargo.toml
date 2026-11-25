@@ -1,0 +1,19 @@
+[package]
+name = "angzarr-project"
+version = "0.1.0"
+edition = "2021"
+description = "The angzarr spec (proto/ and features/) as a cargo package: its directories, for build scripts and tests."
+license = "Apache-2.0 OR BSD-3-Clause"
+repository = "https://github.com/angzarr-io/angzarr-project"
+publish = false
+include = [
+    "/Cargo.toml",
+    "/src/**",
+    "/proto/**",
+    "/features/**",
+    "/LICENSE-*",
+    "/README.md",
+]
+
+# A submodule of other repositories' workspaces: its own root.
+[workspace]

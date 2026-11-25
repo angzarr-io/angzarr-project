@@ -29,3 +29,18 @@ Licensed under either of Apache License 2.0 or BSD 3-Clause, at your option ([LI
 The vendored third-party protos, `proto/google/` (Apache-2.0), `proto/sererr/` (sererr's BSD-3-Clause or MIT) and `proto/io/cloudevents/` (CloudEvents Authors, Apache-2.0), keep their own licences.
 
 Author: Benjamin Abbitt
+
+## As a cargo package
+
+The repository root is also a cargo package, `angzarr-project` (Rust path
+`angzarr_project`), so Rust dependents take the spec by git revision and
+override it with `[patch]`. It has no build script and no dependencies; it
+names the directories:
+
+```rust
+angzarr_project::proto_dir();    // <checkout>/proto
+angzarr_project::features_dir(); // <checkout>/features
+```
+
+`PROTO_DIR` and `FEATURES_DIR` are the same paths as `&str` constants, for
+`concat!` and `include_str!`.

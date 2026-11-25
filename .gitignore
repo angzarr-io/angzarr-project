@@ -36,3 +36,7 @@ vendor/
 
 # `just push-check`: the pushed commit's throwaway tree and its log
 /target/
+
+# The spec crate's build output
+target/
+Cargo.lock
