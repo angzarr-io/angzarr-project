@@ -128,7 +128,11 @@ proto-breaking ref="" base=("origin/" + DRAFT_BRANCH):
             echo "proto-breaking: no {{base}} here to compare against (git fetch it)" >&2
             exit 1
         fi
-        against=$(git merge-base "${ref:-HEAD}" '{{base}}')
+        # A baseline cut as a fresh root (the 2026-11-20 history reset made
+        # the draft one) shares no history to fork from: then the branch is
+        # held to the baseline itself, the draft's tip.
+        against=$(git merge-base "${ref:-HEAD}" '{{base}}') \
+            || against=$(git rev-parse --verify '{{base}}^{commit}')
     else
         against=$(git rev-parse --verify "$against^{commit}")
     fi
