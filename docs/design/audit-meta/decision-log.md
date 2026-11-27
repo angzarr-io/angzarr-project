@@ -5979,6 +5979,51 @@ owner on 2026-11-18. Amends 14.52 and 14.82; follows 14.37.
 
 **14.112 (typed Diagnostic args)** was renumbered 14.114; see 14.114 at the end of this log.
 
+**14.113 Wire formats are versioned by package; a store records the version that wrote it.**
+Owner ruling, 2026-11-26. Amends 14.54 and 14.88. Design:
+[wire-versioning.md](../wire-versioning.md). (The typed-args decision that
+shared 14.112 with the licence was renumbered 14.114.)
+- **The rule.** "The wire formats should have versions per format ... ship
+  all supported/historical supported versions and map their old version to
+  the deserialization, deserialize to the old version, and write the new."
+  Every wire break gets a NEW proto package (`io.angzarr.v1` -> `v2`); each
+  old package is kept FROZEN in the build, byte for byte.
+- **The packages.** `io.angzarr.v0` is created as the frozen copy of the
+  stored set (`EventPage`, `EventMeta`, `Snapshot`, `Cover` and what they
+  contain) as angzarr 4d7ef35 / angzarr-project 9999733 wrote it, before
+  `io.angzarr.v1` was renumbered in place at 3c301452 / c4b87ed. `v1` is the
+  current package. A new package copies the whole stored set, so every
+  version's decoder stands alone. Transient RPC messages are not stored and
+  need no old copy.
+- **The reader.** A reader decodes a row as the package its `wire` ordinal
+  names and maps it, step by step, to the current types
+  (`angzarr_proto::wire`); every write is current. Order of choice: the
+  store's stamp (newer than the build: refused at open), then each row's
+  ordinal, then, for a store with no stamp, shape detection of its rows, once,
+  then refusal.
+- **The stamp.** A store keeps `wire_stamp(oldest, newest)` and a `wire`
+  column on each event and snapshot row. The store adapter writes the
+  ordinal in the write's own transaction; nothing else writes it.
+  An unstamped store (every store written before migration 0009, taskloom's
+  27 among them) is detected by the shape of its rows when it is first
+  opened by a build that has 0009, backed up first, stamped in the same
+  transaction; a row of no known shape refuses the open and leaves the store
+  as it was.
+- **The gate.** `just contracts` refuses (a) any breaking change in a
+  non-frozen package, against an absolute baseline (`proto/WIRE_BASELINE`)
+  as well as the merge base, and (b) ANY change to a frozen package, by a
+  digest manifest (`proto/FROZEN`) that can only grow.
+- **Why.** A package's number said nothing once its fields moved under it:
+  27 taskloom stores, written in the old numbering, decode under the new one
+  wrongly or not at all, and nothing recorded which numbering a store was
+  written in. The package is the unit of a break, and the store records it.
+- **Cost.** A decoder per historical package stays compiled in until a
+  later decision retires it; a store holds mixed versions after a
+  legacy store is written to; the first open of an unstamped store scans
+  every row once; a legacy store with pending outbox or dead-letter rows is
+  refused until they are cleared (open question, see the design, section 4).
+- **Scenarios.** C-0883 to C-0893 (`wire_versioning.feature`).
+
 ## Corrections
 
 Facts the earlier passes or the design note got wrong:

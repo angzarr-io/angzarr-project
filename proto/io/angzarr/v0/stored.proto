@@ -1,0 +1,51 @@
+syntax = "proto3";
+package io.angzarr.v0;
+
+import "google/protobuf/any.proto";
+import "google/protobuf/timestamp.proto";
+
+option csharp_namespace = "Angzarr";
+option java_multiple_files = true;
+option java_package = "io.angzarr.v0";
+option ruby_package = "Angzarr";
+
+// FROZEN (decision 14.113, proto/FROZEN): the stored set of angzarr's wire
+// envelope as angzarr 4d7ef35 (angzarr-project 9999733) wrote it, before
+// `io.angzarr.v1` was renumbered in place. A store written then holds
+// EventPage and Snapshot bytes in this package; a reader decodes them as
+// these messages and maps them to the current package. Never edited: the
+// next wire break is a new package, and this one stays as it is.
+
+message UUID {
+  bytes value = 1;
+}
+
+// Who or what caused an event that was ingested as a Fact.
+message FactOrigin {
+  string external_id = 1;
+  string description = 2;
+}
+
+// An event's provenance. The causation arm, command_id, was recorded on
+// every persisted event; fact was set iff a Fact produced it.
+message EventMeta {
+  oneof causation {
+    UUID command_id = 17;
+  }
+  FactOrigin fact = 16;
+  UUID correlation_id = 14;
+  google.protobuf.Timestamp recorded_at = 5;
+  string rules_version = 7;
+}
+
+message EventPage {
+  google.protobuf.Any payload = 3;
+  EventMeta meta = 8;
+  uint64 sequence = 9;
+}
+
+message Snapshot {
+  uint64 sequence = 2;
+  google.protobuf.Any state = 3;
+  string rules_version = 5;
+}

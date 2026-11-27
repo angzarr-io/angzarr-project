@@ -111,9 +111,14 @@ proto-lint:
 # the protos at `ref` (a commit; empty means the working tree) against the
 # merge base of that commit (HEAD for the working tree) with `base` (the
 # draft), so a branch is held only to what it changed, never to what the
-# draft gained after it forked. A removed field, value or message needs a
-# `reserved` statement; an incompatible change needs a new message
-# version and an upcaster. Run by `contracts`, CI and the pre-push hook.
+# draft gained after it forked, AND against proto/WIRE_BASELINE (decision
+# 14.113), the last released protos, so a break committed on the draft
+# itself, which has no base of its own to differ from, is refused too. The
+# baseline may only move to a commit that is itself clean against the one
+# before it, so moving it cannot launder a break. A removed field, value or
+# message needs a `reserved` statement; an incompatible change needs a new
+# package (a frozen one is `proto-frozen`'s). Run by `contracts`, CI and the
+# pre-push hook.
 proto-breaking ref="" base=("origin/" + DRAFT_BRANCH):
     #!/usr/bin/env bash
     set -euo pipefail
@@ -145,11 +150,50 @@ proto-breaking ref="" base=("origin/" + DRAFT_BRANCH):
         docker run --rm -e BUF_CACHE_DIR=/tmp/buf-cache \
             -e GIT_CONFIG_COUNT=1 -e GIT_CONFIG_KEY_0=safe.directory -e GIT_CONFIG_VALUE_0="*" \
             -v "$root:$root:ro" -v "$gitdir:$gitdir:ro" -w "$root" {{BUF_IMAGE}} \
-            breaking "$input" --against "$gitdir#ref=$against,subdir=proto"
+            breaking "$1" --against "$gitdir#ref=$2,subdir=proto"
     }
     checked="${ref:-the working tree} against $(git rev-parse --short "$against")"
-    buf
+    buf "$input" "$against"
+    # The absolute baseline: the released protos (decision 14.113). Absent
+    # from the commit checked (a branch before the file existed), nothing.
+    show() { if [ -n "$ref" ]; then git show "$ref:proto/WIRE_BASELINE" 2>/dev/null; else cat proto/WIRE_BASELINE 2>/dev/null; fi; }
+    if baseline=$(show | tr -d '[:space:]') && [ -n "$baseline" ]; then
+        baseline=$(git rev-parse --verify "$baseline^{commit}") \
+            || { echo "proto-breaking: proto/WIRE_BASELINE names no commit here: $baseline (git fetch it)" >&2; exit 1; }
+        buf "$input" "$baseline"
+        checked="$checked and the released baseline $(git rev-parse --short "$baseline")"
+        # Moving the baseline: the new one must be clean against the old.
+        was=$(git show "$against:proto/WIRE_BASELINE" 2>/dev/null | tr -d '[:space:]') || was=
+        if [ -n "$was" ] && [ "$was" != "$baseline" ]; then
+            was=$(git rev-parse --verify "$was^{commit}")
+            buf "$gitdir#ref=$baseline,subdir=proto" "$was"
+            checked="$checked; baseline moved from $(git rev-parse --short "$was"), clean"
+        fi
+    fi
     echo "ok   proto-breaking ($checked)"
+
+# No change to a frozen package (decision 14.113): proto/FROZEN lists the
+# packages and the SHA-256 of each of their files, and a package never
+# leaves the list. buf breaking cannot hold this (an additive edit passes
+# it); the digests do. The base manifest is the one at the merge base with
+# `base`, so the manifest cannot be edited to agree with an edited file.
+proto-frozen ref="" base=("origin/" + DRAFT_BRANCH):
+    #!/usr/bin/env bash
+    set -euo pipefail
+    cd '{{justfile_directory()}}'
+    against=$(git merge-base "${ref:-HEAD}" '{{base}}' 2>/dev/null) \
+        || against=$(git rev-parse --verify --quiet '{{base}}^{commit}') || against=
+    scratch=$(mktemp -d)
+    trap 'rm -rf "$scratch"' EXIT
+    if [ -n "$against" ]; then
+        git show "$against:proto/FROZEN" > "$scratch/FROZEN.base" 2>/dev/null || rm -f "$scratch/FROZEN.base"
+    fi
+    python3 -I scripts/check_frozen_protos.py --proto-dir proto --base-manifest "$scratch/FROZEN.base"
+    if [ -n "$against" ]; then
+        echo "ok   proto-frozen (manifest against $(git rev-parse --short "$against"))"
+    else
+        echo "ok   proto-frozen (no base to compare the manifest to)"
+    fi
 
 # Every scenario carries exactly one unique @<TIER>-NNNN tag
 check-feature-ids *dirs="features/client features/coordinator-contract features/handler-contract features/codegen parity features/example/blackjack features/example/blackjack-framework features/example/blackjack-acceptance":
@@ -167,7 +211,7 @@ check-gherkin *dirs="features parity":
         "pip install --quiet --disable-pip-version-check --root-user-action=ignore gherkin-official=={{GHERKIN_VERSION}} && python scripts/check_gherkin_parse.py {{dirs}}"
 
 # Required contract gates
-contracts: proto-lint proto-breaking test-check-feature-ids check-feature-ids check-gherkin check-rules check-reason-names test-check-reason-keys check-reason-keys
+contracts: proto-lint proto-breaking proto-frozen test-check-feature-ids test-check-frozen-protos check-feature-ids check-gherkin check-rules check-reason-names test-check-reason-keys check-reason-keys
 
 # The features, the protos and the site docs (the generated Proto API page
 # aside) name no live reason key without its enum's prefix (decision 14.44).
@@ -213,10 +257,14 @@ check-reason-keys:
 test-check-reason-keys:
     python3 -m unittest scripts/test_check_reason_keys.py
 
+# The frozen-package gate's own tests (decision 14.113).
+test-check-frozen-protos:
+    python3 -m unittest scripts/test_check_frozen_protos.py
+
 # Every test the repository has: the scenario-ID and reason-key checkers'
 # unit tests. What `push-check` runs. (The Rust crates moved to
 # angzarr-core; their tests run there.)
-test: test-check-feature-ids test-check-reason-keys
+test: test-check-feature-ids test-check-reason-keys test-check-frozen-protos
 
 # The branches red tests never reach: the remote's default branch, and these
 # (bash globs): the dated spec drafts that land on it whole.

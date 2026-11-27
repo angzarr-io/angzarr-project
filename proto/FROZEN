@@ -1,0 +1,4 @@
+# Frozen protos (decision 14.113): every file of a package below is immutable,
+# and a package never leaves this list. scripts/check_frozen_protos.py.
+package io.angzarr.v0 dir=io/angzarr/v0
+fc99569d282418a944f17c2fd21cbd5b09179267cf7af3b1a8d8557d8bc65624  io/angzarr/v0/stored.proto
