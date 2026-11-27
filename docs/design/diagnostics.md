@@ -1,6 +1,6 @@
 # Diagnostics: reason keys, arguments and typed refusals
 
-**Status:** normative (decisions 14.37, 14.42, 14.44; as amended by decisions 14.95, 14.104 and 14.112; C-0669). Moved from `proto/io/angzarr/v1/types.proto`'s comments (decision 14.109). Covers how every error travels: a key and typed args, never rendered English, on a gRPC status and in a message; typed business refusals on the wire; handler aborts and bugs; the framework's reason keys; and how a wrapped cause is held in a message and flattened for a status. The message is `types.proto`'s `diagnostic` region (`Diagnostic`); the keys are each layer's `reasons.proto`.
+**Status:** normative (decisions 14.37, 14.42, 14.44; as amended by decisions 14.95, 14.104 and 14.114; C-0669). Moved from `proto/io/angzarr/v1/types.proto`'s comments (decision 14.109). Covers how every error travels: a key and typed args, never rendered English, on a gRPC status and in a message; typed business refusals on the wire; handler aborts and bugs; the framework's reason keys; and how a wrapped cause is held in a message and flattened for a status. The message is `types.proto`'s `diagnostic` region (`Diagnostic`); the keys are each layer's `reasons.proto`.
 
 ## 1. A key and typed args
 
